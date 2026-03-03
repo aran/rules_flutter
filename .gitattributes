@@ -1,0 +1,12 @@
+# Exclude development-only files from release archives
+.bcr/ export-ignore
+.devcontainer/ export-ignore
+.github/ export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
+.pre-commit-config.yaml export-ignore
+.typos.toml export-ignore
+dev/ export-ignore
+e2e/ export-ignore
+references/ export-ignore
+renovate.json export-ignore

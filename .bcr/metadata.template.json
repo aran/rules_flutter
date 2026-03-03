@@ -1,0 +1,13 @@
+{
+  "homepage": "https://github.com/nicbn/rules_flutter",
+  "maintainers": [
+    {
+      "email": "aran.donohue@gmail.com",
+      "github": "aran",
+      "name": "Aran Donohue"
+    }
+  ],
+  "repository": ["github:nicbn/rules_flutter"],
+  "versions": [],
+  "yanked_versions": {}
+}

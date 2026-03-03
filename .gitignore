@@ -1,0 +1,6 @@
+bazel-*
+.bazelrc.user
+.dart_tool/
+.idea/
+.ijwb/
+references/
