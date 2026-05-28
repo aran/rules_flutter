@@ -1,0 +1,11 @@
+{
+    "name": "Web Example",
+    "short_name": "Web Example",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#0175C2",
+    "theme_color": "#0175C2",
+    "description": "A Flutter web application.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false
+}

@@ -1,0 +1,239 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_test")
+load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app")
+load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
+load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
+load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
+
+exports_files(["pubspec.lock"])
+
+# -- Advanced: low-level compilation rules (most users use flutter_application) --
+
+flutter_kernel_target(
+    name = "hello_world",
+    package_name = "hello_world",
+    srcs = ["lib/common_widgets.dart"],
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+flutter_aot_target(
+    name = "hello_world_aot",
+    package_name = "hello_world",
+    srcs = ["lib/common_widgets.dart"],
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+flutter_asset_bundle(
+    name = "hello_world_assets",
+)
+
+# -- Recommended: flutter_application with local sources ----------------------
+
+flutter_application(
+    name = "hello_world_app",
+    package_name = "hello_world",
+    srcs = ["lib/common_widgets.dart"],
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# -- macOS desktop app --------------------------------------------------------
+
+flutter_macos_app(
+    name = "hello_world_macos",
+    app_name = "Hello World",
+    application = ":hello_world_app",
+    bundle_id = "com.example.helloworld",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+# -- iOS app ------------------------------------------------------------------
+
+flutter_ios_app(
+    name = "hello_world_ios",
+    app_name = "Hello World",
+    application = ":hello_world_app",
+    bundle_id = "com.example.helloworld",
+)
+
+# -- Android app ---------------------------------------------------------------
+
+flutter_android_app(
+    name = "hello_world_android",
+    package_name = "com.example.helloworld",
+    app_name = "Hello World",
+    application = ":hello_world_app",
+)
+
+# -- Other platforms -----------------------------------------------------------
+
+flutter_linux_app(
+    name = "hello_world_linux",
+    application = ":hello_world_app",
+    gtk_app_id = "com.example.helloworld",
+    # On non-Linux hosts, use --platforms=@rules_flutter//flutter/platforms:linux_x64 -c dbg
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+flutter_windows_app(
+    name = "hello_world_windows",
+    application = ":hello_world_app",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+flutter_web_app(
+    name = "hello_world_web",
+    package_name = "hello_world",
+    srcs = ["lib/common_widgets.dart"],
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# -- Tests ---------------------------------------------------------------------
+
+# Widget test: drives the same MyApp counter-tap flow that the
+# `flutter create` template ships, exercising
+# TestWidgetsFlutterBinding.ensureInitialized() under flutter_tester so we
+# regression-check the bootstrap + harness wired into //flutter/private:flutter_test.
+flutter_test(
+    name = "widget_test",
+    package_name = "hello_world",
+    srcs = [
+        "lib/common_widgets.dart",
+        "lib/main.dart",
+    ],
+    main = "test/widget_test.dart",
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@deps//:flutter_test",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# Smoke test: pure dart:ui resolution. Verifies the rule still produces a
+# working bootstrap for tests that don't initialize any Flutter binding.
+flutter_test(
+    name = "hello_test",
+    package_name = "hello_world",
+    main = "hello_test.dart",
+    deps = [
+        "@deps//:flutter_test",
+    ],
+)
+
+# -- build_test targets verify that rules produce outputs without errors -------
+
+build_test(
+    name = "kernel_build_test",
+    targets = [":hello_world"],
+)
+
+build_test(
+    name = "aot_build_test",
+    targets = [":hello_world_aot"],
+)
+
+build_test(
+    name = "application_build_test",
+    targets = [":hello_world_app"],
+)
+
+build_test(
+    name = "macos_bundle_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":hello_world_macos"],
+)
+
+build_test(
+    name = "ios_bundle_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":hello_world_ios"],
+)
+
+build_test(
+    name = "android_build_test",
+    targets = [":hello_world_android"],
+)
+
+build_test(
+    name = "linux_bundle_build_test",
+    # Linux bundles require a Linux engine. On non-Linux hosts, use:
+    #   bazel build :hello_world_linux -c dbg --platforms=@rules_flutter//flutter/platforms:linux_x64
+    target_compatible_with = ["@platforms//os:linux"],
+    targets = [":hello_world_linux"],
+)
+
+build_test(
+    name = "asset_bundle_build_test",
+    targets = [":hello_world_assets"],
+)
+
+build_test(
+    name = "windows_bundle_build_test",
+    target_compatible_with = ["@platforms//os:windows"],
+    targets = [":hello_world_windows"],
+)
+
+build_test(
+    name = "web_build_test",
+    targets = [":hello_world_web"],
+)
+
+# Verifies the asset bundle structure for pub-package fonts/assets:
+# cupertino_icons (flutter.fonts), flutter_localized_locales (flutter.assets),
+# and the toolchain-backed material_icons. Asserts files land at
+# packages/<pkg>/<path>, FontManifest.json carries the prefixed family for
+# pub fonts and a bare family for material_icons (the package_name = ""
+# sentinel), and AssetManifest.bin.json references the prefixed asset path.
+dart_test(
+    name = "verify_pub_assets_test",
+    data = [":hello_world_app"],
+    main = "test/verify_pub_assets_test.dart",
+    deps = ["@deps//:test"],
+)
+
+# Verifies that the entitlements blob applied at codesign time on the
+# macOS bundle declares the App Sandbox capability — proves
+# flutter_macos_app threaded macos/Runner/{DebugProfile,Release}.entitlements
+# through to macos_application(entitlements = ...).
+#
+# iOS doesn't have a counterpart runtime test: rules_apple's
+# codesigning pipeline strips user entitlements down to a single
+# get-task-allow=true entry for simulator builds (per
+# external/rules_apple/.../codesigning_support.bzl), so a sim-build
+# codesign blob can't reflect forwarded entitlements. Forwarding is
+# verified by `bazel cquery 'deps(//:hello_world_ios)' | grep
+# Runner.entitlements`, and the existing `ios_bundle_build_test`
+# proves the bundle still analyzes with the auto-discovered file.
+dart_test(
+    name = "verify_macos_entitlements_test",
+    data = [":hello_world_macos"],
+    main = "test/verify_macos_entitlements_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+)

@@ -1,5 +1,5 @@
 {
-  "homepage": "https://github.com/nicbn/rules_flutter",
+  "homepage": "https://github.com/aran/rules_flutter",
   "maintainers": [
     {
       "email": "aran.donohue@gmail.com",
@@ -7,7 +7,7 @@
       "name": "Aran Donohue"
     }
   ],
-  "repository": ["github:nicbn/rules_flutter"],
+  "repository": ["github:aran/rules_flutter"],
   "versions": [],
   "yanked_versions": {}
 }

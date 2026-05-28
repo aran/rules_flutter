@@ -1,0 +1,8 @@
+common --lockfile_mode=off
+
+# This workspace always cross-compiles for Linux in debug mode.
+# gen_snapshot can't cross-compile AOT between desktop OSes, so debug only.
+build --platforms=@rules_flutter//flutter/platforms:linux_x64
+build -c dbg
+
+try-import %workspace%/.bazelrc.user

@@ -1,0 +1,119 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle", "flutter_web_index_html_gen", "flutter_web_manifest_gen")
+
+exports_files(["pubspec.lock"])
+
+# =============================================================================
+# Approach 1: Tier 1 — flutter_web_app (auto-discovers web/ runner files)
+# WASM build (dart2wasm + skwasm) — modern, recommended
+# =============================================================================
+
+flutter_web_app(
+    name = "app_wasm",
+    package_name = "web_example",
+    app_name = "Web Example",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# Variant with a non-default base_href, exercising
+# flutter_web_index_html_subst on the user-provided web/index.html.
+flutter_web_app(
+    name = "app_wasm_subpath",
+    package_name = "web_example",
+    app_name = "Web Example (subpath)",
+    base_href = "/web_example/",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Approach 2: Tier 2 — flutter_web_bundle (explicit control)
+# JS build (dart2js + canvaskit) — legacy, wider browser support
+# =============================================================================
+
+flutter_web_index_html_gen(
+    name = "app_js_index",
+    app_name = "Web Example JS",
+    base_href = "/web_example_js/",
+)
+
+flutter_web_manifest_gen(
+    name = "app_js_manifest",
+    app_name = "Web Example JS",
+)
+
+flutter_web_bundle(
+    name = "app_js",
+    package_name = "web_example",
+    compiler = "dart2js",
+    index_html = ":app_js_index",
+    main = "lib/main.dart",
+    manifest_json = ":app_js_manifest",
+    renderer = "canvaskit",
+    web_assets = glob(
+        ["web/**"],
+        exclude = [
+            "web/index.html",
+            "web/manifest.json",
+        ],
+    ),
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Approach 3: Tier 1 with pwa = False (no service worker)
+# =============================================================================
+
+flutter_web_app(
+    name = "app_no_pwa",
+    package_name = "web_example",
+    app_name = "Web Example No PWA",
+    pwa = False,
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Tests
+# =============================================================================
+
+build_test(
+    name = "wasm_build_test",
+    targets = [":app_wasm"],
+)
+
+build_test(
+    name = "wasm_subpath_build_test",
+    targets = [":app_wasm_subpath"],
+)
+
+build_test(
+    name = "js_build_test",
+    targets = [":app_js"],
+)
+
+build_test(
+    name = "no_pwa_build_test",
+    targets = [":app_no_pwa"],
+)
+
+dart_test(
+    name = "verify_index_html_test",
+    data = [
+        ":app_js",
+        ":app_wasm",
+        ":app_wasm_subpath",
+    ],
+    main = "test/verify_index_html_test.dart",
+)

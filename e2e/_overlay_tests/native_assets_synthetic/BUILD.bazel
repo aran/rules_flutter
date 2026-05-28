@@ -1,0 +1,91 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_plugin")
+load("@rules_flutter//flutter:native_assets.bzl", "flutter_data_asset", "flutter_native_asset")
+
+exports_files(["pubspec.lock"])
+
+# 1. The native side.
+cc_library(
+    name = "_synthetic_cc",
+    srcs = ["native/synthetic.c"],
+)
+
+cc_shared_library(
+    name = "_synthetic_dylib",
+    # Use a distinct internal filename — flutter_native_asset symlinks
+    # this to `synthetic.dylib` in its own package, and that's what
+    # lands in `Contents/Frameworks/`. Matching names collide because
+    # both rules live in the same Bazel package.
+    shared_lib_name = "_synthetic_internal.dylib",
+    target_compatible_with = ["@platforms//os:macos"],
+    user_link_flags = [
+        "-Wl,-install_name,@rpath/synthetic.dylib",
+    ],
+    deps = [":_synthetic_cc"],
+)
+
+# 2. Flutter Native Assets markers — one per target OS. Apple builds are
+#    single-arch here; multi-arch is handled separately via
+#    `apple_universal_binary`.
+flutter_native_asset(
+    name = "synthetic_native_asset_macos",
+    asset_id = "package:native_assets_synthetic/synthetic.dylib",
+    bundle_filename = "synthetic.dylib",
+    library = ":_synthetic_dylib",
+    link_mode = "dynamic_loading_bundle",
+    target_compatible_with = ["@platforms//os:macos"],
+    target_os = "macos",
+)
+
+flutter_data_asset(
+    name = "synthetic_blob",
+    asset_id = "package:native_assets_synthetic/blob.txt",
+    file = "data/blob.txt",
+)
+
+# 3. A flutter_plugin glue target that pulls the native_asset and
+#    data_asset into the FlutterInfo dep graph. Empty `platforms = []`
+#    keeps it acting as a plain pure-Dart container; the only purpose
+#    is to surface FlutterInfo with the asset entries for transitive
+#    pickup by `flutter_application`.
+flutter_plugin(
+    name = "synthetic_glue",
+    package_name = "native_assets_synthetic_glue",
+    srcs = [],
+    data_assets = [":synthetic_blob"],
+    native_assets = select({
+        "@platforms//os:macos": [":synthetic_native_asset_macos"],
+        "//conditions:default": [],
+    }),
+    platforms = [],
+)
+
+# 4. The application itself.
+flutter_application(
+    name = "synthetic_app",
+    package_name = "native_assets_synthetic",
+    main = "lib/main.dart",
+    deps = [
+        ":synthetic_glue",
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# 5. Build test exercising the application + Native Assets pipeline.
+#    This workspace deliberately omits a `macos/Runner/` runner — the
+#    purpose is to regress-test the *generic* infrastructure
+#    (manifest emission, dylib bundling helpers, data-asset placement);
+#    the dev_tool screenshot e2e proves runtime correctness against
+#    `e2e/plugin_example`'s `:plugin_app` once `flutter create` is
+#    available.
+build_test(
+    name = "synthetic_app_build_test",
+    targets = [
+        ":synthetic_app",
+        ":_synthetic_dylib",
+        ":synthetic_blob",
+    ],
+)

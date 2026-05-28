@@ -1,0 +1,15 @@
+name: hello_world
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_localized_locales: ^2.0.5
+dev_dependencies:
+  test: ^1.30.0
+  flutter_test:
+    sdk: flutter

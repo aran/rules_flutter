@@ -1,0 +1,16 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+
+# Demonstrate flutter_plugin with native_deps only (no dart_plugin_class).
+# The native shared library propagates through FlutterInfo.transitive_native_libs
+# and gets bundled into the final application.
+flutter_plugin(
+    name = "add_plugin",
+    srcs = ["lib/add_plugin.dart"],
+    native_deps = ["//:add"],
+    platforms = [
+        "macos",
+        "linux",
+        "windows",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -52,10 +52,16 @@ Releases are automated on a cron trigger.
 The new version is determined automatically from the commit history, assuming the commit messages follow conventions, using
 https://github.com/marketplace/actions/conventional-commits-versioner-action.
 If you do nothing, eventually the newest commits will be released automatically as a patch or minor release.
-This automation is defined in .github/workflows/tag.yaml.
+This automation is defined in .github/workflows/tag.yaml (which calls release.yaml and publish.yaml).
+
+Publishing to the Bazel Central Registry requires one-time setup: a fork of
+`bazelbuild/bazel-central-registry` at `aran/bazel-central-registry` and a
+`BCR_PUBLISH_TOKEN` repository secret with permission to push to that fork and
+open pull requests. Until those exist, the build/release steps still run and a
+GitHub release is created; only the BCR publish step needs them.
 
 Rather than wait for the cron event, you can trigger manually. Navigate to
-https://github.com/nicbn/rules_flutter/actions/workflows/tag.yaml
+https://github.com/aran/rules_flutter/actions/workflows/tag.yaml
 and press the "Run workflow" button.
 
 If you need control over the next release version, for example when making a release candidate for a new major,

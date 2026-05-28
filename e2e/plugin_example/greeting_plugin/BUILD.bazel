@@ -1,0 +1,18 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+
+# Demonstrate flutter_plugin with dart_plugin_class only (no native code).
+# The generated registrant calls GreetingPlugin.registerWith(null) at startup,
+# which sets up Dart-side state before main() runs.
+flutter_plugin(
+    name = "greeting_plugin",
+    srcs = ["lib/greeting_plugin.dart"],
+    dart_plugin_class = "GreetingPlugin",
+    platforms = [
+        "macos",
+        "linux",
+        "web",
+        "windows",
+        "ios",
+    ],
+    visibility = ["//visibility:public"],
+)

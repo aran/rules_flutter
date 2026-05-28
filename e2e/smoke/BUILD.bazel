@@ -1,0 +1,14 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+
+# Verify that the Flutter toolchain resolves by building the toolchains repo.
+# This test passes if the toolchain alias targets can be analyzed.
+build_test(
+    name = "toolchain_resolves_test",
+    targets = [
+        "@flutter_toolchains//:darwin-arm64_toolchain",
+        "@flutter_toolchains//:darwin-x64_toolchain",
+        "@flutter_toolchains//:linux-x64_toolchain",
+        "@flutter_toolchains//:linux-arm64_toolchain",
+        "@flutter_toolchains//:windows-x64_toolchain",
+    ],
+)

@@ -26,6 +26,15 @@ common --config=ruleset
 # also affects the contents of the lock file.
 common --lockfile_mode=error
 
+# rules_jvm_external 7+ and rules_android 0.7.2+ ship internal tool jars
+# compiled at Java 21+. Bazel's `--tool_java_runtime_version` defaults to
+# `remotejdk_11`, which produces UnsupportedClassVersionError at action
+# execution time, and `--tool_java_language_version` defaults to 8/11
+# (older than the Records syntax in those rulesets' source). Pin to the
+# current LTS so the toolchain compiles and runs them cleanly.
+common --tool_java_language_version=25
+common --tool_java_runtime_version=remotejdk_25
+
 # Load any settings specific to the current user.
 # .bazelrc.user should appear in .gitignore so that settings are not shared with team members
 # This needs to be last statement in this

@@ -1,0 +1,43 @@
+load("@rules_apple//apple:macos.bzl", "macos_command_line_application")
+load("@rules_swift//swift:swift_library.bzl", "swift_library")
+
+swift_library(
+    name = "screenshot_lib",
+    srcs = ["screenshot.swift"],
+    module_name = "screenshot_lib",
+    # Excluded from wildcard builds (bazel build //tools/...). Reached only
+    # via the :screenshot macos_command_line_application, which applies the
+    # apple platform transition that sets a min-OS target making
+    # CGWindowListCreateImage available. Building this swift_library
+    # standalone targets the latest SDK, where that API is obsoleted.
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+macos_command_line_application(
+    name = "screenshot",
+    # ScreenCaptureKit's SCScreenshotManager.captureImage(contentFilter:configuration:)
+    # is macOS 14+. The older CGWindowListCreateImage path it replaces was
+    # obsoleted in macOS 15.
+    minimum_os_version = "14.0",
+    # WORKAROUND for an upstream rules_apple/Bazel interaction — not a normal
+    # use of `manual`. Bazel evaluates `target_compatible_with` *after* incoming
+    # transitions ("When a transition changes the target platform,
+    # target_compatible_with is evaluated against the platform after the
+    # transition" — https://bazel.build/extending/platforms), and
+    # macos_command_line_application transitions the target platform to macOS.
+    # That makes the `target_compatible_with = macos` below always satisfied, so
+    # it can never gate this rule: on a Linux/Windows host `bazel test //...`
+    # would try to build it and fail for lack of an Apple toolchain.
+    # `tags = ["manual"]` is what actually keeps it out of wildcard builds; it is
+    # still reached (and built on macOS) via dev_tool's macOS-gated `data` dep.
+    #
+    # `target_compatible_with` is deliberately RETAINED (not replaced by
+    # `manual`): it declares the real platform intent and would resume doing the
+    # gating if the upstream post-transition evaluation is fixed — at which point
+    # `manual` can be dropped. Removing the constraint would paper over that bug.
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
+    visibility = ["//tools/dev_tool:__pkg__"],
+    deps = [":screenshot_lib"],
+)

@@ -1,0 +1,16 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@windows_pip//:requirements.bzl", "requirement")
+
+py_binary(
+    name = "screenshot",
+    srcs = ["screenshot.py"],
+    main = "screenshot.py",
+    target_compatible_with = ["@platforms//os:windows"],
+    visibility = ["//tools/dev_tool:__pkg__"],
+    deps = [
+        requirement("dxcam"),
+        requirement("opencv-python-headless"),
+        requirement("Pillow"),
+        requirement("numpy"),
+    ],
+)

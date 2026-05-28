@@ -1,0 +1,10 @@
+name: flutter_tools_test
+description: Tests for Flutter Bazel rule tools.
+version: 0.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dev_dependencies:
+  test: ^1.25.0

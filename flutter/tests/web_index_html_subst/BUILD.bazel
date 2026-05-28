@@ -1,0 +1,15 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//flutter:web.bzl", "flutter_web_index_html_subst")
+
+flutter_web_index_html_subst(
+    name = "subst_actual",
+    src = "input.html",
+    base_href = "/myapp/",
+    static_assets_url = "https://cdn.example.com",
+)
+
+diff_test(
+    name = "subst_test",
+    file1 = ":subst_actual",
+    file2 = "expected.html",
+)

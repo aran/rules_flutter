@@ -1,0 +1,219 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load(
+    "@rules_flutter//flutter:macos.bzl",
+    "MACOS_MINIMUM_OS_VERSION",
+    "flutter_macos_app",
+    "flutter_macos_engine",
+    "flutter_macos_framework_gen",
+    "flutter_macos_info_plist_gen",
+    "flutter_macos_menu_xib_gen",
+    "flutter_macos_native_libs_gen",
+    "flutter_macos_registrant_gen",
+    "flutter_macos_runner_lib_gen",
+)
+load("@rules_swift//swift:swift.bzl", "swift_library")
+
+exports_files(["pubspec.lock"])
+
+# =============================================================================
+# Shared: Flutter application + native plugin
+# =============================================================================
+
+cc_library(
+    name = "add_cc",
+    srcs = ["native/add.c"],
+    hdrs = ["native/add.h"],
+)
+
+cc_shared_library(
+    name = "add",
+    visibility = ["//packages/add_plugin:__pkg__"],
+    deps = [":add_cc"],
+)
+
+flutter_application(
+    name = "app_flutter",
+    package_name = "macos_example",
+    main = "lib/main.dart",
+    deps = [
+        "//packages/add_plugin",
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Shared macOS targets (used by approaches 2 & 3)
+# =============================================================================
+
+flutter_macos_framework_gen(
+    name = "app_framework",
+    application = ":app_flutter",
+)
+
+flutter_macos_registrant_gen(
+    name = "app_registrant",
+    application = ":app_flutter",
+)
+
+flutter_macos_native_libs_gen(
+    name = "app_native_libs",
+    application = ":app_flutter",
+)
+
+flutter_macos_engine(
+    name = "flutter_engine",
+)
+
+# Shared version and Info.plist for approaches 2 & 3.
+apple_bundle_version(
+    name = "app_version",
+    build_version = "1.0",
+    short_version_string = "1.0",
+    tags = ["manual"],
+)
+
+flutter_macos_info_plist_gen(
+    name = "app_info_plist",
+    app_name = "Flutter App",
+)
+
+# =============================================================================
+# Approach 1: Flutter-generated runner (flutter_macos_app)
+#
+# Recommended for most users. Requires macos/Runner/ from `flutter create`.
+# The macro auto-discovers Swift files, processes XIB (strips
+# customModuleProvider="target"), resolves Xcode plist variables, and wires
+# everything automatically. Fully self-contained — does NOT reuse shared targets.
+# =============================================================================
+
+flutter_macos_app(
+    name = "app",
+    app_name = "Flutter App",
+    application = ":app_flutter",
+    bundle_id = "com.example.flutterapp",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+# =============================================================================
+# Approach 2: Bazel-generated runner (flutter_macos_runner_lib_gen)
+#
+# For users without `flutter create` output. Uses template files from
+# rules_flutter. Only needs app_name. User manually wires macos_application.
+# =============================================================================
+
+flutter_macos_menu_xib_gen(
+    name = "bazel_runner_menu_xib",
+    app_name = "Flutter App",
+)
+
+flutter_macos_runner_lib_gen(
+    name = "bazel_runner_lib",
+    engine = ":flutter_engine",
+    module_name = "BazelRunner",
+    registrant = ":app_registrant",
+)
+
+macos_application(
+    name = "app_bazel_runner",
+    additional_contents = {
+        ":app_framework": "Frameworks",
+        ":app_native_libs": "Frameworks",
+    },
+    bundle_id = "com.example.flutterapp.bazelrunner",
+    infoplists = [":app_info_plist"],
+    minimum_os_version = MACOS_MINIMUM_OS_VERSION,
+    resources = [":bazel_runner_menu_xib"],
+    tags = ["manual"],
+    version = ":app_version",
+    deps = [":bazel_runner_lib"],
+)
+
+# =============================================================================
+# Approach 3: Custom runner (manual swift_library)
+#
+# For advanced users who want full control. User writes their own
+# AppDelegate/MainFlutterWindow, creates a swift_library with the registrant
+# from flutter_macos_registrant_gen, and wires into macos_application.
+# =============================================================================
+
+flutter_macos_menu_xib_gen(
+    name = "custom_runner_menu_xib",
+    app_name = "Custom Runner Example",
+)
+
+swift_library(
+    name = "custom_runner_lib",
+    srcs = [
+        "custom_runner/AppDelegate.swift",
+        "custom_runner/MainFlutterWindow.swift",
+        ":app_registrant",
+    ],
+    # Not "Runner" — that would conflict with flutter_macos_app's internal
+    # __app_runner. The @objc annotations on AppDelegate and MainFlutterWindow
+    # ensure correct ObjC class names regardless of Swift module.
+    module_name = "CustomRunner",
+    tags = ["manual"],
+    deps = [":flutter_engine"],
+)
+
+macos_application(
+    name = "app_custom_runner",
+    additional_contents = {
+        ":app_framework": "Frameworks",
+        ":app_native_libs": "Frameworks",
+    },
+    bundle_id = "com.example.flutterapp.customrunner",
+    infoplists = [":app_info_plist"],
+    minimum_os_version = MACOS_MINIMUM_OS_VERSION,
+    resources = [":custom_runner_menu_xib"],
+    tags = ["manual"],
+    version = ":app_version",
+    deps = [":custom_runner_lib"],
+)
+
+# =============================================================================
+# Tests
+# =============================================================================
+
+build_test(
+    name = "macos_app_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app"],
+)
+
+build_test(
+    name = "macos_bazel_runner_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_bazel_runner"],
+)
+
+build_test(
+    name = "macos_custom_runner_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_custom_runner"],
+)
+
+dart_test(
+    name = "verify_macos_bundle_test",
+    data = [":app"],
+    main = "test/verify_macos_bundle_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+dart_test(
+    name = "verify_macos_app_test",
+    data = [":app"],
+    main = "test/verify_macos_app_test.dart",
+    tags = [
+        "exclusive",
+        "manual",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)

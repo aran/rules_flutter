@@ -1,0 +1,11 @@
+name: plugin_example
+publish_to: none
+environment:
+  sdk: ^3.0.0
+dependencies:
+  flutter:
+    sdk: flutter
+  path_provider: ^2.1.0
+  url_launcher: ^6.3.0
+  package_info_plus: ^8.0.0
+  audio_session: ^0.1.0

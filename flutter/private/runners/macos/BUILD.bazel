@@ -1,0 +1,18 @@
+filegroup(
+    name = "sources",
+    srcs = [
+        "AppDelegate.swift",
+        "MainFlutterWindow.swift",
+    ],
+    visibility = ["//flutter/private:__pkg__"],
+)
+
+exports_files(
+    [
+        "AppDelegate.swift",
+        "Info.plist",
+        "MainFlutterWindow.swift",
+        "MainMenu.xib",
+    ],
+    visibility = ["//visibility:public"],
+)

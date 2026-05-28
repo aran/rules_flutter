@@ -1,0 +1,32 @@
+"E2e regression: synthetic Native Assets pipeline (CodeAsset + DataAsset)."
+
+module(name = "rules_flutter_native_assets_synthetic")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "apple_support", version = "2.5.3")
+bazel_dep(name = "rules_apple", version = "4.5.3")
+bazel_dep(name = "rules_swift", version = "3.6.1")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../../..",
+)
+
+local_path_override(
+    module_name = "rules_dart",
+    path = "../../../../rules_dart",
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.toolchain(flutter_version = "3.41.7")
+flutter.pub(
+    name = "deps",
+    lock = "//:pubspec.lock",
+)
+use_repo(flutter, "deps", "flutter_macos_engine", "flutter_toolchains")
+
+register_toolchains("@flutter_toolchains//:all")

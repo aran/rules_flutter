@@ -1,0 +1,12 @@
+# Anchor file for the `ext/` overlay tree.
+# `flutter_pub_package` resolves this label to compute the overlay root
+# and then walks subdirectories looking for `<pkg>/<ver>/BUILD.bazel.tpl`
+# templates.
+
+exports_files(
+    glob(
+        ["**/BUILD.bazel.tpl"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)

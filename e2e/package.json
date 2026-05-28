@@ -1,0 +1,9 @@
+{
+  "name": "flutter-playwright-helpers",
+  "version": "1.0.0",
+  "description": "Shared Playwright test infrastructure for Flutter e2e web apps",
+  "type": "commonjs",
+  "dependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

@@ -1,0 +1,12 @@
+"""AI-agent service extensions for debug-mode Flutter apps.
+
+Exports `agent.dart` for use by the wrapper-main injection in
+`flutter_compile_kernel`. Not a `dart_library` — the source is added
+to each app's kernel-compile srcs directly so it resolves
+`package:flutter` through the user's pub-managed `@deps`.
+"""
+
+exports_files(
+    ["agent.dart"],
+    visibility = ["//flutter:__subpackages__"],
+)

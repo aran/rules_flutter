@@ -1,4 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//flutter/private:flutter_material_icons.bzl", "flutter_material_icons")
 
 # This is the target rule authors should put in their "toolchains"
 # attribute in order to get a runtime for the correct platform.
@@ -8,16 +9,101 @@ toolchain_type(
     visibility = ["//visibility:public"],
 )
 
+# Compilation mode config_settings used by select() in macros.
+config_setting(
+    name = "release",
+    values = {"compilation_mode": "opt"},
+    visibility = ["//visibility:public"],
+)
+
+# Apps that use Material widgets list this in their flutter_application(
+# deps = [...]) to bundle MaterialIcons-Regular.otf into flutter_assets/.
+# Backed by the active flutter toolchain — the file ships with every
+# flutter_engine_artifacts repo, but the file label is platform-specific,
+# so a small custom rule resolves it via ctx.toolchains[...] instead of
+# requiring callers to select() on the host platform.
+flutter_material_icons(
+    name = "material_icons",
+    visibility = ["//visibility:public"],
+)
+
 bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:flutter_aot_target",
+        "//flutter/private:flutter_application",
+        "//flutter/private:flutter_asset_bundle",
+        "//flutter/private:flutter_kernel_target",
+        "//flutter/private:flutter_library",
+        "//flutter/private:flutter_plugin",
+        "//flutter/private:flutter_test",
+    ],
+)
+
+bzl_library(
+    name = "android",
+    srcs = ["android.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:flutter_android_application",
+        "@bazel_skylib//rules:expand_template",
+    ],
+)
+
+bzl_library(
+    name = "linux",
+    srcs = ["linux.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["//flutter/private:flutter_linux_application"],
+)
+
+bzl_library(
+    name = "windows",
+    srcs = ["windows.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["//flutter/private:flutter_windows_application"],
+)
+
+bzl_library(
+    name = "ios",
+    srcs = ["ios.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:flutter_ios_application",
+        "//flutter/private:flutter_ios_registrant",
+    ],
+)
+
+bzl_library(
+    name = "macos",
+    srcs = ["macos.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:flutter_macos_application",
+        "//flutter/private:flutter_macos_registrant",
+    ],
+)
+
+bzl_library(
+    name = "web",
+    srcs = ["web.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:flutter_web_application",
+        "@bazel_skylib//rules:expand_template",
+    ],
 )
 
 bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     visibility = ["//visibility:public"],
+    deps = [
+        ":repositories",
+        "//flutter/private:flutter_sdk_package",
+    ],
 )
 
 bzl_library(
@@ -30,10 +116,23 @@ bzl_library(
     name = "repositories",
     srcs = ["repositories.bzl"],
     visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:artifact_urls",
+        "//flutter/private:engine_helpers",
+        "//flutter/private:flutter_android_engine_repo",
+        "//flutter/private:flutter_cross_repo",
+        "//flutter/private:flutter_desktop_cross_repo",
+        "//flutter/private:flutter_desktop_engine_repo",
+        "//flutter/private:flutter_ios_engine_repo",
+        "//flutter/private:flutter_web_sdk_repo",
+        "//flutter/private:toolchains_repo",
+        "//flutter/private:versions",
+    ],
 )
 
 bzl_library(
     name = "toolchain",
     srcs = ["toolchain.bzl"],
     visibility = ["//visibility:public"],
+    deps = [":providers"],
 )

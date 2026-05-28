@@ -1,0 +1,122 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load(
+    "@rules_flutter//flutter:windows.bzl",
+    "flutter_windows_app",
+    "flutter_windows_bundle",
+    "flutter_windows_engine",
+    "flutter_windows_registrant_gen",
+    "flutter_windows_runner_lib_gen",
+)
+
+exports_files(["pubspec.lock"])
+
+flutter_application(
+    name = "app_flutter",
+    package_name = "windows_example",
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Shared Tier 2 targets (used by approaches 2 & 3)
+# =============================================================================
+
+flutter_windows_engine(name = "flutter_engine")
+
+flutter_windows_registrant_gen(
+    name = "app_registrant",
+    application = ":app_flutter",
+)
+
+# =============================================================================
+# Approach 1: Flutter-generated runner (flutter_windows_app)
+#
+# Recommended for most users. Requires windows/runner/ from `flutter create`.
+# =============================================================================
+
+flutter_windows_app(
+    name = "app",
+    application = ":app_flutter",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+# =============================================================================
+# Approach 2: Bazel-generated runner (flutter_windows_runner_lib_gen)
+# =============================================================================
+
+flutter_windows_runner_lib_gen(
+    name = "bazel_runner",
+    engine = ":flutter_engine",
+    registrant = ":app_registrant",
+)
+
+flutter_windows_bundle(
+    name = "app_bazel_runner",
+    application = ":app_flutter",
+    runner = ":bazel_runner",
+    tags = ["manual"],
+)
+
+# =============================================================================
+# Approach 3: Custom runner (cc_binary from rules_cc)
+#
+# flutter_windows_engine provides CcInfo so cc_binary can depend on it.
+# System libs (user32.lib, ole32.lib) come from the CC toolchain (MSVC).
+# =============================================================================
+
+cc_binary(
+    name = "custom_runner_bin",
+    srcs = [
+        "custom_runner/custom_runner.cc",
+        ":app_registrant",
+    ],
+    linkopts = [
+        "/SUBSYSTEM:WINDOWS",
+        "user32.lib",
+        "ole32.lib",
+    ],
+    tags = ["manual"],
+    deps = [":flutter_engine"],
+)
+
+flutter_windows_bundle(
+    name = "app_custom_runner",
+    application = ":app_flutter",
+    runner = ":custom_runner_bin",
+    tags = ["manual"],
+)
+
+# =============================================================================
+# Tests
+# =============================================================================
+
+build_test(
+    name = "windows_app_build_test",
+    target_compatible_with = ["@platforms//os:windows"],
+    targets = [":app"],
+)
+
+build_test(
+    name = "windows_bazel_runner_build_test",
+    target_compatible_with = ["@platforms//os:windows"],
+    targets = [":app_bazel_runner"],
+)
+
+build_test(
+    name = "windows_custom_runner_build_test",
+    target_compatible_with = ["@platforms//os:windows"],
+    targets = [":app_custom_runner"],
+)
+
+dart_test(
+    name = "verify_windows_bundle_test",
+    data = [":app"],
+    main = "test/verify_windows_bundle_test.dart",
+    target_compatible_with = ["@platforms//os:windows"],
+)

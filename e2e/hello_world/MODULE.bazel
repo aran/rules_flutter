@@ -1,0 +1,180 @@
+"E2e test: compile a minimal Flutter app using package:flutter"
+
+module(name = "rules_flutter_hello_world")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.4.3")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "apple_support", version = "2.5.4")
+bazel_dep(name = "rules_apple", version = "4.5.3")
+bazel_dep(name = "rules_swift", version = "3.6.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_android", version = "0.7.2")
+bazel_dep(name = "rules_android_ndk", version = "0.1.5")
+bazel_dep(name = "rules_kotlin", version = "2.3.20")
+bazel_dep(name = "rules_java", version = "9.6.1")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+# rules_android_ndk 0.1.5 is not on the BCR yet (Bazel 9 compat fix).
+archive_override(
+    module_name = "rules_android_ndk",
+    sha256 = "07e7a2777113bb3d0a432265d1c78cfaa140a5bc4c82be4c8cd988b34382ec90",
+    strip_prefix = "rules_android_ndk-0.1.5",
+    urls = ["https://github.com/bazelbuild/rules_android_ndk/releases/download/v0.1.5/rules_android_ndk-v0.1.5.tar.gz"],
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.toolchain(flutter_version = "3.44.0")
+flutter.pub(
+    name = "deps",
+    lock = "//:pubspec.lock",
+)
+use_repo(flutter, "deps", "flutter_android_engine_arm64", "flutter_android_engine_arm64_debug", "flutter_ios_engine", "flutter_ios_engine_debug", "flutter_macos_engine", "flutter_toolchains", "flutter_web_sdk")
+
+register_toolchains("@flutter_toolchains//:all")
+
+# Override rules_android's Go SDK (0.7.1 pins 1.22.4, but its deps need >= 1.23).
+bazel_dep(name = "rules_go", version = "0.60.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.26.2")
+
+# rules_android: download android build tools and discover local SDK.
+remote_android_extensions = use_extension(
+    "@rules_android//bzlmod_extensions:android_extensions.bzl",
+    "remote_android_tools_extensions",
+)
+use_repo(remote_android_extensions, "android_tools")
+
+android_sdk_repository_extension = use_extension(
+    "@rules_android//rules/android_sdk_repository:rule.bzl",
+    "android_sdk_repository_extension",
+)
+use_repo(android_sdk_repository_extension, "androidsdk")
+
+register_toolchains(
+    "@androidsdk//:sdk-toolchain",
+    "@androidsdk//:all",
+)
+
+# Android NDK: provides CC toolchain for Android targets (needed for --platforms=android_arm64).
+android_ndk_repository_extension = use_extension(
+    "@rules_android_ndk//:extension.bzl",
+    "android_ndk_repository_extension",
+)
+use_repo(android_ndk_repository_extension, "androidndk")
+
+register_toolchains("@androidndk//:all")
+
+# Fix protobuf version mismatch: rules_android 0.7.1 pins protobuf-java 4.33.4
+# but the resolved protobuf module is 34.0 (gencode 4.34.0).  The root module's
+# maven.install tags take precedence, so we re-declare the two affected repos
+# with bumped protobuf jars.
+bazel_dep(name = "rules_jvm_external", version = "7.0")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "android_ide_common_30_1_3",
+    aar_import_bzl_label = "@rules_android//rules:rules.bzl",
+    artifacts = [
+        "com.android.tools.layoutlib:layoutlib-api:30.1.3",
+        "com.android.tools.build:manifest-merger:30.1.3",
+        "com.android.tools:common:30.1.3",
+        "com.android.tools:repository:30.1.3",
+        "com.android.tools.analytics-library:protos:30.1.3",
+        "com.android.tools.analytics-library:shared:30.1.3",
+        "com.android.tools.analytics-library:tracker:30.1.3",
+        "com.android.tools:annotations:30.1.3",
+        "com.android.tools:sdk-common:30.1.3",
+        "com.android.tools.build:builder:7.1.3",
+        "com.android.tools.build:builder-model:7.1.3",
+        "com.google.protobuf:protobuf-java:4.34.0",
+        "com.google.protobuf:protobuf-java-util:4.34.0",
+    ],
+    repositories = [
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+    ],
+    use_starlark_android_rules = True,
+)
+maven.install(
+    name = "rules_android_maven",
+    aar_import_bzl_label = "@rules_android//rules:rules.bzl",
+    artifacts = [
+        "androidx.annotation:annotation:1.9.1",
+        "androidx.lifecycle:lifecycle-common:2.10.0",
+        "androidx.lifecycle:lifecycle-runtime:2.10.0",
+        "androidx.window:window:1.3.0",
+        "com.getkeepsafe.relinker:relinker:1.4.5",
+        "androidx.privacysandbox.tools:tools:1.0.0-alpha06",
+        "androidx.privacysandbox.tools:tools-apigenerator:1.0.0-alpha06",
+        "androidx.privacysandbox.tools:tools-apipackager:1.0.0-alpha06",
+        "androidx.test:core:1.6.0-alpha01",
+        "androidx.test.ext:junit:1.2.0-alpha01",
+        "com.android.tools.apkdeployer:apkdeployer:8.11.0-alpha10",
+        "com.android.tools.build:bundletool:1.18.2",
+        "com.android.tools:desugar_jdk_libs_minimal:2.1.5",
+        "com.android.tools:desugar_jdk_libs_configuration_minimal:2.1.5",
+        "com.android.tools:desugar_jdk_libs_nio:2.1.5",
+        "com.android.tools:desugar_jdk_libs_configuration_nio:2.1.5",
+        "com.android.tools:desugar_jdk_libs_configuration:2.1.5",
+        "com.android.tools:r8:8.9.35",
+        "org.bouncycastle:bcprov-jdk18on:1.77",
+        "org.hamcrest:hamcrest-core:2.2",
+        "org.robolectric:robolectric:4.14.1",
+        "com.google.flogger:flogger:0.8",
+        "com.google.flogger:flogger-system-backend:0.8",
+        "com.google.guava:guava:32.1.2-jre",
+        "com.google.guava:failureaccess:1.0.1",
+        "info.picocli:picocli:4.7.4",
+        "jakarta.inject:jakarta.inject-api:2.0.1",
+        "junit:junit:4.13.2",
+        "com.beust:jcommander:1.82",
+        "com.google.protobuf:protobuf-java:4.34.0",
+        "com.google.protobuf:protobuf-java-util:4.34.0",
+        "com.google.code.findbugs:jsr305:3.0.2",
+        "androidx.databinding:databinding-compiler:8.7.0",
+        "org.ow2.asm:asm:9.6",
+        "org.ow2.asm:asm-commons:9.6",
+        "org.ow2.asm:asm-tree:9.6",
+        "org.ow2.asm:asm-util:9.6",
+        "com.android:zipflinger:8.7.0",
+        "com.android.tools.build:gradle:8.7.0",
+        "com.android:signflinger:8.7.0",
+        "com.android.tools.build:aapt2-proto:8.6.1-11315950",
+        "com.android.tools.build:apksig:8.7.0",
+        "com.android.tools.build:apkzlib:8.7.0",
+        "com.google.auto.value:auto-value:1.11.0",
+        "com.google.auto.value:auto-value-annotations:1.11.0",
+        "com.google.auto:auto-common:1.2.2",
+        "com.google.auto.service:auto-service:1.1.1",
+        "com.google.auto.service:auto-service-annotations:1.1.1",
+        "com.google.errorprone:error_prone_annotations:2.33.0",
+        "com.google.errorprone:error_prone_type_annotations:2.33.0",
+        "com.google.errorprone:error_prone_check_api:2.33.0",
+        "com.google.errorprone:error_prone_core:2.33.0",
+        "com.google.guava:guava-testlib:33.2.1-jre",
+        "com.google.jimfs:jimfs:1.2",
+        "com.google.testing.compile:compile-testing:0.18",
+        "com.google.testparameterinjector:test-parameter-injector:1.16",
+        "com.google.truth:truth:1.4.0",
+        "com.google.truth.extensions:truth-java8-extension:1.4.0",
+        "com.google.truth.extensions:truth-liteproto-extension:1.4.0",
+        "com.google.truth.extensions:truth-proto-extension:1.4.0",
+        "org.mockito:mockito-core:5.4.0",
+    ],
+    repositories = [
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+    ],
+    use_starlark_android_rules = True,
+)
+use_repo(
+    maven,
+    "android_ide_common_30_1_3",
+    "rules_android_maven",
+)

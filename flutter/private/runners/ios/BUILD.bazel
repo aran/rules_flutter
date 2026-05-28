@@ -1,0 +1,19 @@
+filegroup(
+    name = "sources",
+    srcs = [
+        "AppDelegate.swift",
+        "SceneDelegate.swift",
+    ],
+    visibility = ["//flutter/private:__pkg__"],
+)
+
+filegroup(
+    name = "storyboards",
+    srcs = glob(["Base.lproj/*.storyboard"]),
+    visibility = ["//flutter/private:__pkg__"],
+)
+
+exports_files(
+    glob(["**"]),
+    visibility = ["//visibility:public"],
+)

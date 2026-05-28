@@ -1,0 +1,18 @@
+"Smoke test module for rules_flutter BCR presubmit"
+
+module(name = "rules_flutter_smoke_test")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.4.3")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.toolchain(flutter_version = "3.44.0")
+use_repo(flutter, "dev_tool_deps", "flutter_macos_engine", "flutter_toolchains", "flutter_web_sdk")
+
+register_toolchains("@flutter_toolchains//:all")

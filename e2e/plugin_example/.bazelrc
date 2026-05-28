@@ -1,0 +1,6 @@
+# Use a remote JDK so the build works without a local Java installation.
+common --java_runtime_version=remotejdk_25
+common --tool_java_language_version=25
+common --tool_java_runtime_version=remotejdk_25
+
+try-import %workspace%/.bazelrc.user

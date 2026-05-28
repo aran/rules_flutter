@@ -1,0 +1,148 @@
+# CI workflow for rules_flutter
+#
+# Runs repo-root tests (Starlark unit tests, buildifier lint) and
+# e2e tests across all workspaces on every push/PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # rules_dart is a local_path_override dependency — clone it next to this repo.
+      # Use git clone instead of actions/checkout which rejects paths outside the workspace.
+      - name: Clone rules_dart
+        run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/bazel
+          key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: bazel-unit-${{ runner.os }}-
+
+      - name: bazel test //...
+        run: bazel test //...
+
+  dart-tool-tests:
+    name: Dart tool tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Run dev_tool tests
+        working-directory: tools/dev_tool
+        # Exclude e2e tests (tagged @Tags(['e2e'])): they need a browser/CDP,
+        # iOS simulators, or a running macOS app — none available on this
+        # runner. Real-render coverage lives in the Bazel e2e workspaces and
+        # the Playwright suite.
+        run: dart test -x e2e
+
+      - name: Run private tool tests
+        working-directory: flutter/private/tools
+        run: dart pub get && dart test
+
+  e2e:
+    name: E2E (${{ matrix.workspace }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - smoke
+          - hello_world
+          - ffi_example
+          - plugin_example
+          - ffi_plugin_example
+          - codegen
+        os:
+          - macos-latest
+        include:
+          # Run hello_world on Linux for native Linux bundle testing.
+          - workspace: hello_world
+            os: ubuntu-latest
+          # Run hello_world on Windows for native Windows bundle testing.
+          - workspace: hello_world
+            os: windows-latest
+          # Run codegen on Linux (no platform-specific code).
+          - workspace: codegen
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # rules_dart is a local_path_override dependency — clone it next to this repo.
+      # Use git clone instead of actions/checkout which rejects paths outside the workspace.
+      - name: Clone rules_dart
+        run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
+
+      - name: Mount Bazel cache (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/bazel
+          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
+          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
+
+      - name: Mount Bazel cache (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/bazel
+          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
+          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
+
+      - name: Mount Bazel cache (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: C:/_bazel_cache
+          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
+          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
+
+      - name: Install GTK3 (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
+
+      # GitHub's windows-latest image exports ANDROID_NDK_HOME with backslashes
+      # (C:\Android\...), but rules_android_ndk's _create_symlinks() strips the
+      # NDK prefix with a forward-slash string match against ctx.path() output,
+      # so a backslashed value makes the symlink target escape the repo dir and
+      # the fetch fails. Hand it a forward-slash path, as upstream's own Windows
+      # CI does. See https://github.com/bazelbuild/rules_android_ndk/pull/108
+      - name: Normalize ANDROID_NDK_HOME to forward slashes (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ndk = $env:ANDROID_NDK_HOME ?? $env:ANDROID_NDK_ROOT
+          "ANDROID_NDK_HOME=$($ndk -replace '\\','/')" >> $env:GITHUB_ENV
+
+      - name: bazel test //... (e2e/${{ matrix.workspace }})
+        if: runner.os != 'Windows'
+        working-directory: e2e/${{ matrix.workspace }}
+        run: bazel test //...
+
+      # On Windows, Bazel's default output root lives under a long per-user
+      # temp path; nested runfiles (e.g. the hermetic Python interpreter's
+      # _socket.pyd used by rules_android's aar_embedded_jars_extractor) then
+      # exceed the 260-char MAX_PATH limit and fail to load with
+      # "DLL load failed ... The filename or extension is too long".
+      # A short --output_user_root keeps every generated path well under MAX_PATH.
+      # (`BAZEL_OUTPUT_BASE` is not read by Bazel; the startup flag is required.)
+      - name: bazel test //... (e2e/${{ matrix.workspace }})
+        if: runner.os == 'Windows'
+        working-directory: e2e/${{ matrix.workspace }}
+        run: bazel --output_user_root=C:/b test //...

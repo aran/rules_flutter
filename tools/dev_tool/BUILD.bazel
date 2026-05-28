@@ -1,0 +1,155 @@
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_test")
+load(":source_repo.bzl", "SOURCE_REPO")
+
+exports_files(["pubspec.lock"])
+
+_LIB_DEPS = [
+    "@dev_tool_deps//:args",
+    "@dev_tool_deps//:dwds",
+    "@dev_tool_deps//:logging",
+    "@dev_tool_deps//:package_config",
+    "@dev_tool_deps//:path",
+    "@dev_tool_deps//:pool",
+    "@dev_tool_deps//:shelf",
+    "@dev_tool_deps//:vm_service",
+    "@dev_tool_deps//:watcher",
+    "@rules_dart//dart/runfiles",
+]
+
+dart_library(
+    name = "lib",
+    package_name = "flutter_bazel_dev_tool",
+    srcs = glob(["lib/**/*.dart"]),
+    visibility = ["//visibility:private"],
+    deps = _LIB_DEPS,
+)
+
+dart_binary(
+    name = "flutter_bazel",
+    srcs = glob(["lib/**/*.dart"]),
+    compile_mode = "exe",
+    # iOS device screenshots (pymobiledevice3) work from any host, so they are
+    # always available. The desktop screen-capture helpers are local to their OS.
+    data = [
+        "//tools/ios_screenshot:screenshot",
+        "//tools/ios_screenshot:tunneld",
+    ] + select({
+        "@platforms//os:macos": [
+            "//tools/macos_screenshot:screenshot",
+        ],
+        "@platforms//os:windows": [
+            "//tools/windows_screenshot:screenshot",
+        ],
+        "//conditions:default": [],
+    }),
+    defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
+    main = "bin/flutter_bazel.dart",
+    visibility = ["//visibility:public"],
+    deps = _LIB_DEPS,
+)
+
+dart_test(
+    name = "bazel_test",
+    main = "test/bazel_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+    ],
+)
+
+dart_test(
+    name = "vm_service_client_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/vm_service_client_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)
+
+dart_test(
+    name = "device_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/device_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)
+
+dart_test(
+    name = "applied_versions_test",
+    main = "test/applied_versions_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:path",
+        "@dev_tool_deps//:test",
+    ],
+)
+
+dart_test(
+    name = "readiness_gate_test",
+    main = "test/readiness_gate_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+    ],
+)
+
+dart_test(
+    name = "compiler_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/compiler_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)
+
+dart_test(
+    name = "app_instance_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/app_instance_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)
+
+dart_test(
+    name = "reload_orchestrator_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/reload_orchestrator_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:path",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)
+
+dart_test(
+    name = "source_watcher_test",
+    main = "test/source_watcher_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:watcher",
+    ],
+)
+
+dart_test(
+    name = "run_command_lifecycle_test",
+    srcs = ["test/fakes.dart"],
+    main = "test/run_command_lifecycle_test.dart",
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:path",
+        "@dev_tool_deps//:test",
+        "@dev_tool_deps//:vm_service",
+    ],
+)

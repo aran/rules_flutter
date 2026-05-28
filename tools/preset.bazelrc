@@ -20,7 +20,7 @@ common --nobuild_runfile_links
 common:debug --nocache_test_results
 # Docs: https://registry.build/flag/bazel?filter=cache_test_results
 
-# Don't encourage a rules author to update their deps if not needed.
+# Don’t encourage a rules author to update their deps if not needed.
 # These bazel_dep calls should indicate the minimum version constraint of the ruleset.
 # If the author instead updates to the newest of any of their transitives, as this flag would suggest,
 # then they'll also force their dependents to a newer version.

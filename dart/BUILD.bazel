@@ -1,0 +1,10 @@
+load(":flutter_sdk_binary.bzl", "flutter_sdk_binary")
+
+# Run the Flutter-bundled Dart SDK binary:
+#   bazel run @rules_flutter//dart -- --version
+#   bazel run @rules_flutter//dart -- analyze lib/
+flutter_sdk_binary(
+    name = "dart",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)

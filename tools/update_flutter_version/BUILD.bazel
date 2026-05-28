@@ -1,0 +1,6 @@
+load("@rules_dart//dart:defs.bzl", "dart_binary")
+
+dart_binary(
+    name = "update_flutter_version",
+    main = "main.dart",
+)

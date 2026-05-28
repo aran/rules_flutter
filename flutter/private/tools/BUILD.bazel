@@ -1,0 +1,17 @@
+load("@rules_dart//dart:defs.bzl", "dart_binary")
+
+exports_files(
+    [
+        "generate_asset_manifest.dart",
+        "bundle_app.dart",
+    ],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "flutter_test_runner",
+    compile_mode = "exe",
+    main = "flutter_test_runner.dart",
+    visibility = ["//flutter:__subpackages__"],
+    deps = ["@rules_dart//dart/runfiles"],
+)

@@ -1,0 +1,132 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_codegen")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_test")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
+
+# --- Per-file codegen (dart_codegen) ---
+# Generates a .g.dart companion for each source file independently.
+# dart_codegen is single-source, so each input file gets its own target.
+
+dart_codegen(
+    name = "model_generated",
+    package_name = "codegen_e2e",
+    src = "lib/model.dart",
+    generator = "tools/simple_generator.dart",
+    output_suffixes = [".g.dart"],
+)
+
+dart_codegen(
+    name = "order_generated",
+    package_name = "codegen_e2e",
+    src = "lib/order.dart",
+    generator = "tools/simple_generator.dart",
+    output_suffixes = [".g.dart"],
+)
+
+# --- Aggregate codegen (dart_aggregate_codegen) ---
+# Reads ALL source files and produces a single registry output.
+
+dart_aggregate_codegen(
+    name = "model_registry",
+    package_name = "codegen_e2e",
+    srcs = [
+        "lib/model.dart",
+        "lib/order.dart",
+    ],
+    generator_script = "tools/aggregate_generator.dart",
+    outputs = ["lib/registry.g.dart"],
+)
+
+# --- Flutter app consuming a generated part ---
+# lib/user.dart declares `part 'user.g.dart'`; user.g.dart is generated below.
+# Compiling the app exercises rules_flutter's kernel compile co-locating the
+# generated part with its hand-written source sibling so the part resolves.
+
+dart_codegen(
+    name = "user_json",
+    package_name = "codegen_e2e",
+    src = "lib/user.dart",
+    generator = "tools/json_generator.dart",
+    output_suffixes = [".g.dart"],
+)
+
+flutter_application(
+    name = "app",
+    package_name = "codegen_e2e",
+    srcs = [
+        "lib/user.dart",
+        ":user_json",
+    ],
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# --- Build tests ---
+# Verify the codegen rules produce their outputs, and that a Flutter app can
+# compile while consuming a generated part.
+
+build_test(
+    name = "per_file_codegen_test",
+    targets = [
+        ":model_generated",
+        ":order_generated",
+    ],
+)
+
+build_test(
+    name = "aggregate_codegen_test",
+    targets = [":model_registry"],
+)
+
+build_test(
+    name = "flutter_codegen_test",
+    targets = [":app"],
+)
+
+# Exercises: a flutter_test that imports `package:codegen_e2e/user.dart` —
+# whose source-tree sibling has `part 'user.g.dart'` produced by `:user_json`
+# in `bazel-out`. The test's `package:` URI must resolve to a single
+# directory that holds both files, so the `part` directive finds its
+# generated companion.
+flutter_test(
+    name = "user_test",
+    package_name = "codegen_e2e",
+    srcs = [
+        "lib/user.dart",
+        ":user_json",
+    ],
+    main = "test/user_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# Exercises: a flutter_web_bundle whose `lib/main.dart` reaches `user.dart`
+# (with `part 'user.g.dart'`) via a relative import — covering both the
+# dart2js/dart2wasm compile and the icon-tree-shaking kernel compile. Both
+# must reach `main.dart` through the same colocated package so its relative
+# `import 'user.dart'` finds the assembled sibling.
+flutter_web_bundle(
+    name = "web_app",
+    package_name = "codegen_e2e",
+    srcs = [
+        "lib/user.dart",
+        ":user_json",
+    ],
+    compiler = "dart2js",
+    main = "lib/main.dart",
+    renderer = "canvaskit",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+build_test(
+    name = "flutter_web_codegen_test",
+    targets = [":web_app"],
+)

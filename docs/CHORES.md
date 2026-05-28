@@ -5,6 +5,39 @@ file at runtime — keep file lists current as the repo evolves.
 
 ---
 
+## Flutter Version Bump
+
+**Trigger**: New Flutter stable release.
+
+**Authoritative source**: The Flutter reference repo tags are the source of truth for the
+latest stable version. Do NOT rely on web searches — they may be stale. Run:
+
+```sh
+git -C references/flutter fetch --tags
+git -C references/flutter tag -l '[0-9]*' | grep -v pre | sort -V | tail -5
+```
+
+The latest tag is the current stable release.
+
+**Files**:
+
+- `flutter/private/versions.bzl` — `FLUTTER_VERSIONS` and `ARTIFACT_CHECKSUMS` dicts
+- `MODULE.bazel` — `flutter_version` in `flutter.toolchain()` call
+- All `e2e/*/MODULE.bazel` — `flutter_version` in `flutter.toolchain()` calls
+
+**Procedure**:
+
+1. Fetch tags and identify the latest stable version (see above)
+2. Run `bazel run //tools/update_flutter_version -- <new-version>` (requires Flutter reference
+   repo at `references/flutter` with tags fetched)
+3. Copy the printed snippets into `flutter/private/versions.bzl`
+4. Update `flutter_version` in `MODULE.bazel` and all `e2e/*/MODULE.bazel` files
+5. Regenerate lock files
+
+**Verification**: `bazel test //flutter/tests:all` and `cd e2e/smoke && bazel test //...`
+
+---
+
 ## Bazel Version Bump
 
 **Trigger**: New Bazel release (typically minor/patch within 9.x).
@@ -50,11 +83,15 @@ file at runtime — keep file lists current as the repo evolves.
 
 **Trigger**: After any change to `MODULE.bazel` files or their transitive deps.
 
-**Workspaces** (directories containing `MODULE.bazel`):
+**Workspaces** (directories containing `MODULE.bazel`): root (`.`) plus every
+subdirectory of `e2e/` that has a `MODULE.bazel` — currently 15 e2e workspaces
+(`android_example`, `codegen`, `codegen_example`, `cross_compile_example`,
+`ffi_example`, `ffi_plugin_example`, `hello_world`, `ios_example`,
+`linux_example`, `macos_example`, `multi_window_example`, `plugin_example`,
+`smoke`, `web_example`, `windows_example`).
 
-- `.` (root)
-
-**Procedure**: Run `bazel mod tidy --lockfile_mode=refresh` in each workspace.
+**Procedure**: Run `bazel mod deps --lockfile_mode=update` in each workspace.
+Equivalent to the list above, iterate with a shell loop over `e2e/*/MODULE.bazel`.
 
 **Verification**: All workspaces report success.
 

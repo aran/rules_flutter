@@ -1,0 +1,23 @@
+exports_files(
+    ["linux_runner.cc"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+filegroup(
+    name = "windows_runner_srcs",
+    srcs = glob(
+        [
+            "windows/*.cpp",
+            "windows/*.cc",
+            "windows/*.c",
+        ],
+        allow_empty = True,
+    ),
+    visibility = ["//flutter:__subpackages__"],
+)
+
+filegroup(
+    name = "windows_runner_hdrs",
+    srcs = glob(["windows/*.h"]),
+    visibility = ["//flutter:__subpackages__"],
+)

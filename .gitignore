@@ -1,6 +1,13 @@
 bazel-*
 .bazelrc.user
+.claude/
 .dart_tool/
 .idea/
 .ijwb/
+*.iml
 references/
+__pycache__/
+node_modules/
+test-results/
+local.properties
+**/Flutter/ephemeral/

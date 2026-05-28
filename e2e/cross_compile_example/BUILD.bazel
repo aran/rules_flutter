@@ -1,0 +1,24 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
+
+exports_files(["pubspec.lock"])
+
+flutter_application(
+    name = "cross_app",
+    package_name = "hello_world",
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# Linux bundle — NO target_compatible_with because this workspace
+# cross-compiles from macOS to Linux via the LLVM CC toolchain.
+# Verify with: bazel build :cross_linux
+# (build_test can't be used here because --platforms=linux_x64 prevents
+# test execution on macOS — there's no Linux test toolchain on the host.)
+flutter_linux_app(
+    name = "cross_linux",
+    application = ":cross_app",
+)

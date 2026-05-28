@@ -1,0 +1,48 @@
+load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
+load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
+load(":common_test.bzl", "common_test_suite")
+load(":flutter_application_test.bzl", "flutter_application_test_suite")
+load(":flutter_library_test.bzl", "flutter_library_test_suite")
+load(":flutter_plugin_test.bzl", "flutter_plugin_test_suite")
+load(":flutter_pubspec_test.bzl", "flutter_pubspec_test_suite")
+load(":macos_test.bzl", "macos_test_suite")
+load(":native_assets_test.bzl", "native_assets_test_suite")
+load(":platform_bundle_test.bzl", "platform_bundle_test_suite")
+load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
+load(":shader_compile_test.bzl", "shader_compile_test_suite")
+load(":toolchain_test.bzl", "toolchain_test_suite")
+load(":toolchains_repo_test.bzl", "toolchains_repo_test_suite")
+load(":versions_test.bzl", "versions_test_suite")
+load(":web_test.bzl", "web_test_suite")
+
+versions_test_suite(name = "versions_test")
+
+artifact_urls_test_suite(name = "artifact_urls_test")
+
+toolchain_test_suite(name = "toolchain_test")
+
+common_test_suite(name = "common_test")
+
+asset_bundle_test_suite(name = "asset_bundle_test")
+
+macos_test_suite(name = "macos_test")
+
+web_test_suite(name = "web_test")
+
+flutter_library_test_suite(name = "flutter_library_test")
+
+flutter_plugin_test_suite(name = "flutter_plugin_test")
+
+flutter_pubspec_test_suite(name = "flutter_pubspec_test")
+
+plugin_registrant_test_suite(name = "plugin_registrant_test")
+
+platform_bundle_test_suite(name = "platform_bundle_test")
+
+shader_compile_test_suite(name = "shader_compile_test")
+
+toolchains_repo_test_suite(name = "toolchains_repo_test")
+
+flutter_application_test_suite(name = "flutter_application_test")
+
+native_assets_test_suite(name = "native_assets_test")

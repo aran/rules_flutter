@@ -1,0 +1,190 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load(
+    "@rules_flutter//flutter:ios.bzl",
+    "IOS_DEFAULT_LAUNCH_STORYBOARD",
+    "IOS_DEFAULT_MAIN_STORYBOARD",
+    "IOS_MINIMUM_OS_VERSION",
+    "flutter_ios_app",
+    "flutter_ios_engine",
+    "flutter_ios_framework_gen",
+    "flutter_ios_info_plist_gen",
+    "flutter_ios_native_libs_gen",
+    "flutter_ios_registrant_gen",
+    "flutter_ios_runner_lib_gen",
+)
+load("@rules_swift//swift:swift.bzl", "swift_library")
+
+exports_files(["pubspec.lock"])
+
+# =============================================================================
+# Shared: Flutter application (Dart compilation)
+# =============================================================================
+
+flutter_application(
+    name = "app_flutter",
+    package_name = "ios_example",
+    main = "lib/main.dart",
+    min_os_version = IOS_MINIMUM_OS_VERSION,
+    visibility = ["//device:__pkg__"],
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
+# Shared iOS targets (used by approaches 2 & 3)
+# =============================================================================
+
+DEVICE_VISIBILITY = ["//device:__pkg__"]
+
+flutter_ios_framework_gen(
+    name = "app_framework",
+    application = ":app_flutter",
+    visibility = DEVICE_VISIBILITY,
+)
+
+flutter_ios_registrant_gen(
+    name = "app_registrant",
+    application = ":app_flutter",
+    visibility = DEVICE_VISIBILITY,
+)
+
+flutter_ios_engine(
+    name = "app_engine",
+    visibility = DEVICE_VISIBILITY,
+)
+
+flutter_ios_native_libs_gen(
+    name = "app_native_libs",
+    application = ":app_flutter",
+    visibility = DEVICE_VISIBILITY,
+)
+
+# Shared version for approaches 2 & 3.
+apple_bundle_version(
+    name = "app_version",
+    build_version = "1.0",
+    short_version_string = "1.0",
+    tags = ["manual"],
+    visibility = DEVICE_VISIBILITY,
+)
+
+# =============================================================================
+# Approach 1: Flutter-generated runner (flutter_ios_app)
+#
+# Recommended for most users. Requires ios/Runner/ from `flutter create`.
+# The macro auto-discovers Swift files, processes Info.plist (resolves Xcode
+# variables), and wires everything automatically.
+# =============================================================================
+
+flutter_ios_app(
+    name = "app",
+    application = ":app_flutter",
+    bundle_id = "com.rulesflutter.ios.example",
+)
+
+# =============================================================================
+# Approach 2: Bazel-generated runner (flutter_ios_runner_lib_gen)
+#
+# For users without `flutter create` output. Uses template files from
+# rules_flutter. Only needs app_name. User manually wires ios_application.
+# =============================================================================
+
+flutter_ios_info_plist_gen(
+    name = "bazel_runner_info_plist",
+    app_name = "Flutter App",
+    module_name = "BazelRunner",
+    visibility = DEVICE_VISIBILITY,
+)
+
+flutter_ios_runner_lib_gen(
+    name = "bazel_runner_lib",
+    engine = ":app_engine",
+    module_name = "BazelRunner",
+    registrant = ":app_registrant",
+    visibility = DEVICE_VISIBILITY,
+)
+
+ios_application(
+    name = "app_bazel_runner",
+    bundle_id = "com.rulesflutter.ios.example.bazelrunner",
+    families = ["iphone"],
+    infoplists = [":bazel_runner_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    tags = ["manual"],
+    version = ":app_version",
+    deps = [
+        ":app_framework",
+        ":bazel_runner_lib",
+    ],
+)
+
+# =============================================================================
+# Approach 3: Custom runner (manual swift_library)
+#
+# For advanced users who want full control. User writes their own
+# AppDelegate/SceneDelegate, creates a swift_library with the registrant
+# from flutter_ios_registrant_gen, and wires into ios_application.
+# =============================================================================
+
+# Custom Info.plist with CustomRunner module name for scene delegate lookup.
+flutter_ios_info_plist_gen(
+    name = "custom_runner_info_plist",
+    app_name = "Custom Runner Example",
+    module_name = "CustomRunner",
+)
+
+swift_library(
+    name = "custom_runner_lib",
+    srcs = [
+        "custom_runner/AppDelegate.swift",
+        "custom_runner/SceneDelegate.swift",
+        ":app_registrant",
+    ],
+    data = [IOS_DEFAULT_MAIN_STORYBOARD],
+    module_name = "CustomRunner",
+    tags = ["manual"],
+    deps = [":app_engine"],
+)
+
+ios_application(
+    name = "app_custom_runner",
+    bundle_id = "com.rulesflutter.ios.example.customrunner",
+    families = ["iphone"],
+    infoplists = [":custom_runner_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    tags = ["manual"],
+    version = ":app_version",
+    deps = [
+        ":app_framework",
+        ":custom_runner_lib",
+    ],
+)
+
+# =============================================================================
+# Tests
+# =============================================================================
+
+build_test(
+    name = "ios_app_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app"],
+)
+
+build_test(
+    name = "ios_bazel_runner_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_bazel_runner"],
+)
+
+build_test(
+    name = "ios_custom_runner_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_custom_runner"],
+)

@@ -1,0 +1,262 @@
+/// The `attach` command — connects to an already-running Flutter app.
+///
+/// Skips build and launch. Connects directly to a running app's VM service
+/// URI, then enters the same interactive session (hot reload, DevTools, etc.)
+/// as `run`.
+import 'dart:async';
+import 'dart:io';
+
+import 'package:args/args.dart';
+
+import 'bazel.dart';
+import 'command_runner.dart';
+import 'compiler_config.dart';
+import 'device.dart';
+import 'frontend_server.dart';
+import 'http_control_channel.dart';
+import 'logging.dart';
+import 'machine_protocol.dart';
+import 'run_command.dart';
+import 'session.dart';
+import 'toolchain_info.dart';
+import 'vm_service_client.dart';
+
+class AttachCommand {
+  static final parser = ArgParser()
+    ..addMultiOption('debug-url',
+        help: 'VM service URL of a running app (repeatable for multi-attach).')
+    ..addOption('target',
+        abbr: 't',
+        help: 'Bazel target (for toolchain resolution).',
+        mandatory: true)
+    ..addFlag('machine',
+        defaultsTo: false, help: 'Enable machine-readable JSON protocol.')
+    ..addFlag('devtools',
+        defaultsTo: true, help: 'Launch DevTools for each connection.')
+    ..addFlag('verbose', abbr: 'v', defaultsTo: false, help: 'Enable verbose debug logging.')
+    ..addFlag('http-control-channel',
+        defaultsTo: true,
+        help: 'Start an HTTP control channel for external command dispatch.')
+    ..addFlag('help', abbr: 'h', negatable: false, help: 'Show help for this command.');
+
+  final ArgResults _results;
+
+  AttachCommand(this._results);
+
+  Future<void> execute() async {
+    final debugUrls = _results['debug-url'] as List<String>;
+    final target = _results['target'] as String;
+    final isMachine = _results['machine'] as bool;
+    final devToolsEnabled = _results['devtools'] as bool;
+    final httpChannelEnabled = _results['http-control-channel'] as bool;
+
+    if (debugUrls.isEmpty) {
+      throw DevToolException('At least one --debug-url is required.');
+    }
+
+    // Resolve workspace once. Used both for inner `bazel` spawns
+    // (workingDirectory) and for the interactive session below.
+    final workspace = await findWorkspaceRoot();
+
+    final sessions = <DeviceSession>[];
+    FrontendServer? frontendServer;
+    HttpControlChannel? httpChannel;
+
+    final commandRunner = CommandRunner();
+    final protocol = MachineProtocol(
+      enabled: isMachine,
+      commandRunner: commandRunner,
+    );
+
+    DeviceSession? findSession(String? appId) {
+      if (appId == null) return null;
+      for (final s in sessions) {
+        if (s.appId == appId) return s;
+      }
+      return null;
+    }
+
+    Future<void> performCleanup() async {
+      await httpChannel?.stop();
+      for (final session in sessions) {
+        protocol.appStop(session.appId);
+        await session.vmClient?.disconnect();
+      }
+      await frontendServer?.shutdown();
+    }
+
+    commandRunner.register('app.stop', (_) async {
+      await performCleanup();
+      return {'message': 'stopped'};
+    });
+    commandRunner.register('daemon.shutdown', (_) async {
+      await performCleanup();
+      return {'message': 'shutdown'};
+    });
+
+    protocol.startListening();
+
+    final logger = Logger('dev_tool.attach');
+
+    // Connect to each running app.
+    for (var i = 0; i < debugUrls.length; i++) {
+      final uri = Uri.parse(debugUrls[i]);
+      final appId = 'attach_$i';
+      final deviceName = 'attached:${uri.host}:${uri.port}';
+
+      protocol.appStart(appId, deviceName);
+      logger.info({
+        'message': 'connecting',
+        'text': 'Connecting to $uri...',
+        'uri': uri.toString(),
+      });
+
+      final vmClient = VmServiceClient();
+      try {
+        await vmClient.connect(uri);
+        logger.info({
+          'message': 'vm_service_connected',
+          'text': 'Connected to VM service at $uri.',
+          'uri': uri.toString(),
+        });
+      } catch (e) {
+        throw DevToolException('Could not connect to $uri: $e');
+      }
+
+      protocol.appDebugPort(
+        appId,
+        uri.replace(
+            scheme: uri.scheme == 'https' ? 'wss' : 'ws',
+            path: '${uri.path}ws'),
+        uri,
+      );
+      protocol.appStarted(appId);
+
+      sessions.add(DeviceSession(
+        device: _AttachedPseudoDevice(deviceName),
+        appInstance: _AttachedAppInstance(uri),
+        vmClient: vmClient,
+        appId: appId,
+      ));
+    }
+
+    // Build to ensure outputs exist, then discover package_config.
+    String? packageConfigPath;
+    try {
+      final buildResult = await bazelBuild(target,
+          workspace: workspace, compilationMode: 'dbg');
+      if (buildResult.success) {
+        final flutterAppOutputs = await bazelCqueryFlutterApp(target,
+            workspace: workspace, compilationMode: 'dbg');
+        packageConfigPath = discoverPackageConfig(flutterAppOutputs);
+      }
+    } catch (e) {
+      logger.fine({
+        'message': 'build_for_config_failed',
+        'text': 'Could not build target for package_config discovery: $e',
+      });
+    }
+
+    // Resolve toolchain and start frontend server.
+    try {
+      final toolchain =
+          await resolveToolchainPaths(target, workspace: workspace);
+      if (packageConfigPath == null || packageConfigPath.isEmpty) {
+        throw StateError(
+            'Could not find package_config.json in build outputs for $target.');
+      }
+      frontendServer = FrontendServer(
+        dartaotruntimePath: toolchain.dartaotruntime,
+        frontendServerPath: toolchain.frontendServer,
+        config: NativeCompilerConfig(patchedSdkRoot: toolchain.patchedSdkRoot),
+        packageConfig: packageConfigPath,
+      );
+      await frontendServer.start();
+      logger.info({
+        'message': 'frontend_server_ready',
+        'text': 'Frontend server ready.',
+      });
+    } catch (e) {
+      stderr.writeln('Warning: Could not start frontend server: $e');
+      stderr.writeln('Hot reload will not be available.');
+    }
+
+    // Start HTTP control channel if enabled.
+    if (httpChannelEnabled) {
+      httpChannel = HttpControlChannel(
+        commandRunner: commandRunner,
+        findSession: findSession,
+      );
+      await httpChannel!.start();
+      final base = httpChannel!.uri;
+      final t = httpChannel!.token;
+      logger.info({
+        'message': 'http_control_channel',
+        'text': 'HTTP control channel:\n'
+            '  POST $base/command?token=$t  — execute a machine protocol command\n'
+            '  GET  $base/sessions/{appId}/screenshot/flutter?token=$t  — Flutter widget tree screenshot (PNG)\n'
+            '  GET  $base/sessions/{appId}/screenshot/native?token=$t  — native OS screenshot (PNG)',
+        'uri': base.toString(),
+        'token': t,
+      });
+    }
+
+    final entrypoint = await resolveEntrypointFromTarget(
+        target, workspace, packageConfigPath: packageConfigPath);
+
+    if (frontendServer != null) {
+      await runInteractiveSession(
+        sessions: sessions,
+        frontendServer: frontendServer,
+        entrypoint: entrypoint,
+        workspace: workspace,
+        protocol: protocol,
+        commandRunner: commandRunner,
+        devToolsEnabled: devToolsEnabled,
+      );
+    } else {
+      throw DevToolException(
+          'Cannot start interactive session without frontend server.');
+    }
+  }
+}
+
+/// A pseudo-device for attach mode — doesn't launch or stop anything.
+class _AttachedPseudoDevice extends Device {
+  final String _name;
+  _AttachedPseudoDevice(this._name);
+
+  @override
+  String get name => _name;
+
+  @override
+  Future<AppInstance> launch(String appPath) =>
+      throw UnsupportedError('Attach mode does not launch apps');
+
+  @override
+  Future<void> stop(AppInstance instance) async {
+    // Nothing to stop — the app was started externally.
+  }
+}
+
+/// A fake AppInstance for attach mode.
+class _AttachedAppInstance extends AppInstance {
+  _AttachedAppInstance(Uri vmServiceUri)
+      : super(process: _NoOpProcess(), vmServiceUri: vmServiceUri);
+}
+
+/// A no-op process for attach mode.
+class _NoOpProcess implements Process {
+  @override
+  Stream<List<int>> get stdout => const Stream.empty();
+  @override
+  Stream<List<int>> get stderr => const Stream.empty();
+  @override
+  IOSink get stdin => throw UnsupportedError('No stdin for attached process');
+  @override
+  int get pid => -1;
+  @override
+  Future<int> get exitCode => Completer<int>().future; // Never completes.
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => false;
+}
