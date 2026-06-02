@@ -83,6 +83,13 @@ flutter_android_app(
     package_name = "com.example.helloworld",
     app_name = "Hello World",
     application = ":hello_world_app",
+    # Android cross-builds fine on macOS/Linux (covered by those CI runners),
+    # but the rules_android resource compiler launches its JVM with -Xms3G,
+    # which eagerly commits 3 GiB and OOMs on the GitHub windows-latest runner's
+    # small fixed pagefile. This is a CI-runner resource limit, not a platform
+    # incompatibility, so the Windows CI job filters this tag out via
+    # --build_tag_filters rather than marking the target Windows-incompatible.
+    tags = ["no-windows-ci"],
 )
 
 # -- Other platforms -----------------------------------------------------------
@@ -178,6 +185,9 @@ build_test(
 
 build_test(
     name = "android_build_test",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
     targets = [":hello_world_android"],
 )
 

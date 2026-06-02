@@ -142,7 +142,16 @@ jobs:
       # "DLL load failed ... The filename or extension is too long".
       # A short --output_user_root keeps every generated path well under MAX_PATH.
       # (`BAZEL_OUTPUT_BASE` is not read by Bazel; the startup flag is required.)
+      # --*_tag_filters=-no-windows-ci skips targets that build fine on
+      # macOS/Linux but exceed the windows-latest runner's commit limit
+      # (RAM + its small fixed pagefile). Today that's hello_world's Android
+      # target: rules_android's resource compiler launches its JVM with
+      # -Xms3G, eagerly committing 3 GiB and OOMing. Android is still covered
+      # on the macOS and Linux runners. The build filter (not just the test
+      # filter) is required because `bazel test //...` builds every matched
+      # target, including the non-test app, so a test-only filter wouldn't
+      # stop the OOMing build action.
       - name: bazel test //... (e2e/${{ matrix.workspace }})
         if: runner.os == 'Windows'
         working-directory: e2e/${{ matrix.workspace }}
-        run: bazel --output_user_root=C:/b test //...
+        run: bazel --output_user_root=C:/b test //... --build_tag_filters=-no-windows-ci --test_tag_filters=-no-windows-ci
