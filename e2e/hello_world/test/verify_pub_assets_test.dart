@@ -11,38 +11,26 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:runfiles/runfiles.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory bundleDir;
 
   setUpAll(() {
-    final cwd = Directory.current.path;
-
-    // The data dep `:hello_world_app` produces a tree artifact at
-    // `bazel-bin/hello_world_app_flutter_assets`. Under bazel test, that
-    // directory is staged in the test's runfiles. Search the runfiles tree
-    // for it (location varies by bazel version + sandboxing).
-    final candidates = <String>[
-      '$cwd/hello_world_app_flutter_assets',
-      '$cwd/_main/hello_world_app_flutter_assets',
-    ];
-    // Also walk the runfiles root when set.
-    final runfilesDir = Platform.environment['RUNFILES_DIR'];
-    if (runfilesDir != null) {
-      candidates.add('$runfilesDir/_main/hello_world_app_flutter_assets');
-      candidates.add('$runfilesDir/hello_world_app_flutter_assets');
+    // The data dep `:hello_world_app` produces a tree artifact
+    // `hello_world_app_flutter_assets`, staged in the test's runfiles.
+    // Resolve it via the runfiles library rather than guessing paths: that
+    // works under both the Unix symlink tree and the Windows manifest
+    // (windows-latest runs with --noenable_runfiles, so no directory exists).
+    final path =
+        Runfiles.create().rlocation('_main/hello_world_app_flutter_assets');
+    bundleDir = Directory(path);
+    if (!bundleDir.existsSync()) {
+      throw StateError(
+        'hello_world_app_flutter_assets not found at runfiles path: $path',
+      );
     }
-    for (final c in candidates) {
-      if (Directory(c).existsSync()) {
-        bundleDir = Directory(c);
-        return;
-      }
-    }
-    throw StateError(
-      'Could not locate hello_world_app_flutter_assets in runfiles. '
-      'Tried: $candidates',
-    );
   });
 
   test('cupertino_icons font lands at packages/cupertino_icons/...', () {

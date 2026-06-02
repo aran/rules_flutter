@@ -225,7 +225,10 @@ dart_test(
     name = "verify_pub_assets_test",
     data = [":hello_world_app"],
     main = "test/verify_pub_assets_test.dart",
-    deps = ["@deps//:test"],
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
 )
 
 # Verifies that the entitlements blob applied at codesign time on the
