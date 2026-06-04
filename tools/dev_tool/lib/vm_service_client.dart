@@ -31,6 +31,12 @@ class VmServiceClient {
   /// Base URI of the devFS as returned by the VM.
   Uri? _devFSBaseUri;
 
+  /// Absolute path to the app's `flutter_assets` directory, required by the
+  /// engine's `_flutter.runInView` (hot restart re-runs main from a fresh
+  /// isolate and re-specifies the asset bundle). Set by the run command from
+  /// the build outputs before the first restart.
+  String? assetDirectory;
+
   /// `renderedErrorText` of the post-reload `Flutter.Error` that failed the
   /// last reload/restart, if any. Cleared at the start of each one.
   String? _lastReloadError;
@@ -309,38 +315,85 @@ class VmServiceClient {
     await File(outputPath).writeAsBytes(bytes);
   }
 
-  /// Perform a hot restart — reload all code and reset framework state.
+  /// Perform a hot restart — re-run `main()` in a fresh isolate.
   ///
-  /// Like [hotReload] but uses `force: true` on `reloadSources` so the VM
-  /// reloads all libraries unconditionally. Requires the full-compile dill.
+  /// Unlike [hotReload] (which swaps code into the running isolate via
+  /// `reloadSources`, so `main()` does NOT re-execute), this uses the Flutter
+  /// engine's `_flutter.runInView` to spawn a new root isolate that runs
+  /// `main()` from the new kernel — matching `flutter run`'s capital-R restart.
+  /// Framework + app state is reset and `main()`-level changes take effect.
   Future<bool> hotRestart(String dillPath) async {
     if (_httpAddress == null) {
       throw StateError('Not connected to VM service');
     }
 
     try {
-      return await _applyAndVerify(() async {
-        const entryPath = 'main.dart.incremental.dill';
+      final ok = await _applyAndVerify(() async {
+        // Upload the full kernel to devFS as the new main.
+        const entryPath = 'main.dart.dill';
         final devFSUri = await _uploadToDevFS(dillPath, entryPath);
-        final rootLibUri =
-            devFSUri?.toString() ?? Uri.file(dillPath).toString();
-        final result = await _service!.reloadSources(
-          _mainIsolateId!,
-          force: true,
-          rootLibUri: rootLibUri,
-        );
-        if (!result.success!) return false;
+        final mainUri = devFSUri?.toString() ?? Uri.file(dillPath).toString();
 
-        await _service!.callServiceExtension(
-          'ext.flutter.reassemble',
-          isolateId: _mainIsolateId,
-        );
+        final views = await _listViews();
+        if (views.isEmpty) return false;
+        for (final view in views) {
+          // The engine's runInView interacts with non-thread-safe dart APIs on
+          // the UI thread, so a paused isolate would block it — resume first.
+          final isolateId = view.isolateId;
+          if (isolateId != null) await _resumeIfPaused(isolateId);
+          await _service!.callMethod('_flutter.runInView', args: {
+            'viewId': view.id,
+            'mainScript': mainUri,
+            'assetDirectory': assetDirectory ?? '',
+          });
+        }
         return true;
       });
+      // runInView rotates the root isolate; re-resolve so subsequent
+      // reloads/screenshots target the new live isolate.
+      await _refreshMainIsolate();
+      return ok;
     } catch (e) {
       stderr.writeln('Hot restart failed: $e');
       return false;
     }
+  }
+
+  /// The Flutter views (`_flutter.listViews`) with their UI isolate ids.
+  Future<List<({String id, String? isolateId})>> _listViews() async {
+    final resp = await _callService((s) => s.callMethod('_flutter.listViews'));
+    final views = (resp.json?['views'] as List?) ?? const [];
+    return [
+      for (final v in views)
+        if ((v as Map)['type'] == 'FlutterView')
+          (id: v['id'] as String, isolateId: (v['isolate'] as Map?)?['id'] as String?),
+    ];
+  }
+
+  /// Resume [isolateId] if it is paused (e.g. PauseStart), so runInView can run.
+  Future<void> _resumeIfPaused(String isolateId) async {
+    try {
+      final isolate = await _service!.getIsolate(isolateId);
+      final kind = isolate.pauseEvent?.kind;
+      if (kind != null && kind.startsWith('Pause')) {
+        await _service!.resume(isolateId);
+      }
+    } catch (_) {}
+  }
+
+  /// Re-resolve [_mainIsolateId] after a restart rotated the root isolate.
+  Future<void> _refreshMainIsolate() async {
+    try {
+      final vm = await _callService((s) => s.getVM());
+      final isolates = vm.isolates ?? const <IsolateRef>[];
+      for (final ref in isolates) {
+        if (ref.name == 'main') {
+          _mainIsolateId = ref.id;
+          return;
+        }
+      }
+      _mainIsolateId = isolates.firstOrNull?.id ?? _mainIsolateId;
+    } catch (_) {}
   }
 
   /// Call a service extension on the main isolate and return the parsed

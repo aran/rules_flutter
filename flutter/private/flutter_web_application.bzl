@@ -18,7 +18,7 @@ Both dart2wasm and dart2js take .dart source directly (not kernel .dill),
 so we skip the frontend_server kernel compilation step used by desktop/mobile.
 """
 
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "generate_dev_package_config")
 load("//flutter:providers.bzl", "FlutterInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
@@ -185,6 +185,29 @@ def _flutter_web_bundle_impl(ctx):
     # siblings — that's what lets `main.dart`'s relative imports resolve to
     # the assembled (codegen-co-located) copies of its package siblings.
     packages = synthesize_app_package(packages, ctx.attr.package_name)
+
+    # Hot-reload dev metadata (debug only): a multi-root dev package_config so a
+    # source-assembled (codegen) app resolves package: URIs across the live
+    # source tree + generated bazel-out roots, instead of the frozen assembled
+    # `.pkgsrcs` dir the build config uses. Computed pre-colocation (lib_root +
+    # File.is_source intact). See rules_dart generate_dev_package_config.
+    web_is_debug = ctx.var["COMPILATION_MODE"] == "dbg"
+    dev_package_config = None
+    dev_filesystem_roots = []
+    dev_filesystem_scheme = ""
+    dev_generated_source_paths = []
+    dev_generated_source_uris = []
+    dev_source_packages = []
+    if web_is_debug:
+        dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
+        dev_pc = generate_dev_package_config(packages, all_srcs + [ctx.file.main], dev_package_config)
+        ctx.actions.write(dev_package_config, dev_pc.content)
+        dev_filesystem_roots = dev_pc.filesystem_roots
+        dev_filesystem_scheme = dev_pc.scheme
+        dev_generated_source_paths = dev_pc.generated_source_paths
+        dev_generated_source_uris = dev_pc.generated_source_uris
+        dev_source_packages = dev_pc.source_packages
+
     pc = compile_package_config(ctx, packages, all_srcs + [ctx.file.main])
     config_file = pc.config_file
     all_srcs = pc.srcs
@@ -569,10 +592,26 @@ def _flutter_web_bundle_impl(ctx):
             "frontendServer": flutter_sdk_info.frontend_server.path,
             "patchedSdkRoot": flutter_sdk_info.platform_kernel_dill.path.rsplit("/", 1)[0],
             "appEntrypoint": app_entrypoint,
+            # Codegen hot-reload: dev package_config + multi-root layout +
+            # generated source paths/URIs (empty for non-codegen apps).
+            "devPackageConfig": dev_package_config.path if dev_package_config else "",
+            "filesystemRoots": dev_filesystem_roots,
+            "filesystemScheme": dev_filesystem_scheme,
+            "generatedSourcePaths": dev_generated_source_paths,
+            "generatedSourceUris": dev_generated_source_uris,
+            # First-party source packages (app + local deps) the dev tool maps
+            # live edits back to via its PackageUriResolver. libRoot is
+            # workspace-relative.
+            "sourcePackages": [
+                {"name": sp[0], "libRoot": sp[1]}
+                for sp in dev_source_packages
+            ],
         })
         dev_config = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
         ctx.actions.write(dev_config, dev_config_content)
         ddc_files.append(dev_config)
+        if dev_package_config:
+            ddc_files.append(dev_package_config)
 
         # Include package_config in debug outputs.
         ddc_files.append(config_file)

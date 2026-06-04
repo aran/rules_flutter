@@ -64,12 +64,21 @@ class ReloadOrchestrator {
   final List<AppInstance> apps;
   final String entrypoint;
 
+  /// Optional pre-reload step that rebuilds the app's bazel-generated sources
+  /// (codegen) so the frontend_server compiles against fresh outputs. Returns
+  /// false on build failure. Null for apps with no generated sources — then the
+  /// pipeline runs no bazel build (today's instant path). Runs before the disk
+  /// snapshot, so a refreshed generated file is picked up by the normal diff
+  /// (the file is registered in `workspace.generatedFiles`).
+  final Future<bool> Function()? refreshGenerated;
+
   ReloadOrchestrator({
     required this.workspace,
     required this.applied,
     required this.compiler,
     required this.apps,
     required this.entrypoint,
+    this.refreshGenerated,
   });
 
   /// Bring the running apps up to current source state.
@@ -91,6 +100,17 @@ class ReloadOrchestrator {
     required Set<String>? declared,
     required ApplyMode mode,
   }) async {
+    // Refresh bazel-generated sources (codegen) BEFORE snapshotting, so a
+    // regenerated file's new version is captured by the diff below and its
+    // library is invalidated. Applies to both reload and restart.
+    if (refreshGenerated != null) {
+      final ok = await refreshGenerated!();
+      if (!ok) {
+        return const ReloadCompileFailed(
+            'Generated source rebuild (bazel) failed; see build output above.');
+      }
+    }
+
     final snap = workspace.snapshot();
 
     final Set<String> invalidated;

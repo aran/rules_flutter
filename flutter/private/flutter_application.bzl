@@ -189,6 +189,45 @@ def _flutter_application_impl(ctx):
     if is_debug:
         default_files.append(kernel_dill)
 
+    # Hot-reload dev config (debug only), mirroring flutter_web_application's
+    # `_dev_config.json`. Tells the dev tool the authoritative entrypoint URI
+    # and — for a source-assembled (codegen) app — the multi-root layout +
+    # generated source paths/URIs, so it never infers any of this from
+    # package_config rootUri shapes. The dev tool discovers this by building the
+    # flutter_application target directly (its DefaultInfo). When
+    # `generatedSourceUris` is non-empty the dev tool rebuilds this same app
+    # target on change to regenerate codegen outputs (a narrow codegen-only
+    # rebuild would prune the flutter SDK from the execroot symlink forest and
+    # break the next full compile).
+    if is_debug and compilation.dev_package_config != None:
+        dev_config_file = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
+        ctx.actions.write(
+            output = dev_config_file,
+            content = json.encode({
+                "engineRevision": flutter_sdk_info.engine_revision,
+                "flutterVersion": flutter_sdk_info.version,
+                "dartSdkRoot": flutter_sdk_info.dartaotruntime.path.rsplit("/bin/", 1)[0],
+                "dartaotruntime": flutter_sdk_info.dartaotruntime.path,
+                "frontendServer": flutter_sdk_info.frontend_server.path,
+                "patchedSdkRoot": flutter_sdk_info.platform_kernel_dill.path.rsplit("/", 1)[0],
+                "appEntrypoint": compilation.app_entrypoint_uri,
+                "devPackageConfig": compilation.dev_package_config.path,
+                "filesystemRoots": compilation.dev_filesystem_roots,
+                "filesystemScheme": compilation.dev_filesystem_scheme,
+                "generatedSourcePaths": compilation.dev_generated_source_paths,
+                "generatedSourceUris": compilation.dev_generated_source_uris,
+                # First-party source packages (app + local deps) the dev tool
+                # maps live edits back to via its PackageUriResolver. libRoot is
+                # workspace-relative.
+                "sourcePackages": [
+                    {"name": sp[0], "libRoot": sp[1]}
+                    for sp in compilation.dev_source_packages
+                ],
+            }),
+        )
+        default_files.append(dev_config_file)
+        default_files.append(compilation.dev_package_config)
+
     output_groups = {
         "native_assets_manifest": depset([native_assets_manifest_file]),
         "bundled_code_assets": bundled_code_assets,

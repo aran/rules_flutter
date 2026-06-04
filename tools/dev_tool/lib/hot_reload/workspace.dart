@@ -1,10 +1,11 @@
-/// Read-only view of the workspace's `lib/**/*.dart` source tree.
+/// Read-only view of a build's first-party Dart source tree.
 ///
-/// `Workspace.snapshot()` is a fresh FS scan; `SourceVersions` is the
-/// resulting immutable `{fileUri → Version}` map.
+/// `Workspace.snapshot()` is a fresh FS scan of every source package's `lib/`
+/// (resolved via [PackageUriResolver]) plus any registered generated files;
+/// `SourceVersions` is the resulting immutable `{packageUri → Version}` map.
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
+import 'package_uri_resolver.dart';
 
 /// A point-in-time identity for a file's content.
 ///
@@ -30,7 +31,7 @@ class Version {
       'Version(mtime=${mtime.toIso8601String()}, size=$size)';
 }
 
-/// Immutable snapshot of every workspace source file's `Version`.
+/// Immutable snapshot of every tracked source file's `Version`.
 class SourceVersions {
   final Map<String, Version> _versions;
 
@@ -46,70 +47,46 @@ class SourceVersions {
   int get length => _versions.length;
 }
 
-/// Read-only handle on a workspace's Dart source tree.
+/// Read-only handle on a build's first-party source tree.
 class Workspace {
-  /// Filesystem root of the workspace.
-  final String root;
+  /// Resolves an absolute source path to its `package:` URI and enumerates the
+  /// source package `lib/` directories to scan.
+  final PackageUriResolver resolver;
 
-  /// Frontend-server entrypoint URI (e.g. `package:foo/main.dart` or
-  /// `org-dartlang-app:/web_entrypoint.dart`). Determines the URI scheme
-  /// used for source files in `snapshot()`.
-  final String entrypoint;
+  /// Generated files outside any scanned `lib/` (codegen outputs in bazel-out),
+  /// as `{package: URI → absolute path}`. They live in the build tree, not the
+  /// source tree, so they aren't found by the `lib/**` scan — but they ARE part
+  /// of the app's library set, so `snapshot()` stats them too. After a rebuild
+  /// refreshes a generated file, this lets the normal diff pick it up and
+  /// invalidate the right library. Empty for non-codegen apps.
+  final Map<String, String> generatedFiles;
 
-  Workspace({required this.root, required this.entrypoint});
+  Workspace({
+    required this.resolver,
+    this.generatedFiles = const {},
+  });
 
-  /// Scan `<root>/lib/**/*.dart` and return a fresh snapshot.
-  ///
-  /// Returns an empty snapshot if `lib/` does not exist.
+  /// Scan every source package's `lib/**/*.dart` (plus any [generatedFiles])
+  /// and return a fresh snapshot, keyed by the frontend_server `package:` URI.
   SourceVersions snapshot() {
-    final libDir = Directory(p.join(root, 'lib'));
-    if (!libDir.existsSync()) return const SourceVersions({});
     final versions = <String, Version>{};
-    for (final entity in libDir.listSync(recursive: true)) {
-      if (entity is! File || !entity.path.endsWith('.dart')) continue;
-      final stat = entity.statSync();
-      versions[toFrontendServerUri(entity.path)] =
-          Version(mtime: stat.modified, size: stat.size);
+    for (final libDir in resolver.sourceLibDirs) {
+      final dir = Directory(libDir);
+      if (!dir.existsSync()) continue;
+      for (final entity in dir.listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final uri = resolver.toPackageUri(entity.path);
+        if (uri == null) continue;
+        final stat = entity.statSync();
+        versions[uri] = Version(mtime: stat.modified, size: stat.size);
+      }
+    }
+    for (final entry in generatedFiles.entries) {
+      final f = File(entry.value);
+      if (!f.existsSync()) continue;
+      final stat = f.statSync();
+      versions[entry.key] = Version(mtime: stat.modified, size: stat.size);
     }
     return SourceVersions(versions);
   }
-
-  /// Convert an absolute file path to the URI scheme the frontend_server
-  /// expects, given this workspace's [entrypoint].
-  String toFrontendServerUri(String filePath) =>
-      frontendServerUriFor(filePath, entrypoint: entrypoint, root: root);
-}
-
-/// Free-function form of [Workspace.toFrontendServerUri], used by callers
-/// that don't have a Workspace handle yet (legacy session.dart paths).
-///
-/// For `package:` entrypoints: files in `lib/` → `package:app/foo.dart`.
-/// For `org-dartlang-app:` entrypoints (DDC web mode): files under root
-/// → `org-dartlang-app:/lib/foo.dart` (matching the filesystem-root
-/// scheme).
-///
-/// Falls back to `file:///` URI if the path can't be mapped.
-String frontendServerUriFor(
-  String filePath, {
-  required String entrypoint,
-  required String root,
-}) {
-  if (entrypoint.startsWith('package:')) {
-    final libDir = p.join(root, 'lib');
-    if (p.isWithin(libDir, filePath)) {
-      // URI path segments are always '/'-separated, regardless of the host
-      // OS path separator; rebuild the relative path from its components.
-      final relativePath =
-          p.split(p.relative(filePath, from: libDir)).join('/');
-      final packageName =
-          entrypoint.split('/').first.substring('package:'.length);
-      return 'package:$packageName/$relativePath';
-    }
-  }
-  if (entrypoint.startsWith('org-dartlang-app:') &&
-      p.isWithin(root, filePath)) {
-    final relativePath = p.split(p.relative(filePath, from: root)).join('/');
-    return 'org-dartlang-app:/$relativePath';
-  }
-  return Uri.file(filePath).toString();
 }

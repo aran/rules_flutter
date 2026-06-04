@@ -13,7 +13,7 @@ import 'package:watcher/watcher.dart';
 import 'command_runner.dart';
 import 'device.dart';
 import 'frontend_server.dart';
-import 'hot_reload/workspace.dart' show frontendServerUriFor;
+import 'hot_reload/package_uri_resolver.dart';
 import 'machine_protocol.dart';
 import 'reload_strategy.dart';
 import 'vm_service_client.dart';
@@ -167,6 +167,7 @@ Future<void> runInteractiveSession({
   bool hotReloadEnabled = true,
   bool watchEnabled = true,
   ReloadStrategy? reloadStrategy,
+  PackageUriResolver? resolver,
   void Function(String message)? log,
   KeyboardReader? keyboardReader,
   void Function(bool echoMode)? setEchoMode,
@@ -219,6 +220,7 @@ Future<void> runInteractiveSession({
       frontendServer: frontendServer,
       sessions: sessions,
       entrypoint: entrypoint,
+      resolver: resolver,
       commandRunner: commandRunner,
       reloadStrategy: reloadStrategy,
     );
@@ -343,6 +345,7 @@ Future<void> runInteractiveSession({
   required FrontendServer frontendServer,
   required List<DeviceSession> sessions,
   required String entrypoint,
+  PackageUriResolver? resolver,
   CommandRunner? commandRunner,
   ReloadStrategy? reloadStrategy,
 }) {
@@ -361,10 +364,17 @@ Future<void> runInteractiveSession({
       final files = changedFiles.toList();
       changedFiles.clear();
 
+      // Map each changed source path to the `package:` URI the frontend_server
+      // keys it by, via the authoritative build-emitted resolver. A path that
+      // belongs to no first-party source package (e.g. a tool script) resolves
+      // to null and is skipped — never invalidated with a bogus file:// URI.
+      final invalidated = [
+        for (final f in files)
+          if (resolver?.toPackageUri(f) case final uri?) uri,
+      ];
+      if (invalidated.isEmpty) return;
+
       if (commandRunner != null && commandRunner.hasCommand('app.hotReload')) {
-        final invalidated = files
-            .map((f) => frontendServerUriFor(f, entrypoint: entrypoint, root: workspace))
-            .toList();
         await commandRunner.run('app.hotReload', {
           'invalidatedFiles': invalidated,
         });
@@ -373,7 +383,7 @@ Future<void> runInteractiveSession({
           frontendServer: frontendServer,
           sessions: sessions,
           entrypoint: entrypoint,
-          invalidated: files.map((f) => frontendServerUriFor(f, entrypoint: entrypoint, root: workspace)).toList(),
+          invalidated: invalidated,
           reloadStrategy: reloadStrategy,
         );
       }

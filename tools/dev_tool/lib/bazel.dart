@@ -40,11 +40,19 @@ Future<BazelBuildResult> bazelBuild(
   }
   args.addAll(extraArgs);
 
-  stdout.writeln('Running: bazel ${args.join(' ')}');
+  // Diagnostics + bazel's own output go to STDERR, never stdout: in
+  // `--machine` mode the dev tool's stdout is the JSON protocol channel, and a
+  // mid-session rebuild (refreshGenerated) would otherwise inject bazel chatter
+  // into it. (bazel build writes progress to stderr anyway, but inheriting
+  // stdout risked corrupting the channel.)
+  stderr.writeln('Running: bazel ${args.join(' ')}');
 
-  final process = await Process.start('bazel', args,
-      mode: ProcessStartMode.inheritStdio, workingDirectory: workspace);
+  final process = await Process.start('bazel', args, workingDirectory: workspace);
+  final outSub = process.stdout.transform(utf8.decoder).listen(stderr.write);
+  final errSub = process.stderr.transform(utf8.decoder).listen(stderr.write);
   final exitCode = await process.exitCode;
+  await outSub.cancel();
+  await errSub.cancel();
 
   if (exitCode != 0) {
     return BazelBuildResult(exitCode: exitCode, outputFiles: [], stderr: '');
@@ -98,6 +106,41 @@ Future<List<String>> bazelCqueryFlutterApp(
   final result = await Process.run('bazel', args, workingDirectory: workspace);
   if (result.exitCode != 0) return [];
   return _absolutizeCqueryPaths(result.stdout as String, workspace);
+}
+
+/// Returns the label of the `flutter_application` target within [target]'s
+/// dependency tree (e.g. `//:app`), or null if none is found.
+///
+/// The dev tool builds this label directly to materialize the
+/// `flutter_application`'s `DefaultInfo` outputs (the hot-reload
+/// `_dev_config.json` + dev `package_config.json`). Those live only in
+/// `DefaultInfo`, which the platform wrapper (macOS/iOS/...) consumes via
+/// providers, not files — so building the wrapper alone never produces them.
+Future<String?> bazelCqueryFlutterAppLabel(
+  String target, {
+  required String workspace,
+  String? compilationMode,
+  List<String> extraArgs = const [],
+}) async {
+  final args = [
+    'cquery',
+    'kind("flutter_application", deps($target))',
+    '--output=label',
+  ];
+  if (compilationMode != null) {
+    args.addAll(['-c', compilationMode]);
+  }
+  args.addAll(extraArgs);
+  final result = await Process.run('bazel', args, workingDirectory: workspace);
+  if (result.exitCode != 0) return null;
+  for (final line in LineSplitter.split(result.stdout as String)) {
+    final t = line.trim();
+    if (t.startsWith('//') || t.startsWith('@')) {
+      // cquery --output=label prints "<label> (<config hash>)"; keep the label.
+      return t.split(' ').first;
+    }
+  }
+  return null;
 }
 
 /// Parse `bazel cquery --output=files` stdout into absolute paths.

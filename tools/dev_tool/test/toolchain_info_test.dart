@@ -128,6 +128,35 @@ void main() {
       ]);
       expect(result, isNull);
     });
+
+    test('skips a dangling candidate and picks the one that resolves on disk',
+        () {
+      // Regression: a cross-platform app's `flutter_application` dev config is
+      // listed by cquery in BOTH the platform-transitioned config and the
+      // default host config, but only the host one is built (the transitioned
+      // path is a dangling symlink). findDevConfig must skip the dangling path
+      // and return the resolvable one — otherwise iOS/Android hot reload fails
+      // with "Cannot resolve symbolic links" at frontend-server startup.
+      final tmpDir = Directory.systemTemp.createTempSync('find_dev_config_');
+      addTearDown(() => tmpDir.deleteSync(recursive: true));
+      final real = File('${tmpDir.path}/app_dev_config.json')
+        ..writeAsStringSync('{}');
+      final dangling = '${tmpDir.path}/ios_sim-ST-deadbeef/app_dev_config.json';
+
+      // Dangling candidate listed FIRST, as cquery often orders it.
+      final result = findDevConfig([dangling, real.path]);
+      expect(result, real.path);
+    });
+
+    test('falls back to the first candidate when none resolve', () {
+      // Preserves behavior for pure in-memory path lists (no disk): callers
+      // still get a path to surface a clear downstream error.
+      final result = findDevConfig([
+        '/bazel-out/ios_sim-ST-x/bin/a_dev_config.json',
+        '/bazel-out/darwin_arm64-dbg/bin/a_dev_config.json',
+      ]);
+      expect(result, '/bazel-out/ios_sim-ST-x/bin/a_dev_config.json');
+    });
   });
 
   group('parseDevConfig', () {
@@ -192,6 +221,55 @@ void main() {
           p.split('$execRoot/external/flutter/fs.snapshot'));
       expect(p.split(config.patchedSdkRoot),
           p.split('$execRoot/external/flutter/patched'));
+
+      tmpDir.deleteSync(recursive: true);
+    });
+
+    test('parses + absolutizes the codegen multi-root fields', () {
+      final tmpDir = Directory.systemTemp.createTempSync('test_dev_cfg_mr_');
+      final resolvedTmpDir = tmpDir.resolveSymbolicLinksSync();
+      final execRoot = '$resolvedTmpDir/execroot/_main';
+      final binDir = Directory('$execRoot/bazel-out/cfg/bin');
+      binDir.createSync(recursive: true);
+      Directory('$execRoot/external/flutter/dart-sdk/bin')
+          .createSync(recursive: true);
+      File('$execRoot/external/flutter/dart-sdk/bin/dartaotruntime')
+          .writeAsStringSync('');
+
+      final configFile = File('${binDir.path}/app_dev_config.json');
+      configFile.writeAsStringSync(jsonEncode({
+        'engineRevision': 'abc',
+        'flutterVersion': '3.44.0',
+        'dartSdkRoot': 'external/flutter/dart-sdk',
+        'dartaotruntime': 'external/flutter/dart-sdk/bin/dartaotruntime',
+        'frontendServer': 'external/flutter/fs.snapshot',
+        'patchedSdkRoot': 'external/flutter/patched',
+        'appEntrypoint': 'package:codegen_e2e/main.dart',
+        'devPackageConfig': 'bazel-out/cfg/bin/app.dev_package_config.json',
+        'filesystemScheme': 'org-dartlang-app',
+        'filesystemRoots': ['', 'bazel-out/cfg/bin'],
+        'generatedSourcePaths': ['bazel-out/cfg/bin/lib/user.g.dart'],
+        'generatedSourceUris': ['package:codegen_e2e/user.g.dart'],
+      }));
+
+      final config = parseDevConfig(configFile.path);
+      expect(config.filesystemScheme, 'org-dartlang-app');
+      // devPackageConfig + filesystemRoots + generatedSourcePaths are
+      // exec-relative paths → absolutized (incl. "" → the exec root itself).
+      expect(p.split(config.devPackageConfig),
+          p.split('$execRoot/bazel-out/cfg/bin/app.dev_package_config.json'));
+      expect(p.split(config.filesystemRoots[0]), p.split(execRoot));
+      expect(p.split(config.filesystemRoots[1]),
+          p.split('$execRoot/bazel-out/cfg/bin'));
+      expect(p.split(config.generatedSourcePaths.single),
+          p.split('$execRoot/bazel-out/cfg/bin/lib/user.g.dart'));
+      // URIs are NOT paths — left untouched.
+      expect(config.generatedSourceUris.single,
+          'package:codegen_e2e/user.g.dart');
+      // The zipped uri→path map used for reload invalidation.
+      expect(
+          config.generatedFileUris['package:codegen_e2e/user.g.dart'],
+          isNotNull);
 
       tmpDir.deleteSync(recursive: true);
     });

@@ -1,0 +1,24 @@
+load("@rules_dart//dart:defs.bzl", "dart_codegen")
+load("@rules_flutter//flutter:defs.bzl", "flutter_library")
+
+# Dependency package whose hand-written source IMPORTS a generated standalone
+# library (catalog.g.dart). Consumed by //:app — exercises the import-as-library
+# codegen shape in a non-app package.
+
+dart_codegen(
+    name = "catalog_gen",
+    package_name = "dep_lib",
+    src = "lib/catalog.dart",
+    generator = "tools/catalog_generator.dart",
+    output_suffixes = [".g.dart"],
+)
+
+flutter_library(
+    name = "dep_lib",
+    package_name = "dep_lib",
+    srcs = [
+        "lib/catalog.dart",
+        ":catalog_gen",
+    ],
+    visibility = ["//visibility:public"],
+)

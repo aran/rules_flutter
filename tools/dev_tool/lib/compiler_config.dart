@@ -19,10 +19,27 @@ abstract interface class CompilerConfig {
 /// Compiler config for native platforms (macOS, Linux, Windows, iOS, Android).
 ///
 /// Uses `--target=flutter` with the patched SDK and asserts enabled.
+///
+/// For a source-assembled (codegen) app, [fileSystemRoots] + [fileSystemScheme]
+/// let the frontend_server resolve the app package's scheme-based `rootUri`
+/// across the live source tree and the generated bazel-out roots — so hot
+/// reload sees live edits AND generated parts. Empty for non-codegen apps
+/// (then the build package_config's source-tree rootUri suffices).
 class NativeCompilerConfig implements CompilerConfig {
   final String patchedSdkRoot;
 
-  NativeCompilerConfig({required this.patchedSdkRoot});
+  /// Directories to add as `--filesystem-root` for [fileSystemScheme].
+  final List<String> fileSystemRoots;
+
+  /// The `--filesystem-scheme` paired with [fileSystemRoots] (e.g.
+  /// `org-dartlang-app`). Ignored when [fileSystemRoots] is empty.
+  final String fileSystemScheme;
+
+  NativeCompilerConfig({
+    required this.patchedSdkRoot,
+    this.fileSystemRoots = const [],
+    this.fileSystemScheme = '',
+  });
 
   @override
   String get targetFlag => 'flutter';
@@ -31,7 +48,12 @@ class NativeCompilerConfig implements CompilerConfig {
   String get sdkRoot => patchedSdkRoot;
 
   @override
-  List<String> get extraFlags => const ['--enable-asserts'];
+  List<String> get extraFlags => [
+        '--enable-asserts',
+        for (final root in fileSystemRoots) ...['--filesystem-root', root],
+        if (fileSystemRoots.isNotEmpty && fileSystemScheme.isNotEmpty)
+          '--filesystem-scheme=$fileSystemScheme',
+      ];
 }
 
 /// Compiler config for web (DDC) compilation.

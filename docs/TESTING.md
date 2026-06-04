@@ -179,7 +179,59 @@ Verify all three, with `--no-devtools` (see Known issues):
 2. **Hot reload**: edit `lib/main.dart` visible text → `app.hotReload` →
    screenshot shows the new text.
 3. **Hot restart**: edit again → `app.restart` → screenshot shows the
-   change.
+   change. Hot restart re-runs `main()` (engine `runInView`), so it must also
+   reflect a change made *inside `main()`* (e.g. a value computed there) that a
+   hot reload deliberately does NOT — verify a `main()`-level edit too.
+
+**Source-assembled (codegen) apps** — also verify against `e2e/codegen :app_macos`.
+This is the coverage for apps that mix hand-written + generated sources, including
+**dependency packages** that do so:
+- app package `codegen_e2e`: `lib/user.dart` + `:user_json` → `lib/user.g.dart`
+  (a generated `part`);
+- dep `dep_part`: a generated `part` (`lib/settings.dart` + `:settings_gen`);
+- dep `dep_lib`: a generated **standalone imported library** (`lib/catalog.dart`
+  imports `lib/catalog.g.dart`).
+
+`lib/main.dart` renders a value from all three in `build()`, so regenerated output
+is reload-observable. Verify:
+- **Codegen reload (the real flow — edit a codegen INPUT)**: add a field to a model
+  source (`lib/user.dart`, or `dep_lib/lib/catalog.dart`) → `app.hotReload` → the
+  regenerated output renders. The dev tool runs `bazel build` of the
+  flutter_application (`refreshGenerated`) to regenerate `*.g.dart`, then the normal
+  diff invalidates the changed library by its `package:` URI.
+- **Hot restart over codegen**: edit the `User(...)` in `main()` → `app.restart` →
+  the change renders and all generated code (app + deps) still resolves.
+- **Dependency source edit**: edit a dep's hand-written source (e.g.
+  `dep_part/lib/settings.dart`) → reload → renders. This exercises the
+  `PackageUriResolver`, which keys every first-party source (app **and** deps) by its
+  `package:` URI from the build-emitted `sourcePackages` — a dep edit must NOT be
+  keyed `file://` (it would be silently dropped).
+
+> **Gotcha — editing a generator SCRIPT mid-session is unreliable.** Don't verify
+> codegen reload by editing the `dart_codegen` *generator script* (e.g.
+> `tools/*_generator.dart`) and reloading. Rapid edit→revert cycles of a generator
+> script can leave bazel's action cache in a state where it won't re-run the codegen
+> action (reproducible with pure `bazel build`; a clean cache always re-runs).
+> Editing the codegen **input** (a model source) is the realistic flow and is
+> reliable.
+
+Requires a `local_path_override` for `rules_dart` in `e2e/codegen/MODULE.bazel`
+until the new rules_dart (`generate_dev_package_config` + `source_packages`) ships
+in a release.
+
+**Watch mode (filesystem-watcher-driven reload).** Machine mode defaults the watcher
+off; pass `--watch` to drive reloads from on-disk edits instead of explicit
+`app.hotReload` commands. Edit `lib/main.dart` and a **dependency** source on disk →
+the watcher debounces and reloads → the change renders. Automated guard:
+`tools/dev_tool/test/e2e/watch_reload_e2e_test.dart` (`dart test --tags=e2e`) asserts
+the rendered output changes after watcher-triggered app + dep edits.
+
+**Release/AOT codegen run.** `bazel build //:app_macos -c opt` (release/AOT), launch
+the extracted `.app`, and capture its window (e.g. the bundled
+`//tools/macos_screenshot:screenshot --pid <pid>`): the generated output from the
+app package + both dep packages must render. This verifies the release `.pkgsrcs`
+assembly + gen_snapshot path co-locates and compiles all generated code at runtime —
+distinct from the dev multi-root path, and from the `build_test`s which only compile.
 
 Tests the full dev tool hot reload cycle: launch app, take screenshot, edit source, hot reload, take screenshot, verify the change rendered, revert source.
 

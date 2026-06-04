@@ -6,9 +6,9 @@ flutter_application, flutter_android_bundle, and flutter_ios_application.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs")
+load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs", "generate_dev_package_config")
 load("//flutter:providers.bzl", "FlutterInfo")
-load("//flutter/private:app_entrypoint.bzl", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package")
+load("//flutter/private:app_entrypoint.bzl", "app_main_package_uri", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "dedup_plugins")
@@ -147,6 +147,34 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     # imports as `package:<name>/main.dart` (hot-reload URI parity) is
     # co-located with its lib/ siblings when any of them are generated.
     colocate_inputs = all_srcs + ([ctx.file.main] if ctx.file.main else [])
+
+    # Dev hot-reload metadata (debug only): a *second* package_config that, for a
+    # source-assembled app package, points its `rootUri` at the live source tree
+    # + generated bazel-out roots via a filesystem scheme — instead of the frozen
+    # assembled `.pkgsrcs` dir the build package_config uses. This is what lets
+    # the dev tool's frontend_server pick up live edits AND find generated parts.
+    # Computed from the PRE-colocation `packages`/`colocate_inputs` so `lib_root`
+    # and `File.is_source` are still intact. See rules_dart
+    # `generate_dev_package_config`.
+    profile_mode = hasattr(ctx.attr, "profile") and ctx.attr.profile
+    emit_dev_config = ctx.var["COMPILATION_MODE"] == "dbg" and not profile_mode
+    dev_package_config = None
+    dev_filesystem_roots = []
+    dev_filesystem_scheme = ""
+    dev_generated_source_paths = []
+    dev_generated_source_uris = []
+    dev_source_packages = []
+    app_entrypoint_uri = app_main_package_uri(app_pkg_name, ctx.file.main.path) if ctx.file.main else None
+    if emit_dev_config:
+        dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
+        dev_pc = generate_dev_package_config(packages, colocate_inputs, dev_package_config)
+        ctx.actions.write(dev_package_config, dev_pc.content)
+        dev_filesystem_roots = dev_pc.filesystem_roots
+        dev_filesystem_scheme = dev_pc.scheme
+        dev_generated_source_paths = dev_pc.generated_source_paths
+        dev_generated_source_uris = dev_pc.generated_source_uris
+        dev_source_packages = dev_pc.source_packages
+
     pc = compile_package_config(ctx, packages, colocate_inputs)
     config_file = pc.config_file
     all_srcs = pc.srcs
@@ -221,7 +249,19 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         extra_flags = extra_frontend_flags,
         native_assets_manifest = native_assets_manifest,
     )
-    return struct(kernel_dill = kernel_dill, package_config = config_file)
+    return struct(
+        kernel_dill = kernel_dill,
+        package_config = config_file,
+        # Hot-reload dev metadata (None/empty outside debug). Consumed by the
+        # rule impl to emit `_dev_config.json` for the dev tool.
+        app_entrypoint_uri = app_entrypoint_uri,
+        dev_package_config = dev_package_config,
+        dev_filesystem_roots = dev_filesystem_roots,
+        dev_filesystem_scheme = dev_filesystem_scheme,
+        dev_generated_source_paths = dev_generated_source_paths,
+        dev_generated_source_uris = dev_generated_source_uris,
+        dev_source_packages = dev_source_packages,
+    )
 
 def collect_sdk_shader_srcs(deps):
     """Collect shader source files from transitive FlutterInfo deps.

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/device.dart';
@@ -818,17 +817,4 @@ class _MinimalDevice extends Device {
 
   @override
   Future<void> stop(AppInstance instance) => throw UnimplementedError();
-}
-
-/// Write a JSON file at the path specified by `--json-output` in [args].
-///
-/// Used by test fakes to simulate devicectl JSON output files.
-void _writeJsonOutput(List<dynamic> args, Map<String, dynamic> data) {
-  final idx = args.indexOf('--json-output');
-  if (idx >= 0 && idx + 1 < args.length) {
-    final path = args[idx + 1] as String;
-    File(path)
-      ..createSync(recursive: true)
-      ..writeAsStringSync(json.encode(data));
-  }
 }

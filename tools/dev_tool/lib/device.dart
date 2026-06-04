@@ -78,8 +78,14 @@ abstract class Device {
   CompilerConfig? createCompilerConfig(
     ToolchainPaths toolchain, {
     WebToolchainPaths? webToolchain,
+    List<String> fileSystemRoots = const [],
+    String fileSystemScheme = '',
   }) =>
-      NativeCompilerConfig(patchedSdkRoot: toolchain.patchedSdkRoot);
+      NativeCompilerConfig(
+        patchedSdkRoot: toolchain.patchedSdkRoot,
+        fileSystemRoots: fileSystemRoots,
+        fileSystemScheme: fileSystemScheme,
+      );
 
   /// Create the reload strategy for this platform.
   ///
@@ -268,14 +274,11 @@ class LinuxDevice extends Device {
 
 /// Windows desktop device.
 class WindowsDevice extends Device {
-  final ProcessRunSync _runProcess;
   final ProcessStarter _startProcess;
 
   WindowsDevice({
-    ProcessRunSync? runProcess,
     ProcessStarter? startProcess,
-  })  : _runProcess = runProcess ?? Process.run,
-        _startProcess = startProcess ?? _defaultStart;
+  }) : _startProcess = startProcess ?? _defaultStart;
 
   static Future<Process> _defaultStart(String exe, List<String> args) {
     return Process.start(exe, args, environment: {
@@ -1450,7 +1453,11 @@ class WebDevice extends Device {
   CompilerConfig? createCompilerConfig(
     ToolchainPaths toolchain, {
     WebToolchainPaths? webToolchain,
+    List<String> fileSystemRoots = const [],
+    String fileSystemScheme = '',
   }) {
+    // Web builds its own filesystem roots (synthetic entrypoint dir + workspace)
+    // in run_command; the native roots/scheme args are not used here.
     if (webToolchain == null) return null;
     return WebCompilerConfig(webToolchain: webToolchain);
   }

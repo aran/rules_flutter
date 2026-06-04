@@ -337,6 +337,68 @@ class FakeVmService implements VmService {
     return response;
   }
 
+  /// True once `_flutter.runInView` (hot restart's main re-run) was called.
+  bool runInViewCalled = false;
+
+  @override
+  Future<Isolate> getIsolate(String isolateId) async {
+    _checkAlive('getIsolate');
+    // Report the isolate as running (not paused) so hotRestart proceeds
+    // straight to runInView without resuming.
+    return Isolate(
+      id: isolateId,
+      pauseEvent: Event(kind: EventKind.kResume, timestamp: 0),
+    );
+  }
+
+  @override
+  Future<Response> callMethod(
+    String method, {
+    String? isolateId,
+    Map<String, dynamic>? args,
+  }) async {
+    _checkAlive(method);
+    if (method == '_flutter.listViews') {
+      return Response()
+        ..json = {
+          'views': [
+            {
+              'type': 'FlutterView',
+              'id': 'view-1',
+              if (isolates.isNotEmpty) 'isolate': {'id': isolates.first.id},
+            },
+          ],
+        };
+    }
+    if (method == '_flutter.runInView') {
+      runInViewCalled = true;
+      // Mirror real Flutter: a build failure during the restarted frame posts
+      // Flutter.Error before that frame's Flutter.Frame.
+      if (emitFlutterErrorOnReload) {
+        _extController.add(Event(
+          kind: EventKind.kExtension,
+          extensionKind: 'Flutter.Error',
+          extensionData:
+              ExtensionData.parse({'renderedErrorText': flutterErrorText}),
+          timestamp: 0,
+        ));
+      }
+      // The restarted isolate renders a frame after runInView returns.
+      Future<void>(() {
+        if (!_extController.isClosed) {
+          _extController.add(Event(
+            kind: EventKind.kExtension,
+            extensionKind: 'Flutter.Frame',
+            extensionData: ExtensionData.parse({'number': 1}),
+            timestamp: 0,
+          ));
+        }
+      });
+      return Response()..json = {};
+    }
+    return Response()..json = {};
+  }
+
   @override
   Future<void> dispose() async {
     disposed = true;

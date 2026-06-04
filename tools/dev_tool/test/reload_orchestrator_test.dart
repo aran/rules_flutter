@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_bazel_dev_tool/hot_reload/app_instance.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/compiler.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
 import 'package:path/path.dart' as p;
@@ -23,8 +24,12 @@ void main() {
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('orchestrator_test_');
       Directory(p.join(tmp.path, 'lib')).createSync();
-      workspace =
-          Workspace(root: tmp.path, entrypoint: 'package:app/main.dart');
+      workspace = Workspace(
+        resolver: PackageUriResolver(
+          workspaceRoot: tmp.path,
+          sourcePackages: const [(name: 'app', libRoot: '')],
+        ),
+      );
       applied = AppliedVersions();
       compiler = FakeCompiler();
       app = FakeAppInstance(id: 'app1');
@@ -65,6 +70,69 @@ void main() {
       expect(outcome, isA<ReloadNoChange>());
       expect(compiler.recompileCalls, isEmpty,
           reason: 'no compile should have been issued');
+    });
+
+    test('reload() refreshes generated sources before compile, invalidates them',
+        () async {
+      writeFile('main.dart', 'void main() {}');
+      // A generated file OUTSIDE lib/ (mirrors a bazel-out codegen output).
+      final genFile = File(p.join(tmp.path, 'gen', 'user.g.dart'));
+      genFile.parent.createSync(recursive: true);
+      genFile.writeAsStringSync('// v1');
+      const genUri = 'package:app/user.g.dart';
+
+      final ws = Workspace(
+        resolver: PackageUriResolver(
+          workspaceRoot: tmp.path,
+          sourcePackages: const [(name: 'app', libRoot: '')],
+        ),
+        generatedFiles: {genUri: genFile.path},
+      );
+      var refreshCalls = 0;
+      var compilesAtRefresh = -1;
+      final orch = ReloadOrchestrator(
+        workspace: ws,
+        applied: applied,
+        compiler: compiler,
+        apps: [app],
+        entrypoint: 'package:app/main.dart',
+        refreshGenerated: () async {
+          refreshCalls++;
+          compilesAtRefresh = compiler.recompileCalls.length;
+          // Simulate bazel regenerating the file with new content.
+          genFile.writeAsStringSync('// v2 regenerated (longer)');
+          return true;
+        },
+      );
+      final snap0 = ws.snapshot();
+      applied.markApplied(snap0, files: snap0.fileUris.toSet());
+
+      final outcome = await orch.reload();
+
+      expect(refreshCalls, 1, reason: 'refreshGenerated runs once per reload');
+      expect(compilesAtRefresh, 0,
+          reason: 'refreshGenerated runs BEFORE any compile');
+      expect(outcome, isA<ReloadApplied>());
+      expect((outcome as ReloadApplied).filesRecompiled, contains(genUri),
+          reason: 'the regenerated file was invalidated via the snapshot diff');
+    });
+
+    test('reload() fails when refreshGenerated (bazel) fails', () async {
+      writeFile('main.dart', 'void main() {}');
+      final orch = ReloadOrchestrator(
+        workspace: workspace,
+        applied: applied,
+        compiler: compiler,
+        apps: [app],
+        entrypoint: 'package:app/main.dart',
+        refreshGenerated: () async => false,
+      );
+      seedApplied();
+
+      final outcome = await orch.reload();
+      expect(outcome, isA<ReloadCompileFailed>());
+      expect(compiler.recompileCalls, isEmpty,
+          reason: 'a failed generated rebuild must not proceed to compile');
     });
 
     test('reload() with one FS-changed file applies it and advances applied versions',

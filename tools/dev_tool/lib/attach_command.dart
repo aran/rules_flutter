@@ -140,15 +140,23 @@ class AttachCommand {
       ));
     }
 
-    // Build to ensure outputs exist, then discover package_config.
+    // Build to ensure outputs exist, then read the hot-reload dev config
+    // (authoritative entrypoint + multi-root layout) from the build outputs.
     String? packageConfigPath;
+    DevConfig? devConfig;
     try {
       final buildResult = await bazelBuild(target,
           workspace: workspace, compilationMode: 'dbg');
       if (buildResult.success) {
         final flutterAppOutputs = await bazelCqueryFlutterApp(target,
             workspace: workspace, compilationMode: 'dbg');
-        packageConfigPath = discoverPackageConfig(flutterAppOutputs);
+        final devConfigPath = findDevConfig(flutterAppOutputs);
+        if (devConfigPath != null) {
+          devConfig = parseDevConfig(devConfigPath);
+        }
+        packageConfigPath = (devConfig?.devPackageConfig.isNotEmpty ?? false)
+            ? devConfig!.devPackageConfig
+            : discoverPackageConfig(flutterAppOutputs);
       }
     } catch (e) {
       logger.fine({
@@ -168,7 +176,11 @@ class AttachCommand {
       frontendServer = FrontendServer(
         dartaotruntimePath: toolchain.dartaotruntime,
         frontendServerPath: toolchain.frontendServer,
-        config: NativeCompilerConfig(patchedSdkRoot: toolchain.patchedSdkRoot),
+        config: NativeCompilerConfig(
+          patchedSdkRoot: toolchain.patchedSdkRoot,
+          fileSystemRoots: devConfig?.filesystemRoots ?? const [],
+          fileSystemScheme: devConfig?.filesystemScheme ?? '',
+        ),
         packageConfig: packageConfigPath,
       );
       await frontendServer.start();
@@ -187,9 +199,9 @@ class AttachCommand {
         commandRunner: commandRunner,
         findSession: findSession,
       );
-      await httpChannel!.start();
-      final base = httpChannel!.uri;
-      final t = httpChannel!.token;
+      await httpChannel.start();
+      final base = httpChannel.uri;
+      final t = httpChannel.token;
       logger.info({
         'message': 'http_control_channel',
         'text': 'HTTP control channel:\n'
@@ -201,8 +213,10 @@ class AttachCommand {
       });
     }
 
-    final entrypoint = await resolveEntrypointFromTarget(
-        target, workspace, packageConfigPath: packageConfigPath);
+    // The entrypoint is the build-authoritative package: URI from the dev
+    // config. (Attach does not yet rebuild generated sources on change — that
+    // lives in the `run` orchestrator path.)
+    final entrypoint = devConfig?.appEntrypoint ?? '';
 
     if (frontendServer != null) {
       await runInteractiveSession(

@@ -149,7 +149,7 @@ void main() {
       await hungFuture;
     });
 
-    test('hotRestart routes through reloadSources with force=true', () async {
+    test('hotRestart routes through runInView (re-runs main)', () async {
       final fake = FakeVmService(
         isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
       );
@@ -159,7 +159,7 @@ void main() {
       final outcome = await app.applyKernel('/tmp/full.dill',
           mode: ApplyMode.hotRestart);
       expect(outcome, isA<Applied>());
-      expect(fake.reloadSourcesCalled, isTrue);
+      expect(fake.runInViewCalled, isTrue);
     });
   });
 }

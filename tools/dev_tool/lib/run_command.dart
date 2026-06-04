@@ -8,7 +8,6 @@
 ///   5. Watch source files for changes (shared across devices)
 ///   6. On change: recompile once → hot reload ALL devices
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -26,6 +25,7 @@ import 'frontend_server.dart';
 import 'hot_reload/app_instance.dart' as hr;
 import 'hot_reload/applied_versions.dart';
 import 'hot_reload/compiler.dart' as hot_reload;
+import 'hot_reload/package_uri_resolver.dart';
 import 'hot_reload/readiness_gate.dart';
 import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/workspace.dart';
@@ -130,6 +130,10 @@ class RunCommand {
     ReloadStrategy? reloadStrategy;
     // Cached after frontend server setup; used by machine protocol handlers.
     String? _resolvedEntrypoint;
+    // For codegen apps: rebuilds generated sources via bazel before a reload.
+    // The native path injects this into the orchestrator; the web path invokes
+    // it in performHotReload before recompiling. Null for non-codegen apps.
+    Future<bool> Function()? refreshGenerated;
 
     // Hot-reload state. `appliedVersions` is a per-file record of "what's
     // currently live in the running app." `workspaceView` is set after the
@@ -139,6 +143,9 @@ class RunCommand {
     // detection).
     final appliedVersions = AppliedVersions();
     Workspace? workspaceView;
+    // Maps live source paths → package: URIs for snapshot keying and the
+    // filesystem watcher. Built from the build-emitted sourcePackages.
+    PackageUriResolver? reloadResolver;
     ReloadOrchestrator? orchestrator;
     // Bridges the gap between the `app.started` protocol event (emitted in
     // the per-device launch loop) and the reload pipeline being wired
@@ -279,6 +286,10 @@ class RunCommand {
       if (targets.isEmpty && params.containsKey('appId')) {
         return {'error': 'Unknown appId: ${params['appId']}'};
       }
+      // Codegen apps: regenerate before the restart's full recompile.
+      if (refreshGenerated != null && !(await refreshGenerated())) {
+        return {'error': 'Generated source rebuild (bazel) failed.'};
+      }
       final result = await recompileAndRestart(
         frontendServer: fs,
         entrypoint: entrypoint,
@@ -287,7 +298,7 @@ class RunCommand {
       );
       if (result.success && workspaceView != null) {
         // After a restart, every disk file is now live.
-        final snap = workspaceView!.snapshot();
+        final snap = workspaceView.snapshot();
         appliedVersions.clear();
         appliedVersions.markApplied(snap, files: snap.fileUris.toSet());
       }
@@ -323,6 +334,12 @@ class RunCommand {
       final targets = targetSessions(params);
       if (targets.isEmpty && params.containsKey('appId')) {
         return {'error': 'Unknown appId: ${params['appId']}'};
+      }
+
+      // Codegen apps: rebuild generated sources via bazel before snapshotting,
+      // so a regenerated `.g.dart` is detected as changed and recompiled.
+      if (refreshGenerated != null && !(await refreshGenerated())) {
+        return {'error': 'Generated source rebuild (bazel) failed.'};
       }
 
       final snap = ws.snapshot();
@@ -507,7 +524,7 @@ class RunCommand {
           generateSyntheticMainDart(
             appEntrypoint: devConfig.appEntrypoint,
             pluginRegistrantEntrypoint: pluginRegistrant != null
-                ? 'package:${findAppPackageName(packageConfig)}/generated_plugin_registrant.dart'
+                ? 'package:${packageNameFromEntrypoint(devConfig.appEntrypoint)}/generated_plugin_registrant.dart'
                 : null,
           ),
         );
@@ -549,33 +566,64 @@ class RunCommand {
         );
 
         // Set up frontend server with web compiler config + filesystem roots.
+        // For a source-assembled (codegen) app, add the dev multi-root dirs
+        // (live source + generated bazel-out) so package: URIs resolve to live
+        // edits + regenerated parts, and use the dev package_config (scheme
+        // rootUri) instead of the build one (frozen .pkgsrcs). devConfig roots
+        // are empty for non-codegen apps → behavior unchanged.
+        final webPackageConfig = devConfig.devPackageConfig.isNotEmpty
+            ? devConfig.devPackageConfig
+            : packageConfig;
         final compilerConfig = WebCompilerConfig(
           webToolchain: webToolchain,
-          fileSystemRoots: [syntheticDir.path, workspace],
+          fileSystemRoots: [
+            syntheticDir.path,
+            workspace,
+            ...devConfig.filesystemRoots,
+          ],
         );
         frontendServer = FrontendServer(
           dartaotruntimePath: devConfig.dartaotruntime,
           frontendServerPath: devConfig.frontendServer,
           config: compilerConfig,
-          packageConfig: packageConfig,
+          packageConfig: webPackageConfig,
         );
         await frontendServer.start();
 
         // Compile the synthetic entrypoint.
         final initialResult =
-            await frontendServer.compile(_resolvedEntrypoint!);
+            await frontendServer.compile(_resolvedEntrypoint);
         if (initialResult.success) {
           frontendServer.accept();
           webModuleServer.updateModules(initialResult.dillPath);
           // Seed AppliedVersions so the next reload only sees post-startup
-          // edits as changed (not every file as "newly applied").
-          workspaceView = Workspace(
-            root: workspace,
-            entrypoint: _resolvedEntrypoint!,
+          // edits as changed (not every file as "newly applied"). The resolver
+          // keys every source file (app + deps) by its `package:` URI — which is
+          // how the frontend_server keys those libraries (the synthetic web
+          // entrypoint imports them via `package:` through the dev
+          // package_config), so an invalidation actually hits them.
+          reloadResolver = PackageUriResolver(
+            workspaceRoot: workspace,
+            sourcePackages: devConfig.sourcePackages,
           );
-          final initialSnap = workspaceView!.snapshot();
+          workspaceView = Workspace(
+            resolver: reloadResolver,
+            generatedFiles: devConfig.generatedFileUris,
+          );
+          final initialSnap = workspaceView.snapshot();
           appliedVersions.markApplied(initialSnap,
               files: initialSnap.fileUris.toSet());
+          // Codegen apps: rebuild generated sources via bazel before each web
+          // reload (regenerates `.g.dart`, keeps the execroot forest intact).
+          if (devConfig.generatedSourceUris.isNotEmpty) {
+            refreshGenerated = () async {
+              final r = await bazelBuild(target,
+                  workspace: workspace,
+                  compilationMode: 'dbg',
+                  extraArgs: devices.first.buildArgs);
+              return r.success;
+            };
+          }
           hotReloadReady.signalReady();
           logger.info({
             'message': 'frontend_server_ready',
@@ -633,7 +681,7 @@ class RunCommand {
         for (var attempt = 0; attempt < 5; attempt++) {
           vmClient = VmServiceClient();
           try {
-            await vmClient!.connect(uri);
+            await vmClient.connect(uri);
             logger.info({
               'message': 'vm_service_connected',
               'text': 'Connected to VM service (${device.name}).',
@@ -703,7 +751,7 @@ class RunCommand {
         var firstConnection = true;
         final webDevice = devices.first as WebDevice;
         final dwdsReload = DwdsReloadStrategy(
-          moduleServer: webModuleServer!,
+          moduleServer: webModuleServer,
           cdpPort: webDevice.cdpPort,
           appUrl: webModuleServer.uri.toString(),
         );
@@ -811,23 +859,55 @@ class RunCommand {
           });
           final toolchain =
               await resolveToolchainPaths(target, workspace: workspace);
-          // Query the flutter_application dep for package_config (it lives
-          // in the flutter_application outputs, not the platform wrapper).
-          final flutterAppOutputs = await bazelCqueryFlutterApp(
+          // Build the flutter_application target directly to materialize its
+          // DefaultInfo — the hot-reload `_dev_config.json` + dev
+          // `package_config.json`. The platform wrapper (`:app_macos`) consumes
+          // the flutter_application via providers, not files, so building it
+          // alone never produces these. Using the app target's own outputs also
+          // keeps the dev config's config-specific paths self-consistent.
+          final devAppLabel = await bazelCqueryFlutterAppLabel(
             target,
             workspace: workspace,
             compilationMode: 'dbg',
             extraArgs: devices.first.buildArgs,
           );
-          final packageConfig = discoverPackageConfig(flutterAppOutputs);
+          if (devAppLabel == null) {
+            throw DevToolException(
+                'No flutter_application found in deps of $target.');
+          }
+          final flutterAppOutputs = (await bazelBuild(
+            devAppLabel,
+            workspace: workspace,
+            compilationMode: 'dbg',
+            extraArgs: devices.first.buildArgs,
+          ))
+              .outputFiles;
+          // The build tells us the entrypoint + hot-reload layout via
+          // _dev_config.json; we never infer them from package_config rootUri
+          // shapes.
+          final devConfigPath = findDevConfig(flutterAppOutputs);
+          if (devConfigPath == null) {
+            throw DevToolException(
+                'No _dev_config.json in flutter_application outputs '
+                '(build with -c dbg).\nOutputs: $flutterAppOutputs');
+          }
+          final devConfig = parseDevConfig(devConfigPath);
+          // The dev package_config points a source-assembled app package at the
+          // live source + generated roots via filesystemScheme; for non-codegen
+          // apps it equals the build config.
+          final packageConfig = devConfig.devPackageConfig.isNotEmpty
+              ? devConfig.devPackageConfig
+              : discoverPackageConfig(flutterAppOutputs);
           if (packageConfig == null || packageConfig.isEmpty) {
             throw DevToolException(
-                'Could not find package_config.json in flutter_application outputs.\n'
-                'flutter_application outputs: $flutterAppOutputs');
+                'Could not find a package_config.json in flutter_application '
+                'outputs.\nflutter_application outputs: $flutterAppOutputs');
           }
 
           final compilerConfig = devices.first.createCompilerConfig(
             toolchain,
+            fileSystemRoots: devConfig.filesystemRoots,
+            fileSystemScheme: devConfig.filesystemScheme,
           );
 
           if (compilerConfig != null) {
@@ -838,23 +918,38 @@ class RunCommand {
               packageConfig: packageConfig,
             );
             await frontendServer.start();
-            _resolvedEntrypoint = await _resolveEntrypoint(
-                target, workspace,
-                packageConfigPath: packageConfig);
+            _resolvedEntrypoint = devConfig.appEntrypoint;
             final initialResult =
-                await frontendServer.compile(_resolvedEntrypoint!);
+                await frontendServer.compile(_resolvedEntrypoint);
             if (initialResult.success) {
               frontendServer.accept();
               // Seed the per-file applied state and construct the
               // orchestrator. Native devices apply via per-AppInstance
               // VmServiceClient with a bounded RPC budget.
-              workspaceView = Workspace(
-                root: workspace,
-                entrypoint: _resolvedEntrypoint!,
+              reloadResolver = PackageUriResolver(
+                workspaceRoot: workspace,
+                sourcePackages: devConfig.sourcePackages,
               );
-              final initialSnap = workspaceView!.snapshot();
+              workspaceView = Workspace(
+                resolver: reloadResolver,
+                generatedFiles: devConfig.generatedFileUris,
+              );
+              final initialSnap = workspaceView.snapshot();
               appliedVersions.markApplied(initialSnap,
                   files: initialSnap.fileUris.toSet());
+
+              // Hot restart (runInView) re-runs main() in a fresh isolate and
+              // must re-specify the asset bundle; give each VM client the app's
+              // flutter_assets dir from the build outputs.
+              final assetsDir = flutterAppOutputs.firstWhere(
+                (f) => f.endsWith('flutter_assets'),
+                orElse: () => '',
+              );
+              if (assetsDir.isNotEmpty) {
+                for (final s in sessions) {
+                  s.vmClient?.assetDirectory = assetsDir;
+                }
+              }
 
               final apps = <hr.AppInstance>[
                 for (final s in sessions)
@@ -862,12 +957,32 @@ class RunCommand {
                     hr.VmServiceAppInstance(id: s.appId, client: s.vmClient!),
               ];
               if (apps.isNotEmpty) {
+                // For codegen apps, rebuild the flutter_application via bazel
+                // before each reload/restart so edits to codegen inputs are
+                // regenerated. We rebuild the whole app target (not just the
+                // narrow codegen target) on purpose: a narrow build rebuilds the
+                // execroot symlink forest to ONLY its own inputs, pruning the
+                // flutter SDK that the frontend_server reads via --filesystem-root
+                // — which then breaks the next full compile (hot restart). The
+                // app target's input set keeps everything materialized, and it's
+                // a cache hit when nothing changed. Null for non-codegen apps →
+                // no bazel build on edit (today's instant path).
+                if (devConfig.generatedSourceUris.isNotEmpty) {
+                  refreshGenerated = () async {
+                    final r = await bazelBuild(devAppLabel,
+                        workspace: workspace,
+                        compilationMode: 'dbg',
+                        extraArgs: devices.first.buildArgs);
+                    return r.success;
+                  };
+                }
                 orchestrator = ReloadOrchestrator(
-                  workspace: workspaceView!,
+                  workspace: workspaceView,
                   applied: appliedVersions,
                   compiler: hot_reload.FrontendServerCompiler(frontendServer),
                   apps: apps,
-                  entrypoint: _resolvedEntrypoint!,
+                  entrypoint: _resolvedEntrypoint,
+                  refreshGenerated: refreshGenerated,
                 );
                 hotReloadReady.signalReady();
               }
@@ -912,9 +1027,9 @@ class RunCommand {
         commandRunner: commandRunner,
         findSession: findSession,
       );
-      await httpChannel!.start();
-      final base = httpChannel!.uri;
-      final t = httpChannel!.token;
+      await httpChannel.start();
+      final base = httpChannel.uri;
+      final t = httpChannel.token;
       logger.info({
         'message': 'http_control_channel',
         'text': 'HTTP control channel:\n'
@@ -933,7 +1048,8 @@ class RunCommand {
         await runInteractiveSession(
           sessions: sessions,
           frontendServer: frontendServer,
-          entrypoint: await _resolveEntrypoint(target, workspace),
+          // Profile mode has no hot reload, so the entrypoint is unused.
+          entrypoint: _resolvedEntrypoint ?? '',
           workspace: workspace,
           protocol: protocol,
           commandRunner: commandRunner,
@@ -946,19 +1062,23 @@ class RunCommand {
     }
 
     // Step 5-6: Watch files and handle keyboard input via shared session loop.
-    _resolvedEntrypoint ??= await _resolveEntrypoint(target, workspace);
+    // _resolvedEntrypoint is set by the native frontend-server block (from the
+    // dev config) or the web block; the fallback below covers the no-hot-reload
+    // case where the entrypoint is unused.
+    _resolvedEntrypoint ??= '';
 
     if (frontendServer != null || isWebDevice) {
       await runInteractiveSession(
         sessions: sessions,
         frontendServer: frontendServer,
-        entrypoint: _resolvedEntrypoint!,
+        entrypoint: _resolvedEntrypoint,
         workspace: workspace,
         protocol: protocol,
         commandRunner: commandRunner,
         devToolsEnabled: devToolsEnabled && !profileMode,
         watchEnabled: watchEnabled,
         reloadStrategy: reloadStrategy,
+        resolver: reloadResolver,
       );
     } else {
       // No hot reload possible — wait for first device to exit.
@@ -968,30 +1088,15 @@ class RunCommand {
     }
   }
 
-  Future<String> _resolveEntrypoint(String target, String workspace,
-          {String? packageConfigPath}) =>
-      resolveEntrypointFromTarget(target, workspace,
-          packageConfigPath: packageConfigPath);
 }
 
-/// Resolve the entrypoint for the frontend server.
-///
-/// If a package_config is available and contains the app package, returns
-/// a `package:` URI (e.g. `package:app_flutter/main.dart`). This ensures
-/// library URIs match between the Bazel-built kernel and the dev tool's
-/// incremental deltas, which is required for hot reload.
-///
-/// Falls back to `lib/main.dart` if package info is unavailable.
-Future<String> resolveEntrypointFromTarget(
-  String target,
-  String workspaceRoot, {
-  String? packageConfigPath,
-}) async {
-  if (packageConfigPath != null) {
-    final name = findAppPackageName(packageConfigPath);
-    if (name != null) return 'package:$name/main.dart';
-  }
-  return 'lib/main.dart';
+/// The package name from a `package:<name>/...` entrypoint URI, or null.
+String? packageNameFromEntrypoint(String entrypoint) {
+  const prefix = 'package:';
+  if (!entrypoint.startsWith(prefix)) return null;
+  final rest = entrypoint.substring(prefix.length);
+  final slash = rest.indexOf('/');
+  return slash > 0 ? rest.substring(0, slash) : null;
 }
 
 /// Categorize build output files by type.
@@ -1017,28 +1122,3 @@ String _categorize(String path) {
   return 'other';
 }
 
-/// Find the app package name from a package_config.json file.
-///
-/// The app package is identified by its rootUri pointing to the workspace root
-/// (relative patterns vary by generator: Bazel, pub, etc.).
-String? findAppPackageName(String packageConfigPath) {
-  try {
-    final data = json.decode(File(packageConfigPath).readAsStringSync())
-        as Map<String, dynamic>;
-    final packages = data['packages'] as List? ?? [];
-    for (final pkg in packages) {
-      final rootUri = (pkg as Map)['rootUri'] as String? ?? '';
-      if (_isAppPackageRootUri(rootUri)) {
-        return pkg['name'] as String;
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-/// Whether a package_config rootUri indicates the app's own package.
-bool _isAppPackageRootUri(String rootUri) =>
-    rootUri.endsWith('/../../..') ||
-    rootUri == '../../..' ||
-    rootUri == '.' ||
-    rootUri == '../';

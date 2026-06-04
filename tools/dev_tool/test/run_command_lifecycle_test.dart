@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/app_instance.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/source_watcher.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
@@ -25,6 +26,7 @@ import 'fakes.dart';
 class _Harness {
   final Directory tmp;
   final Workspace workspace;
+  final PackageUriResolver resolver;
   final AppliedVersions applied;
   final FakeCompiler compiler;
   final FakeAppInstance app;
@@ -34,6 +36,7 @@ class _Harness {
   _Harness._({
     required this.tmp,
     required this.workspace,
+    required this.resolver,
     required this.applied,
     required this.compiler,
     required this.app,
@@ -44,8 +47,11 @@ class _Harness {
   static Future<_Harness> create() async {
     final tmp = await Directory.systemTemp.createTemp('lifecycle_test_');
     Directory(p.join(tmp.path, 'lib')).createSync();
-    final workspace =
-        Workspace(root: tmp.path, entrypoint: 'package:app/main.dart');
+    final resolver = PackageUriResolver(
+      workspaceRoot: tmp.path,
+      sourcePackages: const [(name: 'app', libRoot: '')],
+    );
+    final workspace = Workspace(resolver: resolver);
     final applied = AppliedVersions();
     final compiler = FakeCompiler();
     final app = FakeAppInstance(id: 'app1');
@@ -68,6 +74,7 @@ class _Harness {
     return _Harness._(
       tmp: tmp,
       workspace: workspace,
+      resolver: resolver,
       applied: applied,
       compiler: compiler,
       app: app,
@@ -233,8 +240,10 @@ void main() {
         final reloadResults = <Map<String, dynamic>>[];
         final sub = watcher.changes.listen((change) async {
           final result = await h.runner.run('app.hotReload', {
-            'invalidatedFiles':
-                change.paths.map(h.workspace.toFrontendServerUri).toList(),
+            'invalidatedFiles': [
+              for (final p in change.paths)
+                if (h.resolver.toPackageUri(p) case final uri?) uri,
+            ],
           });
           reloadResults.add(result);
           if (!ranCompleter.isCompleted) ranCompleter.complete();

@@ -530,7 +530,7 @@ packages:
     source: hosted
     version: "3.0.3"
   webkit_inspection_protocol:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: webkit_inspection_protocol
       sha256: "87d3f2333bb240704cd3f1c6b5b7acd8a10e7f0bc28c28dcf14e782014f4a572"

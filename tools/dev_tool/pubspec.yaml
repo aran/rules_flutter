@@ -16,6 +16,7 @@ dependencies:
   shelf: ^1.4.0
   vm_service: ^14.0.0
   watcher: ^1.1.0
+  webkit_inspection_protocol: ^1.2.1
 
 dev_dependencies:
   test: ^1.25.0

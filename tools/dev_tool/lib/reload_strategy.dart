@@ -12,6 +12,12 @@ import 'frontend_server.dart';
 import 'session.dart';
 import 'web_module_server.dart';
 
+/// JSON-RPC 2.0 "method not found" error code. The web engine doesn't
+/// register `ext.flutter.reassemble`, so a call returns this — expected and
+/// benign on the modern DDC hot-reload path (the module reload already
+/// rebuilds the tree).
+const int _rpcMethodNotFound = -32601;
+
 /// How to apply compiled output to running devices.
 abstract interface class ReloadStrategy {
   /// Apply incremental changes (hot reload).
@@ -118,14 +124,22 @@ class DwdsReloadStrategy implements ReloadStrategy {
         return false;
       }
 
-      // Trigger Flutter widget rebuild to pick up the new code.
+      // Trigger Flutter widget rebuild to pick up the new code. On the modern
+      // DDC hot-reload path the `$dartReloadModifiedModules` invoked by
+      // reloadSources above already rebuilds the tree, and the web engine does
+      // NOT register `ext.flutter.reassemble` (RPC -32601 "method not found").
+      // That case is expected and benign — don't warn on it, or every web
+      // reload prints a spurious failure. Only surface genuine errors.
       try {
         await vmService!.callServiceExtension(
           'ext.flutter.reassemble',
           isolateId: isolateId,
         );
+      } on vm.RPCError catch (e) {
+        if (e.code != _rpcMethodNotFound) {
+          stderr.writeln('Warning: ext.flutter.reassemble failed: $e');
+        }
       } catch (e) {
-        // reassemble may not be available if Flutter framework isn't loaded yet.
         stderr.writeln('Warning: ext.flutter.reassemble failed: $e');
       }
 

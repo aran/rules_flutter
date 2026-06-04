@@ -104,7 +104,10 @@ void main() {
       expect(success, isFalse);
     });
 
-    test('hotRestart calls reloadSources with force and reassemble', () async {
+    test('hotRestart re-runs main via runInView', () async {
+      // Hot restart must spawn a fresh isolate running main() (engine
+      // runInView), NOT just reloadSources+reassemble (which only re-runs
+      // build()). This is what makes main()-level changes take effect.
       final fakeService = FakeVmService(
         isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
       );
@@ -116,9 +119,7 @@ void main() {
       final success = await client.hotRestart('/tmp/out.dill');
 
       expect(success, isTrue);
-      expect(fakeService.reloadSourcesCalled, isTrue);
-      expect(fakeService.callServiceExtensionCalled, isTrue);
-      expect(fakeService.lastExtensionMethod, 'ext.flutter.reassemble');
+      expect(fakeService.runInViewCalled, isTrue);
     });
 
     test('methods throw StateError when not connected', () {
@@ -347,7 +348,7 @@ void main() {
       expect(ok, isTrue,
           reason: 'hotRestart must recover from a disposed connection');
       expect(services, hasLength(2), reason: 'connector re-ran (reconnected)');
-      expect(services.last.reloadSourcesCalled, isTrue,
+      expect(services.last.runInViewCalled, isTrue,
           reason: 'restart replayed on the fresh connection');
     });
 

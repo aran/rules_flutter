@@ -46,6 +46,52 @@ void main() {
       expect(capturedArgs, contains('--enable-asserts'));
     });
 
+    test('NativeCompilerConfig emits multi-root flags for codegen apps',
+        () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(
+          patchedSdkRoot: '/sdk-root',
+          fileSystemRoots: ['/exec', '/exec/bazel-out/bin'],
+          fileSystemScheme: 'org-dartlang-app',
+        ),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      // One --filesystem-root per root, plus a single --filesystem-scheme.
+      expect(capturedArgs, containsAllInOrder(['--filesystem-root', '/exec']));
+      expect(capturedArgs,
+          containsAllInOrder(['--filesystem-root', '/exec/bazel-out/bin']));
+      expect(capturedArgs, contains('--filesystem-scheme=org-dartlang-app'));
+    });
+
+    test('NativeCompilerConfig emits no multi-root flags without roots',
+        () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(patchedSdkRoot: '/sdk-root'),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      expect(capturedArgs, isNot(contains('--filesystem-root')));
+      expect(capturedArgs!.where((a) => a.startsWith('--filesystem-scheme')),
+          isEmpty);
+    });
+
     test('compile sends "compile <entrypoint>" to stdin', () async {
       await server.start();
       final future = server.compile('lib/main.dart');

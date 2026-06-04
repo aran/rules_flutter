@@ -308,6 +308,7 @@ Future<DevToolProcess> startDevTool({
   required String device,
   List<String> extraArgs = const [],
   bool useBazelBuiltBinary = false,
+  bool watch = false,
 }) async {
   final commonArgs = [
     'run',
@@ -317,6 +318,9 @@ Future<DevToolProcess> startDevTool({
     device,
     '--machine',
     '--no-devtools',
+    // Machine mode defaults the filesystem watcher OFF; opt back in to exercise
+    // watch-driven (terminal-style) reloads.
+    if (watch) '--watch',
     ...extraArgs,
   ];
   final process = useBazelBuiltBinary

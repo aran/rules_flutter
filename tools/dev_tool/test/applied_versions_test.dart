@@ -1,9 +1,26 @@
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+/// A Workspace whose resolver maps `<root>/lib` to `package:app/…` (plus any
+/// extra source packages), mirroring how the run block builds it from the
+/// build-emitted `sourcePackages`.
+Workspace appWorkspace(
+  String root, {
+  List<({String name, String libRoot})> packages = const [
+    (name: 'app', libRoot: ''),
+  ],
+  Map<String, String> generatedFiles = const {},
+}) {
+  return Workspace(
+    resolver: PackageUriResolver(workspaceRoot: root, sourcePackages: packages),
+    generatedFiles: generatedFiles,
+  );
+}
 
 void main() {
   group('AppliedVersions', () {
@@ -13,10 +30,7 @@ void main() {
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('applied_versions_test_');
       Directory(p.join(tmp.path, 'lib')).createSync();
-      workspace = Workspace(
-        root: tmp.path,
-        entrypoint: 'package:app/main.dart',
-      );
+      workspace = appWorkspace(tmp.path);
     });
 
     tearDown(() async {
@@ -133,10 +147,7 @@ void main() {
 
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('workspace_test_');
-      workspace = Workspace(
-        root: tmp.path,
-        entrypoint: 'package:app/main.dart',
-      );
+      workspace = appWorkspace(tmp.path);
     });
 
     tearDown(() async {
@@ -165,16 +176,33 @@ void main() {
       expect(snap.fileUris, ['package:app/a.dart']);
     });
 
-    test('uses org-dartlang-app: scheme when entrypoint is web DDC', () {
-      Directory(p.join(tmp.path, 'lib')).createSync();
-      File(p.join(tmp.path, 'lib', 'a.dart')).writeAsStringSync('// a');
+    test('scans dependency packages and keys them by their package: URI', () {
+      // Regression: the snapshot must cover ALL first-party source packages
+      // (app + local deps), not just the app's own lib/. A dep-source edit was
+      // previously invisible (only <root>/lib was scanned) — and the watcher
+      // keyed it as a bogus file:// URI. Both are now driven by the resolver's
+      // package map, so a dep file is keyed `package:dep/…`.
+      Directory(p.join(tmp.path, 'lib')).createSync(recursive: true);
+      File(p.join(tmp.path, 'lib', 'main.dart')).writeAsStringSync('// main');
+      Directory(p.join(tmp.path, 'packages', 'dep', 'lib'))
+          .createSync(recursive: true);
+      File(p.join(tmp.path, 'packages', 'dep', 'lib', 'api.dart'))
+          .writeAsStringSync('// api');
 
-      final ddc = Workspace(
-        root: tmp.path,
-        entrypoint: 'org-dartlang-app:/web_entrypoint.dart',
+      final ws = appWorkspace(tmp.path, packages: const [
+        (name: 'app', libRoot: ''),
+        (name: 'dep', libRoot: 'packages/dep'),
+      ]);
+      final snap = ws.snapshot();
+      expect(snap.fileUris, containsAll(<String>[
+        'package:app/main.dart',
+        'package:dep/api.dart',
+      ]));
+      expect(
+        snap.fileUris.any((u) => u.startsWith('file:')),
+        isFalse,
+        reason: 'no file:// keys — every source maps to a package: URI',
       );
-      final snap = ddc.snapshot();
-      expect(snap.fileUris, contains('org-dartlang-app:/lib/a.dart'));
     });
   });
 }

@@ -184,6 +184,37 @@ class DevConfig {
   /// or exec-root-relative path if package_name was not set.
   final String appEntrypoint;
 
+  /// Absolute path to the hot-reload package_config (distinct from the build
+  /// one): for a source-assembled app its rootUri uses [filesystemScheme] so it
+  /// resolves across the live source tree + generated bazel-out roots. Empty
+  /// when the build did not emit one (e.g. web dev configs).
+  final String devPackageConfig;
+
+  /// Absolute `--filesystem-root` dirs the frontend_server searches for
+  /// [filesystemScheme] URIs (live source roots, then generated bazel-out
+  /// roots). Empty unless the app package is source-assembled.
+  final List<String> filesystemRoots;
+
+  /// The `--filesystem-scheme` paired with [filesystemRoots] (e.g.
+  /// `org-dartlang-app`). Empty when [filesystemRoots] is empty.
+  final String filesystemScheme;
+
+  /// Absolute paths of the generated files in the app package; re-stat'd after
+  /// a rebuild to add changed ones to the reload invalidation set. Parallel to
+  /// [generatedSourceUris].
+  final List<String> generatedSourcePaths;
+
+  /// The `package:` URIs of the generated files, parallel to
+  /// [generatedSourcePaths] (so the dev tool invalidates the right library
+  /// without inferring a URI from a path).
+  final List<String> generatedSourceUris;
+
+  /// First-party source packages (app + local deps) as `{name, libRoot}`, where
+  /// `libRoot` is workspace-relative. Drives the [PackageUriResolver] so a live
+  /// edit in any of these packages maps to its `package:` URI. Empty for web
+  /// dev configs only if the build emitted none.
+  final List<({String name, String libRoot})> sourcePackages;
+
   DevConfig({
     required this.engineRevision,
     required this.flutterVersion,
@@ -192,10 +223,30 @@ class DevConfig {
     required this.frontendServer,
     required this.patchedSdkRoot,
     required this.appEntrypoint,
+    this.devPackageConfig = '',
+    this.filesystemRoots = const [],
+    this.filesystemScheme = '',
+    this.generatedSourcePaths = const [],
+    this.generatedSourceUris = const [],
+    this.sourcePackages = const [],
   });
 
-  /// Parse from the JSON content of a `_dev_config.json` file.
+  /// Generated files as `{package: URI → absolute path}` for reload
+  /// invalidation, zipped from the parallel [generatedSourceUris] /
+  /// [generatedSourcePaths].
+  Map<String, String> get generatedFileUris => {
+        for (var i = 0;
+            i < generatedSourceUris.length && i < generatedSourcePaths.length;
+            i++)
+          generatedSourceUris[i]: generatedSourcePaths[i],
+      };
+
+  /// Parse from the JSON content of a `_dev_config.json` file. The native
+  /// (`flutter_application`) config carries the hot-reload multi-root fields;
+  /// the web (`flutter_web_bundle`) config omits them, so they default empty.
   factory DevConfig.fromJson(Map<String, dynamic> json) {
+    List<String> strList(String key) =>
+        ((json[key] as List?) ?? const []).cast<String>();
     return DevConfig(
       engineRevision: json['engineRevision'] as String,
       flutterVersion: json['flutterVersion'] as String,
@@ -204,16 +255,48 @@ class DevConfig {
       frontendServer: json['frontendServer'] as String,
       patchedSdkRoot: json['patchedSdkRoot'] as String,
       appEntrypoint: json['appEntrypoint'] as String,
+      devPackageConfig: (json['devPackageConfig'] as String?) ?? '',
+      filesystemRoots: strList('filesystemRoots'),
+      filesystemScheme: (json['filesystemScheme'] as String?) ?? '',
+      generatedSourcePaths: strList('generatedSourcePaths'),
+      generatedSourceUris: strList('generatedSourceUris'),
+      sourcePackages: [
+        for (final e in (json['sourcePackages'] as List?) ?? const [])
+          (
+            name: (e as Map)['name'] as String,
+            libRoot: e['libRoot'] as String,
+          ),
+      ],
     );
   }
 }
 
 /// Find `_dev_config.json` in build output files.
+///
+/// `bazel cquery <label> --output=files` can list the dev config in MORE THAN
+/// ONE configuration for a cross-platform app: the `flutter_application` is
+/// reached through the platform app's apple/android transition, so it appears
+/// both in the transitioned config (e.g. `ios_sim_arm64-dbg-…-ST-<hash>`) AND
+/// in the default host config (`darwin_arm64-dbg`). The dev tool builds the
+/// BARE `flutter_application` label, which materializes only the host-config
+/// instance — the transitioned path is a dangling symlink. Prefer a candidate
+/// that actually resolves on disk; fall back to the first when none do (so the
+/// caller surfaces a clear downstream error rather than silently finding none).
 String? findDevConfig(List<String> files) {
-  for (final f in files) {
-    if (f.endsWith('_dev_config.json')) return f;
+  final candidates = [
+    for (final f in files)
+      if (f.endsWith('_dev_config.json')) f,
+  ];
+  if (candidates.isEmpty) return null;
+  for (final f in candidates) {
+    try {
+      File(f).resolveSymbolicLinksSync();
+      return f;
+    } catch (_) {
+      // Dangling symlink / nonexistent (an unbuilt transitioned config) — skip.
+    }
   }
-  return null;
+  return candidates.first;
 }
 
 /// Parse dev config JSON from a file path, resolving symlinks.
@@ -235,11 +318,26 @@ DevConfig parseDevConfig(String path) {
   final execRoot = bazelOutIdx > 0 ? p.joinAll(parts.sublist(0, bazelOutIdx)) : null;
 
   if (execRoot != null) {
-    // Make execution-root-relative paths absolute.
-    for (final key in ['dartSdkRoot', 'dartaotruntime', 'frontendServer', 'patchedSdkRoot']) {
-      final value = json[key] as String;
-      if (!p.isAbsolute(value)) {
-        json[key] = p.join(execRoot, value);
+    String abs(String value) => p.isAbsolute(value) ? value : p.join(execRoot, value);
+
+    // Make execution-root-relative path strings absolute.
+    for (final key in [
+      'dartSdkRoot',
+      'dartaotruntime',
+      'frontendServer',
+      'patchedSdkRoot',
+      'devPackageConfig',
+    ]) {
+      final value = json[key];
+      if (value is String && value.isNotEmpty) json[key] = abs(value);
+    }
+    // Absolutize the exec-relative path LISTS (roots incl. "" → execroot, and
+    // generated output paths). `generatedSourcesTarget` holds bazel labels, not
+    // paths — leave it untouched.
+    for (final key in ['filesystemRoots', 'generatedSourcePaths']) {
+      final list = json[key] as List?;
+      if (list != null) {
+        json[key] = [for (final v in list.cast<String>()) abs(v)];
       }
     }
   }
