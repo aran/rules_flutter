@@ -75,17 +75,45 @@ class DwdsReloadStrategy implements ReloadStrategy {
   /// App URL for finding the correct CDP tab.
   final String? appUrl;
 
-  /// The DWDS VM service instance. Set after DWDS connection is established.
-  vm.VmService? vmService;
+  /// The DWDS VM service instance. (Re-)attached on every browser connection
+  /// via [attachVmService] — a web hot restart is a CDP page reload, which
+  /// replaces the page's isolate and VM service, so the prior connection dies.
+  vm.VmService? get vmService => _vmService;
+  vm.VmService? _vmService;
 
   /// The main isolate ID from the DWDS VM service.
   String? _isolateId;
+
+  /// Completed by [attachVmService] when a new browser connection re-attaches
+  /// the VM service. [applyRestart] arms this before triggering the page reload
+  /// so it can wait for the reconnect before returning.
+  Completer<void>? _reattachCompleter;
 
   DwdsReloadStrategy({
     required this.moduleServer,
     this.cdpPort,
     this.appUrl,
   });
+
+  /// Attach (or replace) the DWDS VM service after a browser (re)connection.
+  ///
+  /// Disposes any prior connection (dead after a page reload) and clears the
+  /// cached isolate id so the next reload re-discovers the new page's isolate.
+  void attachVmService(vm.VmService service) {
+    unawaited(_vmService?.dispose());
+    _vmService = service;
+    _isolateId = null;
+    if (_reattachCompleter case final c? when !c.isCompleted) {
+      c.complete();
+    }
+  }
+
+  /// Arm a one-shot future that completes on the next [attachVmService].
+  Future<void> _awaitReattach() {
+    final completer = Completer<void>();
+    _reattachCompleter = completer;
+    return completer.future;
+  }
 
   /// Discover the main isolate ID from the VM service.
   Future<String?> _getIsolateId() async {
@@ -162,7 +190,17 @@ class DwdsReloadStrategy implements ReloadStrategy {
       return false;
     }
     try {
+      // Arm BEFORE triggering the reload so we can't miss the reconnect event.
+      final reattached = _awaitReattach();
       await _cdpPageReload(cdpPort!, appUrl: appUrl);
+      // Wait for the browser to reconnect and re-attach the VM service, so a
+      // hot reload issued right after this restart uses the live connection
+      // rather than the now-dead one. Bounded so a missed reconnect logs and
+      // returns instead of hanging the session.
+      await reattached.timeout(const Duration(seconds: 10), onTimeout: () {
+        stderr.writeln(
+            'Warning: timed out waiting for browser reconnect after restart.');
+      });
       return true;
     } catch (e) {
       stderr.writeln('Warning: CDP page reload failed: $e');

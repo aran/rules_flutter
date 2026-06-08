@@ -746,9 +746,12 @@ class RunCommand {
     // For web DDC: now that Chrome is launched, set up DWDS connection + reload strategy.
     if (isWebDevice && webModuleServer != null && !wasmMode) {
       if (webModuleServer.connectedApps != null) {
-        // Wait for first browser connection, set up VM service for hot reload,
-        // then listen for reconnects (after page reloads).
-        var firstConnection = true;
+        // Set up the VM service on EVERY browser connection — not just the
+        // first. A web hot restart is a CDP page reload, which tears down the
+        // page's isolate and VM service; re-attaching on each (re)connection
+        // lets the next hot reload use the live connection instead of a dead
+        // one. Matches Flutter's resident_web_runner, which re-attaches per
+        // connection.
         final webDevice = devices.first as WebDevice;
         final dwdsReload = DwdsReloadStrategy(
           moduleServer: webModuleServer,
@@ -758,42 +761,34 @@ class RunCommand {
         reloadStrategy = dwdsReload;
 
         webModuleServer.connectedApps!.listen((appConnection) async {
-          if (firstConnection) {
-            firstConnection = false;
-            // First connection: set up VM service, then call runMain().
-            // Matches Flutter's resident_web_runner.dart:952-953.
+          logger.info({
+            'message': 'dwds_connected',
+            'text':
+                'DWDS: Browser connected (app: ${appConnection.request.appId})',
+          });
+          try {
+            final debugConnection =
+                await webModuleServer!.debugConnection(appConnection);
+            final dwdsUri = Uri.parse(debugConnection.uri);
+            final wsUri = dwdsUri.replace(
+              scheme: dwdsUri.scheme == 'https' ? 'wss' : 'ws',
+              path: '${dwdsUri.path}ws',
+            );
+            dwdsReload
+                .attachVmService(await vm.vmServiceConnectUri(wsUri.toString()));
             logger.info({
-              'message': 'dwds_connected',
-              'text':
-                  'DWDS: Browser connected (app: ${appConnection.request.appId})',
+              'message': 'dwds_vm_service',
+              'text': 'DWDS VM service ready — hot reload enabled.',
             });
-            try {
-              final debugConnection =
-                  await webModuleServer!.debugConnection(appConnection);
-              final dwdsUri = Uri.parse(debugConnection.uri);
-              final wsUri = dwdsUri.replace(
-                scheme: dwdsUri.scheme == 'https' ? 'wss' : 'ws',
-                path: '${dwdsUri.path}ws',
-              );
-              dwdsReload.vmService =
-                  await vm.vmServiceConnectUri(wsUri.toString());
-              logger.info({
-                'message': 'dwds_vm_service',
-                'text': 'DWDS VM service ready — hot reload enabled.',
-              });
-            } catch (e) {
-              logger.fine({
-                'message': 'dwds_vm_service_error',
-                'text': 'Could not connect DWDS VM service: $e',
-              });
-            }
-            // Tell the browser to run main() — sends RunRequest via SSE.
-            // Must happen after debug setup so DWDS can set breakpoints.
-            appConnection.runMain();
-          } else {
-            // Reconnect (after page reload): run main again.
-            appConnection.runMain();
+          } catch (e) {
+            logger.fine({
+              'message': 'dwds_vm_service_error',
+              'text': 'Could not connect DWDS VM service: $e',
+            });
           }
+          // Tell the browser to run main() — sends RunRequest via SSE. Must
+          // happen after debug setup so DWDS can set breakpoints.
+          appConnection.runMain();
         });
       }
     }
