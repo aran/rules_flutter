@@ -84,8 +84,8 @@ The latest tag is the current stable release.
 **Trigger**: After any change to `MODULE.bazel` files or their transitive deps.
 
 **Workspaces** (directories containing `MODULE.bazel`): root (`.`) plus every
-subdirectory of `e2e/` that has a `MODULE.bazel` — currently 15 e2e workspaces
-(`android_example`, `codegen`, `codegen_example`, `cross_compile_example`,
+subdirectory of `e2e/` that has a `MODULE.bazel` — currently 14 e2e workspaces
+(`android_example`, `codegen`, `cross_compile_example`,
 `ffi_example`, `ffi_plugin_example`, `hello_world`, `ios_example`,
 `linux_example`, `macos_example`, `multi_window_example`, `plugin_example`,
 `smoke`, `web_example`, `windows_example`).

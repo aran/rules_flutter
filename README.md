@@ -888,8 +888,7 @@ End-to-end examples are in the `e2e/` directory:
 |-----------|-------------|
 | `e2e/smoke` | Minimal smoke test for toolchain setup. |
 | `e2e/hello_world` | Minimal Flutter app: kernel compilation, AOT, asset bundling, macOS bundle, web build. |
-| `e2e/codegen` | Per-file and aggregate code generation with `dart_codegen` and `dart_aggregate_codegen`. |
-| `e2e/codegen_example` | Standalone codegen example with a custom generator. |
+| `e2e/codegen` | Per-file and aggregate code generation with `dart_codegen` and `dart_aggregate_codegen`, including custom generators; doubles as the hot-reload-with-codegen example. |
 | `e2e/ffi_example` | `flutter_plugin` with `native_deps` only (FFI, no registration). |
 | `e2e/ffi_plugin_example` | `flutter_plugin` with both `dart_plugin_class` and `native_deps`. |
 | `e2e/plugin_example` | `flutter_plugin` with `dart_plugin_class` only (Dart-side registration). |
