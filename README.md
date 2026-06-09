@@ -20,7 +20,7 @@ If you're already using `flutter build`, here's what you gain by switching to Ba
 ## Compatibility
 
 - **Bazel**: 9+
-- **Flutter SDK**: 3.44.0
+- **Flutter SDK**: 3.44.1
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ bazel_dep(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.44.0")
+flutter.toolchain(flutter_version = "3.44.1")
 use_repo(flutter, "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
@@ -804,7 +804,7 @@ flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flut
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `str` | Flutter SDK version string (e.g. `"3.44.0"`). |
+| `version` | `str` | Flutter SDK version string (e.g. `"3.44.1"`). |
 | `engine_revision` | `str` | Engine commit hash. |
 | `dart` | `File` | The `dart` executable from the Flutter-bundled Dart SDK. |
 | `dartaotruntime` | `File` | The `dartaotruntime` executable for running AOT snapshots. |

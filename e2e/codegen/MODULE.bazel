@@ -25,7 +25,7 @@ local_path_override(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.44.0")
+flutter.toolchain(flutter_version = "3.44.1")
 flutter.pub(
     name = "deps",
     lock = "//:pubspec.lock",

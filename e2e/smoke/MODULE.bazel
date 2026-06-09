@@ -12,7 +12,7 @@ local_path_override(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.44.0")
+flutter.toolchain(flutter_version = "3.44.1")
 use_repo(flutter, "dev_tool_deps", "flutter_macos_engine", "flutter_toolchains", "flutter_web_sdk")
 
 register_toolchains("@flutter_toolchains//:all")
