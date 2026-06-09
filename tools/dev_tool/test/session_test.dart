@@ -121,6 +121,36 @@ void main() {
       expect(stopped, contains('test_device'));
       expect(logs.first, contains('Watching for file changes'));
     });
+
+    test('machine mode suppresses the interactive key banner',
+        timeout: Timeout(Duration(seconds: 10)), () async {
+      // In --machine mode stdin is the JSON-RPC channel, so "Press r/R/q" hints
+      // are both inactive and (since `log` writes to stdout) would corrupt the
+      // protocol stream. The banner must not be emitted.
+      final protocol = MachineProtocol(enabled: true);
+      final logs = <String>[];
+
+      // No sessions + machine mode → the protocol.enabled branch returns
+      // immediately (no exit futures to await).
+      await runInteractiveSession(
+        sessions: [],
+        frontendServer: null,
+        entrypoint: '/fake/main.dart',
+        workspace: Directory.systemTemp.path,
+        protocol: protocol,
+        devToolsEnabled: false,
+        hotReloadEnabled: true,
+        watchEnabled: false,
+        log: (msg) => logs.add(msg),
+      );
+
+      expect(
+        logs.where((m) => m.contains('Press') || m.contains('Watching')),
+        isEmpty,
+        reason: 'machine mode owns stdin via JSON-RPC; key hints mislead and '
+            'pollute the protocol stdout stream',
+      );
+    });
   });
 }
 

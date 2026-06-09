@@ -200,14 +200,23 @@ Future<void> runInteractiveSession({
     }
   }
 
-  if (hotReloadEnabled) {
-    if (watchEnabled) {
-      log('Watching for file changes. Press "r" hot reload, "R" restart, "p" perf overlay, "i" inspector, "q" quit.');
+  // The single-key shortcuts below are only wired up for an interactive
+  // terminal. In `--machine` mode stdin is the JSON-RPC command channel (see
+  // the `protocol.enabled` early-return after the watcher), so a keystroke like
+  // "q" is parsed as JSON and fails with a -32700 parse error rather than
+  // quitting. Worse, `log` writes to stdout — which the machine protocol owns —
+  // so the banner would also corrupt the protocol stream. Suppress it entirely
+  // in machine mode; the consumer drives the session via app.* commands.
+  if (!protocol.enabled) {
+    if (hotReloadEnabled) {
+      if (watchEnabled) {
+        log('Watching for file changes. Press "r" hot reload, "R" restart, "p" perf overlay, "i" inspector, "q" quit.');
+      } else {
+        log('Press "r" hot reload, "R" restart, "p" perf overlay, "i" inspector, "q" quit.');
+      }
     } else {
-      log('Press "r" hot reload, "R" restart, "p" perf overlay, "i" inspector, "q" quit.');
+      log('Press "p" perf overlay, "i" inspector, "q" quit.');
     }
-  } else {
-    log('Press "p" perf overlay, "i" inspector, "q" quit.');
   }
 
   // Start file watcher (only if watching is enabled, hot reload is enabled,
