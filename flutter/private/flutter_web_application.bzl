@@ -176,7 +176,7 @@ def _flutter_web_bundle_impl(ctx):
 
     # Step 1: Collect sources, generate package config, handle plugin registrant.
     # dart compile wasm/js take .dart source directly (not kernel .dill).
-    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps)
+    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps).to_list()
     packages = collect_packages(ctx.attr.deps)
 
     # Register the app's own package (when declared) so `package:<name>/main.dart`

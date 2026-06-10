@@ -133,7 +133,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     Returns:
         struct with kernel_dill (File) and package_config (File).
     """
-    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps)
+    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps).to_list()
     packages = collect_packages(ctx.attr.deps)
 
     # Register the app itself as a package so the frontend_server keys the

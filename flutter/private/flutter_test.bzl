@@ -169,7 +169,7 @@ def _flutter_test_impl(ctx):
     ctx.actions.write(bootstrap, _make_bootstrap_content(test_import))
 
     # Collect transitive Dart sources and packages for the kernel compile.
-    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps) + [ctx.file.main, bootstrap]
+    all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps).to_list() + [ctx.file.main, bootstrap]
     packages = collect_packages(ctx.attr.deps)
 
     # Register the test's own package (when declared) so `package:<self>/foo`
