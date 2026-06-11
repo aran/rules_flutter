@@ -146,7 +146,12 @@ macos_application(
     infoplists = [":app_info_plist"],
     minimum_os_version = MACOS_MINIMUM_OS_VERSION,
     resources = [":app_menu_xib"],
-    target_compatible_with = ["@platforms//os:macos"],
+    # `manual` keeps this apple-bundling target out of the `//...` wildcard so
+    # `bazel test //...` on Linux doesn't try (and fail) to resolve a C++
+    # toolchain for it. macOS coverage comes via :macos_app_build_test, which
+    # references it explicitly and carries the target_compatible_with guard.
+    # Matches the macos_application pattern in the other e2e workspaces.
+    tags = ["manual"],
     version = ":app_version",
     deps = [":app_runner_lib"],
 )
