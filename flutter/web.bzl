@@ -243,8 +243,14 @@ def flutter_web_app(
         web_sdk: Optional web SDK repo name (e.g. "@my_flutter_web_sdk").
         **kwargs: Additional arguments forwarded to flutter_web_bundle
             (e.g. assets, shaders, defines, pwa, tags, visibility).
+            `extra_web_assets` is accepted here: additional web asset
+            targets — typically generated files, which the `web/` glob
+            cannot see — copied into the bundle root alongside the
+            auto-discovered `web/` contents (the additive counterpart of
+            `flutter_macos_app`'s `additional_contents`).
     """
     pwa = kwargs.pop("pwa", True)
+    extra_web_assets = kwargs.pop("extra_web_assets", [])
     tags = kwargs.pop("tags", [])
     effective_app_name = app_name or name
 
@@ -288,7 +294,7 @@ def flutter_web_app(
         ["web/**"],
         exclude = ["web/index.html", "web/manifest.json"],
         allow_empty = True,
-    )
+    ) + extra_web_assets
 
     flutter_web_bundle(
         name = name,
