@@ -21,8 +21,11 @@ import 'vm_service_client.dart';
 /// Runtime state for a single device in a multi-device run.
 class DeviceSession {
   final Device device;
-  final AppInstance appInstance;
-  final VmServiceClient? vmClient;
+
+  /// Mutable: a restart that finds changed native libraries relaunches the
+  /// process, replacing the instance and its VM service connection.
+  AppInstance appInstance;
+  VmServiceClient? vmClient;
   final String appId;
   String? devToolsUrl;
   Process? devToolsProcess;

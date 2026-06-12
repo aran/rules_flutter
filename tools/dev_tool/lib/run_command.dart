@@ -32,6 +32,7 @@ import 'hot_reload/workspace.dart';
 import 'http_control_channel.dart';
 import 'logging.dart';
 import 'machine_protocol.dart';
+import 'native_libs_fingerprint.dart';
 import 'reload_strategy.dart';
 import 'session.dart';
 import 'toolchain_info.dart';
@@ -134,6 +135,13 @@ class RunCommand {
     // The native path injects this into the orchestrator; the web path invokes
     // it in performHotReload before recompiling. Null for non-codegen apps.
     Future<bool> Function()? refreshGenerated;
+    // For apps bundling loose native libraries (native_deps): rebuilds the
+    // app and, when the rebuilt bundle's native libraries differ from the
+    // running process's, relaunches the process — a hot restart cannot
+    // replace a dlopened library. Returns null when no relaunch was needed
+    // (the normal isolate restart proceeds); otherwise the restart result.
+    // Null for apps with no loose native libraries (instant-restart path).
+    Future<Map<String, dynamic>?> Function()? relaunchIfNativeLibsChanged;
 
     // Hot-reload state. `appliedVersions` is a per-file record of "what's
     // currently live in the running app." `workspaceView` is set after the
@@ -272,6 +280,13 @@ class RunCommand {
       // Native: orchestrator-based restart.
       final orch = orchestrator;
       if (orch != null) {
+        // Native libraries cannot be hot-restarted (the process keeps its
+        // dlopened images) — rebuild first and relaunch if they changed.
+        final relaunch = relaunchIfNativeLibsChanged;
+        if (relaunch != null) {
+          final relaunched = await relaunch();
+          if (relaunched != null) return relaunched;
+        }
         final outcome = await orch.restart();
         return _orchOutcomeToMap(outcome, 'Restart');
       }
@@ -979,6 +994,98 @@ class RunCommand {
                   entrypoint: _resolvedEntrypoint,
                   refreshGenerated: refreshGenerated,
                 );
+
+                // A hot restart cannot replace dlopened native libraries.
+                // Record the launched bundle's loose-native-lib fingerprint;
+                // app.restart rebuilds and, when the fingerprint changed,
+                // relaunches the process instead of restarting the isolate.
+                // Apps with no loose native libraries skip all of this and
+                // keep the instant restart path.
+                var liveNativeLibsFp = await nativeLibsFingerprint(appFile);
+                if (liveNativeLibsFp.isNotEmpty) {
+                  relaunchIfNativeLibsChanged = () async {
+                    // Rebuild the launch target (not devAppLabel: the dev
+                    // outputs don't include the bundle the process runs).
+                    final r = await bazelBuild(target,
+                        workspace: workspace,
+                        compilationMode: compilationMode,
+                        extraArgs: allExtraArgs);
+                    if (!r.success) {
+                      return {
+                        'error':
+                            'bazel build failed during restart; see build output.'
+                      };
+                    }
+                    final fp = await nativeLibsFingerprint(appFile);
+                    if (fingerprintsEqual(fp, liveNativeLibsFp)) return null;
+                    final changed = changedLibs(liveNativeLibsFp, fp);
+                    logger.info({
+                      'message': 'native_libs_changed',
+                      'text':
+                          'Native libraries changed (${changed.join(', ')}); relaunching.',
+                      'libs': changed,
+                    });
+                    for (final s in sessions) {
+                      if (s.appInstance.vmServiceUri == null) continue;
+                      await s.vmClient?.disconnect();
+                      await s.device.stop(s.appInstance);
+                      final inst = await s.device.launch(appFile);
+                      VmServiceClient? client;
+                      if (inst.vmServiceUri != null) {
+                        for (var attempt = 0; attempt < 5; attempt++) {
+                          client = VmServiceClient();
+                          try {
+                            await client.connect(inst.vmServiceUri!);
+                            break;
+                          } catch (_) {
+                            client = null;
+                            if (attempt < 4) {
+                              await Future<void>.delayed(
+                                  const Duration(seconds: 1));
+                            }
+                          }
+                        }
+                      }
+                      s.appInstance = inst;
+                      s.vmClient = client;
+                      if (client != null && inst.vmServiceUri != null) {
+                        final uri = inst.vmServiceUri!;
+                        protocol.appDebugPort(
+                          s.appId,
+                          uri.replace(
+                              scheme: uri.scheme == 'https' ? 'wss' : 'ws',
+                              path: '${uri.path}ws'),
+                          uri,
+                        );
+                        if (assetsDir.isNotEmpty) {
+                          client.assetDirectory = assetsDir;
+                        }
+                      }
+                      protocol.appStarted(s.appId);
+                    }
+                    orchestrator?.apps
+                      ?..clear()
+                      ..addAll([
+                        for (final s in sessions)
+                          if (s.vmClient != null)
+                            hr.VmServiceAppInstance(
+                                id: s.appId, client: s.vmClient!),
+                      ]);
+                    // The relaunched process runs the freshly built kernel:
+                    // every disk file is now live.
+                    final snap = workspaceView!.snapshot();
+                    appliedVersions.clear();
+                    appliedVersions.markApplied(snap,
+                        files: snap.fileUris.toSet());
+                    liveNativeLibsFp = fp;
+                    return {
+                      'message':
+                          'Restart relaunched the app: native libraries changed (${changed.join(', ')}).',
+                      'relaunched': true,
+                      'nativeLibsChanged': changed,
+                    };
+                  };
+                }
                 hotReloadReady.signalReady();
               }
               logger.info({
