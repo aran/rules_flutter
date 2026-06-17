@@ -59,6 +59,22 @@ class HttpControlChannel {
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
+    // Reject HTTP upgrade attempts (e.g. HTTP/2 cleartext "h2c"). Dart's
+    // HttpServer is HTTP/1.1 only and, when an `Upgrade` header is present,
+    // silently discards the request body — which turns a POST /command into a
+    // mysterious hang/empty-reply. Fail loudly and early with guidance instead.
+    final upgrade = request.headers.value(HttpHeaders.upgradeHeader);
+    if (upgrade != null) {
+      request.response.statusCode = HttpStatus.upgradeRequired;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(json.encode({
+        'error': 'HTTP upgrade ($upgrade) is not supported; this endpoint is '
+            'HTTP/1.1 only. Retry with plain HTTP/1.1 (curl: --http1.1).'
+      }));
+      await request.response.close();
+      return;
+    }
+
     // Auth check.
     final requestToken = request.uri.queryParameters['token'];
     if (requestToken != _token) {

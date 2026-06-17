@@ -61,6 +61,23 @@ void main() {
       return (response, responseBody);
     }
 
+    group('http upgrade', () {
+      test('rejects an Upgrade request with 426 before reading the body',
+          () async {
+        // Mimic an HTTP/2 cleartext (h2c) upgrade attempt: Dart's HttpServer
+        // would otherwise silently drop the request body and hang the POST.
+        final request = await client.postUrl(_uri('/command'));
+        request.headers.contentType = ContentType.json;
+        request.headers.set(HttpHeaders.connectionHeader, 'Upgrade');
+        request.headers.set(HttpHeaders.upgradeHeader, 'h2c');
+        request.write(json.encode({'method': 'test.echo'}));
+        final response = await request.close();
+        final body = await utf8.decoder.bind(response).join();
+        expect(response.statusCode, HttpStatus.upgradeRequired);
+        expect(body, contains('HTTP/1.1 only'));
+      });
+    });
+
     group('auth', () {
       test('returns 401 without token', () async {
         final response = await _get('/command', withToken: false);
