@@ -264,8 +264,9 @@ curl -s "http://[::1]:PORT/sessions/APPID/screenshot/flutter?token=TOKEN" \
 **When to run:** After any change to the dev tool, frontend server integration, or hot reload logic.
 
 **Known issues:**
-- `_flutter.screenshot` fails when `--devtools` is enabled (default) because DDS takes over the VM service port. Use `--no-devtools` as a workaround until this is fixed.
 - `app.hotReload` may report "no changes detected" if the file watcher already auto-reloaded the change. This only happens when the file watcher is enabled (terminal mode default); `--machine` disables it by default.
+
+**Note:** the dev tool now owns DDS (starts it on the app's raw VM service and routes both its own VM client and DevTools through it), so `_flutter.screenshot` works with DevTools enabled — `--no-devtools` is no longer required.
 
 ### Linux visual verification (GCP VM)
 

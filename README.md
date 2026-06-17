@@ -878,6 +878,22 @@ App-driving methods (proxied to the agent extensions registered by the rule-inje
 
 Lifecycle methods: `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
 
+**Selecting a widget.** Methods that target a widget (`tap`, `longPress`, `doubleTap`, `drag`, `getRect`, `getText`, `scrollIntoView`, `waitFor`, `waitForAbsent`) take **exactly one** selector — mirroring `flutter_driver`'s finder vocabulary:
+
+| param | matches |
+| --- | --- |
+| `key` | a widget whose `ValueKey` value equals the string |
+| `text` | a `Text`/`EditableText` whose content equals the string |
+| `tooltip` | a `Tooltip` whose `message` equals the string |
+| `type` | a widget whose runtime type name equals the string (e.g. `ElevatedButton`) |
+| `semanticsLabel` | a widget whose semantics label equals the string |
+
+Passing zero or more than one selector returns a clear error. Other params: `durationMs` (longPress/drag/scrollIntoView), `dx`/`dy` (drag/scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `text` (enterText), `timeoutMs`.
+
+**Settling and timeouts.** After dispatching input, interaction methods wait until the app is idle (no animations in flight) before returning, so a follow-up `getRect`/`getText` sees post-action layout — the same model as `flutter_driver`. The wait is bounded by `timeoutMs` (default 10000); if the app can't settle within it — e.g. the window is minimized/occluded so the embedder has paused vsync — the method returns a `TimeoutException` error rather than blocking forever. The input is still delivered.
+
+**curl note.** The endpoints speak plain HTTP/1.1; no special flags are needed — `curl -s "$URI/..."` works. (If your `curl` is configured to attempt HTTP/2, add `--http1.1`.)
+
 This means an external agent can: build the app, launch it under `flutter_bazel`, drive an entire user flow (taps, text entry, waits, screenshots) over plain HTTP, and shut it down cleanly — no manual `q` keystroke needed.
 
 ## Examples
