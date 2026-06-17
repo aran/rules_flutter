@@ -143,6 +143,67 @@ void main() {
           expect((r['width'] as num) > 0, isTrue);
           expect((r['height'] as num) > 0, isTrue);
 
+          // Finder vocabulary (flutter_driver parity): resolve widgets by
+          // text / type / tooltip / semanticsLabel, not just ValueKey.
+          final byText = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+            'text': 'Increment (agent)',
+          });
+          expect(byText['error'], isNull,
+              reason: 'getRect by text: ${byText['error']}');
+
+          final byType = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+            'type': 'FloatingActionButton',
+          });
+          expect(byType['error'], isNull,
+              reason: 'getRect by type: ${byType['error']}');
+
+          final byTooltip = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+            'tooltip': 'Increment',
+          });
+          expect(byTooltip['error'], isNull,
+              reason: 'getRect by tooltip: ${byTooltip['error']}');
+
+          final bySemantics = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+            'semanticsLabel': 'You have pushed the button this many times:',
+          });
+          expect(bySemantics['error'], isNull,
+              reason: 'getRect by semanticsLabel: ${bySemantics['error']}');
+
+          // Selector validation: none and ambiguous both error clearly.
+          final noSelector = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+          });
+          expect(noSelector['error']?.toString(), contains('missing selector'),
+              reason: 'getRect with no selector should error clearly');
+          final ambiguous = await dt.httpCommand('app.getRect', {
+            'appId': appId,
+            'key': 'agent_test_button',
+            'text': 'whatever',
+          });
+          expect(ambiguous['error']?.toString(), contains('ambiguous selector'),
+              reason: 'getRect with two selectors should error clearly');
+
+          // tap-by-text actuates the same button as tap-by-key.
+          final beforeByText = await dt.httpCommand('app.getText', {
+            'appId': appId,
+            'key': 'agent_test_label',
+          });
+          await dt.httpCommand('app.tap', {
+            'appId': appId,
+            'text': 'Increment (agent)',
+          });
+          final afterByText = await dt.httpCommand('app.getText', {
+            'appId': appId,
+            'key': 'agent_test_label',
+          });
+          expect(afterByText['result']?['text'],
+              isNot(beforeByText['result']?['text']),
+              reason: 'tap by text should change the counter label');
+
           final wait = await dt.httpCommand('app.waitFor', {
             'appId': appId,
             'key': 'agent_test_button',
@@ -279,7 +340,98 @@ void main() {
         }
       },
           timeout: const Timeout(Duration(minutes: 3)));
+
+      test('app.tap does not hang when the window is occluded (frames paused)',
+          () async {
+        final dt = await startDevTool(
+          workspace: e2eWorkspace('hello_world'),
+          target: ':hello_world_macos',
+          device: 'macos',
+        );
+        try {
+          await dt.waitForEvent('app.started');
+          await dt.waitForHttpControl();
+          final appId = dt.appId!;
+          await dt.httpCommand('app.waitFor', {
+            'appId': appId,
+            'key': 'agent_test_button',
+            'timeoutMs': '15000',
+          });
+
+          // Minimize the app window so the macOS embedder pauses vsync — the
+          // condition that used to hang app.tap forever (the old unbounded
+          // `await endOfFrame`). Requires Accessibility permission for the
+          // controlling process; skip gracefully if unavailable.
+          if (!await _setMinimized(true)) {
+            markTestSkipped('could not minimize the window '
+                '(no Accessibility permission?)');
+            return;
+          }
+
+          try {
+            // Read-only finders still work with frames paused.
+            final rect = await dt.httpCommand('app.getRect', {
+              'appId': appId,
+              'key': 'agent_test_button',
+            });
+            expect(rect['error'], isNull,
+                reason: 'getRect should work while occluded: ${rect['error']}');
+
+            // The core regression guard: the interaction must RETURN (not hang
+            // forever on `endOfFrame`) when the embedder has paused frames.
+            // Depending on how promptly the OS reports the window as occluded,
+            // the settle either short-circuits (framesEnabled == false → fast
+            // success) or hits its bounded timeout — both are non-hangs. If the
+            // old bug returned, this await would block until the test timeout.
+            final sw = Stopwatch()..start();
+            final tap = await dt.httpCommand('app.tap', {
+              'appId': appId,
+              'key': 'agent_test_button',
+              'timeoutMs': '2000',
+            });
+            sw.stop();
+            expect(sw.elapsed, lessThan(const Duration(seconds: 10)),
+                reason: 'app.tap must not hang while the window is occluded');
+            expect(tap, isNotNull, reason: 'app.tap must return a response');
+          } finally {
+            await _setMinimized(false);
+          }
+
+          // The tap was still delivered despite the settle timeout: the
+          // onPressed fired synchronously (counter == 1 in state); once the
+          // window is restored and a frame rebuilds the label, it shows it.
+          // Poll to absorb the post-restore frame latency.
+          String? labelText;
+          final deadline = DateTime.now().add(const Duration(seconds: 5));
+          while (DateTime.now().isBefore(deadline)) {
+            final label = await dt.httpCommand('app.getText', {
+              'appId': appId,
+              'key': 'agent_test_label',
+            });
+            labelText = label['result']?['text'] as String?;
+            if (labelText == 'count: 1') break;
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+          expect(labelText, 'count: 1',
+              reason: 'the occluded tap should have incremented the counter '
+                  '(input delivered even though settle timed out)');
+        } finally {
+          await dt.dispose();
+        }
+      }, timeout: const Timeout(Duration(minutes: 3)));
     },
     skip: !Platform.isMacOS ? 'macOS only' : null,
   );
+}
+
+/// Minimize/restore the `:hello_world_macos` window (bundle `app_name`
+/// "Hello World") via AppleScript. Returns false if the window can't be
+/// addressed (e.g. no Accessibility permission), so callers can skip.
+Future<bool> _setMinimized(bool value) async {
+  final result = await Process.run('osascript', [
+    '-e',
+    'tell application "System Events" to tell process "Hello World" '
+        'to set value of attribute "AXMinimized" of window 1 to $value',
+  ]);
+  return result.exitCode == 0;
 }
