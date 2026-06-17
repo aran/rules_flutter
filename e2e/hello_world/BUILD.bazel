@@ -49,6 +49,9 @@ flutter_application(
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
     main = "lib/main.dart",
+    # Visible to the optional, git-ignored //device package for on-device
+    # (signed) iOS builds. See device.example/.
+    visibility = ["//device:__pkg__"],
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",

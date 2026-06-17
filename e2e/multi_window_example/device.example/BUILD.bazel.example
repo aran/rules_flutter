@@ -1,0 +1,53 @@
+# On-device (signed) iOS build — per-developer, NOT checked into version control.
+#
+# This whole `device/` directory is git-ignored so your Apple Team ID, bundle
+# id, and provisioning profile never land in version control. It mirrors how
+# `flutter run` signs on a device: Xcode generates a development provisioning
+# profile (automatic signing) which rules_apple's local_provisioning_profile
+# then reads from the system store (~/Library/MobileDevice/Provisioning Profiles).
+#
+# Setup:
+#   1. cp -r device.example device && mv device/BUILD.bazel.example device/BUILD.bazel
+#   2. Set BUNDLE_ID below to a bundle id you control.
+#   3. Generate the profile once (the same step `flutter run` triggers): open an
+#      app with this bundle id + your Team in Xcode with "Automatically manage
+#      signing", or run `xcodebuild -allowProvisioningUpdates`. The resulting
+#      "iOS Team Provisioning Profile: <BUNDLE_ID>" lands in the system store.
+#   4. Run on a connected device with hot reload:
+#        flutter_bazel run -t //device:app -d ios
+#      Or build: bazel build //device:app -c dbg --ios_multi_cpus=arm64
+
+load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_flutter//flutter:ios.bzl", "IOS_DEFAULT_LAUNCH_STORYBOARD")
+
+# Multi-window/multi-scene app: reuses the workspace's custom runner
+# (PlannerRunner + PlannerSceneDelegate) and multi-scene ios/Info.plist, so
+# the signed build is identical to //:app_ios apart from code signing.
+BUNDLE_ID = "com.example.planner"
+
+local_provisioning_profile(
+    name = "profile",
+    profile_name = "iOS Team Provisioning Profile: " + BUNDLE_ID,
+    tags = ["manual"],
+)
+
+ios_application(
+    name = "app",
+    bundle_id = BUNDLE_ID,
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["//:ios/Info.plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = "13.0",
+    provisioning_profile = ":profile",
+    tags = ["manual"],
+    version = "//:app_version",
+    deps = [
+        "//:ios_framework",
+        "//:ios_native_libs",
+        "//:ios_runner_lib",
+    ],
+)

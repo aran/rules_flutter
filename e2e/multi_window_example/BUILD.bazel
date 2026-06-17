@@ -26,6 +26,10 @@ load("@rules_swift//swift:swift.bzl", "swift_library")
 
 exports_files(["pubspec.lock"])
 
+# iOS building blocks below are exposed to the optional, git-ignored //device
+# package for on-device (signed) builds. See device.example/.
+_DEVICE_VISIBILITY = ["//device:__pkg__"]
+
 # =============================================================================
 # Shared: Flutter application (both entry points in single compilation)
 # =============================================================================
@@ -48,6 +52,7 @@ apple_bundle_version(
     build_version = "1.0",
     short_version_string = "1.0",
     tags = ["manual"],
+    visibility = _DEVICE_VISIBILITY,
 )
 
 # =============================================================================
@@ -113,9 +118,17 @@ macos_application(
 # iOS: Multi-scene custom runner with FlutterEngineGroup
 # =============================================================================
 
+# Custom multi-scene Info.plist (FlutterEngineGroup + PlannerSceneDelegate),
+# reused by the signed //device:app build.
+exports_files(
+    ["ios/Info.plist"],
+    visibility = _DEVICE_VISIBILITY,
+)
+
 flutter_ios_framework_gen(
     name = "ios_framework",
     application = ":app_flutter",
+    visibility = _DEVICE_VISIBILITY,
 )
 
 flutter_ios_registrant_gen(
@@ -130,6 +143,7 @@ flutter_ios_engine(
 flutter_ios_native_libs_gen(
     name = "ios_native_libs",
     application = ":app_flutter",
+    visibility = _DEVICE_VISIBILITY,
 )
 
 swift_library(
@@ -141,6 +155,7 @@ swift_library(
     ],
     module_name = "PlannerRunner",
     tags = ["manual"],
+    visibility = _DEVICE_VISIBILITY,
     deps = [":ios_engine"],
 )
 

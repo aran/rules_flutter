@@ -39,6 +39,9 @@ flutter_application(
     name = "plugin_app",
     package_name = "plugin_example",
     main = "lib/main.dart",
+    # Visible to the optional, git-ignored //device package for on-device
+    # (signed) iOS builds. See device.example/.
+    visibility = ["//device:__pkg__"],
     deps = [
         "//greeting_plugin",
         "@deps//:audio_session",

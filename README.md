@@ -901,6 +901,17 @@ End-to-end examples are in the `e2e/` directory:
 | `e2e/cross_compile_example` | Cross-compile Linux bundle from macOS. |
 | `e2e/multi_window_example` | Multi-window macOS + multi-scene iOS builds with FlutterEngineGroup. |
 
+### Running an iOS example on a physical device
+
+iOS simulator builds need no code signing and run out of the box (e.g.
+`flutter_bazel run -t //:hello_world_ios -d ios-simulator`). Device builds need
+signing, which is per-developer and must stay out of version control. Each iOS
+example therefore ships a `device.example/` template: copy it to a git-ignored
+`device/` package, set your bundle id, and generate a provisioning profile the
+same way `flutter run` does (Xcode automatic signing). Then:
+`flutter_bazel run -t //device:app -d ios`. See the header of any
+`e2e/*/device.example/BUILD.bazel.example` for the exact steps.
+
 ## License
 
 See [LICENSE](LICENSE).

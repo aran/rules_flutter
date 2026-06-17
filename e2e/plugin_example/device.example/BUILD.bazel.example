@@ -1,0 +1,100 @@
+# On-device (signed) iOS build — per-developer, NOT checked into version control.
+#
+# This whole `device/` directory is git-ignored so your Apple Team ID, bundle
+# id, and provisioning profile never land in version control. It mirrors how
+# `flutter run` signs on a device: Xcode generates a development provisioning
+# profile (automatic signing) which rules_apple's local_provisioning_profile
+# then reads from the system store (~/Library/MobileDevice/Provisioning Profiles).
+#
+# Setup:
+#   1. cp -r device.example device && mv device/BUILD.bazel.example device/BUILD.bazel
+#   2. Set BUNDLE_ID below to a bundle id you control.
+#   3. Generate the profile once (the same step `flutter run` triggers): open an
+#      app with this bundle id + your Team in Xcode with "Automatically manage
+#      signing", or run `xcodebuild -allowProvisioningUpdates`. The resulting
+#      "iOS Team Provisioning Profile: <BUNDLE_ID>" lands in the system store.
+#   4. Run on a connected device with hot reload:
+#        flutter_bazel run -t //device:app -d ios
+#      Or build: bazel build //device:app -c dbg --ios_multi_cpus=arm64
+
+load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load(
+    "@rules_flutter//flutter:ios.bzl",
+    "IOS_DEFAULT_LAUNCH_STORYBOARD",
+    "IOS_MINIMUM_OS_VERSION",
+    "flutter_ios_engine",
+    "flutter_ios_framework_gen",
+    "flutter_ios_info_plist_gen",
+    "flutter_ios_native_libs_gen",
+    "flutter_ios_registrant_gen",
+    "flutter_ios_runner_lib_gen",
+)
+
+APP = "//:plugin_app"
+
+APP_NAME = "Plugin Example"
+
+BUNDLE_ID = "com.example.plugin"
+
+flutter_ios_framework_gen(
+    name = "app_framework",
+    application = APP,
+)
+
+flutter_ios_registrant_gen(
+    name = "app_registrant",
+    application = APP,
+)
+
+flutter_ios_engine(name = "app_engine")
+
+flutter_ios_native_libs_gen(
+    name = "app_native_libs",
+    application = APP,
+)
+
+flutter_ios_info_plist_gen(
+    name = "info_plist",
+    app_name = APP_NAME,
+    module_name = "BazelRunner",
+)
+
+flutter_ios_runner_lib_gen(
+    name = "runner_lib",
+    application = APP,
+    engine = ":app_engine",
+    module_name = "BazelRunner",
+    registrant = ":app_registrant",
+)
+
+apple_bundle_version(
+    name = "app_version",
+    build_version = "1.0",
+    short_version_string = "1.0",
+    tags = ["manual"],
+)
+
+local_provisioning_profile(
+    name = "profile",
+    profile_name = "iOS Team Provisioning Profile: " + BUNDLE_ID,
+    tags = ["manual"],
+)
+
+ios_application(
+    name = "app",
+    bundle_id = BUNDLE_ID,
+    families = ["iphone"],
+    infoplists = [":info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    provisioning_profile = ":profile",
+    tags = ["manual"],
+    version = ":app_version",
+    deps = [
+        ":app_framework",
+        ":app_native_libs",
+        ":runner_lib",
+    ],
+)

@@ -36,6 +36,8 @@ cc_library(
     name = "multiply_cc",
     srcs = ["native/multiply.c"],
     hdrs = ["native/multiply.h"],
+    # Visible to the optional, git-ignored //device package (signed iOS).
+    visibility = ["//device:__pkg__"],
     # alwayslink ensures the linker keeps symbols even when only
     # referenced via dart:ffi (no static ObjC/Swift references).
     alwayslink = True,
@@ -51,6 +53,9 @@ flutter_application(
     name = "ffi_plugin_app",
     package_name = "ffi_plugin_example",
     main = "lib/main.dart",
+    # Visible to the optional, git-ignored //device package for on-device
+    # (signed) iOS builds. See device.example/.
+    visibility = ["//device:__pkg__"],
     deps = [
         "//multiply_plugin",
         "@deps//:flutter",
