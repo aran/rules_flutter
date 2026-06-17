@@ -36,7 +36,10 @@ class AttachCommand {
     ..addFlag('verbose', abbr: 'v', defaultsTo: false, help: 'Enable verbose debug logging.')
     ..addFlag('http-control-channel',
         defaultsTo: true,
-        help: 'Start an HTTP control channel for external command dispatch.')
+        help: 'Expose an HTTP control channel for external command dispatch '
+            '(screenshots, app.* driving). On by default; disable with '
+            '--no-http-control-channel. The bound URI and auth token are '
+            'printed at startup.')
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Show help for this command.');
 
   final ArgResults _results;

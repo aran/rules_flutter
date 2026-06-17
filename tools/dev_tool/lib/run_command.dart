@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:dds/dds.dart';
 import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service_io.dart' as vm;
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
@@ -90,7 +91,10 @@ class RunCommand {
         abbr: 'v', defaultsTo: false, help: 'Enable verbose debug logging.')
     ..addFlag('http-control-channel',
         defaultsTo: true,
-        help: 'Start an HTTP control channel for external command dispatch.')
+        help: 'Expose an HTTP control channel for external command dispatch '
+            '(screenshots, app.* driving). On by default; disable with '
+            '--no-http-control-channel. The bound URI and auth token are '
+            'printed at startup.')
     ..addFlag('help',
         abbr: 'h', negatable: false, help: 'Show help for this command.');
 
@@ -186,6 +190,7 @@ class RunCommand {
         session.devToolsProcess?.kill();
         protocol.appStop(session.appId);
         await session.vmClient?.disconnect();
+        await session.dds?.shutdown();
         await session.device.stop(session.appInstance);
       }
       await frontendServer?.shutdown();
@@ -677,45 +682,66 @@ class RunCommand {
       final appInstance = await device.launch(appFile);
 
       // Connect to VM service (native devices only; web has no VM service).
+      //
+      // We OWN DDS: start a Dart Development Service on the app's raw VM
+      // service and route both our vmClient and DevTools through it. DDS
+      // multiplexes clients, so DevTools no longer evicts our connection —
+      // the bug that previously forced `--no-devtools` for screenshots.
       VmServiceClient? vmClient;
+      DartDevelopmentService? dds;
       if (appInstance.vmServiceUri != null) {
-        final uri = appInstance.vmServiceUri!;
-        logger.info({
-          'message': 'vm_service',
-          'text': 'VM service at $uri (${device.name})',
-          'uri': uri.toString(),
-          'device': device.name,
-        });
-        protocol.appDebugPort(
-          appId,
-          uri.replace(
-              scheme: uri.scheme == 'https' ? 'wss' : 'ws',
-              path: '${uri.path}ws'),
-          uri,
-        );
-        for (var attempt = 0; attempt < 5; attempt++) {
-          vmClient = VmServiceClient();
-          try {
-            await vmClient.connect(uri);
-            logger.info({
-              'message': 'vm_service_connected',
-              'text': 'Connected to VM service (${device.name}).',
-              'device': device.name,
-            });
-            break;
-          } catch (e) {
-            if (attempt < 4) {
-              logger.fine({
-                'message': 'vm_service_retry',
-                'text': 'VM service connect attempt ${attempt + 1} failed: $e',
-                'attempt': attempt + 1,
-                'error': '$e',
+        final rawUri = appInstance.vmServiceUri!;
+        try {
+          dds = await DartDevelopmentService.startDartDevelopmentService(
+            rawUri,
+            ipv6: rawUri.host.contains(':'),
+          );
+        } catch (e) {
+          stderr.writeln(
+              'Warning: Could not start DDS on ${device.name}: $e. '
+              'Hot reload, DevTools, and agent control will be unavailable.');
+        }
+
+        if (dds != null) {
+          final serviceUri = dds.uri!;
+          logger.info({
+            'message': 'vm_service',
+            'text': 'VM service (via DDS) at $serviceUri (${device.name})',
+            'uri': serviceUri.toString(),
+            'device': device.name,
+          });
+          protocol.appDebugPort(
+            appId,
+            serviceUri.replace(
+                scheme: serviceUri.scheme == 'https' ? 'wss' : 'ws',
+                path: '${serviceUri.path}ws'),
+            serviceUri,
+          );
+          for (var attempt = 0; attempt < 5; attempt++) {
+            vmClient = VmServiceClient();
+            try {
+              await vmClient.connect(serviceUri);
+              logger.info({
+                'message': 'vm_service_connected',
+                'text': 'Connected to VM service (${device.name}).',
+                'device': device.name,
               });
-              await Future<void>.delayed(const Duration(seconds: 1));
-            } else {
-              stderr.writeln(
-                  'Warning: Could not connect to VM service on ${device.name}: $e');
-              vmClient = null;
+              break;
+            } catch (e) {
+              if (attempt < 4) {
+                logger.fine({
+                  'message': 'vm_service_retry',
+                  'text':
+                      'VM service connect attempt ${attempt + 1} failed: $e',
+                  'attempt': attempt + 1,
+                  'error': '$e',
+                });
+                await Future<void>.delayed(const Duration(seconds: 1));
+              } else {
+                stderr.writeln(
+                    'Warning: Could not connect to VM service on ${device.name}: $e');
+                vmClient = null;
+              }
             }
           }
         }
@@ -755,6 +781,7 @@ class RunCommand {
         appInstance: appInstance,
         vmClient: vmClient,
         appId: appId,
+        dds: dds,
       ));
     }
 

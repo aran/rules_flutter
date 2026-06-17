@@ -5,6 +5,7 @@ exports_files(["pubspec.lock"])
 
 _LIB_DEPS = [
     "@dev_tool_deps//:args",
+    "@dev_tool_deps//:dds",
     "@dev_tool_deps//:dwds",
     "@dev_tool_deps//:logging",
     "@dev_tool_deps//:package_config",

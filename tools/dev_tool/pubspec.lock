@@ -130,7 +130,7 @@ packages:
     source: hosted
     version: "0.0.3"
   dds:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dds
       sha256: "38a362932ddc997c083c811afe37b22bee068e78bf2446854224c465d4d0f8a6"

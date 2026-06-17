@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dds/dds.dart';
 import 'package:watcher/watcher.dart';
 
 import 'command_runner.dart';
@@ -30,11 +31,18 @@ class DeviceSession {
   String? devToolsUrl;
   Process? devToolsProcess;
 
+  /// The Dart Development Service we started on the app's raw VM service. Our
+  /// [vmClient] and DevTools both connect through it (DDS multiplexes), so they
+  /// no longer evict each other. Null only if the device has no VM service
+  /// (web) or DDS failed to start.
+  DartDevelopmentService? dds;
+
   DeviceSession({
     required this.device,
     required this.appInstance,
     required this.vmClient,
     required this.appId,
+    this.dds,
   });
 }
 
@@ -182,9 +190,12 @@ Future<void> runInteractiveSession({
   // Launch DevTools for each session with a VM client.
   if (devToolsEnabled) {
     for (final session in sessions) {
-      if (session.vmClient != null && session.appInstance.vmServiceUri != null) {
+      if (session.vmClient != null && session.dds != null) {
         try {
-          final devtools = await _launchDevTools(session.appInstance.vmServiceUri!);
+          // Point DevTools at the DDS endpoint, not the raw VM service. DDS
+          // multiplexes clients, so DevTools connecting here does NOT evict
+          // our own vmClient (the bug that used to force --no-devtools).
+          final devtools = await _launchDevTools(session.dds!.uri!);
           session.devToolsProcess = devtools.process;
           if (devtools.url != null) {
             session.devToolsUrl = devtools.url;
@@ -340,6 +351,7 @@ Future<void> runInteractiveSession({
           session.devToolsProcess?.kill();
           protocol.appStop(session.appId);
           await session.vmClient?.disconnect();
+          await session.dds?.shutdown();
           await session.device.stop(session.appInstance);
         }
         if (frontendServer != null) {
