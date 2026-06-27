@@ -13,7 +13,7 @@ load(
     "flutter_ios_engine",
     "flutter_ios_framework_gen",
     "flutter_ios_info_plist_gen",
-    "flutter_ios_native_libs_gen",
+    "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
 )
@@ -145,8 +145,8 @@ flutter_ios_engine(
     name = "ffi_plugin_ios_engine",
 )
 
-flutter_ios_native_libs_gen(
-    name = "ffi_plugin_ios_native_libs",
+flutter_ios_native_frameworks_gen(
+    name = "ffi_plugin_ios_native_frameworks",
     application = ":ffi_plugin_app",
 )
 

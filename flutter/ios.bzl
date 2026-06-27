@@ -57,7 +57,7 @@ load("@rules_swift//swift:swift.bzl", "swift_library")
 load("//flutter/private:constants.bzl", _IOS_MINIMUM_OS_VERSION = "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:flutter_apple_plugin_library.bzl", _flutter_apple_plugin_library_macro = "flutter_apple_plugin_library")
 load("//flutter/private:flutter_apple_plugins_aggregator.bzl", _flutter_apple_plugins_aggregator = "flutter_apple_plugins_aggregator")
-load("//flutter/private:flutter_ios_application.bzl", _flutter_ios_application = "flutter_ios_application", _flutter_ios_framework_rule = "flutter_ios_framework", _flutter_ios_native_libs_rule = "flutter_ios_native_libs", _flutter_ios_privacy_manifests_rule = "flutter_ios_privacy_manifests")
+load("//flutter/private:flutter_ios_application.bzl", _flutter_ios_application = "flutter_ios_application", _flutter_ios_framework_rule = "flutter_ios_framework", _flutter_ios_native_frameworks_rule = "flutter_ios_native_frameworks", _flutter_ios_privacy_manifests_rule = "flutter_ios_privacy_manifests")
 load("//flutter/private:flutter_ios_registrant.bzl", _flutter_ios_registrant_rule = "flutter_ios_registrant")
 
 # Re-export constants for user BUILD files.
@@ -80,7 +80,7 @@ def _engine_xcframework_select():
 # -- Composable rules (Tier 2) ------------------------------------------------
 
 flutter_ios_registrant_gen = _flutter_ios_registrant_rule
-flutter_ios_native_libs_gen = _flutter_ios_native_libs_rule
+flutter_ios_native_frameworks_gen = _flutter_ios_native_frameworks_rule
 flutter_ios_privacy_manifests_gen = _flutter_ios_privacy_manifests_rule
 
 # Public wrapper that compiles a Flutter plugin's iOS Apple sources into a
@@ -360,8 +360,8 @@ def flutter_ios_app(
     )
 
     # 6. Wrap native plugin/native-asset dylibs in signed .frameworks for bundling.
-    _flutter_ios_native_libs_rule(
-        name = "__%s_native_libs" % name,
+    _flutter_ios_native_frameworks_rule(
+        name = "__%s_native_frameworks" % name,
         application = application,
         minimum_os_version = minimum_os_version,
         tags = tags,
@@ -463,7 +463,7 @@ def flutter_ios_app(
         deps = [
             "__%s_runner" % name,
             "__%s_app_bundle" % name,
-            "__%s_native_libs" % name,
+            "__%s_native_frameworks" % name,
         ],
         tags = tags,
         **kwargs

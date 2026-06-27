@@ -216,7 +216,7 @@ flutter_ios_framework = rule(
     doc = "Assembles Flutter artifacts into App.framework for iOS (release: AOT binary + assets; debug: assets + kernel).",
 )
 
-# -- flutter_ios_native_libs (dylib extraction for bundling) -------------------
+# -- flutter_ios_native_frameworks (dylib -> framework wrapping) ---------------
 
 _NATIVE_ASSET_FRAMEWORK_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -246,7 +246,7 @@ _NATIVE_ASSET_FRAMEWORK_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
-def _flutter_ios_native_libs_impl(ctx):
+def _flutter_ios_native_frameworks_impl(ctx):
     """Wraps each native dylib in a signed `.framework` for iOS bundling.
 
     iOS forbids loose embedded dylibs, so every native dependency — the legacy
@@ -310,8 +310,8 @@ def _flutter_ios_native_libs_impl(ctx):
         ),
     ]
 
-flutter_ios_native_libs = rule(
-    implementation = _flutter_ios_native_libs_impl,
+flutter_ios_native_frameworks = rule(
+    implementation = _flutter_ios_native_frameworks_impl,
     attrs = dicts.add(
         apple_support.platform_constraint_attrs(),
         {

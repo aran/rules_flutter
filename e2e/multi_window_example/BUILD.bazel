@@ -9,7 +9,7 @@ load(
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
     "flutter_ios_engine",
     "flutter_ios_framework_gen",
-    "flutter_ios_native_libs_gen",
+    "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
 )
 load(
@@ -140,8 +140,8 @@ flutter_ios_engine(
     name = "ios_engine",
 )
 
-flutter_ios_native_libs_gen(
-    name = "ios_native_libs",
+flutter_ios_native_frameworks_gen(
+    name = "ios_native_frameworks",
     application = ":app_flutter",
     visibility = _DEVICE_VISIBILITY,
 )
@@ -172,7 +172,7 @@ ios_application(
     version = ":app_version",
     deps = [
         ":ios_framework",
-        ":ios_native_libs",
+        ":ios_native_frameworks",
         ":ios_runner_lib",
     ],
 )
