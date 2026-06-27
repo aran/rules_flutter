@@ -29,7 +29,7 @@ flutter.pub(
     name = "deps",
     lock = "//:pubspec.lock",
 )
-use_repo(flutter, "deps", "flutter_android_engine_arm64", "flutter_android_engine_arm64_debug", "flutter_toolchains", "flutter_web_sdk")
+use_repo(flutter, "deps", "flutter_android_engine_arm64", "flutter_toolchains", "flutter_web_sdk")
 
 register_toolchains("@flutter_toolchains//:all")
 

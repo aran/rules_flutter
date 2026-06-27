@@ -65,6 +65,18 @@ IOS_MINIMUM_OS_VERSION = _IOS_MINIMUM_OS_VERSION
 IOS_DEFAULT_LAUNCH_STORYBOARD = "@rules_flutter//flutter/private/runners/ios:Base.lproj/LaunchScreen.storyboard"
 IOS_DEFAULT_MAIN_STORYBOARD = "@rules_flutter//flutter/private/runners/ios:Base.lproj/Main.storyboard"
 
+def _engine_xcframework_select():
+    """Selects the Flutter.xcframework engine for the active compilation mode.
+
+    Debug (-c dbg): JIT engine (simulator). Release (-c opt / default): AOT
+    engine (device). Both live in the single `@flutter_ios_engine` repo, so a
+    consumer only needs that one repo in `use_repo`.
+    """
+    return select({
+        "@rules_flutter//flutter/private:dbg": ["@flutter_ios_engine//:Flutter_xcframework_debug"],
+        "//conditions:default": ["@flutter_ios_engine//:Flutter_xcframework"],
+    })
+
 # -- Composable rules (Tier 2) ------------------------------------------------
 
 flutter_ios_registrant_gen = _flutter_ios_registrant_rule
@@ -137,10 +149,7 @@ def flutter_ios_engine(name, **kwargs):
 
     apple_dynamic_xcframework_import(
         name = name,
-        xcframework_imports = select({
-            "@rules_flutter//flutter/private:dbg": ["@flutter_ios_engine_debug//:Flutter_xcframework"],
-            "//conditions:default": ["@flutter_ios_engine//:Flutter_xcframework"],
-        }),
+        xcframework_imports = _engine_xcframework_select(),
         tags = tags,
         **kwargs
     )
@@ -346,17 +355,15 @@ def flutter_ios_app(
     # 5. Import Flutter.xcframework engine — auto-selects debug/release.
     apple_dynamic_xcframework_import(
         name = "__%s_engine" % name,
-        xcframework_imports = select({
-            "@rules_flutter//flutter/private:dbg": ["@flutter_ios_engine_debug//:Flutter_xcframework"],
-            "//conditions:default": ["@flutter_ios_engine//:Flutter_xcframework"],
-        }),
+        xcframework_imports = _engine_xcframework_select(),
         tags = tags,
     )
 
-    # 6. Expose native plugin .dylib files for bundling.
+    # 6. Wrap native plugin/native-asset dylibs in signed .frameworks for bundling.
     _flutter_ios_native_libs_rule(
         name = "__%s_native_libs" % name,
         application = application,
+        minimum_os_version = minimum_os_version,
         tags = tags,
     )
 

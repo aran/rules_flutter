@@ -238,7 +238,7 @@ flutter_ios_app(
 Add to your `MODULE.bazel`:
 
 ```starlark
-use_repo(flutter, "flutter_toolchains", "flutter_ios_engine", "flutter_ios_engine_debug")
+use_repo(flutter, "flutter_toolchains", "flutter_ios_engine")
 ```
 
 | Attribute | Description |

@@ -117,7 +117,7 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
     _java_import(
         name = name,
         jars = select({
-            "@rules_flutter//flutter/private:dbg": ["@%s_debug//:flutter.jar" % repo],
+            "@rules_flutter//flutter/private:dbg": ["@%s//:debug/flutter.jar" % repo],
             "//conditions:default": ["@%s//:flutter.jar" % repo],
         }),
         tags = tags,

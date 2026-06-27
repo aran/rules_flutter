@@ -408,7 +408,10 @@ def flutter_register_toolchains(name, **kwargs):
     )
 
     # Android engine repos (lazy — one per ABI, only downloaded when Android targets are built).
-    # Release engine for AOT builds, debug engine for JIT/debug builds (like iOS).
+    # Each repo carries both the release engine (AOT) and the debug engine (JIT);
+    # the flutter_android_engine macro select()s between its two jar targets, so
+    # consumers only need a single `flutter_android_engine_<abi>` use_repo entry —
+    # matching the macOS and iOS engine repos.
     android_engine_repos_created = {}
     for _host_platform, targets in CROSS_COMPILATION_PAIRS.items():
         for target_platform in targets:
@@ -419,40 +422,24 @@ def flutter_register_toolchains(name, **kwargs):
                 continue
             android_engine_repos_created[android_arch] = True
 
-            engine_path = android_engine_artifact_path(android_arch, "release")
             flutter_android_engine_repo(
                 name = name + "_android_engine_" + android_arch,
                 engine_revision = meta.engine_revision,
                 android_arch = android_arch,
-                mode = "release",
-                sha256 = checksums.get(engine_path, ""),
+                release_sha256 = checksums.get(android_engine_artifact_path(android_arch, "release"), ""),
+                debug_sha256 = checksums.get(android_engine_artifact_path(android_arch, "debug"), ""),
             )
 
-            engine_debug_path = android_engine_artifact_path(android_arch, "debug")
-            flutter_android_engine_repo(
-                name = name + "_android_engine_" + android_arch + "_debug",
-                engine_revision = meta.engine_revision,
-                android_arch = android_arch,
-                mode = "debug",
-                sha256 = checksums.get(engine_debug_path, ""),
-            )
-
-    # iOS engine repos (lazy — only downloaded when iOS targets are built).
-    # Release engine for device (AOT), debug engine for simulator (JIT).
-    ios_engine_path = ios_engine_artifact_path("release")
+    # iOS engine repo (lazy — only downloaded when iOS targets are built).
+    # One repo carries both the release engine (device, AOT) and the debug
+    # engine (simulator, JIT); the iOS macros select() between its two targets,
+    # so consumers only need a single `flutter_ios_engine` use_repo entry —
+    # matching the macOS engine alias repo.
     flutter_ios_engine_repo(
         name = name + "_ios_engine",
         engine_revision = meta.engine_revision,
-        mode = "release",
-        sha256 = checksums.get(ios_engine_path, ""),
-    )
-
-    ios_engine_debug_path = ios_engine_artifact_path("debug")
-    flutter_ios_engine_repo(
-        name = name + "_ios_engine_debug",
-        engine_revision = meta.engine_revision,
-        mode = "debug",
-        sha256 = checksums.get(ios_engine_debug_path, ""),
+        release_sha256 = checksums.get(ios_engine_artifact_path("release"), ""),
+        debug_sha256 = checksums.get(ios_engine_artifact_path("debug"), ""),
     )
 
     # macOS engine alias repo — stable name that delegates to the host
