@@ -22,10 +22,13 @@ The manifest is always emitted, even when the depset is empty
 kernel-compile path uniform — no `if manifest:` branches downstream.
 
 The Flutter engine reads the relative-path entries verbatim and
-`dlopen`s the basename inside the platform bundle slot:
+`dlopen`s them inside the platform bundle slot:
 
-  * macOS: `<App>.app/Contents/Frameworks/<basename>`
-  * iOS:   `<App>.app/Frameworks/<basename>`
+  * macOS: `<App>.app/Contents/Frameworks/<basename>` (loose dylib)
+  * iOS:   `<App>.app/Frameworks/<name>.framework/<name>` — iOS forbids
+           loose embedded dylibs, so each `dynamic_loading_bundle` asset is
+           wrapped in its own `.framework` (matching flutter_tools'
+           `frameworkUri`). The manifest entry is the framework-relative path.
   * Linux: `<bundle>/lib/<basename>` (resolved relative to the runner)
   * Windows: next to the runner exe
   * Android: `lib/<abi>/<basename>` inside the APK
@@ -59,15 +62,44 @@ _OS_ARCH_TO_TARGET = {
     ("android", "x64"): "android_x64",
 }
 
-def _path_list_for(asset):
+def native_asset_framework_name(filename):
+    """Derive the framework name for a bundled native-asset dylib on Apple.
+
+    Mirrors flutter_tools' `frameworkUri` (native_assets_host.dart): strip a
+    trailing `.dylib`, drop a leading `lib`, and sanitize to `[A-Za-z0-9_-]`.
+    iOS embeds each `dynamic_loading_bundle` dylib as `<name>.framework/<name>`.
+    The manifest path and the framework-assembly rule both call this so they
+    agree on the name.
+
+    Args:
+      filename: The dylib's basename (e.g. `objective_c.dylib`).
+
+    Returns:
+      The sanitized framework name (e.g. `objective_c`).
+    """
+    name = filename
+    if name.endswith(".dylib"):
+        name = name[:-len(".dylib")]
+        if name.startswith("lib"):
+            name = name[len("lib"):]
+    sanitized = ""
+    for c in name.elems():
+        if c.isalnum() or c == "_" or c == "-":
+            sanitized += c
+    return sanitized
+
+def _path_list_for(asset, target_os):
     """Return the manifest path-list shape for `asset`.
 
-    The engine's `KernelAssetAbsolutePath` emits a single-segment Uri
-    (`Uri(path: fileName)`) which serializes to the bare basename. We do
-    the same here regardless of OS — every bundle slot ultimately places
-    the dylib/so/dll where the engine's `dlopen` resolves the basename.
+    For `dynamic_loading_bundle` the engine's `KernelAssetAbsolutePath` is the
+    path it `dlopen`s inside the bundle. On iOS the dylib is wrapped in a
+    `.framework`, so the path is `<name>.framework/<name>`; every other OS
+    places a loose dylib/so/dll and uses the bare basename.
     """
     if asset.link_mode == "dynamic_loading_bundle":
+        if target_os == "ios":
+            fw = native_asset_framework_name(asset.bundle_filename)
+            return ["absolute", "%s.framework/%s" % (fw, fw)]
         return ["absolute", asset.bundle_filename]
     if asset.link_mode == "dynamic_loading_system":
         return ["system", asset.system_uri]
@@ -124,7 +156,7 @@ def write_native_assets_manifest(
         for asset in native_assets:
             if asset.target_os != target_os:
                 continue
-            section[asset.asset_id] = _path_list_for(asset)
+            section[asset.asset_id] = _path_list_for(asset, target_os)
 
     manifest = {
         "format-version": [1, 0, 0],

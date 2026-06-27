@@ -14,8 +14,16 @@ Usage: see flutter/ios.bzl for public API.
 
 load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
+
+# framework_import_support is rules_apple-internal, but it is the only way to
+# construct AppleFrameworkImportInfo (its init is banned) for the N transitive
+# native-asset frameworks that apple_dynamic_framework_import can't express
+# (it accepts a single .framework). This is the same helper that rule uses.
+# buildifier: disable=bzl-visibility
+load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
+load("//flutter/private:flutter_native_assets.bzl", "native_asset_framework_name")
 
 def _flutter_ios_application_impl(ctx):
     """Bundles Flutter compilation outputs for iOS packaging."""
@@ -210,30 +218,115 @@ flutter_ios_framework = rule(
 
 # -- flutter_ios_native_libs (dylib extraction for bundling) -------------------
 
-def _flutter_ios_native_libs_impl(ctx):
-    """Exposes native plugin .dylib files for iOS bundling.
+_NATIVE_ASSET_FRAMEWORK_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>CFBundleDevelopmentRegion</key>
+\t<string>en</string>
+\t<key>CFBundleExecutable</key>
+\t<string>{name}</string>
+\t<key>CFBundleIdentifier</key>
+\t<string>{bundle_id}</string>
+\t<key>CFBundleInfoDictionaryVersion</key>
+\t<string>6.0</string>
+\t<key>CFBundleName</key>
+\t<string>{name}</string>
+\t<key>CFBundlePackageType</key>
+\t<string>FMWK</string>
+\t<key>CFBundleShortVersionString</key>
+\t<string>1.0</string>
+\t<key>CFBundleSignature</key>
+\t<string>????</string>
+\t<key>CFBundleVersion</key>
+\t<string>1.0</string>
+\t<key>MinimumOSVersion</key>
+\t<string>{minimum_os_version}</string>
+</dict>
+</plist>
+"""
 
-    Includes both the legacy `native_libs` set and the
-    `bundled_code_assets` set contributed by Native Assets
-    `dynamic_loading_bundle` declarations. rules_apple's `frameworks = `
-    / `additional_contents = ` slots code-sign the dylibs as part of the
-    `ios_application` build.
+def _flutter_ios_native_libs_impl(ctx):
+    """Wraps each native dylib in a signed `.framework` for iOS bundling.
+
+    iOS forbids loose embedded dylibs, so every native dependency — the legacy
+    `native_libs` set (FFI `native_deps`) and the `bundled_code_assets` set
+    contributed by Native Assets `dynamic_loading_bundle` declarations — is
+    repackaged as `<name>.framework/<name>` (binary + Info.plist) with its
+    install name rewritten to `@rpath/<name>.framework/<name>`, matching
+    flutter_tools' `copyNativeCodeAssetsIOS`. The resulting
+    `AppleFrameworkImportInfo` lets `ios_application` embed and code-sign each
+    framework; the engine `dlopen`s the framework-relative path the
+    native-assets manifest records (see flutter_native_assets.bzl).
     """
     app_info = ctx.attr.application[FlutterApplicationInfo]
-    files = list(app_info.native_libs)
-    files.extend(app_info.bundled_code_assets.to_list())
-    return [DefaultInfo(files = depset(files))]
+    dylibs = list(app_info.native_libs) + app_info.bundled_code_assets.to_list()
+    minimum_os_version = ctx.attr.minimum_os_version
+
+    framework_files = []
+    seen = {}
+    for dylib in dylibs:
+        name = native_asset_framework_name(dylib.basename)
+        if name in seen:
+            fail(
+                "Two native dylibs map to the same iOS framework name %r " % name +
+                "(from %s and %s). Rename one native asset." % (seen[name], dylib.basename),
+            )
+        seen[name] = dylib.basename
+
+        binary = ctx.actions.declare_file("%s/%s.framework/%s" % (ctx.label.name, name, name))
+        plist = ctx.actions.declare_file("%s/%s.framework/Info.plist" % (ctx.label.name, name))
+
+        # Copy the dylib into the framework and rewrite its install name so the
+        # dynamic linker resolves it from the embedded framework via @rpath.
+        ctx.actions.run_shell(
+            command = 'cp "$1" "$2" && xcrun install_name_tool -id "$3" "$2"',
+            arguments = [
+                dylib.path,
+                binary.path,
+                "@rpath/%s.framework/%s" % (name, name),
+            ],
+            inputs = [dylib],
+            outputs = [binary],
+            mnemonic = "FlutterIOSNativeAssetFramework",
+            progress_message = "Wrapping %s into %s.framework" % (dylib.basename, name),
+        )
+
+        ctx.actions.write(plist, _NATIVE_ASSET_FRAMEWORK_INFO_PLIST.format(
+            name = name,
+            bundle_id = ("io.flutter.flutter.native_assets.%s" % name).replace("_", "-"),
+            minimum_os_version = minimum_os_version,
+        ))
+
+        framework_files.append(binary)
+        framework_files.append(plist)
+
+    return [
+        DefaultInfo(files = depset(framework_files)),
+        framework_import_support.framework_import_info_with_dependencies(
+            build_archs = [apple_support.target_arch_from_rule_ctx(ctx)],
+            deps = [],
+            framework_imports = framework_files,
+        ),
+    ]
 
 flutter_ios_native_libs = rule(
     implementation = _flutter_ios_native_libs_impl,
-    attrs = {
-        "application": attr.label(
-            doc = "A flutter_application target providing FlutterApplicationInfo.",
-            mandatory = True,
-            providers = [FlutterApplicationInfo],
-        ),
-    },
-    doc = "Extracts native plugin .dylib files for iOS bundling.",
+    attrs = dicts.add(
+        apple_support.platform_constraint_attrs(),
+        {
+            "application": attr.label(
+                doc = "A flutter_application target providing FlutterApplicationInfo.",
+                mandatory = True,
+                providers = [FlutterApplicationInfo],
+            ),
+            "minimum_os_version": attr.string(
+                doc = "Minimum iOS deployment target version (framework Info.plist).",
+                default = IOS_MINIMUM_OS_VERSION,
+            ),
+        },
+    ),
+    doc = "Wraps native plugin/native-asset dylibs in signed .frameworks for iOS bundling.",
 )
 
 # -- flutter_ios_privacy_manifests (xcprivacy bundling) -----------------------

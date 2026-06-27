@@ -13,7 +13,7 @@ fix.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//flutter:native_assets.bzl", "flutter_data_asset", "flutter_native_asset")
-load("//flutter/private:flutter_native_assets.bzl", "native_assets_target_string")
+load("//flutter/private:flutter_native_assets.bzl", "native_asset_framework_name", "native_assets_target_string")
 
 # -- Pure-function tests for the manifest helpers ----------------------
 
@@ -32,8 +32,26 @@ def _target_string_unknown_impl(ctx):
     asserts.equals(env, "", native_assets_target_string("plan9", "arm64"))
     return unittest.end(env)
 
+def _framework_name_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # Strips the `.dylib` extension; sanitizes nothing it doesn't need to.
+    asserts.equals(env, "objective_c", native_asset_framework_name("objective_c.dylib"))
+
+    # Strips a leading `lib` only when it's a dylib (matches frameworkUri).
+    asserts.equals(env, "sqlite3", native_asset_framework_name("libsqlite3.dylib"))
+
+    # Sanitizes characters outside [A-Za-z0-9_-].
+    asserts.equals(env, "my-lib_2", native_asset_framework_name("my-lib_2.dylib"))
+    asserts.equals(env, "foobar", native_asset_framework_name("foo.bar.dylib"))
+
+    # A `lib` prefix is kept when there is no `.dylib` extension to strip.
+    asserts.equals(env, "libfoo", native_asset_framework_name("libfoo"))
+    return unittest.end(env)
+
 _target_string_t0_test = unittest.make(_target_string_macos_arm64_impl)
 _target_string_t1_test = unittest.make(_target_string_unknown_impl)
+_framework_name_test = unittest.make(_framework_name_impl)
 
 # -- Analysis-time failure tests ---------------------------------------
 
@@ -126,6 +144,7 @@ def native_assets_test_suite(name):
         name + "_pure",
         _target_string_t0_test,
         _target_string_t1_test,
+        _framework_name_test,
     )
 
     native.test_suite(
