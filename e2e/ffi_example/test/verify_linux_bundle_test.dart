@@ -41,7 +41,8 @@ void main() {
   check('FontManifest.json', '$bundlePath/data/flutter_assets/FontManifest.json');
   check('NOTICES.Z', '$bundlePath/data/flutter_assets/NOTICES.Z');
   check('icudtl.dat', '$bundlePath/data/icudtl.dat', nonEmpty: true);
-  check('Native lib libadd.so', '$bundlePath/lib/libadd.so', nonEmpty: true);
+  check('Native-asset lib libadd.so', '$bundlePath/lib/libadd.so', nonEmpty: true);
+  check('native_deps lib libmul.so', '$bundlePath/lib/libmul.so', nonEmpty: true);
 
   // Check for either AOT or debug artifact.
   final hasAot = File('$bundlePath/lib/libapp.so').existsSync();

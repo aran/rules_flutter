@@ -1,27 +1,29 @@
 /// Runtime verification on an iOS simulator: installs the app, launches it,
-/// and asserts the native `add` library actually loaded and the FFI call
-/// returned. This is a *behavioral* check — it proves the plugin's native
-/// dylib was bundled as a signed `.framework` AND that Native Asset id
-/// resolution worked at runtime: on iOS `add()` binds via
-/// `@Native(assetId: 'package:add_plugin/add.dylib')`, so the pass depends on
-/// the kernel-embedded --native-assets mapping resolving the asset id to the
-/// embedded `add.framework/add` — not merely on a file being present in the
-/// bundle.
+/// and asserts both native-library mechanisms actually worked at runtime.
+/// This is a *behavioral* check covering:
+///
+///  * Native Assets: `add()` binds via `@Native` — the pass depends on the
+///    kernel-embedded --native-assets mapping resolving the asset id to the
+///    embedded, signed `add.framework/add`.
+///  * native_deps: `mul()` raw-opens the conventional framework partial path
+///    `mul.framework/mul`, proving the loose-library pipeline bundles where
+///    the loader expects.
 ///
 /// Tagged "manual" (like the Android runtime test) because it needs a usable
 /// iOS simulator. Run explicitly:
 ///   bazel test :verify_ios_simulator_test --test_tag_filters=
 ///
-/// Pass criteria: after launch the app writes `ffi_example_result 3 + 4 = 7`
-/// to `tmp/ffi_result.txt` in its sandbox — written in main() only if
-/// `add(3, 4)` succeeded via the bundled native library. The test reads the
-/// file back through `simctl get_app_container` (a deterministic signal that
-/// doesn't depend on scraping iOS log output).
+/// Pass criteria: after launch the app writes
+/// `ffi_example_result add(3,4)=7 mul(3,4)=12` to `tmp/ffi_result.txt` in its
+/// sandbox — written in main() only if both calls succeeded via the bundled
+/// native libraries. The test reads the file back through
+/// `simctl get_app_container` (a deterministic signal that doesn't depend on
+/// scraping iOS log output).
 import 'dart:convert';
 import 'dart:io';
 
 const _bundleId = 'com.example.ffi';
-const _marker = 'ffi_example_result 3 + 4 = 7';
+const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12';
 const _resultFile = 'tmp/ffi_result.txt';
 const _timeout = Duration(seconds: 60);
 
@@ -112,7 +114,8 @@ void main() {
     stderr.writeln('FAIL: expected "$_marker" but got "$contents".');
     exit(1);
   }
-  print('PASS: native FFI library loaded and add(3, 4) == 7 at runtime.');
+  print('PASS: @Native asset bind (add) and raw framework open (mul) '
+      'both worked at runtime.');
 }
 
 /// Returns the UDID of a booted simulator, booting an available iPhone if none

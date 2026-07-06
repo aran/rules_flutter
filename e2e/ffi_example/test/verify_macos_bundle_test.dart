@@ -42,8 +42,12 @@ void main() {
     }
 
     check(
-      'Native dylib libadd.dylib exists',
+      'Native-asset dylib libadd.dylib exists',
       '$bundlePath/Contents/Frameworks/libadd.dylib',
+    );
+    check(
+      'native_deps dylib libmul.dylib exists',
+      '$bundlePath/Contents/Frameworks/libmul.dylib',
     );
     check(
       'App.framework exists',

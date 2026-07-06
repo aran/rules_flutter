@@ -1,0 +1,25 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+
+# Demonstrate flutter_plugin with `native_deps` only (no dart_plugin_class,
+# no asset ids): the shared library propagates through
+# FlutterInfo.transitive_native_libs and is simply placed in each platform's
+# bundle slot — loose on macOS/Linux/Windows, wrapped in a signed
+# `mul.framework` on iOS (loose embedded dylibs are forbidden there). Dart
+# code opens it by its conventional per-platform path, like the classic
+# Flutter FFI plugin template. This is the mechanism for libraries the Dart
+# side loads by path (e.g. third-party packages you can't edit) and for
+# support dylibs that are never opened directly; for asset-id binding see
+# `add_plugin`. Runtime loads are proven by //:verify_ios_simulator_test and
+# //:verify_macos_runtime_test.
+flutter_plugin(
+    name = "mul_plugin",
+    srcs = ["lib/mul_plugin.dart"],
+    native_deps = ["//:mul"],
+    platforms = [
+        "ios",
+        "macos",
+        "linux",
+        "windows",
+    ],
+    visibility = ["//visibility:public"],
+)

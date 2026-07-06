@@ -45,12 +45,25 @@ cc_shared_library(
     deps = [":add_cc"],
 )
 
+cc_library(
+    name = "mul_cc",
+    srcs = ["native/mul.c"],
+    hdrs = ["native/mul.h"],
+)
+
+cc_shared_library(
+    name = "mul",
+    visibility = ["//mul_plugin:__pkg__"],
+    deps = [":mul_cc"],
+)
+
 flutter_application(
     name = "ffi_app",
     package_name = "ffi_example",
     main = "lib/main.dart",
     deps = [
         "//add_plugin",
+        "//mul_plugin",
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
     ],
@@ -177,6 +190,22 @@ dart_test(
     target_compatible_with = ["@platforms//os:macos"],
 )
 
+# Behavioral runtime test: launches the macOS app binary and asserts both the
+# Native Assets bind (add) and the native_deps raw open (mul) worked.
+# "manual"/"exclusive" — needs a GUI session. Run:
+#   bazel test :verify_macos_runtime_test --test_tag_filters= \
+#     --strategy=TestRunner=standalone
+dart_test(
+    name = "verify_macos_runtime_test",
+    data = [":ffi_macos"],
+    main = "test/verify_macos_runtime_test.dart",
+    tags = [
+        "exclusive",
+        "manual",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
 dart_test(
     name = "verify_linux_bundle_test",
     data = [":ffi_linux"],
@@ -215,7 +244,9 @@ build_test(
     targets = [
         ":ffi_app",
         ":add",
+        ":mul",
         "//add_plugin",
+        "//mul_plugin",
     ],
 )
 

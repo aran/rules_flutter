@@ -81,7 +81,7 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 | smoke | Toolchain resolution for all platforms |
 | hello_world | Kernel, AOT, application, and per-platform bundle builds; flutter_test |
 | codegen | Per-file and aggregate dart_codegen, custom generators, hot-reload-with-codegen |
-| ffi_example | FFI app build + macOS/Linux bundle structure with `libadd.dylib`/`.so` |
+| ffi_example | Both FFI mechanisms — Native Assets (`add_plugin`, `@Native` asset-id bind) and `native_deps` (`mul_plugin`, conventional-path open) — bundle structure on macOS/Linux plus manual runtime proof on iOS simulator and macOS |
 | ffi_plugin_example | FFI plugin build + macOS/Linux bundle structure with `libmultiply.dylib`/`.so` |
 | plugin_example | Real pub.dev plugins (`path_provider`, `url_launcher`, `package_info_plus`) plus the hand-written `:greeting_plugin` regression case; per-platform bundle builds; Playwright web assertions; macOS runtime verifier asserting the four plugin-result strings. See **Plugin verification matrix** below. |
 | macos_example | Full macOS app build + bundle structure verification (Info.plist, ObjC symbols, framework linkage, AOT dylib, flutter_assets) |
@@ -145,6 +145,26 @@ bazel test :verify_macos_app_test --test_tag_filters= --strategy=TestRunner=stan
 ```
 
 **When to run:** After any change to macOS runner code (`flutter/private/runners/macos/`).
+
+### FFI runtime tests (iOS simulator + macOS)
+
+Behavioral verification that both native-library mechanisms work at runtime:
+`add()` binds via `@Native` asset-id resolution (`flutter_native_asset` →
+`--native-assets` kernel manifest), `mul()` raw-opens its conventional path
+(`native_deps`). The app writes
+`ffi_example_result add(3,4)=7 mul(3,4)=12` to its temp dir; the tests read
+it back (via `simctl get_app_container` on iOS).
+
+```sh
+cd e2e/ffi_example
+bazel test :verify_ios_simulator_test --test_tag_filters= --strategy=TestRunner=standalone
+bazel test :verify_macos_runtime_test --test_tag_filters= --strategy=TestRunner=standalone
+```
+
+**When to run:** After any change to native-assets manifest emission
+(`flutter_native_assets.bzl`, `flutter_native_asset.bzl`), native-library
+bundling (`flutter_ios_native_frameworks`, `flutter_macos_native_libs`), or
+kernel compilation flags.
 
 ### macOS visual verification
 
@@ -358,7 +378,7 @@ These are not Bazel tests — they're standalone Dart scripts for manual investi
 | Dart compilation / AOT | hello_world, ffi_example, macos_example |
 | Asset bundling | hello_world, plugin_example |
 | Web support | hello_world, plugin_example + Playwright |
-| FFI / native deps | ffi_example, ffi_plugin_example |
+| FFI / native deps / native assets | ffi_example (incl. manual iOS-sim + macOS runtime tests), ffi_plugin_example |
 | Plugins | plugin_example, ffi_plugin_example |
 | Toolchain / SDK | smoke, hello_world |
 | dev_tool (unit) | `cd tools/dev_tool && dart test --exclude-tags=e2e` |

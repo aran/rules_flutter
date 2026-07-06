@@ -1,36 +1,67 @@
 load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
 load("@rules_flutter//flutter:native_assets.bzl", "flutter_native_asset")
 
-# On iOS the library is declared as a Dart Native Asset: the kernel's
-# --native-assets manifest maps `package:add_plugin/add.dylib` to the
-# embedded `add.framework/add`, and Dart code binds to it with
-# `@Native(assetId: ...)` — no hardcoded framework path. The runtime bind
-# is proven by //:verify_ios_simulator_test.
+# Demonstrate the Native Assets pipeline end to end: the shared library is
+# declared as a Dart Native Asset on every platform, and the Dart side binds
+# with a bare `@Native(symbol: ...)` — no asset id, no paths, no Platform
+# switch. The id below is the default the Dart VM derives for annotations in
+# `lib/add_plugin.dart` (the library's URI), which is exactly how hook-built
+# pub packages behave, so the same Dart source works under `flutter run`.
+#
+# One target per OS: `flutter_native_asset` declares "this file is the
+# asset on <os>", and the bundle filename follows each platform's
+# convention. On iOS the dylib is additionally wrapped in a signed
+# `add.framework` (loose embedded dylibs are forbidden there); the manifest
+# records `add.framework/add`. Runtime binds are proven by
+# //:verify_ios_simulator_test and //:verify_macos_runtime_test.
+
+_ADD_ASSET_ID = "package:add_plugin/add_plugin.dart"
+
 flutter_native_asset(
     name = "add_native_asset_ios",
-    asset_id = "package:add_plugin/add.dylib",
+    asset_id = _ADD_ASSET_ID,
     bundle_filename = "add.dylib",
     library = "//:add",
     link_mode = "dynamic_loading_bundle",
     target_os = "ios",
 )
 
-# Demonstrate flutter_plugin with FFI native code and no dart_plugin_class.
-# On macOS/Linux/Windows the shared library rides `native_deps`
-# (FlutterInfo.transitive_native_libs) and is bundled loose, opened by
-# filename. On iOS, where loose embedded dylibs are forbidden, it rides the
-# Native Assets pipeline instead (see :add_native_asset_ios above);
-# flutter_ios_native_frameworks wraps it in a signed `add.framework`.
+flutter_native_asset(
+    name = "add_native_asset_macos",
+    asset_id = _ADD_ASSET_ID,
+    bundle_filename = "libadd.dylib",
+    library = "//:add",
+    link_mode = "dynamic_loading_bundle",
+    target_os = "macos",
+)
+
+flutter_native_asset(
+    name = "add_native_asset_linux",
+    asset_id = _ADD_ASSET_ID,
+    bundle_filename = "libadd.so",
+    library = "//:add",
+    link_mode = "dynamic_loading_bundle",
+    target_os = "linux",
+)
+
+flutter_native_asset(
+    name = "add_native_asset_windows",
+    asset_id = _ADD_ASSET_ID,
+    bundle_filename = "add.dll",
+    library = "//:add",
+    link_mode = "dynamic_loading_bundle",
+    target_os = "windows",
+)
+
 flutter_plugin(
     name = "add_plugin",
     srcs = ["lib/add_plugin.dart"],
     native_assets = select({
         "@platforms//os:ios": [":add_native_asset_ios"],
+        "@platforms//os:linux": [":add_native_asset_linux"],
+        "@platforms//os:macos": [":add_native_asset_macos"],
+        "@platforms//os:windows": [":add_native_asset_windows"],
         "//conditions:default": [],
-    }),
-    native_deps = select({
-        "@platforms//os:ios": [],
-        "//conditions:default": ["//:add"],
     }),
     platforms = [
         "ios",
