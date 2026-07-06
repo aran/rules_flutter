@@ -2,10 +2,8 @@
 
 Flutter runs the JIT (debug) engine on the iOS simulator — the release/AOT
 engine is device-only — so a runtime simulator test must build the app with
-`-c dbg --ios_multi_cpus=sim_arm64`. Applying that via a transition on just the
-app keeps the surrounding `dart_test` runner in the default configuration
-(building the test itself with `-c dbg` trips a rules_dart DartCompile bug that
-passes `--enable-asserts` to `dart compile kernel`).
+`-c dbg --ios_multi_cpus=sim_arm64`. Applying that via a transition on just
+the app keeps the surrounding `dart_test` runner in the default configuration.
 """
 
 def _ios_sim_debug_transition_impl(_settings, _attr):
