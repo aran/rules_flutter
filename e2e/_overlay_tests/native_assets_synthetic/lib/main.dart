@@ -1,11 +1,13 @@
 // Synthetic Native Assets demonstrator.
 //
 // At runtime this:
-//   1. dlopens "package:native_assets_synthetic/synthetic.dylib", a
+//   1. Calls a `@Native(assetId: ...)`-bound function from
+//      "package:native_assets_synthetic/synthetic.dylib", a
 //      `flutter_native_asset(link_mode = "dynamic_loading_bundle")`
 //      contributed by the workspace's `:synthetic_native_asset_macos`
-//      target. The kernel's `--native-assets` manifest tells the
-//      engine to resolve it from the bundle's Frameworks slot.
+//      target. The VM resolves the asset id at first call through the
+//      kernel's `--native-assets` manifest and dlopens the dylib from
+//      the bundle's Frameworks slot.
 //   2. Loads "package:native_assets_synthetic/blob.txt", a
 //      `flutter_data_asset` bundled at
 //      `flutter_assets/data/native_assets_synthetic/blob.txt`.
@@ -19,8 +21,15 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-typedef _SyntheticCanaryC = Int32 Function();
-typedef _SyntheticCanaryDart = int Function();
+// Asset ids resolve only at `@Native` bind time. Raw
+// `DynamicLibrary.open('package:...')` does NOT consult the native-assets
+// mapping — the Dart VM passes the literal string to dlopen on every
+// platform — so an asset id is not a loadable path.
+@Native<Int32 Function()>(
+  symbol: 'synthetic_canary',
+  assetId: 'package:native_assets_synthetic/synthetic.dylib',
+)
+external int _syntheticCanary();
 
 void main() {
   runApp(const _SyntheticApp());
@@ -50,13 +59,7 @@ class _HomeState extends State<_Home> {
   Future<_Result> _resolve() async {
     String canary;
     try {
-      final lib = DynamicLibrary.open(
-        'package:native_assets_synthetic/synthetic.dylib',
-      );
-      final fn = lib
-          .lookup<NativeFunction<_SyntheticCanaryC>>('synthetic_canary')
-          .asFunction<_SyntheticCanaryDart>();
-      canary = '0x${fn().toRadixString(16)}';
+      canary = '0x${_syntheticCanary().toRadixString(16)}';
     } catch (e) {
       canary = 'error: $e';
     }

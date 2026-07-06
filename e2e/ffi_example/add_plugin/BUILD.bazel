@@ -1,14 +1,37 @@
 load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+load("@rules_flutter//flutter:native_assets.bzl", "flutter_native_asset")
 
-# Demonstrate flutter_plugin with native_deps only (no dart_plugin_class). The
-# native shared library propagates through FlutterInfo.transitive_native_libs.
-# It is bundled loose on macOS/Linux/Windows; on iOS, where loose embedded
-# dylibs are forbidden, flutter_ios_native_frameworks wraps it in a signed
-# `add.framework`.
+# On iOS the library is declared as a Dart Native Asset: the kernel's
+# --native-assets manifest maps `package:add_plugin/add.dylib` to the
+# embedded `add.framework/add`, and Dart code binds to it with
+# `@Native(assetId: ...)` — no hardcoded framework path. The runtime bind
+# is proven by //:verify_ios_simulator_test.
+flutter_native_asset(
+    name = "add_native_asset_ios",
+    asset_id = "package:add_plugin/add.dylib",
+    bundle_filename = "add.dylib",
+    library = "//:add",
+    link_mode = "dynamic_loading_bundle",
+    target_os = "ios",
+)
+
+# Demonstrate flutter_plugin with FFI native code and no dart_plugin_class.
+# On macOS/Linux/Windows the shared library rides `native_deps`
+# (FlutterInfo.transitive_native_libs) and is bundled loose, opened by
+# filename. On iOS, where loose embedded dylibs are forbidden, it rides the
+# Native Assets pipeline instead (see :add_native_asset_ios above);
+# flutter_ios_native_frameworks wraps it in a signed `add.framework`.
 flutter_plugin(
     name = "add_plugin",
     srcs = ["lib/add_plugin.dart"],
-    native_deps = ["//:add"],
+    native_assets = select({
+        "@platforms//os:ios": [":add_native_asset_ios"],
+        "//conditions:default": [],
+    }),
+    native_deps = select({
+        "@platforms//os:ios": [],
+        "//conditions:default": ["//:add"],
+    }),
     platforms = [
         "ios",
         "macos",

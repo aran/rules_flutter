@@ -1,8 +1,12 @@
 /// Runtime verification on an iOS simulator: installs the app, launches it,
 /// and asserts the native `add` library actually loaded and the FFI call
 /// returned. This is a *behavioral* check — it proves the plugin's native
-/// dylib was bundled as a signed `.framework` AND dlopen'd at runtime, not
-/// merely that a file is present in the bundle.
+/// dylib was bundled as a signed `.framework` AND that Native Asset id
+/// resolution worked at runtime: on iOS `add()` binds via
+/// `@Native(assetId: 'package:add_plugin/add.dylib')`, so the pass depends on
+/// the kernel-embedded --native-assets mapping resolving the asset id to the
+/// embedded `add.framework/add` — not merely on a file being present in the
+/// bundle.
 ///
 /// Tagged "manual" (like the Android runtime test) because it needs a usable
 /// iOS simulator. Run explicitly:

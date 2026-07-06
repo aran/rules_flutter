@@ -1,7 +1,9 @@
-/// Plugin that wraps the native `add` function via FFI (`native_deps`, no
+/// Plugin that wraps the native `add` function via FFI (no
 /// dart_plugin_class). The shared library is bundled loose on
-/// macOS/Linux/Windows; on iOS rules_flutter wraps it in a signed
-/// `add.framework` (loose embedded dylibs are forbidden there).
+/// macOS/Linux/Windows (`native_deps`) and opened by filename; on iOS it is
+/// declared as a Dart Native Asset (`flutter_native_asset`), wrapped in a
+/// signed `add.framework` (loose embedded dylibs are forbidden there), and
+/// bound by asset id via `@Native`.
 library add_plugin;
 
 import 'dart:ffi' as ffi;
@@ -18,18 +20,24 @@ String _nativeLibName(String baseName) {
 }
 
 ffi.DynamicLibrary _openAddLib() {
-  // iOS forbids loose embedded dylibs, so rules_flutter wraps the native
-  // library in a signed `add.framework` (see flutter_ios_native_frameworks;
-  // the `lib` prefix and `.dylib` suffix are stripped to form the framework
-  // name). It loads via the app's @rpath (@executable_path/Frameworks). The
-  // other platforms bundle a loose shared library opened by filename.
-  if (Platform.isIOS) {
-    return ffi.DynamicLibrary.open('@rpath/add.framework/add');
-  }
   return ffi.DynamicLibrary.open(_nativeLibName('add'));
 }
 
+// iOS binds through Native Asset id resolution: the VM resolves the asset id
+// lazily at first call, via the native-assets mapping the frontend_server
+// embedded in the kernel, and dlopens the embedded `add.framework/add`.
+//
+// Note this only works with `@Native(assetId: ...)` (bind-time resolution).
+// Raw `DynamicLibrary.open('package:add_plugin/add.dylib')` does NOT consult
+// the mapping — the Dart VM passes the literal string to dlopen, on every
+// platform — so an asset id is not a loadable path.
+@ffi.Native<_AddNative>(symbol: 'add', assetId: 'package:add_plugin/add.dylib')
+external int _addViaAsset(int a, int b);
+
 /// Call the native `add` function from the bundled shared library.
-int add(int a, int b) => _addFn(a, b);
+int add(int a, int b) {
+  if (Platform.isIOS) return _addViaAsset(a, b);
+  return _addFn(a, b);
+}
 
 final _addFn = _openAddLib().lookupFunction<_AddNative, _AddDart>('add');

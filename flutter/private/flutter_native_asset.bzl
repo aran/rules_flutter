@@ -175,8 +175,11 @@ flutter_native_asset = rule(
     attrs = {
         "asset_id": attr.string(
             doc = "The Dart asset id (e.g. `package:objective_c/objective_c.dylib`). " +
-                  "This is the string user code passes to `DynamicLibrary.open(...)` " +
-                  "via the kernel manifest the frontend_server reads.",
+                  "This is the id Dart code binds to with `@Native(assetId: ...)` " +
+                  "(or `Native.addressOf`); the VM resolves it at bind time through " +
+                  "the kernel manifest the frontend_server reads. Note raw " +
+                  "`DynamicLibrary.open(...)` does NOT resolve asset ids — the VM " +
+                  "passes the literal string to `dlopen`.",
             mandatory = True,
         ),
         "link_mode": attr.string(
