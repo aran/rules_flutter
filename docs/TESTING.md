@@ -146,7 +146,7 @@ bazel test :verify_macos_app_test --test_tag_filters= --strategy=TestRunner=stan
 
 **When to run:** After any change to macOS runner code (`flutter/private/runners/macos/`).
 
-### FFI runtime tests (iOS simulator + macOS)
+### FFI runtime tests (iOS simulator, macOS, Linux, Windows)
 
 Behavioral verification that both native-library mechanisms work at runtime:
 `add()` binds via `@Native` asset-id resolution (`flutter_native_asset` →
@@ -159,6 +159,13 @@ it back (via `simctl get_app_container` on iOS).
 cd e2e/ffi_example
 bazel test :verify_ios_simulator_test --test_tag_filters= --strategy=TestRunner=standalone
 bazel test :verify_macos_runtime_test --test_tag_filters= --strategy=TestRunner=standalone
+# Linux (headless boxes need Xvfb; XAUTHORITY must pass through):
+xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 \
+  bazel test :verify_linux_runtime_test --test_tag_filters= \
+    --strategy=TestRunner=standalone \
+    --test_env=DISPLAY --test_env=XAUTHORITY --test_env=LIBGL_ALWAYS_SOFTWARE
+# Windows (needs a display adapter — on GCP create the VM with --enable-display-device):
+bazel test :verify_windows_runtime_test --test_tag_filters= --strategy=TestRunner=standalone
 ```
 
 **When to run:** After any change to native-assets manifest emission

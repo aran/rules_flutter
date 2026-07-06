@@ -29,6 +29,7 @@ load(
     "flutter_macos_registrant_gen",
     "flutter_macos_runner_lib_gen",
 )
+load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load(":ios_sim_debug.bzl", "ios_sim_debug_app")
 
 exports_files(["pubspec.lock"])
@@ -183,6 +184,13 @@ flutter_linux_app(
     target_compatible_with = ["@platforms//os:linux"],
 )
 
+# No windows/runner/ scaffolding here — uses the built-in runner template.
+flutter_windows_app(
+    name = "ffi_windows",
+    application = ":ffi_app",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
 dart_test(
     name = "verify_macos_bundle_test",
     data = [":ffi_macos"],
@@ -226,6 +234,27 @@ dart_test(
         "manual",
     ],
     target_compatible_with = ["@platforms//os:linux"],
+)
+
+dart_test(
+    name = "verify_windows_bundle_test",
+    data = [":ffi_windows"],
+    main = "test/verify_windows_bundle_test.dart",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+# Behavioral runtime test: launches the Windows runner and asserts both the
+# Native Assets bind (add) and the native_deps raw open (mul) worked.
+# "manual"/"exclusive" — needs a display adapter for the engine's D3D surface.
+dart_test(
+    name = "verify_windows_runtime_test",
+    data = [":ffi_windows"],
+    main = "test/verify_windows_runtime_test.dart",
+    tags = [
+        "exclusive",
+        "manual",
+    ],
+    target_compatible_with = ["@platforms//os:windows"],
 )
 
 # The simulator runs the JIT engine, so the app is transitioned to a debug,
@@ -275,4 +304,10 @@ build_test(
     name = "linux_bundle_build_test",
     target_compatible_with = ["@platforms//os:linux"],
     targets = [":ffi_linux"],
+)
+
+build_test(
+    name = "windows_bundle_build_test",
+    target_compatible_with = ["@platforms//os:windows"],
+    targets = [":ffi_windows"],
 )
