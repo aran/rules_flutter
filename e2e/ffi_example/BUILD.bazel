@@ -213,6 +213,21 @@ dart_test(
     target_compatible_with = ["@platforms//os:linux"],
 )
 
+# Behavioral runtime test: launches the Linux runner and asserts both the
+# Native Assets bind (add) and the native_deps raw open (mul) worked.
+# "manual"/"exclusive" — needs an X display (Xvfb on headless boxes; see the
+# test's doc comment for the invocation).
+dart_test(
+    name = "verify_linux_runtime_test",
+    data = [":ffi_linux"],
+    main = "test/verify_linux_runtime_test.dart",
+    tags = [
+        "exclusive",
+        "manual",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
 # The simulator runs the JIT engine, so the app is transitioned to a debug,
 # sim_arm64 build (no need to pass -c dbg / --ios_multi_cpus on the test).
 ios_sim_debug_app(
