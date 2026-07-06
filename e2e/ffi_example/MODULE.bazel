@@ -22,6 +22,6 @@ flutter.pub(
     name = "deps",
     lock = "//:pubspec.lock",
 )
-use_repo(flutter, "deps", "flutter_macos_engine", "flutter_toolchains")
+use_repo(flutter, "deps", "flutter_ios_engine", "flutter_macos_engine", "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")

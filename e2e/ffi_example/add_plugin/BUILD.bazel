@@ -1,13 +1,16 @@
 load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
 
-# Demonstrate flutter_plugin with native_deps only (no dart_plugin_class).
-# The native shared library propagates through FlutterInfo.transitive_native_libs
-# and gets bundled into the final application.
+# Demonstrate flutter_plugin with native_deps only (no dart_plugin_class). The
+# native shared library propagates through FlutterInfo.transitive_native_libs.
+# It is bundled loose on macOS/Linux/Windows; on iOS, where loose embedded
+# dylibs are forbidden, flutter_ios_native_frameworks wraps it in a signed
+# `add.framework`.
 flutter_plugin(
     name = "add_plugin",
     srcs = ["lib/add_plugin.dart"],
     native_deps = ["//:add"],
     platforms = [
+        "ios",
         "macos",
         "linux",
         "windows",

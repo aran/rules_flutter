@@ -1,10 +1,22 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_test")
 load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load(
+    "@rules_flutter//flutter:ios.bzl",
+    "IOS_DEFAULT_LAUNCH_STORYBOARD",
+    "IOS_MINIMUM_OS_VERSION",
+    "flutter_ios_engine",
+    "flutter_ios_framework_gen",
+    "flutter_ios_info_plist_gen",
+    "flutter_ios_native_frameworks_gen",
+    "flutter_ios_registrant_gen",
+    "flutter_ios_runner_lib_gen",
+)
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 load(
     "@rules_flutter//flutter:macos.bzl",
@@ -17,6 +29,7 @@ load(
     "flutter_macos_registrant_gen",
     "flutter_macos_runner_lib_gen",
 )
+load(":ios_sim_debug.bzl", "ios_sim_debug_app")
 
 exports_files(["pubspec.lock"])
 
@@ -100,6 +113,57 @@ macos_application(
     deps = [":runner_lib"],
 )
 
+# =============================================================================
+# iOS — exercises the Native Asset -> signed .framework bundling + runtime load.
+# Built with a fully Bazel-generated runner (no ios/Runner/ scaffolding).
+# =============================================================================
+
+flutter_ios_framework_gen(
+    name = "ffi_ios_framework",
+    application = ":ffi_app",
+)
+
+flutter_ios_registrant_gen(
+    name = "ffi_ios_registrant",
+    application = ":ffi_app",
+)
+
+flutter_ios_engine(
+    name = "ffi_ios_engine",
+)
+
+flutter_ios_native_frameworks_gen(
+    name = "ffi_ios_native_frameworks",
+    application = ":ffi_app",
+)
+
+flutter_ios_info_plist_gen(
+    name = "ffi_ios_info_plist",
+    app_name = "FFI Example",
+)
+
+flutter_ios_runner_lib_gen(
+    name = "ffi_ios_runner_lib",
+    engine = ":ffi_ios_engine",
+    registrant = ":ffi_ios_registrant",
+)
+
+ios_application(
+    name = "ffi_ios",
+    bundle_id = "com.example.ffi",
+    families = ["iphone"],
+    infoplists = [":ffi_ios_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    tags = ["manual"],
+    version = ":ffi_macos_version",
+    deps = [
+        ":ffi_ios_framework",
+        ":ffi_ios_native_frameworks",
+        ":ffi_ios_runner_lib",
+    ],
+)
+
 flutter_linux_app(
     name = "ffi_linux",
     application = ":ffi_app",
@@ -118,6 +182,32 @@ dart_test(
     data = [":ffi_linux"],
     main = "test/verify_linux_bundle_test.dart",
     target_compatible_with = ["@platforms//os:linux"],
+)
+
+# The simulator runs the JIT engine, so the app is transitioned to a debug,
+# sim_arm64 build (no need to pass -c dbg / --ios_multi_cpus on the test).
+ios_sim_debug_app(
+    name = "ffi_ios_sim_debug",
+    app = ":ffi_ios",
+    tags = ["manual"],
+)
+
+# Behavioral runtime test: launches the app on an iOS simulator and asserts the
+# bundled native-asset framework actually loaded (add(3, 4) == 7 at runtime).
+# "manual" — needs a usable simulator. Run:
+#   bazel test :verify_ios_simulator_test --test_tag_filters=
+dart_test(
+    name = "verify_ios_simulator_test",
+    data = [":ffi_ios_sim_debug"],
+    main = "test/verify_ios_simulator_test.dart",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+build_test(
+    name = "ios_bundle_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":ffi_ios"],
 )
 
 build_test(

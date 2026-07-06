@@ -1,7 +1,7 @@
-/// Plugin that wraps the native `add` function via FFI.
-///
-/// Demonstrates a flutter_plugin with native_deps only (no dart_plugin_class).
-/// The native shared library is bundled automatically via FlutterInfo.
+/// Plugin that wraps the native `add` function via FFI (`native_deps`, no
+/// dart_plugin_class). The shared library is bundled loose on
+/// macOS/Linux/Windows; on iOS rules_flutter wraps it in a signed
+/// `add.framework` (loose embedded dylibs are forbidden there).
 library add_plugin;
 
 import 'dart:ffi' as ffi;
@@ -17,8 +17,19 @@ String _nativeLibName(String baseName) {
   throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
 }
 
+ffi.DynamicLibrary _openAddLib() {
+  // iOS forbids loose embedded dylibs, so rules_flutter wraps the native
+  // library in a signed `add.framework` (see flutter_ios_native_frameworks;
+  // the `lib` prefix and `.dylib` suffix are stripped to form the framework
+  // name). It loads via the app's @rpath (@executable_path/Frameworks). The
+  // other platforms bundle a loose shared library opened by filename.
+  if (Platform.isIOS) {
+    return ffi.DynamicLibrary.open('@rpath/add.framework/add');
+  }
+  return ffi.DynamicLibrary.open(_nativeLibName('add'));
+}
+
 /// Call the native `add` function from the bundled shared library.
 int add(int a, int b) => _addFn(a, b);
 
-final _addFn = ffi.DynamicLibrary.open(_nativeLibName('add'))
-    .lookupFunction<_AddNative, _AddDart>('add');
+final _addFn = _openAddLib().lookupFunction<_AddNative, _AddDart>('add');
