@@ -78,10 +78,46 @@ def _engine_xcframework_select():
     })
 
 # -- Composable rules (Tier 2) ------------------------------------------------
+#
+# Like every other *_gen macro in this file, these default to
+# `tags = ["manual"]`: the targets are only meaningful as deps of an
+# `ios_application` (whose split transition puts them in an iOS
+# configuration). Built standalone by a `//...` pattern they'd run in the
+# host configuration — wrapping the wrong platform's dylibs and invoking
+# Apple-only tools (`xcrun`), which fails outright on non-macOS hosts.
 
-flutter_ios_registrant_gen = _flutter_ios_registrant_rule
-flutter_ios_native_frameworks_gen = _flutter_ios_native_frameworks_rule
-flutter_ios_privacy_manifests_gen = _flutter_ios_privacy_manifests_rule
+def flutter_ios_registrant_gen(name, **kwargs):
+    """Generates the iOS GeneratedPluginRegistrant. See `flutter_ios_registrant`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `ios_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_ios_registrant_rule(name = name, tags = tags, **kwargs)
+
+def flutter_ios_native_frameworks_gen(name, **kwargs):
+    """Wraps native dylibs in signed .frameworks. See `flutter_ios_native_frameworks`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `ios_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_ios_native_frameworks_rule(name = name, tags = tags, **kwargs)
+
+def flutter_ios_privacy_manifests_gen(name, **kwargs):
+    """Exposes plugin privacy manifests. See `flutter_ios_privacy_manifests`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `ios_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_ios_privacy_manifests_rule(name = name, tags = tags, **kwargs)
 
 # Public wrapper that compiles a Flutter plugin's iOS Apple sources into a
 # swift_library. Use directly to wire a monorepo plugin's BUILD.bazel without

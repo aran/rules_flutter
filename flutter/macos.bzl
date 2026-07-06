@@ -72,11 +72,56 @@ load("//flutter/private:flutter_macos_registrant.bzl", _flutter_macos_registrant
 MACOS_MINIMUM_OS_VERSION = _MACOS_MINIMUM_OS_VERSION
 
 # -- Composable rules (Tier 2) ------------------------------------------------
+#
+# Like every other *_gen macro in this file, these default to
+# `tags = ["manual"]`: the targets are only meaningful as deps of a
+# `macos_application` and run Apple-only tooling, so a standalone `//...`
+# build (host configuration) is wrong everywhere and fails outright on
+# non-macOS hosts.
 
-flutter_macos_framework_gen = _flutter_macos_framework_rule
-flutter_macos_registrant_gen = _flutter_macos_registrant_rule
-flutter_macos_native_libs_gen = _flutter_macos_native_libs_rule
-flutter_macos_privacy_manifests_gen = _flutter_macos_privacy_manifests_rule
+def flutter_macos_framework_gen(name, **kwargs):
+    """Generates App.framework. See `flutter_macos_framework`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `macos_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_macos_framework_rule(name = name, tags = tags, **kwargs)
+
+def flutter_macos_registrant_gen(name, **kwargs):
+    """Generates the macOS GeneratedPluginRegistrant. See `flutter_macos_registrant`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `macos_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_macos_registrant_rule(name = name, tags = tags, **kwargs)
+
+def flutter_macos_native_libs_gen(name, **kwargs):
+    """Exposes native dylibs for bundling. See `flutter_macos_native_libs`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `macos_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_macos_native_libs_rule(name = name, tags = tags, **kwargs)
+
+def flutter_macos_privacy_manifests_gen(name, **kwargs):
+    """Exposes plugin privacy manifests. See `flutter_macos_privacy_manifests`.
+
+    Args:
+        name: Target name.
+        **kwargs: Forwarded to the underlying rule. `tags` defaults to
+            `["manual"]` — build via the consuming `macos_application`.
+    """
+    tags = kwargs.pop("tags", ["manual"])
+    _flutter_macos_privacy_manifests_rule(name = name, tags = tags, **kwargs)
 
 # Public wrapper that compiles a Flutter plugin's macOS Apple sources into a
 # swift_library. Use directly to wire a monorepo plugin's BUILD.bazel without
