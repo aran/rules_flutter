@@ -502,8 +502,14 @@ def host_target_arch(ctx, flutter_sdk_info):
 
     # Heuristic: parse the bazel-out output dir for cpu hints. The bin_dir
     # path looks like `bazel-out/<cpu>-<mode>/bin`. Match the same `cpu`
-    # values rules_flutter assumes elsewhere.
+    # values rules_flutter assumes elsewhere. Windows cpu names put the
+    # arch first (`x64_windows`, `arm64_windows`), so match those before
+    # the suffix-style patterns.
     bin_dir = ctx.bin_dir.path
+    if "arm64_windows" in bin_dir:
+        return "arm64"
+    if "x64_windows" in bin_dir:
+        return "x64"
     if "darwin_arm64" in bin_dir or "_arm64" in bin_dir:
         return "arm64"
     if "darwin_x86_64" in bin_dir or "_x86_64" in bin_dir or "_amd64" in bin_dir or "k8" in bin_dir:

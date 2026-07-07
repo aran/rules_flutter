@@ -152,11 +152,24 @@ def write_native_assets_manifest(
     target_string = native_assets_target_string(target_os, target_arch)
 
     section = {}
-    if target_string:
-        for asset in native_assets:
-            if asset.target_os != target_os:
-                continue
-            section[asset.asset_id] = _path_list_for(asset, target_os)
+    for asset in native_assets:
+        if asset.target_os != target_os:
+            continue
+        section[asset.asset_id] = _path_list_for(asset, target_os)
+
+    # Assets declared for this OS but no resolvable `<os>_<arch>` key means
+    # the manifest would silently omit them and every `@Native` binding
+    # would fail at runtime, far from the cause. Break loudly instead.
+    if section and not target_string:
+        fail(
+            "flutter_native_assets_manifest: %d native asset(s) are declared " % len(section) +
+            "for target_os %r but the target architecture could not be " % target_os +
+            "determined (got %r). " % target_arch +
+            "The --native-assets manifest would silently omit them and " +
+            "@Native bindings would fail at runtime. This is a rules_flutter " +
+            "bug in host_target_arch's cpu detection — please report the " +
+            "bazel-out cpu segment of this build.",
+        )
 
     manifest = {
         "format-version": [1, 0, 0],

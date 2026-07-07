@@ -1,17 +1,16 @@
 /// Verifies the Windows bundle has the expected structure, including both
 /// native shared libraries next to the runner exe (that is where the loader —
 /// and the native-assets manifest's bare-basename entries — expect them).
+///
+/// The bundle is resolved through `package:runfiles`, not `$TEST_SRCDIR`
+/// paths: Windows uses manifest-based runfiles (no symlink tree), so raw
+/// path construction finds nothing there.
 import 'dart:io';
 
-void main() {
-  final testSrcDir = Platform.environment['TEST_SRCDIR'];
-  final testWorkspace = Platform.environment['TEST_WORKSPACE'];
-  if (testSrcDir == null || testWorkspace == null) {
-    stderr.writeln('Missing TEST_SRCDIR or TEST_WORKSPACE env vars');
-    exit(1);
-  }
+import 'package:runfiles/runfiles.dart';
 
-  final bundlePath = '$testSrcDir/$testWorkspace/ffi_windows';
+void main() {
+  final bundlePath = Runfiles.create().rlocation('_main/ffi_windows');
   if (!Directory(bundlePath).existsSync()) {
     stderr.writeln('Bundle directory not found at $bundlePath');
     exit(1);

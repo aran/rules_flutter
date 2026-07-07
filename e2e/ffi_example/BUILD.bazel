@@ -241,6 +241,7 @@ dart_test(
     data = [":ffi_windows"],
     main = "test/verify_windows_bundle_test.dart",
     target_compatible_with = ["@platforms//os:windows"],
+    deps = ["@rules_dart//dart/runfiles"],
 )
 
 # Behavioral runtime test: launches the Windows runner and asserts both the
@@ -255,6 +256,7 @@ dart_test(
         "manual",
     ],
     target_compatible_with = ["@platforms//os:windows"],
+    deps = ["@rules_dart//dart/runfiles"],
 )
 
 # The simulator runs the JIT engine, so the app is transitioned to a debug,

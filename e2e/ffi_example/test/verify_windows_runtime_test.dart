@@ -20,18 +20,16 @@
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12` to `%TMP%\ffi_result.txt`.
 import 'dart:io';
 
+import 'package:runfiles/runfiles.dart';
+
 const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12';
 const _timeout = Duration(seconds: 60);
 
 Future<void> main() async {
-  final testSrcDir = Platform.environment['TEST_SRCDIR'];
-  final testWorkspace = Platform.environment['TEST_WORKSPACE'];
-  if (testSrcDir == null || testWorkspace == null) {
-    stderr.writeln('Missing TEST_SRCDIR or TEST_WORKSPACE env vars');
-    exit(1);
-  }
-
-  final binary = '$testSrcDir/$testWorkspace/ffi_windows/ffi_windows.exe';
+  // Resolve through package:runfiles — Windows uses manifest-based runfiles
+  // (no symlink tree), so raw $TEST_SRCDIR paths find nothing.
+  final bundle = Runfiles.create().rlocation('_main/ffi_windows');
+  final binary = '$bundle\\ffi_windows.exe';
   if (!File(binary).existsSync()) {
     stderr.writeln('Runner binary not found at $binary');
     exit(1);
