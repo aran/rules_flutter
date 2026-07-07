@@ -114,7 +114,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
 
     Collects sources, generates package_config.json, and invokes
     flutter_kernel_compile_action. If deps contain plugins with
-    dartPluginClass, generates a registrant and wrapper main.
+    dartPluginClass (or the debug agent is injected), generates a
+    registrant library the engine invokes before main() on every
+    root-isolate launch — including hot restart.
 
     If aot and platform_dill are not specified, they are determined by the
     Bazel compilation mode: opt → product dill + AOT, dbg → debug dill + JIT.
@@ -145,9 +147,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     app_pkg_name = ctx.attr.package_name
     packages = synthesize_app_package(packages, app_pkg_name)
 
-    # Include the app's own `main` so the synthesized package the wrapper
-    # imports as `package:<name>/main.dart` (hot-reload URI parity) is
-    # co-located with its lib/ siblings when any of them are generated.
+    # Include the app's own `main` so the synthesized package keyed as
+    # `package:<name>/main.dart` (hot-reload URI parity) is co-located with
+    # its lib/ siblings when any of them are generated.
     colocate_inputs = all_srcs + ([ctx.file.main] if ctx.file.main else [])
 
     # Dev hot-reload metadata (debug only): a *second* package_config that, for a
@@ -594,7 +596,7 @@ PLATFORM_CONSTRAINT_ATTRS = {
 
 AGENT_EXTENSIONS_ATTR = {
     "_agent_extensions_src": attr.label(
-        doc = "AI-agent service-extension source. Auto-injected into the wrapper main in debug builds; ignored in AOT/release.",
+        doc = "AI-agent service-extension source. Registered from the generated plugin registrant in debug builds; ignored in AOT/release.",
         default = Label("//flutter/private/agent_extensions:agent.dart"),
         allow_single_file = [".dart"],
     ),

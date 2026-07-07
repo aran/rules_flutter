@@ -874,7 +874,7 @@ Once the channel is up:
 | `/sessions/{appId}/screenshot/flutter?token=<token>` | `GET` | PNG of the Flutter widget tree (`_flutter.screenshot` via VM service). |
 | `/sessions/{appId}/screenshot/native?token=<token>` | `GET` | PNG of the native window (`screencapture` / `scrot` / `adb screencap` / etc.). |
 
-App-driving methods (proxied to the agent extensions registered by the rule-injected wrapper main):
+App-driving methods (proxied to the agent extensions registered from the generated plugin registrant, which the engine invokes before `main()` on every launch — so they survive hot restart):
 
 `app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`,
 `app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`,

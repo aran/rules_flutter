@@ -32,6 +32,8 @@ cd tools/dev_tool && dart test test/e2e/ --tags=e2e --concurrency=1
 | `machine_protocol_e2e_test.dart` | macOS | Protocol lifecycle events, unknown-method error (reload/restart correctness is manual — see "Hot reload / hot restart (manual)") |
 | `attach_e2e_test.dart` | macOS | Launch app externally → attach → VM service connects |
 | `dart_defines_e2e_test.dart` | macOS | `--dart-define` reaches the app (comma-in-value intact) and survives a hot reload (frontend_server -D replay) |
+| `agent_e2e_test.dart` | macOS | Full `app.*` agent surface (tap/enterText/getText/…), and that it still works **after `app.restart`** (engine-hook registrant re-registers extensions) |
+| `plugin_example_e2e_test.dart` | macOS/iOS-sim/Android | Plugin apps render non-blank frames; Dart plugin registration survives `app.restart` (macOS) |
 
 ### Dev tool screenshot mechanisms
 
@@ -209,6 +211,12 @@ Verify all three, with `--no-devtools` (see Known issues):
    change. Hot restart re-runs `main()` (engine `runInView`), so it must also
    reflect a change made *inside `main()`* (e.g. a value computed there) that a
    hot reload deliberately does NOT — verify a `main()`-level edit too.
+4. **Agent surface after restart**: after `app.restart`, `app.getText` must
+   still succeed. The `ext.rules_flutter.*` extensions are registered by the
+   generated plugin registrant the engine invokes before `main()` on every
+   root-isolate launch; if this errors with `Unknown method`, the registrant
+   trio (`--source` ×2 + `-Dflutter.dart_plugin_registrant`) is missing from
+   the dev tool's frontend_server invocation.
 
 **Source-assembled (codegen) apps** — also verify against `e2e/codegen :app_macos`.
 This is the coverage for apps that mix hand-written + generated sources, including

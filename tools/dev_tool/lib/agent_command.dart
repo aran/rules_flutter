@@ -3,7 +3,7 @@
 /// Exposes `app.*` for an external agent (e.g. Claude Code) to drive a
 /// running Flutter app over the dev_tool's HTTP control channel. Most
 /// commands proxy to `ext.rules_flutter.*` service extensions registered by
-/// the rule-injected wrapper main (see
+/// the generated plugin registrant the engine invokes before main() (see
 /// `flutter/private/agent_extensions/agent.dart`). `app.dumpWidgetTree`
 /// goes to the built-in inspector RPC and works against any debug Flutter
 /// app without app-side cooperation.
