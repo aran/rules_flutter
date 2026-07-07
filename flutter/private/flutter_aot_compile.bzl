@@ -70,7 +70,7 @@ def flutter_aot_macho_action(
         extra_flags: Additional gen_snapshot flags.
         extra_outputs: Additional output Files (e.g. debug info).
         install_name: Mach-O LC_ID_DYLIB install name.
-        min_os_version: Minimum OS deployment target (e.g. "12.0" for iOS, "10.14" for macOS).
+        min_os_version: Minimum OS deployment target (e.g. "13.0" for iOS, "10.14" for macOS).
         rpath: Comma-separated rpath entries for LC_RPATH.
     """
     macho_flags = list(extra_flags)
