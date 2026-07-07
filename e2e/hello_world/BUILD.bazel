@@ -146,6 +146,23 @@ flutter_test(
     ],
 )
 
+# Verifies Dart environment defines: the `defines` attr, the
+# --@rules_flutter//flutter:extra_dart_defines flag (set in .bazelrc, value
+# contains a comma to prove repeatable-flag no-split semantics), and
+# flag-beats-attr precedence.
+flutter_test(
+    name = "dart_defines_test",
+    package_name = "hello_world",
+    defines = [
+        "E2E_ATTR=from_attr",
+        "E2E_WINNER=attr",
+    ],
+    main = "test/dart_defines_test.dart",
+    deps = [
+        "@deps//:flutter_test",
+    ],
+)
+
 # Smoke test: pure dart:ui resolution. Verifies the rule still produces a
 # working bootstrap for tests that don't initialize any Flutter binding.
 flutter_test(

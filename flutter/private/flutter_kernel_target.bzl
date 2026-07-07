@@ -5,7 +5,7 @@ This is the base compilation step shared by all Flutter platform targets.
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
-load("//flutter/private:common.bzl", "AGENT_EXTENSIONS_ATTR", "flutter_compile_kernel")
+load("//flutter/private:common.bzl", "AGENT_EXTENSIONS_ATTR", "EXTRA_DART_DEFINES_ATTR", "flutter_compile_kernel")
 
 def _flutter_kernel_target_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
@@ -52,7 +52,7 @@ flutter_kernel_target = rule(
         "defines": attr.string_list(
             doc = "Dart environment defines (-D flags).",
         ),
-    } | AGENT_EXTENSIONS_ATTR,
+    } | AGENT_EXTENSIONS_ATTR | EXTRA_DART_DEFINES_ATTR,
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,

@@ -33,6 +33,7 @@ load(
     "flutter_build_assets",
     "flutter_compile_shaders",
     "make_web_wrapper_main_content",
+    "merge_dart_defines",
 )
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_library.bzl", "dedup_plugins")
@@ -174,6 +175,10 @@ def _flutter_web_bundle_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
     flutter_sdk_info = flutter_toolchain.flutter_sdk_info
 
+    # Merged once for all compile actions below (dart2wasm, dart2js, icon
+    # tree-shake kernel) and the dev-config emission.
+    user_defines = merge_dart_defines(ctx)
+
     # Step 1: Collect sources, generate package config, handle plugin registrant.
     # dart compile wasm/js take .dart source directly (not kernel .dill).
     all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps).to_list()
@@ -265,7 +270,7 @@ def _flutter_web_bundle_impl(ctx):
             output_mjs = output_mjs,
             optimization_level = ctx.attr.optimization_level,
             source_maps = ctx.attr.source_maps,
-            defines = ctx.attr.defines,
+            defines = user_defines,
             renderer = ctx.attr.renderer,
         )
 
@@ -283,7 +288,7 @@ def _flutter_web_bundle_impl(ctx):
             output_dir = output_js_fallback_dir,
             optimization_level = ctx.attr.optimization_level,
             source_maps = ctx.attr.source_maps,
-            defines = ctx.attr.defines,
+            defines = user_defines,
             renderer = "canvaskit",
         )
         compile_outputs = [output_wasm, output_mjs]
@@ -311,7 +316,7 @@ def _flutter_web_bundle_impl(ctx):
             output_dir = output_js_dir,
             optimization_level = ctx.attr.optimization_level,
             source_maps = ctx.attr.source_maps,
-            defines = ctx.attr.defines,
+            defines = user_defines,
             renderer = ctx.attr.renderer,
         )
         dart2js_dirs = [output_js_dir]
@@ -351,7 +356,7 @@ def _flutter_web_bundle_impl(ctx):
             package_config = config_file,
             output = kernel_dill,
             aot = True,
-            defines = list(ctx.attr.defines) + ["dart.vm.product=true"],
+            defines = list(user_defines) + ["dart.vm.product=true"],
         )
 
     flutter_assets = flutter_build_assets(ctx, flutter_sdk_info, compiled_shaders, kernel_dill = kernel_dill, is_debug = is_debug)
@@ -630,6 +635,7 @@ _WEB_RELEVANT_KEYS = (
     "deps",
     "assets",
     "defines",
+    "_extra_dart_defines",
     "shaders",
     "tree_shake_icons",
     "license_files",

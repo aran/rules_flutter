@@ -5,4 +5,9 @@ common --java_runtime_version=remotejdk_25
 common --tool_java_language_version=25
 common --tool_java_runtime_version=remotejdk_25
 
+# Exercised by :dart_defines_test — repeatable flag, one define per
+# occurrence; the comma in E2E_FLAG's value must survive un-split.
+common --@rules_flutter//flutter:extra_dart_defines=E2E_FLAG=from,flag
+common --@rules_flutter//flutter:extra_dart_defines=E2E_WINNER=flag
+
 try-import %workspace%/.bazelrc.user

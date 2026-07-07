@@ -67,6 +67,7 @@ _AOT_ATTRS = {k: v for k, v in FLUTTER_APPLICATION_ATTRS.items() if k in (
     "srcs",
     "deps",
     "defines",
+    "_extra_dart_defines",
     "profile",
     "obfuscate",
     "split_debug_info",

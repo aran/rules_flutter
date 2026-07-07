@@ -5,6 +5,7 @@ compilation pipeline (kernel → AOT → assets → FFI collection) used by
 flutter_application, flutter_android_bundle, and flutter_ios_application.
 """
 
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs", "generate_dev_package_config")
 load("//flutter:providers.bzl", "FlutterInfo")
@@ -14,6 +15,7 @@ load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "dedup_plugins")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant")
+load("//flutter/private:validation.bzl", "validate_dart_defines")
 
 def make_web_wrapper_main_content(original_import, registrant_import = None):
     """Generate a web wrapper main.dart that uses ui_web.bootstrapEngine().
@@ -224,8 +226,11 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     if hasattr(ctx.attr, "track_widget_creation") and ctx.attr.track_widget_creation:
         extra_frontend_flags.append("--track-widget-creation")
 
-    # Merge defines with mode-specific Dart VM flags.
-    all_defines = list(ctx.attr.defines)
+    # Merge defines with mode-specific Dart VM flags. user_defines (attr +
+    # extra_dart_defines flag, no mode keys) is surfaced in the return struct
+    # so dev-config writers can replay it on the dev tool's frontend_server.
+    user_defines = merge_dart_defines(ctx)
+    all_defines = list(user_defines)
     if hasattr(ctx.attr, "profile") and ctx.attr.profile:
         all_defines.append("dart.vm.profile=true")
     elif aot:
@@ -252,6 +257,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     return struct(
         kernel_dill = kernel_dill,
         package_config = config_file,
+        # Merged user defines (attr + flag), without the mode-specific
+        # dart.vm.* keys — the dev tool replays these on its own compiler.
+        dart_defines = user_defines,
         # Hot-reload dev metadata (None/empty outside debug). Consumed by the
         # rule impl to emit `_dev_config.json` for the dev tool.
         app_entrypoint_uri = app_entrypoint_uri,
@@ -578,6 +586,29 @@ AGENT_EXTENSIONS_ATTR = {
     ),
 }
 
+EXTRA_DART_DEFINES_ATTR = {
+    "_extra_dart_defines": attr.label(
+        doc = "The //flutter:extra_dart_defines build setting, appended after the target's own `defines`.",
+        default = Label("//flutter:extra_dart_defines"),
+    ),
+}
+
+def merge_dart_defines(ctx):
+    """Merge a target's `defines` attr with the extra_dart_defines flag.
+
+    Flag values come after attr values, so on a duplicated key the command
+    line wins (the compilers take the last -D). The flag validates its own
+    value in its rule impl; only the attr is validated here.
+
+    Args:
+        ctx: Rule context with `defines` and `_extra_dart_defines` attrs.
+
+    Returns:
+        The merged list of KEY=VALUE define strings.
+    """
+    validate_dart_defines(ctx.attr.defines, "defines attribute of %s" % ctx.label)
+    return list(ctx.attr.defines) + ctx.attr._extra_dart_defines[BuildSettingInfo].value
+
 # Shared attrs for all flutter application rules.
 FLUTTER_APPLICATION_ATTRS = {
     "main": attr.label(
@@ -655,4 +686,4 @@ FLUTTER_APPLICATION_ATTRS = {
         default = Label("//flutter/private/tools:generate_asset_manifest.dart"),
         allow_single_file = True,
     ),
-} | AGENT_EXTENSIONS_ATTR
+} | AGENT_EXTENSIONS_ATTR | EXTRA_DART_DEFINES_ATTR

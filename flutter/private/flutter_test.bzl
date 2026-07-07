@@ -50,6 +50,7 @@ load(
     "detect_target_platform",
     "flutter_build_assets",
     "flutter_compile_shaders",
+    "merge_dart_defines",
 )
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 
@@ -196,7 +197,7 @@ def _flutter_test_impl(ctx):
         package_config = package_config,
         output = kernel_dill,
         aot = False,
-        defines = ctx.attr.defines,
+        defines = merge_dart_defines(ctx),
         target = "flutter",
     )
 
@@ -306,6 +307,7 @@ _TEST_ATTRS = {
         "srcs",
         "deps",
         "defines",
+        "_extra_dart_defines",
         "package_name",
         # Asset-bundle inputs. Same surface as flutter_application — most
         # widget tests don't touch these, but Material widgets implicitly
