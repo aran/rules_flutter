@@ -1,8 +1,10 @@
 // AI-agent custom service extensions.
 //
-// Registered in the wrapper main injected by flutter_compile_kernel for
-// debug builds. Exposes the `ext.rules_flutter.*` API the dev_tool's HTTP
-// control channel proxies to.
+// Registered from the generated plugin registrant, which the engine invokes
+// before main() on every root-isolate launch (including hot restart) — so
+// registration must not touch any Flutter binding; binding-dependent setup
+// is deferred to first handler invocation. Exposes the `ext.rules_flutter.*`
+// API the dev_tool's HTTP control channel proxies to.
 //
 // Imports only `package:flutter` and `dart:*` — no flutter_driver, no
 // flutter_test, no transitive pub deps.
@@ -25,7 +27,6 @@ import 'package:flutter/widgets.dart';
 SemanticsHandle? _semanticsHandle;
 
 void registerRulesFlutterAgentExtensions() {
-  _semanticsHandle = SemanticsBinding.instance.ensureSemantics();
   registerExtension('ext.rules_flutter.tap', _guard(_handleTap));
   registerExtension('ext.rules_flutter.longPress', _guard(_handleLongPress));
   registerExtension('ext.rules_flutter.doubleTap', _guard(_handleDoubleTap));
@@ -51,6 +52,15 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
 ) {
   return (method, params) async {
     try {
+      // Registration runs pre-main (engine plugin-registrant hook), before
+      // any binding exists — binding-dependent setup is deferred to first
+      // invocation, by which point the app is running. Enable semantics once
+      // and wait a frame so the tree exists for semanticsLabel finders.
+      if (_semanticsHandle == null) {
+        _semanticsHandle = SemanticsBinding.instance.ensureSemantics();
+        SchedulerBinding.instance.scheduleFrame();
+        await SchedulerBinding.instance.endOfFrame;
+      }
       return await handler(method, params);
     } on TimeoutException catch (e) {
       return _err('timed out after ${e.duration?.inMilliseconds}ms waiting for '
