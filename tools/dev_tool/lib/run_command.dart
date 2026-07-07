@@ -1013,6 +1013,9 @@ class RunCommand {
             fileSystemRoots: devConfig.filesystemRoots,
             fileSystemScheme: devConfig.filesystemScheme,
             dartDefines: devConfig.dartDefines,
+            dartPluginRegistrantUri: devConfig.dartPluginRegistrant.isEmpty
+                ? ''
+                : Uri.file(devConfig.dartPluginRegistrant).toString(),
           );
 
           if (compilerConfig != null) {

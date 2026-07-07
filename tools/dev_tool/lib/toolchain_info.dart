@@ -221,6 +221,13 @@ class DevConfig {
   /// String.fromEnvironment values as the initial build.
   final List<String> dartDefines;
 
+  /// Path to the generated plugin registrant (`_PluginRegistrant`), or empty
+  /// when the app has no Dart plugins and no agent extensions. Compiled into
+  /// the dev tool's dills via `--source` and advertised with
+  /// `-Dflutter.dart_plugin_registrant` so the engine's pre-main hook keeps
+  /// firing after hot restart. Absolutized by [parseDevConfig].
+  final String dartPluginRegistrant;
+
   DevConfig({
     required this.engineRevision,
     required this.flutterVersion,
@@ -236,6 +243,7 @@ class DevConfig {
     this.generatedSourceUris = const [],
     this.sourcePackages = const [],
     this.dartDefines = const [],
+    this.dartPluginRegistrant = '',
   });
 
   /// Generated files as `{package: URI → absolute path}` for reload
@@ -268,6 +276,7 @@ class DevConfig {
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
       dartDefines: strList('dartDefines'),
+      dartPluginRegistrant: (json['dartPluginRegistrant'] as String?) ?? '',
       sourcePackages: [
         for (final e in (json['sourcePackages'] as List?) ?? const [])
           (
@@ -335,6 +344,7 @@ DevConfig parseDevConfig(String path) {
       'frontendServer',
       'patchedSdkRoot',
       'devPackageConfig',
+      'dartPluginRegistrant',
     ]) {
       final value = json[key];
       if (value is String && value.isNotEmpty) json[key] = abs(value);

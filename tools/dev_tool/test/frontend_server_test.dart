@@ -116,6 +116,61 @@ void main() {
       expect(capturedArgs, contains('-DB=x,y'));
     });
 
+    test('NativeCompilerConfig emits the registrant trio when set', () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(
+          patchedSdkRoot: '/sdk-root',
+          dartPluginRegistrantUri: 'file:///exec/bin/app_plugin_registrant.dart',
+        ),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      // The engine invokes _PluginRegistrant.register() (from the library
+      // named by the -D) before main() on every isolate launch — including
+      // hot restart of the dill this resident compiler produces.
+      expect(
+          capturedArgs,
+          containsAllInOrder([
+            '--source',
+            'file:///exec/bin/app_plugin_registrant.dart',
+            '--source',
+            'package:flutter/src/dart_plugin_registrant.dart',
+          ]));
+      expect(
+          capturedArgs,
+          contains('-Dflutter.dart_plugin_registrant='
+              'file:///exec/bin/app_plugin_registrant.dart'));
+    });
+
+    test('NativeCompilerConfig omits the registrant trio when unset', () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(patchedSdkRoot: '/sdk-root'),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      expect(capturedArgs, isNot(contains('--source')));
+      expect(
+          capturedArgs!
+              .where((a) => a.startsWith('-Dflutter.dart_plugin_registrant')),
+          isEmpty);
+    });
+
     test('WebCompilerConfig emits -D flags for dartDefines', () async {
       List<String>? capturedArgs;
       final s = FrontendServer(

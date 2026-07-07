@@ -41,11 +41,20 @@ class NativeCompilerConfig implements CompilerConfig {
   /// across hot reload/restart. Sourced from the dev config's dartDefines.
   final List<String> dartDefines;
 
+  /// `file://` URI of the generated plugin registrant, or empty when the
+  /// app has none. Emitted as the frontend_server registrant flag trio
+  /// (`--source` ×2 + `-Dflutter.dart_plugin_registrant`) so the engine's
+  /// pre-main hook re-registers plugins and agent extensions on every
+  /// root-isolate launch of the dills this compiler produces — which is
+  /// what keeps them alive across hot restart.
+  final String dartPluginRegistrantUri;
+
   NativeCompilerConfig({
     required this.patchedSdkRoot,
     this.fileSystemRoots = const [],
     this.fileSystemScheme = '',
     this.dartDefines = const [],
+    this.dartPluginRegistrantUri = '',
   });
 
   @override
@@ -58,6 +67,13 @@ class NativeCompilerConfig implements CompilerConfig {
   List<String> get extraFlags => [
         '--enable-asserts',
         for (final define in dartDefines) '-D$define',
+        if (dartPluginRegistrantUri.isNotEmpty) ...[
+          '--source',
+          dartPluginRegistrantUri,
+          '--source',
+          'package:flutter/src/dart_plugin_registrant.dart',
+          '-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri',
+        ],
         for (final root in fileSystemRoots) ...['--filesystem-root', root],
         if (fileSystemRoots.isNotEmpty && fileSystemScheme.isNotEmpty)
           '--filesystem-scheme=$fileSystemScheme',

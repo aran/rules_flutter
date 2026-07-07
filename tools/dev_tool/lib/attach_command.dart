@@ -213,6 +213,10 @@ class AttachCommand {
           fileSystemRoots: devConfig?.filesystemRoots ?? const [],
           fileSystemScheme: devConfig?.filesystemScheme ?? '',
           dartDefines: devConfig?.dartDefines ?? const [],
+          dartPluginRegistrantUri:
+              (devConfig?.dartPluginRegistrant.isEmpty ?? true)
+                  ? ''
+                  : Uri.file(devConfig!.dartPluginRegistrant).toString(),
         ),
         packageConfig: packageConfigPath,
       );

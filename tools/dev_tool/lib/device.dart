@@ -81,12 +81,14 @@ abstract class Device {
     List<String> fileSystemRoots = const [],
     String fileSystemScheme = '',
     List<String> dartDefines = const [],
+    String dartPluginRegistrantUri = '',
   }) =>
       NativeCompilerConfig(
         patchedSdkRoot: toolchain.patchedSdkRoot,
         fileSystemRoots: fileSystemRoots,
         fileSystemScheme: fileSystemScheme,
         dartDefines: dartDefines,
+        dartPluginRegistrantUri: dartPluginRegistrantUri,
       );
 
   /// Create the reload strategy for this platform.
@@ -1500,9 +1502,12 @@ class WebDevice extends Device {
     List<String> fileSystemRoots = const [],
     String fileSystemScheme = '',
     List<String> dartDefines = const [],
+    String dartPluginRegistrantUri = '',
   }) {
     // Web builds its own filesystem roots (synthetic entrypoint dir + workspace)
-    // in run_command; the native roots/scheme args are not used here.
+    // in run_command; the native roots/scheme args are not used here. The
+    // registrant URI is ignored too — the web synthetic main calls
+    // registerPlugins() directly and re-runs on page-reload restart.
     if (webToolchain == null) return null;
     return WebCompilerConfig(webToolchain: webToolchain, dartDefines: dartDefines);
   }

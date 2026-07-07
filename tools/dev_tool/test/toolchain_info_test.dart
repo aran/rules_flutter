@@ -125,6 +125,26 @@ void main() {
       expect(config.dartDefines, ['A=1', 'B=x,y']);
     });
 
+    test('fromJson parses dartPluginRegistrant, defaults empty', () {
+      Map<String, dynamic> base() => {
+            'engineRevision': 'abc123',
+            'flutterVersion': '3.41.2',
+            'dartSdkRoot': '/ext/dart-sdk',
+            'dartaotruntime': '/ext/dart-sdk/bin/dartaotruntime',
+            'frontendServer': '/ext/host-tools/fs.snapshot',
+            'patchedSdkRoot': '/ext/patched-sdk/flutter_patched_sdk',
+            'appEntrypoint': 'package:my_app/main.dart',
+          };
+      expect(DevConfig.fromJson(base()).dartPluginRegistrant, isEmpty);
+      expect(
+        DevConfig.fromJson({
+          ...base(),
+          'dartPluginRegistrant': 'bazel-out/cfg/bin/app_plugin_registrant.dart',
+        }).dartPluginRegistrant,
+        'bazel-out/cfg/bin/app_plugin_registrant.dart',
+      );
+    });
+
     test('fromJson defaults dartDefines to empty when absent', () {
       final config = DevConfig.fromJson({
         'engineRevision': 'abc123',
@@ -250,6 +270,33 @@ void main() {
           p.split('$execRoot/external/flutter/patched'));
 
       tmpDir.deleteSync(recursive: true);
+    });
+
+    test('absolutizes dartPluginRegistrant against the exec root', () {
+      // Unlike dartDefines, the registrant IS a path — the dev tool turns it
+      // into a file:// URI for the frontend_server --source/-D trio.
+      final tmpDir = Directory.systemTemp.createTempSync('test_dev_cfg_reg_');
+      final resolvedTmpDir = tmpDir.resolveSymbolicLinksSync();
+      final execRoot = '$resolvedTmpDir/execroot/_main';
+      final binDir = Directory('$execRoot/bazel-out/cfg/bin');
+      binDir.createSync(recursive: true);
+      addTearDown(() => tmpDir.deleteSync(recursive: true));
+
+      final configFile = File('${binDir.path}/app_dev_config.json');
+      configFile.writeAsStringSync(jsonEncode({
+        'engineRevision': 'abc',
+        'flutterVersion': '3.41.2',
+        'dartSdkRoot': '/sdk',
+        'dartaotruntime': '/bin/dartaotruntime',
+        'frontendServer': '/tools/fs.snapshot',
+        'patchedSdkRoot': '/patched',
+        'appEntrypoint': 'package:my_app/main.dart',
+        'dartPluginRegistrant': 'bazel-out/cfg/bin/app_plugin_registrant.dart',
+      }));
+
+      final config = parseDevConfig(configFile.path);
+      expect(p.split(config.dartPluginRegistrant),
+          p.split('$execRoot/bazel-out/cfg/bin/app_plugin_registrant.dart'));
     });
 
     test('does not absolutize dartDefines, even path-like values', () {
