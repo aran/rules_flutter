@@ -4,6 +4,7 @@
 /// port. All endpoints require a `?token=<token>` query parameter for auth.
 /// This allows external tools (like Claude Code) to send commands from
 /// isolated shell sessions via simple `curl` POSTs.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -18,6 +19,8 @@ class HttpControlChannel {
   final DeviceSession? Function(String appId) _findSession;
   final String _token;
   HttpServer? _server;
+  int _inFlight = 0;
+  Completer<void>? _drained;
 
   HttpControlChannel({
     required CommandRunner commandRunner,
@@ -53,12 +56,38 @@ class HttpControlChannel {
   }
 
   /// Stop the HTTP server.
+  ///
+  /// Refuses new connections immediately, then waits for in-flight request
+  /// handlers to finish writing their responses. An `app.stop` command tears
+  /// the session down and this channel is closed on the way out of the run —
+  /// while the request that triggered it is still awaiting its response. A
+  /// force-close here would sever that connection mid-response.
   Future<void> stop() async {
-    await _server?.close(force: true);
+    final server = _server;
     _server = null;
+    if (server == null) return;
+    // force: false stops the listener and closes idle connections but lets
+    // active ones complete.
+    await server.close();
+    if (_inFlight > 0) {
+      _drained ??= Completer<void>();
+      await _drained!.future;
+    }
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
+    _inFlight++;
+    try {
+      await _dispatchRequest(request);
+    } finally {
+      _inFlight--;
+      if (_inFlight == 0 && _drained != null && !_drained!.isCompleted) {
+        _drained!.complete();
+      }
+    }
+  }
+
+  Future<void> _dispatchRequest(HttpRequest request) async {
     // Reject HTTP upgrade attempts (e.g. HTTP/2 cleartext "h2c"). Dart's
     // HttpServer is HTTP/1.1 only and, when an `Upgrade` header is present,
     // silently discards the request body — which turns a POST /command into a

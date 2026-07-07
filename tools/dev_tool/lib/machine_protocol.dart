@@ -34,6 +34,7 @@ class MachineProtocol {
   final Stream<String>? _inputLines;
   final CommandRunner? _commandRunner;
   int _nextId = 0;
+  StreamSubscription<String>? _subscription;
 
   MachineProtocol({
     required this.enabled,
@@ -58,7 +59,7 @@ class MachineProtocol {
 
     final lines = _inputLines ??
         stdin.transform(utf8.decoder).transform(const LineSplitter());
-    lines.listen(
+    _subscription = lines.listen(
       (line) async {
         try {
           final decoded = json.decode(line);
@@ -90,6 +91,17 @@ class MachineProtocol {
         }
       },
     );
+  }
+
+  /// Stop listening for commands on stdin.
+  ///
+  /// Releases the stdin subscription so the process can exit once the run
+  /// is over — an uncancelled stdin listener keeps the VM alive forever.
+  /// Safe to call from within a command handler: the in-progress handler
+  /// (and its response) completes normally; only future input is ignored.
+  Future<void> stopListening() async {
+    await _subscription?.cancel();
+    _subscription = null;
   }
 
   /// Send an event to the IDE.

@@ -191,9 +191,17 @@ class RunCommand {
       return null;
     }
 
-    /// Gracefully tear down the HTTP channel, sessions, and frontend server.
+    final shutdownRequested = Completer<void>();
+
+    /// Gracefully tear down sessions and the frontend server, then signal
+    /// the session loop to end.
+    ///
+    /// Deliberately does NOT stop the HTTP control channel: this runs inside
+    /// `app.stop` / `daemon.shutdown` command handlers, and when the command
+    /// arrived over HTTP the response has not been written yet. The channel
+    /// is closed on the way out of [execute], after the session loop returns
+    /// — by which point the response has flushed.
     Future<void> performCleanup() async {
-      await httpChannel?.stop();
       for (final session in sessions) {
         session.devToolsProcess?.kill();
         protocol.appStop(session.appId);
@@ -202,6 +210,7 @@ class RunCommand {
         await session.device.stop(session.appInstance);
       }
       await frontendServer?.shutdown();
+      if (!shutdownRequested.isCompleted) shutdownRequested.complete();
     }
 
     /// Convert a [ReloadResult] to a machine protocol response map.
@@ -1213,50 +1222,61 @@ class RunCommand {
       });
     }
 
-    // Profile mode enters an interactive session (without hot reload).
-    // This allows DevTools connection, performance overlay, and key handlers.
-    if (profileMode) {
-      if (sessions.isNotEmpty) {
+    // The channel must outlive the session loop: an `app.stop` arriving over
+    // HTTP is still flushing its response when the loop ends, so the channel
+    // is stopped (gracefully, draining in-flight requests) only on the way
+    // out.
+    try {
+      // Profile mode enters an interactive session (without hot reload).
+      // This allows DevTools connection, performance overlay, and key handlers.
+      if (profileMode) {
+        if (sessions.isNotEmpty) {
+          await runInteractiveSession(
+            sessions: sessions,
+            frontendServer: frontendServer,
+            // Profile mode has no hot reload, so the entrypoint is unused.
+            entrypoint: _resolvedEntrypoint ?? '',
+            workspace: workspace,
+            protocol: protocol,
+            commandRunner: commandRunner,
+            devToolsEnabled: devToolsEnabled,
+            hotReloadEnabled: false,
+            watchEnabled: false,
+            shutdownSignal: shutdownRequested.future,
+          );
+        }
+        return;
+      }
+
+      // Step 5-6: Watch files and handle keyboard input via shared session
+      // loop. _resolvedEntrypoint is set by the native frontend-server block
+      // (from the dev config) or the web block; the fallback below covers the
+      // no-hot-reload case where the entrypoint is unused.
+      _resolvedEntrypoint ??= '';
+
+      if (frontendServer != null || isWebDevice) {
         await runInteractiveSession(
           sessions: sessions,
           frontendServer: frontendServer,
-          // Profile mode has no hot reload, so the entrypoint is unused.
-          entrypoint: _resolvedEntrypoint ?? '',
+          entrypoint: _resolvedEntrypoint,
           workspace: workspace,
           protocol: protocol,
           commandRunner: commandRunner,
-          devToolsEnabled: devToolsEnabled,
-          hotReloadEnabled: false,
-          watchEnabled: false,
+          devToolsEnabled: devToolsEnabled && !profileMode,
+          watchEnabled: watchEnabled,
+          reloadStrategy: reloadStrategy,
+          resolver: reloadResolver,
+          shutdownSignal: shutdownRequested.future,
         );
+      } else {
+        // No hot reload possible — wait for first device to exit.
+        if (sessions.isNotEmpty) {
+          await sessions.first.appInstance.process.exitCode;
+        }
       }
-      return;
-    }
-
-    // Step 5-6: Watch files and handle keyboard input via shared session loop.
-    // _resolvedEntrypoint is set by the native frontend-server block (from the
-    // dev config) or the web block; the fallback below covers the no-hot-reload
-    // case where the entrypoint is unused.
-    _resolvedEntrypoint ??= '';
-
-    if (frontendServer != null || isWebDevice) {
-      await runInteractiveSession(
-        sessions: sessions,
-        frontendServer: frontendServer,
-        entrypoint: _resolvedEntrypoint,
-        workspace: workspace,
-        protocol: protocol,
-        commandRunner: commandRunner,
-        devToolsEnabled: devToolsEnabled && !profileMode,
-        watchEnabled: watchEnabled,
-        reloadStrategy: reloadStrategy,
-        resolver: reloadResolver,
-      );
-    } else {
-      // No hot reload possible — wait for first device to exit.
-      if (sessions.isNotEmpty) {
-        await sessions.first.appInstance.process.exitCode;
-      }
+    } finally {
+      await httpChannel?.stop();
+      await protocol.stopListening();
     }
   }
 

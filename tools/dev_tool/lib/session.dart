@@ -184,6 +184,7 @@ Future<void> runInteractiveSession({
   void Function(bool echoMode)? setEchoMode,
   void Function(bool lineMode)? setLineMode,
   Future<void> Function(String url)? openBrowser,
+  Future<void>? shutdownSignal,
 }) async {
   log ??= (msg) => stdout.writeln(msg);
 
@@ -254,10 +255,16 @@ Future<void> runInteractiveSession({
   // In machine mode, stdin is consumed by MachineProtocol — skip the
   // keyboard loop and wait for sessions to end via machine commands.
   if (protocol.enabled) {
-    // Wait until all device processes exit or the process is killed.
-    final exitFutures = sessions
-        .map((s) => s.appInstance.process.exitCode)
-        .toList();
+    // Wait until a device process exits or session teardown is signalled
+    // (`app.stop` / `daemon.shutdown`). The explicit signal matters for
+    // sessions whose processes never exit on their own (attach mode's
+    // pseudo-process) and lets the caller regain control to close its
+    // transports AFTER the command that requested the teardown has sent
+    // its response.
+    final exitFutures = <Future<void>>[
+      for (final s in sessions) s.appInstance.process.exitCode,
+      if (shutdownSignal != null) shutdownSignal,
+    ];
     if (exitFutures.isNotEmpty) {
       await Future.any(exitFutures);
     }
@@ -287,7 +294,17 @@ Future<void> runInteractiveSession({
 
   final inputStream = keyboardReader != null ? keyboardReader() : stdin;
 
-  await for (final input in inputStream) {
+  // Race each key read against the shutdown signal so a session teardown
+  // requested over the HTTP control channel (`app.stop`) ends the loop like
+  // 'q' does, instead of leaving a stopped session waiting on the keyboard.
+  final keys = StreamIterator<List<int>>(inputStream);
+  while (true) {
+    final hasNext = await Future.any<bool>([
+      keys.moveNext(),
+      if (shutdownSignal != null) shutdownSignal.then((_) => false),
+    ]);
+    if (!hasNext) break;
+    final input = keys.current;
     final char = String.fromCharCode(input.first);
     switch (char) {
       case 'r':
@@ -357,9 +374,15 @@ Future<void> runInteractiveSession({
         if (frontendServer != null) {
           await frontendServer.shutdown();
         }
+        await keys.cancel();
         return;
     }
   }
+  // Shutdown was signalled (or the input stream ended): the sessions were
+  // already torn down by whoever signalled; just release local resources.
+  debounce?.cancel();
+  await watcherSubscription?.cancel();
+  await keys.cancel();
 }
 
 /// Result from _watchAndReload containing the subscription and debounce timer

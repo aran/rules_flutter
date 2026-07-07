@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -210,6 +211,65 @@ void main() {
       test('stop is idempotent', () async {
         await channel.stop();
         await channel.stop(); // Should not throw.
+      });
+
+      test('stop during an in-flight command lets the response flush intact',
+          () async {
+        // Models `app.stop`: the command's own side effects lead to the
+        // channel being stopped while the request that triggered them is
+        // still awaiting its response. The client must still receive the
+        // complete JSON response, not a torn-down connection.
+        final handlerEntered = Completer<void>();
+        final handlerResume = Completer<void>();
+        commandRunner.register('test.slowStop', (_) async {
+          handlerEntered.complete();
+          await handlerResume.future;
+          return {'message': 'stopped'};
+        });
+
+        final responseFuture = _post('/command', {'method': 'test.slowStop'});
+        await handlerEntered.future;
+
+        final stopFuture = channel.stop();
+        handlerResume.complete();
+
+        final (response, body) = await responseFuture;
+        expect(response.statusCode, HttpStatus.ok);
+        final parsed = json.decode(body) as Map<String, dynamic>;
+        expect(parsed['result']['message'], 'stopped');
+
+        await stopFuture;
+      });
+
+      test('stop refuses new connections but drains in-flight ones', () async {
+        final handlerEntered = Completer<void>();
+        final handlerResume = Completer<void>();
+        commandRunner.register('test.slowStop', (_) async {
+          handlerEntered.complete();
+          await handlerResume.future;
+          return {'message': 'stopped'};
+        });
+
+        final uri = channel.uri;
+        final responseFuture = _post('/command', {'method': 'test.slowStop'});
+        await handlerEntered.future;
+
+        final stopFuture = channel.stop();
+
+        // New connections must be refused once stop() has begun.
+        final freshClient = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5);
+        await expectLater(
+          freshClient
+              .postUrl(uri.replace(path: '/command', query: 'token=test-token-abc')),
+          throwsA(isA<SocketException>()),
+        );
+        freshClient.close(force: true);
+
+        handlerResume.complete();
+        final (response, _) = await responseFuture;
+        expect(response.statusCode, HttpStatus.ok);
+        await stopFuture;
       });
     });
   });

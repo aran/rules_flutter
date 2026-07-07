@@ -79,13 +79,25 @@ class AttachCommand {
       return null;
     }
 
+    final shutdownRequested = Completer<void>();
+
+    /// Gracefully tear down sessions and the frontend server, then signal
+    /// the session loop to end.
+    ///
+    /// Deliberately does NOT stop the HTTP control channel: this runs inside
+    /// `app.stop` / `daemon.shutdown` command handlers, and when the command
+    /// arrived over HTTP the response has not been written yet. The channel
+    /// is closed on the way out of [execute], after the session loop returns
+    /// — by which point the response has flushed. The shutdown signal is also
+    /// what ends the session loop at all here: attach mode's pseudo-process
+    /// never exits, so the loop cannot end via a device process exit.
     Future<void> performCleanup() async {
-      await httpChannel?.stop();
       for (final session in sessions) {
         protocol.appStop(session.appId);
         await session.vmClient?.disconnect();
       }
       await frontendServer?.shutdown();
+      if (!shutdownRequested.isCompleted) shutdownRequested.complete();
     }
 
     commandRunner.register('app.stop', (_) async {
@@ -226,19 +238,25 @@ class AttachCommand {
     // lives in the `run` orchestrator path.)
     final entrypoint = devConfig?.appEntrypoint ?? '';
 
-    if (frontendServer != null) {
-      await runInteractiveSession(
-        sessions: sessions,
-        frontendServer: frontendServer,
-        entrypoint: entrypoint,
-        workspace: workspace,
-        protocol: protocol,
-        commandRunner: commandRunner,
-        devToolsEnabled: devToolsEnabled,
-      );
-    } else {
-      throw DevToolException(
-          'Cannot start interactive session without frontend server.');
+    try {
+      if (frontendServer != null) {
+        await runInteractiveSession(
+          sessions: sessions,
+          frontendServer: frontendServer,
+          entrypoint: entrypoint,
+          workspace: workspace,
+          protocol: protocol,
+          commandRunner: commandRunner,
+          devToolsEnabled: devToolsEnabled,
+          shutdownSignal: shutdownRequested.future,
+        );
+      } else {
+        throw DevToolException(
+            'Cannot start interactive session without frontend server.');
+      }
+    } finally {
+      await httpChannel?.stop();
+      await protocol.stopListening();
     }
   }
 }

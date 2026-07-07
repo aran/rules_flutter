@@ -41,6 +41,34 @@ void main() {
     // Reload/restart correctness is verified manually, not here — see
     // docs/TESTING.md "Hot reload / hot restart (manual)".
 
+    test('HTTP app.stop returns a complete response before teardown',
+        () async {
+      final dt = await startDevTool(
+        workspace: workspace,
+        target: ':app',
+        device: 'macos',
+      );
+
+      try {
+        await dt.waitForEvent('app.started');
+        await dt.waitForHttpControl();
+
+        // The command tears the session down; the channel must still flush
+        // this response in full (it used to be severed mid-response by the
+        // channel force-closing inside the app.stop handler).
+        final resp = await dt.httpCommand('app.stop', {});
+        expect(resp['result']?['message'], 'stopped');
+
+        // And the tool exits cleanly afterwards: teardown ends the session
+        // loop, which closes the channel and lets the process finish.
+        final code = await dt.process.exitCode
+            .timeout(const Duration(seconds: 30));
+        expect(code, 0);
+      } finally {
+        await dt.dispose();
+      }
+    });
+
     test('unknown method returns error', () async {
       final dt = await startDevTool(
         workspace: workspace,
