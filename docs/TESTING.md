@@ -31,6 +31,7 @@ cd tools/dev_tool && dart test test/e2e/ --tags=e2e --concurrency=1
 | `ios_simulator_e2e_test.dart` | macOS | `--screenshot` (simctl), `--machine` screenshot |
 | `machine_protocol_e2e_test.dart` | macOS | Protocol lifecycle events, unknown-method error (reload/restart correctness is manual — see "Hot reload / hot restart (manual)") |
 | `attach_e2e_test.dart` | macOS | Launch app externally → attach → VM service connects |
+| `dart_defines_e2e_test.dart` | macOS | `--dart-define` reaches the app (comma-in-value intact) and survives a hot reload (frontend_server -D replay) |
 
 ### Dev tool screenshot mechanisms
 

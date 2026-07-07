@@ -26,9 +26,21 @@ class MyApp extends StatelessWidget {
           title: const Text('macOS Example'),
         ),
         body: Center(
-          child: Text(
-            '3 + 4 = $result',
-            style: const TextStyle(fontSize: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '3 + 4 = $result',
+                style: const TextStyle(fontSize: 32),
+              ),
+              // Renders the E2E_MESSAGE dart-define (empty without one).
+              // dart_defines_e2e_test asserts the value before AND after a
+              // hot reload — the reload must not lose the define.
+              const Text(
+                '${String.fromEnvironment('E2E_MESSAGE')} v1',
+                key: ValueKey('e2e_define_label'),
+              ),
+            ],
           ),
         ),
       ),
