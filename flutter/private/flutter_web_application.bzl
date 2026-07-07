@@ -597,6 +597,10 @@ def _flutter_web_bundle_impl(ctx):
             "frontendServer": flutter_sdk_info.frontend_server.path,
             "patchedSdkRoot": flutter_sdk_info.platform_kernel_dill.path.rsplit("/", 1)[0],
             "appEntrypoint": app_entrypoint,
+            # Merged user defines (attr + extra_dart_defines flag). The dev
+            # tool replays these as -D on its resident frontend_server so
+            # hot reload/restart recompiles keep the same environment.
+            "dartDefines": user_defines,
             # Codegen hot-reload: dev package_config + multi-root layout +
             # generated source paths/URIs (empty for non-codegen apps).
             "devPackageConfig": dev_package_config.path if dev_package_config else "",
