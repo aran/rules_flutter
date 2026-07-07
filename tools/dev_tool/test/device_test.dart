@@ -806,6 +806,49 @@ void main() {
       );
     });
   });
+
+  group('waitForLocalTcpPort', () {
+    test('returns once a listener accepts', () async {
+      final server = await ServerSocket.bind('127.0.0.1', 0);
+      addTearDown(server.close);
+      await waitForLocalTcpPort(server.port, what: 'test listener');
+    });
+
+    test('waits for a listener that binds late', () async {
+      // Grab a free port, then release it so nothing is listening when the
+      // wait starts; bind for real shortly after.
+      final probe = await ServerSocket.bind('127.0.0.1', 0);
+      final port = probe.port;
+      await probe.close();
+
+      ServerSocket? server;
+      addTearDown(() => server?.close());
+      final lateBind = Future<void>.delayed(
+        const Duration(milliseconds: 300),
+        () async => server = await ServerSocket.bind('127.0.0.1', port),
+      );
+      await waitForLocalTcpPort(port, what: 'late listener');
+      await lateBind;
+      expect(server, isNotNull);
+    });
+
+    test('throws a StateError naming the forward when nothing binds',
+        () async {
+      final probe = await ServerSocket.bind('127.0.0.1', 0);
+      final port = probe.port;
+      await probe.close();
+
+      await expectLater(
+        waitForLocalTcpPort(
+          port,
+          what: 'iproxy forward',
+          budget: const Duration(milliseconds: 400),
+        ),
+        throwsA(isA<StateError>().having(
+            (e) => e.message, 'message', contains('iproxy forward'))),
+      );
+    });
+  });
 }
 
 class _MinimalDevice extends Device {

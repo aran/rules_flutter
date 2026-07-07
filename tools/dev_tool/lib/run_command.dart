@@ -95,6 +95,13 @@ class RunCommand {
             '(screenshots, app.* driving). On by default; disable with '
             '--no-http-control-channel. The bound URI and auth token are '
             'printed at startup.')
+    ..addFlag('allow-no-vm-service',
+        defaultsTo: false,
+        negatable: false,
+        help: 'Keep the session running even when no VM service connection '
+            'could be established on a native device. Without this flag '
+            'that is a fatal error, because hot reload, DevTools, and '
+            'agent control all depend on the VM service.')
     ..addFlag('help',
         abbr: 'h', negatable: false, help: 'Show help for this command.');
 
@@ -119,6 +126,7 @@ class RunCommand {
     final devToolsEnabled = _results['devtools'] as bool;
     final verbose = _results['verbose'] as bool;
     final httpChannelEnabled = _results['http-control-channel'] as bool;
+    final allowNoVmService = _results['allow-no-vm-service'] as bool;
 
     // Resolve the workspace root once. Every callsite below (web module
     // server setup, native frontend server startup, profile/normal
@@ -689,6 +697,7 @@ class RunCommand {
       // the bug that previously forced `--no-devtools` for screenshots.
       VmServiceClient? vmClient;
       DartDevelopmentService? dds;
+      String? vmFailureReason;
       if (appInstance.vmServiceUri != null) {
         final rawUri = appInstance.vmServiceUri!;
         try {
@@ -697,6 +706,7 @@ class RunCommand {
             ipv6: rawUri.host.contains(':'),
           );
         } catch (e) {
+          vmFailureReason = 'DDS failed to start on $rawUri: $e';
           stderr.writeln(
               'Warning: Could not start DDS on ${device.name}: $e. '
               'Hot reload, DevTools, and agent control will be unavailable.');
@@ -738,6 +748,9 @@ class RunCommand {
                 });
                 await Future<void>.delayed(const Duration(seconds: 1));
               } else {
+                vmFailureReason =
+                    'could not connect to the VM service at $serviceUri '
+                    'after 5 attempts: $e';
                 stderr.writeln(
                     'Warning: Could not connect to VM service on ${device.name}: $e');
                 vmClient = null;
@@ -746,8 +759,38 @@ class RunCommand {
           }
         }
       } else if (!isWebDevice) {
+        vmFailureReason = 'no VM service URI was discovered at launch';
         stderr.writeln(
             'Warning: VM service URI not found on ${device.name}. Hot reload will not be available.');
+      }
+
+      // A native session without a vmClient has no hot reload, no DevTools,
+      // and no agent control — it is broken, not merely degraded. Abort by
+      // default; --allow-no-vm-service opts into continuing anyway. Release
+      // and profile builds where no VM service URI was ever discovered are
+      // exempt (there may legitimately be none to connect to); a debug build
+      // must always produce one.
+      if (vmClient == null &&
+          !isWebDevice &&
+          (appInstance.vmServiceUri != null || compilationMode == 'dbg')) {
+        if (allowNoVmService) {
+          stderr.writeln(
+              'Continuing without a VM service connection on ${device.name} '
+              '(--allow-no-vm-service).');
+        } else {
+          try {
+            await device.stop(appInstance);
+          } catch (e) {
+            stderr.writeln(
+                'Warning: failed to stop app on ${device.name} during '
+                'abort: $e');
+          }
+          throw DevToolException(
+              'No VM service connection on ${device.name}: '
+              '${vmFailureReason ?? 'unknown failure'}. '
+              'Hot reload, DevTools, and agent control would all be '
+              'unavailable. Pass --allow-no-vm-service to run anyway.');
+        }
       }
 
       // Push initial route if specified.

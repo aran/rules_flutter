@@ -143,24 +143,29 @@ class AttachCommand {
       ));
     }
 
-    // Build to ensure outputs exist, then read the hot-reload dev config
-    // (authoritative entrypoint + multi-root layout) from the build outputs.
+    // Build the flutter_application target directly to materialize its
+    // DefaultInfo — the hot-reload `_dev_config.json` + dev
+    // `package_config.json`. The platform wrapper (e.g. `:app`) consumes the
+    // flutter_application via providers, not files, so building the wrapper
+    // alone never produces them. Same sequence as RunCommand's native path.
     String? packageConfigPath;
     DevConfig? devConfig;
     try {
-      final buildResult = await bazelBuild(target,
+      final devAppLabel = await bazelCqueryFlutterAppLabel(target,
           workspace: workspace, compilationMode: 'dbg');
-      if (buildResult.success) {
-        final flutterAppOutputs = await bazelCqueryFlutterApp(target,
-            workspace: workspace, compilationMode: 'dbg');
-        final devConfigPath = findDevConfig(flutterAppOutputs);
-        if (devConfigPath != null) {
-          devConfig = parseDevConfig(devConfigPath);
-        }
-        packageConfigPath = (devConfig?.devPackageConfig.isNotEmpty ?? false)
-            ? devConfig!.devPackageConfig
-            : discoverPackageConfig(flutterAppOutputs);
+      if (devAppLabel == null) {
+        throw StateError('No flutter_application found in deps of $target.');
       }
+      final flutterAppOutputs = (await bazelBuild(devAppLabel,
+              workspace: workspace, compilationMode: 'dbg'))
+          .outputFiles;
+      final devConfigPath = findDevConfig(flutterAppOutputs);
+      if (devConfigPath != null) {
+        devConfig = parseDevConfig(devConfigPath);
+      }
+      packageConfigPath = (devConfig?.devPackageConfig.isNotEmpty ?? false)
+          ? devConfig!.devPackageConfig
+          : discoverPackageConfig(flutterAppOutputs);
     } catch (e) {
       logger.fine({
         'message': 'build_for_config_failed',

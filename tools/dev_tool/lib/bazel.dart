@@ -78,36 +78,6 @@ Future<BazelBuildResult> bazelBuild(
   );
 }
 
-/// Queries for the output files of the `flutter_application` target within
-/// [target]'s dependency tree.
-///
-/// Platform wrapper targets (macOS, iOS, Android, Linux, Windows) apply
-/// Starlark transitions, so the flutter_application may be built in a
-/// different configuration. Using `cquery kind() within deps()` resolves
-/// through those transitions.
-///
-/// Returns paths to files like `package_config.json` and `.dill` that the
-/// frontend server needs for hot reload.
-Future<List<String>> bazelCqueryFlutterApp(
-  String target, {
-  required String workspace,
-  String? compilationMode,
-  List<String> extraArgs = const [],
-}) async {
-  final args = [
-    'cquery',
-    'kind("flutter_application", deps($target))',
-    '--output=files',
-  ];
-  if (compilationMode != null) {
-    args.addAll(['-c', compilationMode]);
-  }
-  args.addAll(extraArgs);
-  final result = await Process.run('bazel', args, workingDirectory: workspace);
-  if (result.exitCode != 0) return [];
-  return _absolutizeCqueryPaths(result.stdout as String, workspace);
-}
-
 /// Returns the label of the `flutter_application` target within [target]'s
 /// dependency tree (e.g. `//:app`), or null if none is found.
 ///

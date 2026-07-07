@@ -588,6 +588,41 @@ class AndroidDevice extends Device {
   }
 }
 
+/// Wait until a local TCP listener on 127.0.0.1:[port] accepts connections.
+///
+/// Port forwarders (iproxy, adb forward) bind their local listener
+/// asynchronously after `Process.start` returns; dialing the forward before
+/// it is bound gets ECONNREFUSED. Polls `Socket.connect` with exponential
+/// backoff and destroys each probe socket. Throws [StateError] naming [what]
+/// if the listener never accepts within [budget].
+Future<void> waitForLocalTcpPort(
+  int port, {
+  required String what,
+  Duration budget = const Duration(seconds: 10),
+}) async {
+  final deadline = DateTime.now().add(budget);
+  var delay = const Duration(milliseconds: 50);
+  while (true) {
+    try {
+      final probe = await Socket.connect('127.0.0.1', port,
+          timeout: const Duration(seconds: 1));
+      probe.destroy();
+      return;
+    } catch (_) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError(
+            '$what on 127.0.0.1:$port did not accept connections within '
+            '${budget.inSeconds}s of starting.');
+      }
+      await Future<void>.delayed(delay);
+      final doubled = delay * 2;
+      delay = doubled > const Duration(milliseconds: 500)
+          ? const Duration(milliseconds: 500)
+          : doubled;
+    }
+  }
+}
+
 /// Discover the VM service URI from adb logcat output.
 Future<Uri?> _discoverVmServiceUriFromLogcat(Process logcat) async {
   final completer = Completer<Uri?>();
@@ -1101,6 +1136,13 @@ class IOSDevice extends Device {
       final devicePort = deviceUri.port;
       _iproxyProcess = await _startProcess(
           'iproxy', ['$devicePort:$devicePort', '-u', udid]);
+
+      // Process.start returns at spawn time, before iproxy has bound its
+      // local listener. DDS dials this forward immediately after launch()
+      // returns; an unbound listener means ECONNREFUSED and the session
+      // loses its VM service. Return only once the forward actually accepts.
+      await waitForLocalTcpPort(devicePort,
+          what: 'iproxy forward for the iOS VM service');
       vmServiceUri = deviceUri.replace(host: '127.0.0.1');
     }
 
