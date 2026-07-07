@@ -335,6 +335,33 @@ void main() {
 
           File(beforePath).deleteSync();
           File(afterPath).deleteSync();
+
+          // Regression: the agent surface must survive a hot restart. The
+          // extensions are registered by the engine's pre-main plugin-
+          // registrant hook, which fires on every root-isolate launch —
+          // including the restarted (dev-tool-compiled) dill. Previously the
+          // registration lived in a build-generated wrapper main that the
+          // restart dill lacked, so every ext.rules_flutter.* call died with
+          // "Unknown method" after the first restart.
+          final restart = await dt.sendCommand(9, 'app.restart', {
+            'appId': appId,
+          });
+          expect(restart['error'], isNull,
+              reason: 'app.restart: ${restart['error']}');
+          Map<String, dynamic> postRestart = const {};
+          for (var i = 0; i < 30; i++) {
+            postRestart = await dt.httpCommand('app.getText', {
+              'appId': appId,
+              'key': 'agent_test_label',
+            });
+            if (postRestart['error'] == null) break;
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
+          expect(postRestart['error'], isNull,
+              reason: 'app.getText must work after hot restart: '
+                  '${postRestart['error']}');
+          expect(postRestart['result']?['text'], 'count: 0',
+              reason: 'restart resets the counter state');
         } finally {
           await dt.dispose();
         }

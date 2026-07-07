@@ -134,6 +134,13 @@ class _HomeState extends State<_Home> {
                 _Row(label: 'tempPath', value: r.tempPath),
                 _Row(label: 'launchOk', value: r.launchOk),
                 _Row(label: 'audioSession', value: r.audioSession),
+                // Plain keyed Text for the agent getText e2e (SelectableText
+                // rich spans aren't readable through ext.rules_flutter.getText).
+                Text(
+                  r.documentsPath,
+                  key: const ValueKey('e2e_documents_path'),
+                  style: const TextStyle(fontSize: 8),
+                ),
               ],
             ),
           );

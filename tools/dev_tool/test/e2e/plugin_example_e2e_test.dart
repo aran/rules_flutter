@@ -110,6 +110,60 @@ void main() {
           outputBasename: 'plugin_macos_e2e',
         );
       });
+
+      test('Dart plugin registration survives hot restart', () async {
+        // Regression: the Dart plugin registrant is invoked by the engine's
+        // pre-main hook on every root-isolate launch, including the restarted
+        // (dev-tool-compiled) dill. Previously it ran only from a build-
+        // generated wrapper main the restart dill lacked, so platform-
+        // interface statics reset on restart and path_provider (et al.)
+        // broke. The keyed Text renders getApplicationDocumentsDirectory():
+        // a real absolute path means the Dart registration worked.
+        final dt = await startDevTool(
+          workspace: workspace,
+          target: ':plugin_macos',
+          device: 'macos',
+        );
+        try {
+          await dt.waitForEvent('app.started');
+          await dt.waitForHttpControl();
+          final appId = dt.appId!;
+
+          Future<String> documentsPath(String tag) async {
+            Map<String, dynamic> resp = const {};
+            for (var i = 0; i < 30; i++) {
+              resp = await dt.httpCommand('app.getText', {
+                'appId': appId,
+                'key': 'e2e_documents_path',
+              });
+              // Retry both extension availability and the async
+              // FutureBuilder resolving the plugin results.
+              final text = resp['result']?['text'] as String? ?? '';
+              if (resp['error'] == null && text.startsWith('/')) return text;
+              await Future<void>.delayed(const Duration(milliseconds: 500));
+            }
+            fail('documentsPath never resolved $tag: '
+                'error=${resp['error']} text=${resp['result']?['text']}');
+          }
+
+          final before = await documentsPath('at launch');
+          expect(before, startsWith('/'),
+              reason: 'path_provider must resolve at launch');
+
+          final restart = await dt.sendCommand(9, 'app.restart', {
+            'appId': appId,
+          });
+          expect(restart['error'], isNull,
+              reason: 'app.restart: ${restart['error']}');
+
+          final after = await documentsPath('after restart');
+          expect(after, before,
+              reason: 'path_provider must still resolve after hot restart '
+                  '(Dart registrant must re-run)');
+        } finally {
+          await dt.dispose();
+        }
+      }, timeout: const Timeout(Duration(minutes: 4)));
     },
     skip: !Platform.isMacOS ? 'macOS only' : null,
   );
