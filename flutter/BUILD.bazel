@@ -1,4 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//flutter/private:build_settings.bzl", "dart_defines_flag")
 load("//flutter/private:flutter_material_icons.bzl", "flutter_material_icons")
 
 # This is the target rule authors should put in their "toolchains"
@@ -13,6 +14,16 @@ toolchain_type(
 config_setting(
     name = "release",
     values = {"compilation_mode": "opt"},
+    visibility = ["//visibility:public"],
+)
+
+# Extra Dart environment defines folded into every Dart compile after any
+# target-level `defines`. Repeatable:
+#   bazel build //app --@rules_flutter//flutter:extra_dart_defines=FOO=bar
+# `flutter_bazel run --dart-define FOO=bar` forwards here.
+dart_defines_flag(
+    name = "extra_dart_defines",
+    build_setting_default = [],
     visibility = ["//visibility:public"],
 )
 

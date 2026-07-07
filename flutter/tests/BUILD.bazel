@@ -12,6 +12,7 @@ load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
 load(":shader_compile_test.bzl", "shader_compile_test_suite")
 load(":toolchain_test.bzl", "toolchain_test_suite")
 load(":toolchains_repo_test.bzl", "toolchains_repo_test_suite")
+load(":validation_test.bzl", "validation_test_suite")
 load(":versions_test.bzl", "versions_test_suite")
 load(":web_test.bzl", "web_test_suite")
 
@@ -46,3 +47,5 @@ toolchains_repo_test_suite(name = "toolchains_repo_test")
 flutter_application_test_suite(name = "flutter_application_test")
 
 native_assets_test_suite(name = "native_assets_test")
+
+validation_test_suite(name = "validation_test")

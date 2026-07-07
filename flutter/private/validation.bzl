@@ -70,6 +70,42 @@ def is_valid_web_compiler_renderer(compiler, renderer):
         return False
     return renderer in allowed
 
+# Define keys the ruleset appends itself based on compilation mode
+# (see flutter_compile_kernel and the web compile actions). User-supplied
+# values for these would silently corrupt mode semantics, so they are
+# rejected up front — matching flutter_tools' own --dart-define policy.
+RESERVED_DART_DEFINE_KEYS = ("dart.vm.profile", "dart.vm.product")
+
+def validate_dart_defines(defines, what):
+    """Validate a list of Dart environment defines (KEY=VALUE strings).
+
+    Args:
+        defines: List of define strings to validate.
+        what: Description of where the defines came from, used in the
+            failure message (e.g. a target label or a flag name).
+    """
+    for define in defines:
+        if not is_valid_dart_define(define):
+            fail(
+                ("Invalid Dart define %r in %s: defines must be non-empty " +
+                 "and must not set the reserved keys %s (the build sets " +
+                 "these from the compilation mode)") % (define, what, ", ".join(RESERVED_DART_DEFINE_KEYS)),
+            )
+
+def is_valid_dart_define(define):
+    """Check if a Dart environment define is acceptable.
+
+    Args:
+        define: A define string, normally KEY=VALUE (a bare KEY is treated
+            as a key with no value, matching frontend_server -D semantics).
+
+    Returns:
+        True if the define is valid, False otherwise.
+    """
+    if len(define) == 0:
+        return False
+    return define.split("=", 1)[0] not in RESERVED_DART_DEFINE_KEYS
+
 def escape_html(text):
     """Escape HTML special characters in a string.
 
