@@ -17,6 +17,17 @@ class BazelBuildResult {
   bool get success => exitCode == 0;
 }
 
+/// Maps `--dart-define KEY=VALUE` values to the rules_flutter build-setting
+/// flags every bazel invocation (build AND cquery) must carry so they all
+/// resolve in the same configuration.
+///
+/// The flag is repeatable: one occurrence per define, so values containing
+/// commas survive intact.
+List<String> dartDefineFlags(List<String> dartDefines) => [
+      for (final define in dartDefines)
+        '--@rules_flutter//flutter:extra_dart_defines=$define',
+    ];
+
 /// Invokes `bazel build` for the given target and returns output file paths.
 ///
 /// [workspace] must be the consumer's workspace root (see

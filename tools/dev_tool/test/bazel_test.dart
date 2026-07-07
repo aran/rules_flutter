@@ -22,6 +22,19 @@ void main() {
     });
   });
 
+  group('dartDefineFlags', () {
+    test('maps each define to one repeatable build-setting flag', () {
+      expect(dartDefineFlags(['A=1', 'B=x,y']), [
+        '--@rules_flutter//flutter:extra_dart_defines=A=1',
+        '--@rules_flutter//flutter:extra_dart_defines=B=x,y',
+      ]);
+    });
+
+    test('empty defines produce no flags', () {
+      expect(dartDefineFlags([]), isEmpty);
+    });
+  });
+
   // findWorkspaceRoot() reads BUILD_WORKSPACE_DIRECTORY (set by
   // `bazel run`) and falls back to spawning `bazel info workspace`.
   // Both paths are end-to-end signals that don't unit-test cleanly

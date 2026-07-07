@@ -649,6 +649,10 @@ Apps that use Material widgets must list `@rules_flutter//flutter:material_icons
 | `license_files` | License/NOTICE files to include in `NOTICES.Z`. |
 | `min_os_version` | Minimum OS deployment target for Apple platforms. Passed to `gen_snapshot` as `--macho-min-os-version`. |
 
+#### Dart defines from the command line
+
+Beyond the per-target `defines` attr, the repeatable build flag `--@rules_flutter//flutter:extra_dart_defines=KEY=VALUE` appends defines to every Dart compile (native kernel, `flutter_test`, dart2wasm/dart2js). One define per flag occurrence, so values may contain commas. On a key collision the flag wins over the attr. The keys `dart.vm.profile` and `dart.vm.product` are reserved (the build sets them from the compilation mode) and rejected. The dev tool's `flutter_bazel run --dart-define KEY=VALUE` forwards to this flag and replays the defines on hot reload/restart recompiles, matching `flutter run --dart-define`.
+
 ### `flutter_test`
 
 Compiles and runs Flutter widget/unit tests using the Dart VM with Flutter's platform `.dill`. Tests run with assertions enabled.

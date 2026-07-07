@@ -28,5 +28,16 @@ void main() {
       ]);
       expect(results['build-arg'], ['--verbose', '--jobs=4']);
     });
+
+    test('accepts repeated --dart-define, defaults empty', () {
+      expect(BuildCommand.parser.parse(['-t', '//:app'])['dart-define'],
+          isEmpty);
+      final results = BuildCommand.parser.parse([
+        '-t', '//:app',
+        '--dart-define', 'A=1',
+        '--dart-define', 'B=x,y',
+      ]);
+      expect(results['dart-define'], ['A=1', 'B=x,y']);
+    });
   });
 }

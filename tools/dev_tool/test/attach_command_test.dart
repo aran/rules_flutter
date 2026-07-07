@@ -37,5 +37,16 @@ void main() {
       ]);
       expect(results['devtools'], isFalse);
     });
+
+    test('accepts repeated --dart-define, defaults empty', () {
+      expect(AttachCommand.parser.parse(['-t', '//:app'])['dart-define'],
+          isEmpty);
+      final results = AttachCommand.parser.parse([
+        '-t', '//:app',
+        '--dart-define', 'A=1',
+        '--dart-define', 'B=x,y',
+      ]);
+      expect(results['dart-define'], ['A=1', 'B=x,y']);
+    });
   });
 }

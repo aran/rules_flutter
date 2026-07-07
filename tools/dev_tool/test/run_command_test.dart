@@ -87,6 +87,20 @@ void main() {
       final results = RunCommand.parser.parse(['-t', '//:app', '--no-http-control-channel']);
       expect(results['http-control-channel'], isFalse);
     });
+
+    test('accepts repeated --dart-define, values kept whole', () {
+      final results = RunCommand.parser.parse([
+        '-t', '//:app',
+        '--dart-define', 'A=1',
+        '--dart-define', 'B=x,y',
+      ]);
+      expect(results['dart-define'], ['A=1', 'B=x,y']);
+    });
+
+    test('defaults --dart-define to empty list', () {
+      final results = RunCommand.parser.parse(['-t', '//:app']);
+      expect(results['dart-define'], isEmpty);
+    });
   });
 
   group('DevToolException', () {

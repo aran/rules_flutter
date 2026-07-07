@@ -95,6 +95,9 @@ void _printUsage(ArgParser parser) {
   stdout.writeln('  --devtools      Launch DevTools (default: on)');
   stdout.writeln('  --no-devtools   Disable DevTools auto-launch');
   stdout.writeln('  --machine       Enable machine-readable JSON protocol for IDE');
+  stdout.writeln('  --dart-define   Dart define KEY=VALUE (repeatable; also on');
+  stdout.writeln('                  build/attach). Forwarded to the build and kept');
+  stdout.writeln('                  across hot reload/restart');
   stdout.writeln();
   stdout.writeln('Keyboard shortcuts (during run/attach):');
   stdout.writeln('  r    Hot reload');

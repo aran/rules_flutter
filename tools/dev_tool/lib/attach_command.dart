@@ -33,6 +33,11 @@ class AttachCommand {
         defaultsTo: false, help: 'Enable machine-readable JSON protocol.')
     ..addFlag('devtools',
         defaultsTo: true, help: 'Launch DevTools for each connection.')
+    ..addMultiOption('dart-define',
+        splitCommas: false,
+        help: 'Dart environment define (KEY=VALUE) the running app was built '
+            'with. Forwarded to the dev-config build so reload recompiles '
+            'reproduce the app\'s configuration. Repeat for multiple defines.')
     ..addFlag('verbose', abbr: 'v', defaultsTo: false, help: 'Enable verbose debug logging.')
     ..addFlag('http-control-channel',
         defaultsTo: true,
@@ -49,6 +54,11 @@ class AttachCommand {
   Future<void> execute() async {
     final debugUrls = _results['debug-url'] as List<String>;
     final target = _results['target'] as String;
+    // Attach builds the flutter_application itself to obtain the dev config;
+    // the flags reproduce the running app's build configuration so that
+    // build resolves the same dev config (incl. its dartDefines).
+    final defineFlags =
+        dartDefineFlags(_results['dart-define'] as List<String>);
     final isMachine = _results['machine'] as bool;
     final devToolsEnabled = _results['devtools'] as bool;
     final httpChannelEnabled = _results['http-control-channel'] as bool;
@@ -164,12 +174,14 @@ class AttachCommand {
     DevConfig? devConfig;
     try {
       final devAppLabel = await bazelCqueryFlutterAppLabel(target,
-          workspace: workspace, compilationMode: 'dbg');
+          workspace: workspace, compilationMode: 'dbg', extraArgs: defineFlags);
       if (devAppLabel == null) {
         throw StateError('No flutter_application found in deps of $target.');
       }
       final flutterAppOutputs = (await bazelBuild(devAppLabel,
-              workspace: workspace, compilationMode: 'dbg'))
+              workspace: workspace,
+              compilationMode: 'dbg',
+              extraArgs: defineFlags))
           .outputFiles;
       final devConfigPath = findDevConfig(flutterAppOutputs);
       if (devConfigPath != null) {
@@ -200,6 +212,7 @@ class AttachCommand {
           patchedSdkRoot: toolchain.patchedSdkRoot,
           fileSystemRoots: devConfig?.filesystemRoots ?? const [],
           fileSystemScheme: devConfig?.filesystemScheme ?? '',
+          dartDefines: devConfig?.dartDefines ?? const [],
         ),
         packageConfig: packageConfigPath,
       );

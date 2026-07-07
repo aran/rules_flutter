@@ -61,6 +61,11 @@ class RunCommand {
     ..addOption('config', abbr: 'c', help: 'Bazel config to use.')
     ..addMultiOption('build-arg',
         help: 'Additional arguments to pass to bazel build.')
+    ..addMultiOption('dart-define',
+        splitCommas: false,
+        help: 'Dart environment define (KEY=VALUE) forwarded to the build '
+            'as --@rules_flutter//flutter:extra_dart_defines and replayed '
+            'on hot reload/restart recompiles. Repeat for multiple defines.')
     ..addMultiOption('device',
         abbr: 'd',
         help: 'Device to run on (macos, linux, windows, ios-simulator, '
@@ -112,7 +117,16 @@ class RunCommand {
   Future<void> execute() async {
     final target = _results['target'] as String;
     final config = _results['config'] as String?;
-    final extraArgs = _results['build-arg'] as List<String>;
+    // --dart-define flags ride along on EVERY bazel invocation this run
+    // makes (initial build, dev-config build, codegen refreshes, cquery) so
+    // they all share one configuration — otherwise outputs would resolve in
+    // a configuration that never got the defines.
+    final defineFlags =
+        dartDefineFlags(_results['dart-define'] as List<String>);
+    final extraArgs = [
+      ...(_results['build-arg'] as List<String>),
+      ...defineFlags,
+    ];
     final deviceIds = _results['device'] as List<String>;
     final hotReloadEnabled = _results['hot'] as bool;
     final profileMode = _results['profile'] as bool;
@@ -618,6 +632,7 @@ class RunCommand {
             workspace,
             ...devConfig.filesystemRoots,
           ],
+          dartDefines: devConfig.dartDefines,
         );
         frontendServer = FrontendServer(
           dartaotruntimePath: devConfig.dartaotruntime,
@@ -657,7 +672,7 @@ class RunCommand {
               final r = await bazelBuild(target,
                   workspace: workspace,
                   compilationMode: 'dbg',
-                  extraArgs: devices.first.buildArgs);
+                  extraArgs: [...devices.first.buildArgs, ...defineFlags]);
               return r.success;
             };
           }
@@ -958,7 +973,7 @@ class RunCommand {
             target,
             workspace: workspace,
             compilationMode: 'dbg',
-            extraArgs: devices.first.buildArgs,
+            extraArgs: [...devices.first.buildArgs, ...defineFlags],
           );
           if (devAppLabel == null) {
             throw DevToolException(
@@ -968,7 +983,7 @@ class RunCommand {
             devAppLabel,
             workspace: workspace,
             compilationMode: 'dbg',
-            extraArgs: devices.first.buildArgs,
+            extraArgs: [...devices.first.buildArgs, ...defineFlags],
           ))
               .outputFiles;
           // The build tells us the entrypoint + hot-reload layout via
@@ -997,6 +1012,7 @@ class RunCommand {
             toolchain,
             fileSystemRoots: devConfig.filesystemRoots,
             fileSystemScheme: devConfig.filesystemScheme,
+            dartDefines: devConfig.dartDefines,
           );
 
           if (compilerConfig != null) {
@@ -1061,7 +1077,10 @@ class RunCommand {
                     final r = await bazelBuild(devAppLabel,
                         workspace: workspace,
                         compilationMode: 'dbg',
-                        extraArgs: devices.first.buildArgs);
+                        extraArgs: [
+                          ...devices.first.buildArgs,
+                          ...defineFlags,
+                        ]);
                     return r.success;
                   };
                 }
