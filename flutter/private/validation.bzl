@@ -70,11 +70,13 @@ def is_valid_web_compiler_renderer(compiler, renderer):
         return False
     return renderer in allowed
 
-# Define keys the ruleset appends itself based on compilation mode
-# (see flutter_compile_kernel and the web compile actions). User-supplied
-# values for these would silently corrupt mode semantics, so they are
-# rejected up front — matching flutter_tools' own --dart-define policy.
-RESERVED_DART_DEFINE_KEYS = ("dart.vm.profile", "dart.vm.product")
+# Define keys the ruleset sets itself: the dart.vm.* mode keys come from the
+# compilation mode (see flutter_compile_kernel and the web compile actions),
+# and flutter.dart_plugin_registrant names the generated registrant library
+# the engine invokes before main(). User-supplied values would silently
+# corrupt mode semantics or break plugin registration, so they are rejected
+# up front — matching flutter_tools' own --dart-define policy.
+RESERVED_DART_DEFINE_KEYS = ("dart.vm.profile", "dart.vm.product", "flutter.dart_plugin_registrant")
 
 def validate_dart_defines(defines, what):
     """Validate a list of Dart environment defines (KEY=VALUE strings).

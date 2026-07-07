@@ -20,7 +20,8 @@ def flutter_kernel_compile_action(
         defines = [],
         extra_flags = [],
         target = "flutter",
-        native_assets_manifest = None):
+        native_assets_manifest = None,
+        dart_plugin_registrant_uri = None):
     """Creates a Flutter kernel compilation action.
 
     Invokes the frontend_server via dartaotruntime to compile Dart sources
@@ -59,6 +60,15 @@ def flutter_kernel_compile_action(
             to the frontend_server via `--native-assets`. The frontend
             server embeds the manifest into the resulting kernel so the
             engine can resolve `package:` Native Assets at runtime.
+        dart_plugin_registrant_uri: Optional `org-dartlang-root:///<exec
+            path>` URI of the generated plugin registrant. When set, the
+            registrant is compiled into the kernel as an extra source and
+            advertised via `-Dflutter.dart_plugin_registrant=` so the
+            engine invokes `_PluginRegistrant.register()` before main() on
+            every root-isolate launch (including hot restart). The
+            multi-root scheme keeps the library's importUri identical to
+            the define regardless of sandbox location — the engine matches
+            them by exact string equality.
     """
     args = ctx.actions.args()
     args.add(frontend_server)
@@ -92,6 +102,15 @@ def flutter_kernel_compile_action(
 
     for d in defines:
         args.add("-D" + d)
+
+    if dart_plugin_registrant_uri:
+        # Root the multi-root scheme at the action cwd (the execroot) so the
+        # registrant's exec path resolves and its importUri equals the -D.
+        args.add("--filesystem-root", ".")
+        args.add("--filesystem-scheme", "org-dartlang-root")
+        args.add("--source", dart_plugin_registrant_uri)
+        args.add("--source", "package:flutter/src/dart_plugin_registrant.dart")
+        args.add("-Dflutter.dart_plugin_registrant=" + dart_plugin_registrant_uri)
 
     args.add_all(extra_flags)
 

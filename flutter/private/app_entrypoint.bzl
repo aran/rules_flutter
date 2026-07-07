@@ -1,22 +1,21 @@
 """Resolves the kernel entrypoint for a Flutter app.
 
-This module owns the entire "what does frontend_server compile as the
-application root, and under what library URI" concern, including whether a
-generated wrapper is needed. Callers (`flutter_compile_kernel`) ask for the
-entrypoint and receive a `(file, uri, extra_srcs)` triple — they neither
-know nor decide that a wrapper exists.
+This module owns the "what does frontend_server compile as the application
+root, and under what library URI" concern.
 
 Hot-reload correctness depends on the running (Bazel-built) kernel keying
 the app's libraries under the *same* URIs the dev tool's incremental
 compiler uses. The dev tool resolves the app's main to
 `package:<name>/main.dart` (via the package_config app entry that
-`flutter_compile_kernel` writes). So this module ensures the user's `main`
-is reached through that `package:` URI — directly when it is the
-entrypoint, or via the wrapper's import when a wrapper is interposed.
+`flutter_compile_kernel` writes), so the user's `main` is always the
+compilation root under that `package:` URI. Pre-main setup (plugin
+registrant, agent extensions) is NOT interposed here — it lives in the
+generated registrant library the engine invokes before `main()` on every
+root-isolate launch (see plugin_registrant.bzl), which is what keeps it
+alive across hot restart.
 """
 
 load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config")
-load("//flutter/private:plugin_registrant.bzl", "make_wrapper_main_content")
 
 def synthesize_app_package(packages, package_name):
     """Replace transitive same-package entries with the app's synthesized package.
@@ -49,6 +48,7 @@ def synthesize_app_package(packages, package_name):
 def resolve_wrapper_main_import(package_name, main_path, wrapper_depth):
     """Import URI a generated wrapper should use to reach the user's `main`.
 
+    Used by the web bootstrap wrapper (`make_web_wrapper_main_content`).
     Prefers `package:<name>/<main-rel-to-lib>` when the app is a Dart package
     and `main` sits under `lib/` — this URI flows through the assembled
     `rootUri` written into `package_config.json` by `compile_package_config`,
@@ -144,74 +144,25 @@ def app_main_package_uri(package_name, main_path):
         return None
     return "package:%s/%s" % (package_name, rel)
 
-def resolve_kernel_entrypoint(ctx, package_name, registrant, staged_agent):
-    """Resolve the application kernel entrypoint.
-
-    Decides on its own whether a wrapper is required (it is, exactly when a
-    plugin `registrant` and/or a `staged_agent` must run before user
-    `main()`), generates it if so, and reports the entrypoint as a
-    `(file, uri, extra_srcs)` struct. The caller compiles `file`, tells
-    frontend_server to use `uri` as the compilation root, and adds
-    `extra_srcs` to the source set — without any wrapper knowledge.
+def resolve_kernel_entrypoint(ctx, package_name):
+    """Resolve the application kernel entrypoint: the user's own `main`.
 
     Args:
-        ctx: The rule context (for `actions.declare_file`/`write`,
-            `file.main`, `label`).
+        ctx: The rule context (for `file.main`).
         package_name: The app's Dart package name, or "" when the app is not
             registered as a package (no `package:` URI is possible then).
-        registrant: The generated plugin-registrant File, or None.
-        staged_agent: The staged agent-extensions File, or None.
 
     Returns:
         struct(
             file: File — the entrypoint compiled into the kernel,
-            uri: str — what frontend_server uses as the compilation root
-                (a `package:` URI keeps the root library URI stable across
-                sandboxes; a wrapper's exec-path is used for the wrapper
-                itself, whose own URI is irrelevant since it is never
-                hot-reloaded and imports the user's main via `package:`),
-            extra_srcs: list[File] — files to add to the compile's srcs.
+            uri: str — what frontend_server uses as the compilation root:
+                the main's `package:` URI (sandbox-independent, identical
+                to the dev tool's incremental compile root — hot-reload
+                URI parity), or its exec path when the app is packageless.
         )
     """
     app_pkg_uri = app_main_package_uri(package_name, ctx.file.main.path)
-
-    if registrant or staged_agent:
-        wrapper = ctx.actions.declare_file(ctx.label.name + "_wrapper_main.dart")
-        wrapper_depth = len(wrapper.dirname.split("/"))
-
-        # The wrapper imports the user's main via its `package:` URI so the
-        # running kernel keys that library identically to the dev tool's
-        # incremental dill. Fall back to a relative import only when no
-        # package mapping exists (then hot reload of main is unsupported
-        # anyway — there is no portable URI to agree on).
-        main_import = resolve_wrapper_main_import(package_name, ctx.file.main.path, wrapper_depth)
-        ctx.actions.write(wrapper, make_wrapper_main_content(
-            main_import,
-            registrant_import = registrant.basename if registrant else None,
-            agent_import = staged_agent.basename if staged_agent else None,
-        ))
-
-        extra_srcs = [ctx.file.main, wrapper]
-        if registrant:
-            extra_srcs.append(registrant)
-        if staged_agent:
-            extra_srcs.append(staged_agent)
-
-        # The wrapper is a generated file in no package: frontend_server's
-        # compilation root is its exec path. Its own library URI does not
-        # matter — it is never edited/hot-reloaded; parity is carried by
-        # the wrapper's `package:` import of the user's main, above.
-        return struct(
-            file = wrapper,
-            uri = wrapper.path,
-            extra_srcs = extra_srcs,
-        )
-
-    # No wrapper: the user's main is itself the entrypoint. Use its
-    # `package:` URI (when the app is a package) so the root library URI is
-    # sandbox-independent and matches the dev tool; otherwise its exec path.
     return struct(
         file = ctx.file.main,
         uri = app_pkg_uri or ctx.file.main.path,
-        extra_srcs = [],
     )

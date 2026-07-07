@@ -215,6 +215,12 @@ def _flutter_application_impl(ctx):
                 # dev tool replays these as -D on its resident frontend_server
                 # so hot reload/restart recompiles keep the same environment.
                 "dartDefines": compilation.dart_defines,
+                # Generated plugin registrant (exec-relative path, "" when
+                # the app has no Dart plugins and no agent). The dev tool
+                # compiles it into its dills via --source and advertises it
+                # with -Dflutter.dart_plugin_registrant so the engine's
+                # pre-main hook keeps firing after hot restart.
+                "dartPluginRegistrant": compilation.dart_plugin_registrant.path if compilation.dart_plugin_registrant else "",
                 "devPackageConfig": compilation.dev_package_config.path,
                 "filesystemRoots": compilation.dev_filesystem_roots,
                 "filesystemScheme": compilation.dev_filesystem_scheme,
@@ -231,6 +237,8 @@ def _flutter_application_impl(ctx):
         )
         default_files.append(dev_config_file)
         default_files.append(compilation.dev_package_config)
+        if compilation.dart_plugin_registrant:
+            default_files.append(compilation.dart_plugin_registrant)
 
     output_groups = {
         "native_assets_manifest": depset([native_assets_manifest_file]),

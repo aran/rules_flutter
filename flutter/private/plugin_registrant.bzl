@@ -5,7 +5,7 @@ at application startup, and native registrant source files for method channel
 plugins (pluginClass) on desktop platforms.
 """
 
-def make_registrant_content(plugins, target_platform = None):
+def make_registrant_content(plugins, target_platform = None, agent_import = None):
     """Generate Dart source content for plugin registration.
 
     Two output shapes depending on `target_platform`:
@@ -14,21 +14,34 @@ def make_registrant_content(plugins, target_platform = None):
       to get `webPluginRegistrar`, then for each plugin whose web entry has
       a `pluginClass` (the convention Flutter uses for web plugins —
       web plugins are pure Dart and `pluginClass` is the Dart class), emits
-      `<PluginClass>.registerWith(webPluginRegistrar);`. The `fileName`
-      override (from `flutter.plugin.platforms.web.fileName`) is honored.
-    - **Other platforms (or `None`)**: for each plugin whose entry has a
-      `dartPluginClass`, emits `<DartPluginClass>.registerWith(null);` —
-      the Dart-side registrant convention used by Flutter on
-      mobile/desktop. `fileName` (or legacy `dartFileName`) is honored.
+      a plain `registerPlugins()` function calling
+      `<PluginClass>.registerWith(webPluginRegistrar);`. Called by the web
+      bootstrap wrapper's main (there is no engine pre-main hook on web).
+      The `fileName` override (from `flutter.plugin.platforms.web.fileName`)
+      is honored. `agent_import` is ignored — no agent surface on web.
+    - **Other platforms (or `None`)**: the upstream engine-invocable shape —
+      `@pragma('vm:entry-point') class _PluginRegistrant` with a static
+      `register()` that calls each `dartPluginClass`'s `registerWith()`
+      (and, in debug, the agent-extensions registration first). The engine
+      looks this class up in the library named by
+      `-Dflutter.dart_plugin_registrant` and invokes `register()` before
+      `main()` on every root-isolate launch — including hot restart, which
+      is what keeps plugin registration and the agent surface alive after
+      a restart. `fileName` (or legacy `dartFileName`) is honored.
 
     Args:
         plugins: List of plugin structs (name, platforms dict).
         target_platform: Optional platform string (e.g. "web", "linux", "android").
             When set, only registers plugins for that platform. When None,
             falls back to legacy "first platform with dartPluginClass wins".
+        agent_import: Optional relative import for the staged agent-extensions
+            library; when set, `register()` calls
+            `registerRulesFlutterAgentExtensions()` before the plugins and a
+            registrant is generated even with zero Dart plugins.
 
     Returns:
-        String of Dart source code, or empty string if no Dart plugins.
+        String of Dart source code, or empty string if there are no Dart
+        plugins and no agent to register.
     """
     if target_platform == "web":
         return _make_web_registrant_content(plugins)
@@ -60,20 +73,28 @@ def make_registrant_content(plugins, target_platform = None):
                     ))
                     break
 
-    if not dart_plugins:
+    if not dart_plugins and not agent_import:
         return ""
 
     lines = ["// GENERATED — do not edit.", "// ignore_for_file: depend_on_referenced_packages"]
+    if agent_import:
+        lines.append("import '%s' as agent;" % agent_import)
     for p in dart_plugins:
         lines.append("import 'package:%s/%s';" % (p.package, p.dart_file_name))
     lines.append("")
-    lines.append("void registerPlugins() {")
+    lines.append("@pragma('vm:entry-point')")
+    lines.append("class _PluginRegistrant {")
+    lines.append("  @pragma('vm:entry-point')")
+    lines.append("  static void register() {")
+    if agent_import:
+        lines.append("    agent.registerRulesFlutterAgentExtensions();")
     for p in dart_plugins:
         # Non-web Dart plugins use the no-arg `registerWith()` signature
         # (e.g. PathProviderFoundation, UrlLauncherMacOS). Web plugins use
         # the registrar-passing signature; that path is handled by
         # _make_web_registrant_content.
-        lines.append("  %s.registerWith();" % p.dart_plugin_class)
+        lines.append("    %s.registerWith();" % p.dart_plugin_class)
+    lines.append("  }")
     lines.append("}")
     lines.append("")
     return "\n".join(lines)
@@ -131,43 +152,6 @@ def _make_web_registrant_content(plugins):
         # `dartPluginClass`-only plugins use the no-arg signature on web
         # too — same as Flutter's non-web Dart-side registrant convention.
         lines.append("  %s.registerWith();" % p.plugin_class)
-    lines.append("}")
-    lines.append("")
-    return "\n".join(lines)
-
-def make_wrapper_main_content(original_import, registrant_import = None, agent_import = None):
-    """Generate a wrapper main.dart that composes optional setup steps then user main.
-
-    The wrapper can call (in order, before user `main()`):
-    - `WidgetsFlutterBinding.ensureInitialized()` (when `agent_import` is set, so
-      service extensions can register against a live binding before `runApp`)
-    - `registerRulesFlutterAgentExtensions()` from the AI-agent stub (when
-      `agent_import` is set; debug-only, injected by `flutter_compile_kernel`)
-    - `registerPlugins()` from the generated plugin registrant (when
-      `registrant_import` is set)
-
-    Args:
-        original_import: Import URI for the original main (e.g. 'package:my_app/main.dart').
-        registrant_import: Optional relative import path for the generated registrant.
-        agent_import: Optional relative import path for the agent extensions library.
-
-    Returns:
-        String of Dart source code.
-    """
-    lines = ["// GENERATED — do not edit."]
-    if agent_import:
-        lines.append("import 'package:flutter/widgets.dart';")
-        lines.append("import '%s' as agent;" % agent_import)
-    lines.append("import '%s' as entrypoint;" % original_import)
-    if registrant_import:
-        lines.append("import '%s' as reg;" % registrant_import)
-    lines.extend(["", "void main() {"])
-    if agent_import:
-        lines.append("  WidgetsFlutterBinding.ensureInitialized();")
-        lines.append("  agent.registerRulesFlutterAgentExtensions();")
-    if registrant_import:
-        lines.append("  reg.registerPlugins();")
-    lines.append("  entrypoint.main();")
     lines.append("}")
     lines.append("")
     return "\n".join(lines)
@@ -521,18 +505,21 @@ def generate_native_plugin_registrant(ctx, plugins, target_platform):
     ctx.actions.write(registrant, content)
     return registrant
 
-def generate_dart_plugin_registrant(ctx, plugins, target_platform = None):
+def generate_dart_plugin_registrant(ctx, plugins, target_platform = None, agent_import = None):
     """Generate a Dart plugin registrant source file via ctx.actions.write.
 
     Args:
         ctx: Rule context.
         plugins: List of plugin structs.
         target_platform: Optional platform string to filter plugins by.
+        agent_import: Optional relative import for the staged agent-extensions
+            library, registered from the registrant (debug builds).
 
     Returns:
-        File: The generated registrant .dart file, or None if no Dart plugins.
+        File: The generated registrant .dart file, or None if there are no
+        Dart plugins and no agent to register.
     """
-    content = make_registrant_content(plugins, target_platform = target_platform)
+    content = make_registrant_content(plugins, target_platform = target_platform, agent_import = agent_import)
     if not content:
         return None
     registrant = ctx.actions.declare_file(ctx.label.name + "_plugin_registrant.dart")

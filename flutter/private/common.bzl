@@ -182,14 +182,6 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     all_srcs = pc.srcs
     packages = pc.packages
 
-    # Collect plugins from deps and generate registrant if needed.
-    all_dep_plugins = []
-    for dep in ctx.attr.deps:
-        if FlutterInfo in dep:
-            all_dep_plugins.extend(dep[FlutterInfo].plugins)
-    plugins = dedup_plugins(all_dep_plugins)
-    registrant = generate_dart_plugin_registrant(ctx, plugins, target_platform = target_platform)
-
     # Determine compilation mode from Bazel config.
     bazel_mode = ctx.var["COMPILATION_MODE"]
     if platform_dill == None:
@@ -202,24 +194,41 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
 
     # AI-agent service-extension injection: in debug builds (non-AOT), if the
     # rule carries an `_agent_extensions_src` attr, stage the agent source next
-    # to the wrapper and have the wrapper register the extensions before user
-    # main(). Release/AOT/profile builds skip this entirely — profile mode is
-    # for performance investigation where added instrumentation distorts
-    # measurements, so it must look the same as release on the agent surface.
+    # to the generated registrant, which registers the extensions from the
+    # engine's pre-main plugin-registrant hook. Release/AOT/profile builds skip
+    # this entirely — profile mode is for performance investigation where added
+    # instrumentation distorts measurements, so it must look the same as
+    # release on the agent surface.
     agent_src_attr = getattr(ctx.attr, "_agent_extensions_src", None)
-    profile_mode = hasattr(ctx.attr, "profile") and ctx.attr.profile
     inject_agent = (not aot) and bazel_mode == "dbg" and not profile_mode and agent_src_attr != None
     staged_agent = None
     if inject_agent:
         staged_agent = ctx.actions.declare_file(ctx.label.name + ".agent_extensions.dart")
         ctx.actions.symlink(output = staged_agent, target_file = ctx.file._agent_extensions_src)
 
-    # Resolve the kernel entrypoint. app_entrypoint owns whether a wrapper
-    # is needed and how the app's main is keyed for hot-reload URI parity;
-    # this rule only supplies the inputs (package name + the optional
-    # registrant/agent that must run before user main()).
-    entrypoint_info = resolve_kernel_entrypoint(ctx, app_pkg_name, registrant, staged_agent)
-    all_srcs = all_srcs + entrypoint_info.extra_srcs
+    # Collect plugins from deps and generate the registrant. The registrant is
+    # a side library (upstream _PluginRegistrant shape) the engine invokes
+    # before main() on every root-isolate launch — including hot restart.
+    all_dep_plugins = []
+    for dep in ctx.attr.deps:
+        if FlutterInfo in dep:
+            all_dep_plugins.extend(dep[FlutterInfo].plugins)
+    plugins = dedup_plugins(all_dep_plugins)
+    registrant = generate_dart_plugin_registrant(
+        ctx,
+        plugins,
+        target_platform = target_platform,
+        agent_import = staged_agent.basename if staged_agent else None,
+    )
+    registrant_uri = "org-dartlang-root:///" + registrant.path if registrant else None
+
+    # Resolve the kernel entrypoint: the user's main, keyed by its package:
+    # URI for hot-reload parity with the dev tool.
+    entrypoint_info = resolve_kernel_entrypoint(ctx, app_pkg_name)
+    if registrant:
+        all_srcs = all_srcs + [registrant]
+    if staged_agent:
+        all_srcs = all_srcs + [staged_agent]
 
     # Collect extra frontend_server flags from build flag attrs.
     extra_frontend_flags = []
@@ -253,10 +262,15 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         target = frontend_server_target,
         extra_flags = extra_frontend_flags,
         native_assets_manifest = native_assets_manifest,
+        dart_plugin_registrant_uri = registrant_uri,
     )
     return struct(
         kernel_dill = kernel_dill,
         package_config = config_file,
+        # Generated plugin registrant (None when the app has no Dart plugins
+        # and no agent injection). The dev tool replays it on its resident
+        # frontend_server so the engine hook keeps firing after hot restart.
+        dart_plugin_registrant = registrant,
         # Merged user defines (attr + flag), without the mode-specific
         # dart.vm.* keys — the dev tool replays these on its own compiler.
         dart_defines = user_defines,
