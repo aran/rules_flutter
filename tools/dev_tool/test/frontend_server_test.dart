@@ -1,5 +1,6 @@
 import 'package:flutter_bazel_dev_tool/compiler_config.dart';
 import 'package:flutter_bazel_dev_tool/frontend_server.dart';
+import 'package:flutter_bazel_dev_tool/toolchain_info.dart';
 import 'package:test/test.dart';
 
 import 'fakes.dart';
@@ -90,6 +91,56 @@ void main() {
       expect(capturedArgs, isNot(contains('--filesystem-root')));
       expect(capturedArgs!.where((a) => a.startsWith('--filesystem-scheme')),
           isEmpty);
+    });
+
+    test('NativeCompilerConfig emits -D flags for dartDefines', () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(
+          patchedSdkRoot: '/sdk-root',
+          dartDefines: ['A=1', 'B=x,y'],
+        ),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      // Launch-time flags persist for every later recompile — this is what
+      // keeps String.fromEnvironment stable across hot reload/restart.
+      expect(capturedArgs, contains('-DA=1'));
+      expect(capturedArgs, contains('-DB=x,y'));
+    });
+
+    test('WebCompilerConfig emits -D flags for dartDefines', () async {
+      List<String>? capturedArgs;
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: WebCompilerConfig(
+          webToolchain: WebToolchainPaths(
+            ddcOutlineDill: '/web/ddc_outline.dill',
+            librariesSpec: '/web/libraries.json',
+            dartSdkJs: '/web/dart_sdk.js',
+            ddcModuleLoaderJs: '/web/ddc_module_loader.js',
+            stackTraceMapperJs: '/web/stack_trace_mapper.js',
+            dartSdkRoot: '/web/dart-sdk',
+          ),
+          dartDefines: ['MSG=hello'],
+        ),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+      );
+      await s.start();
+
+      expect(capturedArgs, contains('-DMSG=hello'));
     });
 
     test('compile sends "compile <entrypoint>" to stdin', () async {

@@ -215,6 +215,12 @@ class DevConfig {
   /// dev configs only if the build emitted none.
   final List<({String name, String libRoot})> sourcePackages;
 
+  /// Merged user defines (target `defines` attr + the extra_dart_defines
+  /// flag) the app was built with. Replayed as -D launch flags on the
+  /// resident frontend_server so hot reload/restart recompiles see the same
+  /// String.fromEnvironment values as the initial build.
+  final List<String> dartDefines;
+
   DevConfig({
     required this.engineRevision,
     required this.flutterVersion,
@@ -229,6 +235,7 @@ class DevConfig {
     this.generatedSourcePaths = const [],
     this.generatedSourceUris = const [],
     this.sourcePackages = const [],
+    this.dartDefines = const [],
   });
 
   /// Generated files as `{package: URI → absolute path}` for reload
@@ -260,6 +267,7 @@ class DevConfig {
       filesystemScheme: (json['filesystemScheme'] as String?) ?? '',
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
+      dartDefines: strList('dartDefines'),
       sourcePackages: [
         for (final e in (json['sourcePackages'] as List?) ?? const [])
           (

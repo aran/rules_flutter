@@ -110,6 +110,33 @@ void main() {
           '/ext/patched-sdk/flutter_patched_sdk');
       expect(config.appEntrypoint, 'package:my_app/main.dart');
     });
+
+    test('fromJson parses dartDefines', () {
+      final config = DevConfig.fromJson({
+        'engineRevision': 'abc123',
+        'flutterVersion': '3.41.2',
+        'dartSdkRoot': '/ext/dart-sdk',
+        'dartaotruntime': '/ext/dart-sdk/bin/dartaotruntime',
+        'frontendServer': '/ext/host-tools/frontend_server_aot.dart.snapshot',
+        'patchedSdkRoot': '/ext/patched-sdk/flutter_patched_sdk',
+        'appEntrypoint': 'package:my_app/main.dart',
+        'dartDefines': ['A=1', 'B=x,y'],
+      });
+      expect(config.dartDefines, ['A=1', 'B=x,y']);
+    });
+
+    test('fromJson defaults dartDefines to empty when absent', () {
+      final config = DevConfig.fromJson({
+        'engineRevision': 'abc123',
+        'flutterVersion': '3.41.2',
+        'dartSdkRoot': '/ext/dart-sdk',
+        'dartaotruntime': '/ext/dart-sdk/bin/dartaotruntime',
+        'frontendServer': '/ext/host-tools/frontend_server_aot.dart.snapshot',
+        'patchedSdkRoot': '/ext/patched-sdk/flutter_patched_sdk',
+        'appEntrypoint': 'package:my_app/main.dart',
+      });
+      expect(config.dartDefines, isEmpty);
+    });
   });
 
   group('findDevConfig', () {
@@ -223,6 +250,32 @@ void main() {
           p.split('$execRoot/external/flutter/patched'));
 
       tmpDir.deleteSync(recursive: true);
+    });
+
+    test('does not absolutize dartDefines, even path-like values', () {
+      final tmpDir = Directory.systemTemp.createTempSync('test_dev_cfg_dd_');
+      final resolvedTmpDir = tmpDir.resolveSymbolicLinksSync();
+      final execRoot = '$resolvedTmpDir/execroot/_main';
+      final binDir = Directory('$execRoot/bazel-out/cfg/bin');
+      binDir.createSync(recursive: true);
+      addTearDown(() => tmpDir.deleteSync(recursive: true));
+
+      final configFile = File('${binDir.path}/app_dev_config.json');
+      configFile.writeAsStringSync(jsonEncode({
+        'engineRevision': 'abc',
+        'flutterVersion': '3.41.2',
+        'dartSdkRoot': '/sdk',
+        'dartaotruntime': '/bin/dartaotruntime',
+        'frontendServer': '/tools/fs.snapshot',
+        'patchedSdkRoot': '/patched',
+        'appEntrypoint': 'package:my_app/main.dart',
+        // Defines are KEY=VALUE strings, never paths — a value that merely
+        // looks exec-root-relative must pass through untouched.
+        'dartDefines': ['ASSET_DIR=external/foo', 'MSG=hello'],
+      }));
+
+      final config = parseDevConfig(configFile.path);
+      expect(config.dartDefines, ['ASSET_DIR=external/foo', 'MSG=hello']);
     });
 
     test('parses + absolutizes the codegen multi-root fields', () {

@@ -80,11 +80,13 @@ abstract class Device {
     WebToolchainPaths? webToolchain,
     List<String> fileSystemRoots = const [],
     String fileSystemScheme = '',
+    List<String> dartDefines = const [],
   }) =>
       NativeCompilerConfig(
         patchedSdkRoot: toolchain.patchedSdkRoot,
         fileSystemRoots: fileSystemRoots,
         fileSystemScheme: fileSystemScheme,
+        dartDefines: dartDefines,
       );
 
   /// Create the reload strategy for this platform.
@@ -1497,11 +1499,12 @@ class WebDevice extends Device {
     WebToolchainPaths? webToolchain,
     List<String> fileSystemRoots = const [],
     String fileSystemScheme = '',
+    List<String> dartDefines = const [],
   }) {
     // Web builds its own filesystem roots (synthetic entrypoint dir + workspace)
     // in run_command; the native roots/scheme args are not used here.
     if (webToolchain == null) return null;
-    return WebCompilerConfig(webToolchain: webToolchain);
+    return WebCompilerConfig(webToolchain: webToolchain, dartDefines: dartDefines);
   }
 
   @override

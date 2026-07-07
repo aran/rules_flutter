@@ -35,10 +35,17 @@ class NativeCompilerConfig implements CompilerConfig {
   /// `org-dartlang-app`). Ignored when [fileSystemRoots] is empty.
   final String fileSystemScheme;
 
+  /// Dart environment defines (KEY=VALUE) emitted as `-D` launch flags.
+  /// The frontend_server is persistent, so launch-time defines apply to
+  /// every subsequent recompile — keeping String.fromEnvironment stable
+  /// across hot reload/restart. Sourced from the dev config's dartDefines.
+  final List<String> dartDefines;
+
   NativeCompilerConfig({
     required this.patchedSdkRoot,
     this.fileSystemRoots = const [],
     this.fileSystemScheme = '',
+    this.dartDefines = const [],
   });
 
   @override
@@ -50,6 +57,7 @@ class NativeCompilerConfig implements CompilerConfig {
   @override
   List<String> get extraFlags => [
         '--enable-asserts',
+        for (final define in dartDefines) '-D$define',
         for (final root in fileSystemRoots) ...['--filesystem-root', root],
         if (fileSystemRoots.isNotEmpty && fileSystemScheme.isNotEmpty)
           '--filesystem-scheme=$fileSystemScheme',
@@ -69,9 +77,14 @@ class WebCompilerConfig implements CompilerConfig {
   /// Directories to add as `--filesystem-root` for the `org-dartlang-app` scheme.
   final List<String> fileSystemRoots;
 
+  /// Dart environment defines (KEY=VALUE) emitted as `-D` launch flags.
+  /// Same replay semantics as [NativeCompilerConfig.dartDefines].
+  final List<String> dartDefines;
+
   WebCompilerConfig({
     required this.webToolchain,
     this.fileSystemRoots = const [],
+    this.dartDefines = const [],
   });
 
   @override
@@ -87,6 +100,7 @@ class WebCompilerConfig implements CompilerConfig {
         '--dartdevc-module-format=ddc',
         '--dartdevc-canary',
         '--experimental-emit-debug-metadata',
+        for (final define in dartDefines) '-D$define',
         for (final root in fileSystemRoots) ...['--filesystem-root', root],
         if (fileSystemRoots.isNotEmpty) '--filesystem-scheme=org-dartlang-app',
       ];
