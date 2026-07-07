@@ -1,18 +1,22 @@
 # Device build targets — per-developer signing configuration.
 #
-# Setup:
+# Setup (see README.md "Device builds" for the full walkthrough):
 #   1. cp -r device.example device
 #   2. mv device/BUILD.bazel.example device/BUILD.bazel
-#   3. Open ios/Runner.xcodeproj in Xcode, select your Team under
-#      Runner > Signing & Capabilities (generates a provisioning profile)
-#   4. Edit BUNDLE_ID below to match the one Xcode assigned
+#   3. Mint a provisioning profile (headless — no Xcode GUI needed):
+#        xcodebuild -project ios/Runner.xcodeproj -scheme Runner \
+#          -configuration Debug -destination generic/platform=iOS \
+#          -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+#      Re-run the same command whenever the profile expires (free-team
+#      profiles last ~7 days).
+#   4. Edit BUNDLE_ID below to match the project's PRODUCT_BUNDLE_IDENTIFIER
 #   5. Build:  bazel build //device:app -c opt --ios_multi_cpus=arm64
 
 load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_flutter//flutter:ios.bzl", "IOS_DEFAULT_LAUNCH_STORYBOARD", "IOS_MINIMUM_OS_VERSION")
 
-BUNDLE_ID = "com.yourcompany.flutterexample"  # Must match Xcode
+BUNDLE_ID = "com.rulesflutter.ios.example"  # Must match the Xcode project
 
 local_provisioning_profile(
     name = "profile",

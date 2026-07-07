@@ -27,16 +27,27 @@ Device builds require code signing. One-time setup:
 cp -r device.example device
 mv device/BUILD.bazel.example device/BUILD.bazel
 
-# 2. Open Xcode, sign in to your team, change the bundle ID
-open ios/Runner.xcodeproj
+# 2. Mint a provisioning profile for the bundle id (headless; requires an
+#    Apple ID signed into Xcode and, for free teams, the device connected)
+xcodebuild -project ios/Runner.xcodeproj -scheme Runner -configuration Debug \
+  -destination generic/platform=iOS \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 
-# 3. Edit device/BUILD.bazel — set BUNDLE_ID to match Xcode
+# 3. Edit device/BUILD.bazel — set BUNDLE_ID to match the project's
+#    PRODUCT_BUNDLE_IDENTIFIER (com.rulesflutter.ios.example by default;
+#    override with your own team's id via DEVELOPMENT_TEAM=<id>
+#    PRODUCT_BUNDLE_IDENTIFIER=<id> args to xcodebuild above)
 
 # 4. Build
 bazel build //device:app -c opt --ios_multi_cpus=arm64
 ```
 
 The `device/` directory is gitignored — your signing config stays local.
+
+**Profile expired?** Free-team ("Personal Team") profiles expire after ~7
+days. When the bazel build fails with *"Could not find provisioning
+profile"*, re-run the `xcodebuild ... -allowProvisioningUpdates build`
+command from step 2 to mint a fresh one — no Xcode GUI needed.
 
 ## Build modes
 
