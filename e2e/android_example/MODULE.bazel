@@ -51,6 +51,11 @@ android_sdk_repository_extension = use_extension(
     "@rules_android//rules/android_sdk_repository:rule.bzl",
     "android_sdk_repository_extension",
 )
+
+# Pin the compile SDK so the build is hermetic instead of floating to the
+# highest platform installed on the machine (which differs between CI runners
+# and local dev). API 35 is stable and preinstalled on the GitHub images.
+android_sdk_repository_extension.configure(api_level = 35)
 use_repo(android_sdk_repository_extension, "androidsdk")
 
 register_toolchains(

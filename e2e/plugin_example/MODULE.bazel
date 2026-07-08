@@ -54,6 +54,14 @@ android_sdk_repository_extension = use_extension(
     "@rules_android//rules/android_sdk_repository:rule.bzl",
     "android_sdk_repository_extension",
 )
+
+# Pin the compile SDK so the build is hermetic. Without this rules_android
+# floats to the highest platform installed on the machine; CI runners ship
+# newer platforms than local dev, and a newer android.jar annotates
+# MediaCodecInfo.getAudioCapabilities() @Nullable, which fails record_android's
+# Kotlin (`only safe calls allowed on a nullable receiver`). API 35 is stable
+# and preinstalled on the GitHub macOS/Linux/Windows images.
+android_sdk_repository_extension.configure(api_level = 35)
 use_repo(android_sdk_repository_extension, "androidsdk")
 
 register_toolchains(
