@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'native_add.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -20,10 +22,19 @@ class MyApp extends StatelessWidget {
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           title: const Text('Android Example'),
         ),
-        body: const Center(
-          child: Text(
-            'Hello from Flutter Android!',
-            style: TextStyle(fontSize: 32),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Hello from Flutter Android!',
+                style: TextStyle(fontSize: 32),
+              ),
+              Text(
+                'native add(19, 23) = ${nativeAdd(19, 23)}',
+                style: const TextStyle(fontSize: 24),
+              ),
+            ],
           ),
         ),
       ),

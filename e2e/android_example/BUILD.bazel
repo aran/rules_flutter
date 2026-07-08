@@ -1,5 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_android//android:rules.bzl", "android_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_test")
 load(
     "@rules_flutter//flutter:android.bzl",
@@ -20,10 +22,25 @@ exports_files(["pubspec.lock"])
 # Shared: Flutter application (Dart compilation)
 # =============================================================================
 
+# Native FFI library. flutter_android_bundle's platform transition compiles
+# it with the Android NDK toolchain for the bundle's ABI.
+cc_library(
+    name = "add_cc",
+    srcs = ["native/add.c"],
+    hdrs = ["native/add.h"],
+)
+
+cc_shared_library(
+    name = "add",
+    deps = [":add_cc"],
+)
+
 flutter_application(
     name = "app_flutter",
     package_name = "android_example",
+    srcs = glob(["lib/**/*.dart"]),
     main = "lib/main.dart",
+    native_deps = [":add"],
     deps = [
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
@@ -155,6 +172,7 @@ android_binary(
 flutter_web_bundle(
     name = "app_web",
     package_name = "android_example",
+    srcs = glob(["lib/**/*.dart"]),
     main = "lib/main.dart",
     deps = ["@deps//:flutter"],
 )

@@ -56,6 +56,10 @@ void main() {
       '${tmpDir.path}/lib/arm64-v8a/libflutter.so',
     );
     check(
+      'libadd.so exists (arm64-v8a, from native_deps)',
+      '${tmpDir.path}/lib/arm64-v8a/libadd.so',
+    );
+    check(
       'flutter_assets directory exists',
       '${tmpDir.path}/assets/flutter_assets',
     );
