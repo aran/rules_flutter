@@ -596,14 +596,15 @@ class AndroidDevice extends Device {
           '$packageName ($apkPath) does not request '
           'android.permission.INTERNET, so the Dart VM service cannot bind '
           'its socket and this debug launch would hang.\n'
-          'Cause: flutter create declares INTERNET only in variant manifests '
-          '(android/app/src/debug/AndroidManifest.xml), which '
-          'flutter_android_app does not merge into the APK.\n'
-          'Workaround: add <uses-permission '
-          'android:name="android.permission.INTERNET"/> to the manifest your '
-          'debug APK is built from (see e2e/android_example\'s '
-          'android/app/src/main/AndroidManifest.xml), or pass '
-          '--allow-no-vm-service to launch without debugging.');
+          'Debug APKs built with flutter_android_app get INTERNET from the '
+          'debug variant manifest '
+          '(android/app/src/debug/AndroidManifest.xml, merged into -c dbg '
+          'builds): make sure that file exists (flutter create emits it) '
+          'and was not disabled via debug_manifest = False. For a custom '
+          'manifest, add <uses-permission '
+          'android:name="android.permission.INTERNET"/> or pass a '
+          'debug_manifest. Alternatively pass --allow-no-vm-service to '
+          'launch without debugging.');
     }
   }
 

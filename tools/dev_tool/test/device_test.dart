@@ -580,7 +580,7 @@ void main() {
       expect(message, contains('android.permission.INTERNET'));
       expect(message, contains('Dart VM service'));
       expect(message, contains('android/app/src/debug/AndroidManifest.xml'));
-      expect(message, contains('android_example'));
+      expect(message, contains('debug_manifest'));
 
       // Failed before starting the activity or tailing logcat.
       expect(calls.any((c) => c.$2.contains('am')), isFalse);
