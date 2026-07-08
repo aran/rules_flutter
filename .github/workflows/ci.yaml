@@ -33,22 +33,8 @@ jobs:
           key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: bazel-unit-${{ runner.os }}-
 
-      # TEMPORARY DIAGNOSTICS: the root bazel test dies mid-load on this Linux
-      # runner with no exit code while evaluating the windows_pip pip extension.
-      # Ruled out OOM-via-swap and disk. Capture memory over time, dmesg (kernel
-      # OOM killer), and the Bazel server log to find the real cause.
-      - name: bazel test //... (instrumented)
-        run: |
-          ( while true; do echo "[MEM $(date +%T)] $(free -m | awk '/Mem:/{printf "%s/%s MB used, avail %s", $3,$2,$7}')"; sleep 2; done ) &
-          MON=$!
-          set +e
-          bazel test //... --announce_rc 2>&1 | tee /tmp/bazel.out
-          rc=${PIPESTATUS[0]}
-          kill $MON 2>/dev/null
-          echo "===== bazel exited rc=$rc ====="
-          echo "===== free -m ====="; free -m
-          echo "===== dmesg tail (OOM killer?) ====="; sudo dmesg 2>/dev/null | tail -40 || echo "(no dmesg)"
-          echo "===== bazel server logs ====="; find ~/.cache/bazel -name 'java.log*' 2>/dev/null | head -2 | xargs tail -60 2>/dev/null || echo "(none)"
+      - name: bazel test //...
+        run: bazel test //...
           exit $rc
 
   dart-tool-tests:
