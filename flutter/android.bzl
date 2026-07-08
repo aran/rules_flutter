@@ -60,15 +60,9 @@ load("//flutter/private:flutter_android_registrant.bzl", _flutter_android_regist
 ANDROID_MIN_SDK_VERSION = _ANDROID_MIN_SDK_VERSION
 ANDROID_TARGET_SDK_VERSION = _ANDROID_TARGET_SDK_VERSION
 
-# AndroidX deps needed to compile Flutter runner Kotlin sources.
-_ANDROIDX_COMPILE_DEPS = [
-    "@rules_android_maven//:androidx_annotation_annotation",
-    "@rules_android_maven//:androidx_lifecycle_lifecycle_common",
-]
-
-# AndroidX deps that flutter.jar needs at runtime, mirroring the dependency
-# list of Flutter's official io.flutter:flutter_embedding_* Maven POM (the
-# deps every Gradle-built Flutter app ships): lifecycle for FlutterActivity's
+# AndroidX deps of flutter.jar, mirroring the dependency list of Flutter's
+# official io.flutter:flutter_embedding_* Maven POM (the deps every
+# Gradle-built Flutter app ships): lifecycle for FlutterActivity's
 # LifecycleRegistry, window/window-java for foldable display features, core
 # for ContextCompat/ViewCompat/input, tracing for the engine's TraceSection,
 # fragment for FlutterFragment(Activity), exifinterface for image decoding,
@@ -76,7 +70,14 @@ _ANDROIDX_COMPILE_DEPS = [
 # lifecycle-process entries are omitted: at the lifecycle version pinned here
 # their classes live in lifecycle-common, and the embedding never references
 # lifecycle-process types.
-_ANDROIDX_ENGINE_DEPS = [
+#
+# `flutter_android_engine` *exports* these: the POM declares them at compile
+# scope, so in Gradle builds everything that compiles against the embedding
+# AAR — runner sources, the plugin registrant, and every Flutter plugin —
+# sees them on its compile classpath transitively. Exporting reproduces
+# that contract. It adds nothing to the APK that the engine target wasn't
+# already carrying at runtime.
+_ANDROIDX_EMBEDDING_DEPS = [
     "@rules_android_maven//:androidx_annotation_annotation",
     "@rules_android_maven//:androidx_core_core",
     "@rules_android_maven//:androidx_exifinterface_exifinterface",
@@ -127,6 +128,10 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
     if not repo:
         fail("Unsupported android_abi '%s'. Use arm64 or x64." % android_abi)
 
+    # `deps` (not just the wrapper's exports) matters here: flutter.jar's
+    # own desugar action takes its classpath from the java_import's
+    # direct deps, and desugaring io.flutter.* against an incomplete
+    # classpath fails the deploy jar's desugar-dependency check.
     _java_import(
         name = "_%s_jar" % name,
         jars = select({
@@ -134,17 +139,20 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
             "//conditions:default": ["@%s//:flutter.jar" % repo],
         }),
         tags = tags,
-        deps = _ANDROIDX_ENGINE_DEPS,
+        deps = _ANDROIDX_EMBEDDING_DEPS,
     )
 
     # The android_library wrapper carries the embedding's R8 keep rules
     # (the @androidx.annotation.Keep contract FlutterJNI relies on) to the
     # consuming android_binary — the role the Maven embedding AAR's
     # consumer proguard config plays in Gradle builds. java_import cannot
-    # declare proguard_specs, hence the wrapper.
+    # declare proguard_specs, hence the wrapper. The androidx artifacts
+    # are additionally exported so consumers compile against the same
+    # classpath the embedding POM gives Gradle builds (see
+    # _ANDROIDX_EMBEDDING_DEPS).
     _android_library(
         name = name,
-        exports = ["_%s_jar" % name],
+        exports = ["_%s_jar" % name] + _ANDROIDX_EMBEDDING_DEPS,
         proguard_specs = ["@rules_flutter//flutter/private/runners/android:flutter_engine_proguard.pro"],
         tags = tags,
         **kwargs
@@ -246,7 +254,7 @@ def flutter_android_runner_lib_gen(
         srcs = ["__%s_main_activity" % name],
         manifest = actual_manifest,
         tags = tags,
-        deps = [engine] + _ANDROIDX_COMPILE_DEPS,
+        deps = [engine],
         **kwargs
     )
 
@@ -289,8 +297,14 @@ def flutter_android_app(
         registered with the FlutterEngine on startup — no manual wiring.
       - Adds `@<pub_hub_name>//android:all_android_plugin_libs` to
         `binary_deps`, pulling in every transitively-resolved plugin
-        spoke's Kotlin/Java sources via the hub's aggregator. Spokes
-        without Android sources contribute empty libraries (no-op).
+        spoke's Kotlin/Java sources (and resources) via the hub's
+        aggregator. Spokes without Android sources contribute empty
+        libraries (no-op).
+      - Plugins that declare `<uses-permission>` in their library
+        manifests (e.g. record_android's RECORD_AUDIO) additionally need
+        `common --merge_android_manifest_permissions` in the workspace's
+        `.bazelrc`: Bazel's manifest merger strips library permissions by
+        default, whereas AGP always merges them.
 
     Args:
         name: Target name (Bazel identifier). Produces an android_binary.
@@ -373,7 +387,7 @@ def flutter_android_app(
         tags = tags,
     )
 
-    registrant_deps = ["__%s_engine" % name] + _ANDROIDX_COMPILE_DEPS
+    registrant_deps = ["__%s_engine" % name]
     if pub_hub_name:
         registrant_deps.append("@%s//android:all_android_plugin_libs" % pub_hub_name)
 
@@ -431,7 +445,7 @@ def flutter_android_app(
                     srcs = discovered_kotlin,
                     custom_package = package_name,
                     tags = tags,
-                    deps = ["__%s_engine" % name] + _ANDROIDX_COMPILE_DEPS,
+                    deps = ["__%s_engine" % name],
                 )
                 binary_deps.append("__%s_runner" % name)
         else:
