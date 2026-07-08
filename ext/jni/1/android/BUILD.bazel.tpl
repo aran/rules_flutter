@@ -1,6 +1,6 @@
 # package:jni 1.x Android sub-package overlay.
 #
-# Mirrors what `_make_android_subpackage_build_content` would auto-generate,
+# Mirrors what `make_android_subpackage_build_content` would auto-generate,
 # plus the two things Gradle wires up that autogen cannot see:
 #
 #   * `//:jni_java_support_srcs` — the shared JNI support classes from

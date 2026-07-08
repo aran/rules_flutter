@@ -1,6 +1,6 @@
 # audio_session 0.1.x Android sub-package overlay.
 #
-# Mirrors what `_make_android_subpackage_build_content` would auto-generate
+# Mirrors what `make_android_subpackage_build_content` would auto-generate
 # for a plugin with Android sources, with no audio_session-specific
 # additions — but the top-level overlay short-circuits the auto-gen path,
 # so we ship the sub-package alongside it. {HUB_NAME} / {PKG} / {VERSION}

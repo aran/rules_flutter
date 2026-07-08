@@ -5,7 +5,7 @@ structure (`@<hub>//:pkg` → `@<hub>__<pkg>//:<pkg>`) and additionally
 emits an `android/BUILD.bazel` containing the
 `all_android_plugin_libs` aggregator. The aggregator is a
 `kt_android_library` whose deps are every spoke's `android:lib` target
-(see `flutter_pub_package`'s `_make_android_subpackage_build_content`).
+(see `flutter_pub_package`'s `make_android_subpackage_build_content`).
 
 `flutter_android_app` depends on `@<hub>//android:all_android_plugin_libs`
 to compile every transitively-needed plugin's Kotlin/Java sources into

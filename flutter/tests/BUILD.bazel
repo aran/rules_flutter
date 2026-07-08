@@ -4,6 +4,7 @@ load(":common_test.bzl", "common_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
 load(":flutter_library_test.bzl", "flutter_library_test_suite")
 load(":flutter_plugin_test.bzl", "flutter_plugin_test_suite")
+load(":flutter_pub_package_test.bzl", "flutter_pub_package_test_suite")
 load(":flutter_pubspec_test.bzl", "flutter_pubspec_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
 load(":native_assets_test.bzl", "native_assets_test_suite")
@@ -33,6 +34,8 @@ web_test_suite(name = "web_test")
 flutter_library_test_suite(name = "flutter_library_test")
 
 flutter_plugin_test_suite(name = "flutter_plugin_test")
+
+flutter_pub_package_test_suite(name = "flutter_pub_package_test")
 
 flutter_pubspec_test_suite(name = "flutter_pubspec_test")
 

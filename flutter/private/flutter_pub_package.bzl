@@ -40,13 +40,14 @@ _DESKTOP_SRC_EXTENSIONS = ("cc", "cpp", "c", "h", "hh", "hpp")
 # Kotlin/Java source extensions for Android plugin libraries.
 _ANDROID_SRC_EXTENSIONS = ("kt", "java")
 
-def _has_files_under(ctx, relative_path, extensions):
+def _has_files_under(ctx, relative_path, extensions = None):
     """Check `<package>/<relative_path>` for source files.
 
     Returns True if the directory exists and contains at least one file
-    matching one of `extensions`. `ctx.path(p).readdir()` is the
-    documented repo-rule way to walk a directory; recursing in Starlark
-    keeps the logic local instead of forking out to `find`.
+    matching one of `extensions` (any file when `extensions` is None).
+    `ctx.path(p).readdir()` is the documented repo-rule way to walk a
+    directory; recursing in Starlark keeps the logic local instead of
+    forking out to `find`.
     """
     root = ctx.path(relative_path)
     if not root.exists:
@@ -63,6 +64,8 @@ def _has_files_under(ctx, relative_path, extensions):
             if entry.is_dir:
                 stack.append(entry)
             else:
+                if extensions == None:
+                    return True
                 name = entry.basename
                 ext = name.rsplit(".", 1)[-1] if "." in name else ""
                 if ext in extensions:
@@ -175,6 +178,93 @@ def _detect_android_source_dir(ctx):
     """
     if _has_files_under(ctx, "android/src/main", _ANDROID_SRC_EXTENSIONS):
         return "android/src/main"
+    return ""
+
+def _detect_android_resources(ctx):
+    """True when the plugin ships Android resources at `android/src/main/res/`.
+
+    The standard AGP resource location. Detected resources are compiled
+    into the generated `kt_android_library` via `resource_files` so the
+    plugin's `R` class resolves and the resources merge into the
+    consuming APK — same as any Gradle-built Android library.
+    """
+    return _has_files_under(ctx, "android/src/main/res")
+
+def parse_gradle_android_namespace(content):
+    """Extract `android.namespace` from a Gradle build script.
+
+    Handles the AGP-8 assignment forms
+    `namespace = 'com.example'` (Groovy) / `namespace = "com.example"`
+    (Kotlin DSL) and the Groovy method-call form `namespace 'com.example'`.
+
+    Args:
+        content: The `build.gradle` / `build.gradle.kts` file content.
+
+    Returns:
+        The declared namespace, or empty string when the script
+        declares none.
+    """
+    for raw_line in content.split("\n"):
+        line = raw_line.strip()
+        if not line.startswith("namespace"):
+            continue
+        rest = line[len("namespace"):].strip()
+        if rest.startswith("="):
+            rest = rest[1:].strip()
+        for quote in ("'", '"'):
+            if rest.startswith(quote):
+                end = rest.find(quote, 1)
+                if end > 0:
+                    return rest[1:end]
+    return ""
+
+def parse_android_manifest_package(content):
+    """Extract the `package` attribute from an AndroidManifest.xml.
+
+    The pre-AGP-8 way for a library to declare its namespace.
+
+    Args:
+        content: The AndroidManifest.xml file content.
+
+    Returns:
+        The `package` attribute of the `<manifest>` element, or empty
+        string when the manifest carries none.
+    """
+    start = content.find("<manifest")
+    if start < 0:
+        return ""
+    end = content.find(">", start)
+    if end < 0:
+        return ""
+    tag = content[start:end]
+    for quote in ('"', "'"):
+        marker = "package=" + quote
+        idx = tag.find(marker)
+        if idx >= 0:
+            close = tag.find(quote, idx + len(marker))
+            if close >= 0:
+                return tag[idx + len(marker):close]
+    return ""
+
+def _detect_android_namespace(ctx):
+    """Resolve the plugin's Android namespace the way AGP does.
+
+    AGP determines a library's namespace from `android.namespace` in
+    `build.gradle(.kts)`, falling back to the manifest's `package`
+    attribute for pre-AGP-8 projects. The namespace is where the
+    generated `R` and `BuildConfig` classes live, so resource
+    references like `R.drawable.ic_mic` only resolve when we use the
+    same one. Returns empty string when the plugin declares neither.
+    """
+    for filename in ("android/build.gradle", "android/build.gradle.kts"):
+        p = ctx.path(filename)
+        if p.exists:
+            namespace = parse_gradle_android_namespace(ctx.read(p))
+            if namespace:
+                return namespace
+    manifest_path = ctx.path("android/src/main/AndroidManifest.xml")
+    if manifest_path.exists:
+        return parse_android_manifest_package(ctx.read(manifest_path))
     return ""
 
 def _detect_android_manifest(ctx):
@@ -616,7 +706,7 @@ def _make_flutter_plugin_build_content(
     `flutter_windows_plugin_library` sub-targets.
 
     Android Kotlin/Java sources are exposed via a sibling `android/`
-    sub-package (see `_make_android_subpackage_build_content`). The
+    sub-package (see `make_android_subpackage_build_content`). The
     sub-package is loaded only when something queries
     `@<spoke>//android:lib` — non-Android workspaces don't pay the
     `@rules_android` / `@rules_kotlin` cost.
@@ -641,7 +731,7 @@ def _make_flutter_plugin_build_content(
 
     # NOTE: Android Kotlin/Java sources are NOT compiled in the top-level
     # spoke BUILD. Instead, they're exposed via a sibling `android/`
-    # sub-package (see _make_android_subpackage_build_content) which loads
+    # sub-package (see make_android_subpackage_build_content) which loads
     # @rules_android + @rules_kotlin lazily — only when something queries
     # `@<spoke>//android:lib`. Mac-only / web-only workspaces never trigger
     # the parse and don't pay the @rules_android / @rules_kotlin cost.
@@ -711,7 +801,7 @@ flutter_windows_plugin_library(
         ))
 
     # NB: Android sources are no longer surfaced via a top-level filegroup.
-    # See `_make_android_subpackage_build_content` — the spoke's `android/`
+    # See `make_android_subpackage_build_content` — the spoke's `android/`
     # sub-package wraps them in a kt_android_library that the hub's
     # aggregator (`@<hub>//android:all_android_plugin_libs`) depends on.
 
@@ -740,7 +830,7 @@ flutter_windows_plugin_library(
 
     # Android sources travel through a sibling `android/` sub-package
     # rather than `flutter_plugin.android_libs`. See
-    # `_make_android_subpackage_build_content`.
+    # `make_android_subpackage_build_content`.
 
     # Apple PrivacyInfo.xcprivacy files: thread through `apple_privacy_files`
     # on the flutter_plugin so they propagate via FlutterInfo to the platform
@@ -795,12 +885,13 @@ flutter_plugin(
         pub_attrs = pub_attrs,
     )
 
-def _make_android_subpackage_build_content(
+def make_android_subpackage_build_content(
         android_src_dir,
         java_package,
         extra_maven_labels,
         android_manifest = "",
-        consumer_proguard_specs = []):
+        consumer_proguard_specs = [],
+        has_resources = False):
     """Generate `android/BUILD.bazel` content for a Flutter plugin spoke.
 
     Always emits a `kt_android_library(name = "lib", ...)`. The aggregator
@@ -817,7 +908,12 @@ def _make_android_subpackage_build_content(
     engine to arm64 here: Java bytecode is ABI-independent, so the
     consumer's `flutter_android_app(android_abi = ...)` continues to
     decide the runtime engine ABI without affecting the plugin's
-    compile-time classpath.
+    compile-time classpath. The engine also exports the embedding's
+    androidx dependencies (see `_ANDROIDX_EMBEDDING_DEPS` in
+    `flutter/android.bzl`), so a plugin whose `build.gradle` declares no
+    dependencies still compiles against `NotificationCompat` & co. —
+    exactly the compile classpath Gradle gives it via the
+    `io.flutter:flutter_embedding_*` POM.
 
     BuildConfig.java is generated from the plugin's `java_package`. Many
     Flutter plugins reference `BuildConfig.DEBUG`, which Gradle synthesizes
@@ -831,12 +927,13 @@ def _make_android_subpackage_build_content(
         android_src_dir: Source dir under the package root (e.g.
             `android/src/main`) when the spoke has Android sources, or
             empty when it doesn't.
-        java_package: The Java/Kotlin package the plugin's classes live
-            in, taken from `flutter.plugin.platforms.android.package` in
-            the spoke's pubspec.yaml. Used as `custom_package` on the
-            `kt_android_library` so resource references and manifest
-            placeholders resolve. Empty when the spoke has no Android
-            sources.
+        java_package: The plugin's Android namespace — resolved the way
+            AGP resolves it (`android.namespace` in `build.gradle(.kts)`,
+            else the manifest's `package` attribute), falling back to
+            `flutter.plugin.platforms.android.package` from the spoke's
+            pubspec.yaml. Used as `custom_package` on the
+            `kt_android_library` so the generated `R` and `BuildConfig`
+            classes land in the package the plugin's sources expect.
         extra_maven_labels: Additional `@rules_android_maven//:...`
             labels parsed from the plugin's `build.gradle*` and translated
             via `_MAVEN_COORD_TO_LABEL`.
@@ -855,11 +952,15 @@ def _make_android_subpackage_build_content(
             propagates them transitively to the consuming
             `android_binary`'s R8 invocation, mirroring AGP's
             `consumerProguardFiles` flow.
+        has_resources: True when the plugin ships resources at
+            `android/src/main/res/`. Compiled via `resource_files` so the
+            plugin's `R` class is generated against `java_package` and
+            the resources merge into the consuming APK.
 
     Returns:
         Generated BUILD content as a string.
     """
-    if not android_src_dir:
+    if not android_src_dir and not has_resources:
         # Empty kt_android_library is valid in rules_kotlin. The hub's
         # aggregator depends on this spoke's `:lib` unconditionally, so
         # this no-op contribution keeps the deps list mechanical.
@@ -873,17 +974,26 @@ kt_android_library(
 )
 """
 
-    # Source dir is relative to the package root; the sub-package itself
-    # lives at `android/`, so strip that prefix.
-    if android_src_dir.startswith("android/"):
-        sub_src = android_src_dir[len("android/"):]
-    else:
-        sub_src = android_src_dir
+    if has_resources and not java_package:
+        fail(
+            "Plugin ships Android resources (android/src/main/res/) but " +
+            "declares no namespace — checked android.namespace in " +
+            "build.gradle(.kts), the AndroidManifest.xml package " +
+            "attribute, and flutter.plugin.platforms.android.package in " +
+            "pubspec.yaml. Without a namespace the R class cannot be " +
+            "generated, so the resources would not compile.",
+        )
 
-    glob_patterns = [
-        '"%s/**/*.kt"' % sub_src,
-        '"%s/**/*.java"' % sub_src,
-    ]
+    if android_src_dir:
+        # Source dir is relative to the package root; the sub-package
+        # itself lives at `android/`, so strip that prefix.
+        if android_src_dir.startswith("android/"):
+            sub_src = android_src_dir[len("android/"):]
+        else:
+            sub_src = android_src_dir
+        srcs_attr = 'glob(["{d}/**/*.kt", "{d}/**/*.java"], allow_empty = True)'.format(d = sub_src)
+    else:
+        srcs_attr = "[]"
 
     custom_package_arg = ""
     if java_package:
@@ -898,12 +1008,39 @@ kt_android_library(
     # but never contributed to the binary's merger inputs. Path is
     # relative to the `android/` sub-package, so we strip the
     # `android/` prefix the same way `sub_src` does.
+    #
+    # rules_android additionally requires *some* manifest whenever
+    # `resource_files` is set. AGP treats a missing library manifest as
+    # an empty one, so for a res-bearing plugin that ships no manifest
+    # we synthesize the equivalent (namespaced, contributing nothing to
+    # the merger — hence no `exports_manifest`).
     manifest_arg = ""
+    synthesized_manifest = ""
     if android_manifest:
         sub_manifest = android_manifest
         if sub_manifest.startswith("android/"):
             sub_manifest = sub_manifest[len("android/"):]
         manifest_arg = '    manifest = "%s",\n    exports_manifest = 1,\n' % sub_manifest
+    elif has_resources:
+        manifest_arg = '    manifest = ":_manifest",\n'
+        synthesized_manifest = """
+# Minimal manifest for resource processing. AGP treats a missing library
+# manifest as an empty one; rules_android requires an explicit file when
+# resource_files is set.
+genrule(
+    name = "_manifest",
+    outs = ["_manifest/AndroidManifest.xml"],
+    cmd = "cat > $@ <<'EOF'\\n<manifest xmlns:android=\\"http://schemas.android.com/apk/res/android\\"\\n    package=\\"{pkg}\\">\\n</manifest>\\nEOF\\n",
+)
+""".format(pkg = java_package)
+
+    # Resources are compiled into the library so the plugin's `R` class
+    # resolves at compile time and the resources merge into the consuming
+    # APK. `allow_empty = False` — resource detection already saw files
+    # here, so an empty glob means the layout assumption broke.
+    resource_files_arg = ""
+    if has_resources:
+        resource_files_arg = '    resource_files = glob(["src/main/res/**"], allow_empty = False),\n'
 
     # `proguard_specs = [...]` lets `android_binary`'s R8 step pick up
     # the plugin's keep rules transitively — same shape AGP uses for
@@ -914,17 +1051,13 @@ kt_android_library(
         spec_lines = ", ".join(['"%s"' % path for path in consumer_proguard_specs])
         proguard_specs_arg = "    proguard_specs = [%s],\n" % spec_lines
 
-    # Base deps every plugin spoke gets: the engine for the FlutterPlugin
-    # SPI, the BuildConfig stub, and the two androidx artifacts that the
-    # FlutterPlugin classes themselves transitively reference. Plugin-
-    # specific maven deps from `extra_maven_labels` are appended,
-    # de-duped (the gradle parser may surface artifacts already in the
-    # base set, e.g. lifecycle-common).
+    # Base deps every plugin spoke gets: the engine (which carries the
+    # FlutterPlugin SPI plus the embedding's androidx compile classpath
+    # via its exports) and the BuildConfig stub. Plugin-specific maven
+    # deps from `extra_maven_labels` are appended, de-duped.
     base_labels = [
         ":_engine",
         ":_build_config",
-        "@rules_android_maven//:androidx_annotation_annotation",
-        "@rules_android_maven//:androidx_lifecycle_lifecycle_common",
     ]
     seen = {label: True for label in base_labels}
     all_labels = list(base_labels)
@@ -944,7 +1077,8 @@ load("@rules_java//java:java_library.bzl", "java_library")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 
 # Private engine target — gives the plugin's Kotlin/Java the FlutterPlugin
-# SPI on the compile classpath. Always arm64 here; Java bytecode is
+# SPI plus the embedding's androidx dependencies (via the engine's
+# exports) on the compile classpath. Always arm64 here; Java bytecode is
 # ABI-independent. The consumer's flutter_android_app(android_abi=...)
 # decides the runtime ABI.
 flutter_android_engine(
@@ -967,23 +1101,25 @@ java_library(
     srcs = [":_build_config_src"],
     visibility = ["//visibility:private"],
 )
-
+{synthesized_manifest}
 kt_android_library(
     name = "lib",
-    srcs = glob([{globs}], allow_empty = True),
-{custom_package}{manifest}{proguard_specs}    visibility = ["//visibility:public"],
+    srcs = {srcs},
+{custom_package}{manifest}{resource_files}{proguard_specs}    visibility = ["//visibility:public"],
     deps = [
         {deps}
     ],
 )
 """.format(
-        globs = ", ".join(glob_patterns),
+        srcs = srcs_attr,
         custom_package = custom_package_arg,
         manifest = manifest_arg,
+        resource_files = resource_files_arg,
         proguard_specs = proguard_specs_arg,
         deps = deps_block,
         bc_package = bc_package,
         bc_package_path = bc_package.replace(".", "/"),
+        synthesized_manifest = synthesized_manifest,
     )
 
 def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, relpath):
@@ -1160,7 +1296,7 @@ def _flutter_pub_package_impl(ctx):
         else:
             ctx.file(
                 "android/BUILD.bazel",
-                _make_android_subpackage_build_content(
+                make_android_subpackage_build_content(
                     android_src_dir = "",
                     java_package = "",
                     extra_maven_labels = [],
@@ -1237,13 +1373,25 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_has_resources = False
         android_native_build = False
         if android_info:
             android_native_build = _detect_android_native_build(ctx)
         if android_info and android_info.get("pluginClass", ""):
             android_src_dir = _detect_android_source_dir(ctx)
-            android_java_package = android_info.get("package", "") or ""
-            if android_src_dir:
+            android_has_resources = _detect_android_resources(ctx)
+
+            # Namespace resolution mirrors AGP (gradle `android.namespace`,
+            # else the manifest `package` attribute). The pubspec's
+            # `package` field locates the plugin class for the registrant;
+            # it only stands in for the namespace when the plugin declares
+            # none of its own.
+            android_java_package = (
+                _detect_android_namespace(ctx) or
+                android_info.get("package", "") or
+                ""
+            )
+            if android_src_dir or android_has_resources:
                 android_extra_maven_labels = _resolve_plugin_maven_deps(ctx)
                 android_manifest = _detect_android_manifest(ctx)
                 android_consumer_proguard_specs = _detect_consumer_proguard_specs(ctx)
@@ -1286,6 +1434,7 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_has_resources = False
         android_native_build = False
     else:
         build_content = make_dart_library_build_content(
@@ -1298,6 +1447,7 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_has_resources = False
         android_native_build = False
 
     ctx.file("BUILD.bazel", build_content)
@@ -1314,12 +1464,13 @@ def _flutter_pub_package_impl(ctx):
             ctx.attr.version,
         )
     else:
-        android_build_content = _make_android_subpackage_build_content(
+        android_build_content = make_android_subpackage_build_content(
             android_src_dir = android_src_dir,
             java_package = android_java_package,
             extra_maven_labels = android_extra_maven_labels,
             android_manifest = android_manifest,
             consumer_proguard_specs = android_consumer_proguard_specs,
+            has_resources = android_has_resources,
         )
     ctx.file("android/BUILD.bazel", android_build_content)
 
