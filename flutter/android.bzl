@@ -28,6 +28,7 @@ Two tiers of API:
             "flutter_android_bundle",
             "flutter_android_engine",
             "flutter_android_manifest_gen",
+            "flutter_android_manifest_merge",
             "flutter_android_runner_lib_gen")
 
         flutter_android_bundle(name = "my_bundle", application = ":my_app")
@@ -53,6 +54,7 @@ load("@rules_java//java:java_import.bzl", _java_import = "java_import")
 load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_library")
 load("//flutter/private:constants.bzl", _ANDROID_MIN_SDK_VERSION = "ANDROID_MIN_SDK_VERSION", _ANDROID_TARGET_SDK_VERSION = "ANDROID_TARGET_SDK_VERSION")
 load("//flutter/private:flutter_android_application.bzl", _flutter_android_bundle = "flutter_android_bundle")
+load("//flutter/private:flutter_android_manifest_merge.bzl", _flutter_android_manifest_merge = "flutter_android_manifest_merge")
 load("//flutter/private:flutter_android_plugin_library.bzl", _flutter_android_plugin_library = "flutter_android_plugin_library")
 load("//flutter/private:flutter_android_registrant.bzl", _flutter_android_registrant = "flutter_android_registrant")
 
@@ -93,6 +95,12 @@ _ANDROIDX_EMBEDDING_DEPS = [
 # -- Composable rules (Tier 2) ------------------------------------------------
 
 flutter_android_bundle = _flutter_android_bundle
+
+# Merges a variant AndroidManifest.xml overlay (e.g. flutter create's
+# android/app/src/debug/AndroidManifest.xml) into a base manifest — the
+# Bazel counterpart of Gradle's per-variant manifest merge. Wired
+# automatically by flutter_android_app; expose for Tier-2 control.
+flutter_android_manifest_merge = _flutter_android_manifest_merge
 
 # Public wrapper that compiles a Flutter plugin's Android Kotlin/Java sources
 # into a kt_android_library. For pub.dev plugins, flutter_pub_package emits

@@ -68,6 +68,12 @@ bzl_library(
 )
 
 bzl_library(
+    name = "flutter_android_manifest_merge",
+    srcs = ["flutter_android_manifest_merge.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "flutter_application",
     srcs = ["flutter_application.bzl"],
     visibility = ["//flutter:__subpackages__"],

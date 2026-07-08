@@ -59,6 +59,7 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "//flutter/private:flutter_android_application",
+        "//flutter/private:flutter_android_manifest_merge",
         "@bazel_skylib//rules:expand_template",
     ],
 )
