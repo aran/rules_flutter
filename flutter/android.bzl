@@ -48,7 +48,7 @@ Two tiers of API:
 """
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
-load("@rules_android//android:rules.bzl", _android_binary = "android_binary")
+load("@rules_android//android:rules.bzl", _android_binary = "android_binary", _android_library = "android_library")
 load("@rules_java//java:java_import.bzl", _java_import = "java_import")
 load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_library")
 load("//flutter/private:constants.bzl", _ANDROID_MIN_SDK_VERSION = "ANDROID_MIN_SDK_VERSION", _ANDROID_TARGET_SDK_VERSION = "ANDROID_TARGET_SDK_VERSION")
@@ -128,13 +128,25 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
         fail("Unsupported android_abi '%s'. Use arm64 or x64." % android_abi)
 
     _java_import(
-        name = name,
+        name = "_%s_jar" % name,
         jars = select({
             "@rules_flutter//flutter/private:dbg": ["@%s//:debug/flutter.jar" % repo],
             "//conditions:default": ["@%s//:flutter.jar" % repo],
         }),
         tags = tags,
         deps = _ANDROIDX_ENGINE_DEPS,
+    )
+
+    # The android_library wrapper carries the embedding's R8 keep rules
+    # (the @androidx.annotation.Keep contract FlutterJNI relies on) to the
+    # consuming android_binary — the role the Maven embedding AAR's
+    # consumer proguard config plays in Gradle builds. java_import cannot
+    # declare proguard_specs, hence the wrapper.
+    _android_library(
+        name = name,
+        exports = ["_%s_jar" % name],
+        proguard_specs = ["@rules_flutter//flutter/private/runners/android:flutter_engine_proguard.pro"],
+        tags = tags,
         **kwargs
     )
 
