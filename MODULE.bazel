@@ -77,23 +77,55 @@ use_repo(flutter, "flutter_macos_engine", "flutter_toolchains", "flutter_web_sdk
 
 register_toolchains("@flutter_toolchains//:all")
 
-# AndroidX dependencies required to compile Flutter runner Kotlin sources.
-# Uses the "rules_android_maven" repo name so rules_jvm_external merges these
-# artifacts with rules_android's own maven deps in downstream workspaces.
+# AndroidX dependencies the Flutter Android embedding (flutter.jar) requires
+# at runtime, mirroring the dependency list of Flutter's official
+# io.flutter:flutter_embedding_* Maven POM, plus androidx.annotation needed to
+# compile the runner Kotlin sources. Uses the "rules_android_maven" repo name
+# so rules_jvm_external merges these artifacts with rules_android's own maven
+# deps in downstream workspaces — user modules inherit them and only declare
+# artifacts their own code uses.
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     name = "rules_android_maven",
     artifacts = [
         "androidx.annotation:annotation:1.9.1",
+        "androidx.core:core:1.17.0",
+        "androidx.exifinterface:exifinterface:1.4.1",
+        "androidx.fragment:fragment:1.8.9",
         "androidx.lifecycle:lifecycle-common:2.10.0",
         "androidx.lifecycle:lifecycle-runtime:2.10.0",
+        # androidx.lifecycle is an atomic version group (siblings depend on
+        # exact [version] ranges), so the members fragment pulls in
+        # transitively must be pinned to the same version for coursier to
+        # resolve.
+        "androidx.lifecycle:lifecycle-livedata:2.10.0",
+        "androidx.lifecycle:lifecycle-livedata-core:2.10.0",
+        "androidx.lifecycle:lifecycle-viewmodel:2.10.0",
+        "androidx.lifecycle:lifecycle-viewmodel-savedstate:2.10.0",
+        "androidx.tracing:tracing:1.2.0",
         "androidx.window:window:1.3.0",
+        "androidx.window:window-java:1.3.0",
         "com.getkeepsafe.relinker:relinker:1.4.5",
     ],
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
     ],
+)
+
+# lifecycle-runtime pulls in androidx.profileinstaller, whose
+# AbstractResolvableFuture implements com.google.guava's ListenableFuture and
+# runs in every app shortly after launch. In workspaces where guava is also
+# resolved (rules_android's tooling depends on it), coursier would otherwise
+# select guava's empty "9999.0" listenablefuture placeholder, leaving the
+# interface undefined in the APK dex and crashing the profile installer with
+# NoClassDefFoundError. Force the real jar.
+maven.artifact(
+    name = "rules_android_maven",
+    artifact = "listenablefuture",
+    force_version = True,
+    group = "com.google.guava",
+    version = "1.0",
 )
 use_repo(maven, "rules_android_maven")
 

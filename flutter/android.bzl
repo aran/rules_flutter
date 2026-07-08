@@ -66,12 +66,26 @@ _ANDROIDX_COMPILE_DEPS = [
     "@rules_android_maven//:androidx_lifecycle_lifecycle_common",
 ]
 
-# AndroidX deps that flutter.jar needs at runtime (FlutterActivity uses
-# LifecycleRegistry from lifecycle-runtime).
+# AndroidX deps that flutter.jar needs at runtime, mirroring the dependency
+# list of Flutter's official io.flutter:flutter_embedding_* Maven POM (the
+# deps every Gradle-built Flutter app ships): lifecycle for FlutterActivity's
+# LifecycleRegistry, window/window-java for foldable display features, core
+# for ContextCompat/ViewCompat/input, tracing for the engine's TraceSection,
+# fragment for FlutterFragment(Activity), exifinterface for image decoding,
+# and relinker for engine .so loading. The POM's lifecycle-common-java8 and
+# lifecycle-process entries are omitted: at the lifecycle version pinned here
+# their classes live in lifecycle-common, and the embedding never references
+# lifecycle-process types.
 _ANDROIDX_ENGINE_DEPS = [
+    "@rules_android_maven//:androidx_annotation_annotation",
+    "@rules_android_maven//:androidx_core_core",
+    "@rules_android_maven//:androidx_exifinterface_exifinterface",
+    "@rules_android_maven//:androidx_fragment_fragment",
     "@rules_android_maven//:androidx_lifecycle_lifecycle_common",
     "@rules_android_maven//:androidx_lifecycle_lifecycle_runtime",
+    "@rules_android_maven//:androidx_tracing_tracing",
     "@rules_android_maven//:androidx_window_window",
+    "@rules_android_maven//:androidx_window_window_java",
     "@rules_android_maven//:com_getkeepsafe_relinker_relinker",
 ]
 

@@ -3,6 +3,42 @@
 ///
 /// APK is a zip file — we extract it to a temp dir and verify contents.
 import 'dart:io';
+import 'dart:typed_data';
+
+/// Classes the Flutter engine's Android embedding requires at app runtime,
+/// keyed by the artifact that provides them. One representative class per
+/// artifact — if the class is not *defined* in the APK's dex files, that
+/// runtime dependency is missing and the app will throw NoClassDefFoundError
+/// on the corresponding engine code path.
+///
+/// The direct engine dependencies mirror the dependency list of Flutter's
+/// official io.flutter:flutter_embedding_* Maven POM (what every Gradle-built
+/// Flutter app ships). The profileinstaller chain arrives transitively via
+/// lifecycle-runtime and runs in every app ~6s after launch via an
+/// androidx.startup initializer, so its own closure must also be complete —
+/// including the real com.google.guava:listenablefuture jar (guava's empty
+/// placeholder version would leave AbstractResolvableFuture's superinterface
+/// undefined).
+const _requiredDexClasses = <String, String>{
+  'androidx.core:core': 'Landroidx/core/content/ContextCompat;',
+  'androidx.exifinterface:exifinterface':
+      'Landroidx/exifinterface/media/ExifInterface;',
+  'androidx.fragment:fragment': 'Landroidx/fragment/app/Fragment;',
+  'androidx.lifecycle:lifecycle-common': 'Landroidx/lifecycle/Lifecycle;',
+  'androidx.lifecycle:lifecycle-runtime':
+      'Landroidx/lifecycle/LifecycleRegistry;',
+  'androidx.tracing:tracing': 'Landroidx/tracing/Trace;',
+  'androidx.window:window': 'Landroidx/window/layout/WindowInfoTracker;',
+  'androidx.window:window-java':
+      'Landroidx/window/java/layout/WindowInfoTrackerCallbackAdapter;',
+  'com.getkeepsafe.relinker:relinker': 'Lcom/getkeepsafe/relinker/ReLinker;',
+  'androidx.profileinstaller:profileinstaller (via lifecycle-runtime)':
+      'Landroidx/profileinstaller/ProfileInstaller;',
+  'androidx.concurrent:concurrent-futures (via profileinstaller)':
+      'Landroidx/concurrent/futures/AbstractResolvableFuture;',
+  'com.google.guava:listenablefuture (AbstractResolvableFuture supertype)':
+      'Lcom/google/common/util/concurrent/ListenableFuture;',
+};
 
 void main() {
   final testSrcDir = Platform.environment['TEST_SRCDIR'];
@@ -111,6 +147,28 @@ void main() {
       failed = true;
     }
 
+    // --- Engine runtime class checks ---
+    final definedClasses = <String>{};
+    for (final dex in Directory(tmpDir.path)
+        .listSync()
+        .whereType<File>()
+        .where((f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path))) {
+      definedClasses.addAll(_definedClassDescriptors(dex));
+    }
+    if (definedClasses.isEmpty) {
+      stderr.writeln('FAIL: no class definitions parsed from dex files');
+      failed = true;
+    }
+    _requiredDexClasses.forEach((artifact, descriptor) {
+      if (definedClasses.contains(descriptor)) {
+        print('OK: $descriptor defined in dex ($artifact)');
+      } else {
+        stderr.writeln('FAIL: $descriptor not defined in any dex — '
+            'runtime dependency $artifact is missing from the APK');
+        failed = true;
+      }
+    });
+
     if (failed) {
       stderr.writeln('\nAPK contents:');
       _listRecursive(tmpDir.path, '');
@@ -154,6 +212,52 @@ String? _validateElf(File file, int expectedMachine) {
         'expected 0x${expectedMachine.toRadixString(16)}';
   }
   return null;
+}
+
+/// Parses a dex file and returns the descriptors of all classes it defines
+/// (class_defs entries — not merely referenced types).
+///
+/// Dex layout (all offsets little-endian, per the Dalvik executable format):
+/// the header locates the string_ids, type_ids, and class_defs tables. Each
+/// class_def_item begins with a u4 index into type_ids; each type_id_item is
+/// a u4 index into string_ids; each string_id_item is a u4 offset to string
+/// data (uleb128 UTF-16 length followed by MUTF-8 bytes). Class descriptors
+/// are ASCII, so MUTF-8 decoding reduces to reading until the NUL terminator.
+Set<String> _definedClassDescriptors(File dexFile) {
+  final bytes = dexFile.readAsBytesSync();
+  final data = ByteData.sublistView(bytes);
+  const dexMagic = [0x64, 0x65, 0x78, 0x0a]; // "dex\n"
+  for (var i = 0; i < dexMagic.length; i++) {
+    if (bytes[i] != dexMagic[i]) {
+      throw FormatException('${dexFile.path} is not a dex file');
+    }
+  }
+  final stringIdsOff = data.getUint32(0x3c, Endian.little);
+  final typeIdsOff = data.getUint32(0x44, Endian.little);
+  final classDefsSize = data.getUint32(0x60, Endian.little);
+  final classDefsOff = data.getUint32(0x64, Endian.little);
+
+  String stringAt(int stringIdx) {
+    var off = data.getUint32(stringIdsOff + 4 * stringIdx, Endian.little);
+    // Skip the uleb128 UTF-16 length prefix.
+    while (bytes[off] & 0x80 != 0) {
+      off++;
+    }
+    off++;
+    final end = bytes.indexOf(0, off);
+    return String.fromCharCodes(bytes.sublist(off, end));
+  }
+
+  final descriptors = <String>{};
+  for (var i = 0; i < classDefsSize; i++) {
+    // class_def_item is 8 u4 fields; the first is the type_ids index.
+    final typeIdx =
+        data.getUint32(classDefsOff + 32 * i, Endian.little);
+    final descriptorIdx =
+        data.getUint32(typeIdsOff + 4 * typeIdx, Endian.little);
+    descriptors.add(stringAt(descriptorIdx));
+  }
+  return descriptors;
 }
 
 void _listRecursive(String path, String indent) {

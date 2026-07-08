@@ -105,14 +105,12 @@ maven.install(
     name = "rules_android_maven",
     aar_import_bzl_label = "@rules_android//rules:rules.bzl",
     artifacts = [
-        "androidx.annotation:annotation:1.9.1",
+        # The Flutter engine's androidx runtime artifacts are inherited from
+        # rules_flutter's maven.install of the same name; declare only the
+        # artifacts this workspace's plugins pull in.
         "androidx.browser:browser:1.9.0",
         "androidx.core:core:1.17.0",
-        "androidx.lifecycle:lifecycle-common:2.10.0",
-        "androidx.lifecycle:lifecycle-runtime:2.10.0",
         "androidx.media:media:1.7.0",
-        "androidx.window:window:1.3.0",
-        "com.getkeepsafe.relinker:relinker:1.4.5",
         "androidx.privacysandbox.tools:tools:1.0.0-alpha06",
         "androidx.privacysandbox.tools:tools-apigenerator:1.0.0-alpha06",
         "androidx.privacysandbox.tools:tools-apipackager:1.0.0-alpha06",

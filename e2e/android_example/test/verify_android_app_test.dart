@@ -8,11 +8,15 @@
 /// Pass criteria:
 /// - APK installs successfully via adb
 /// - Activity starts and reaches RESUMED state within 30s
-/// - Activity is still running after 5s (no crash/ANR)
+/// - Activity stays resumed with no crash for 10s — long enough to cover
+///   androidx.profileinstaller's startup-initializer write, which runs a few
+///   seconds after launch and exercises the profileinstaller dependency
+///   chain (concurrent-futures, listenablefuture) at runtime
 import 'dart:io';
 
 const _packageName = 'com.example.flutterapp';
 const _timeout = Duration(seconds: 30);
+const _stabilityWindow = Duration(seconds: 10);
 
 Future<void> main() async {
   final testSrcDir = Platform.environment['TEST_SRCDIR'];
@@ -57,6 +61,10 @@ Future<void> main() async {
     exit(1);
   }
   print('APK installed successfully');
+
+  // Clear the crash log buffer so the stability check only sees crashes
+  // from this run.
+  Process.runSync('adb', ['logcat', '-b', 'crash', '-c']);
 
   // Resolve the installed package's launcher activity, then launch it.
   final resolve = Process.runSync('adb', [
@@ -122,13 +130,26 @@ Future<void> main() async {
   }
   print('Activity is RESUMED');
 
-  // Wait a few seconds and verify the app hasn't crashed.
-  print('Verifying stability (5s)...');
-  await Future<void>.delayed(const Duration(seconds: 5));
-
-  final stillRunning = Process.runSync(
-      'adb', ['shell', 'dumpsys', 'activity', 'activities']);
-  final stillResumed = stillRunning.stdout.toString().contains(_packageName);
+  // Verify the app stays resumed with no crash for the full stability
+  // window, polling so a crash fails fast with its log attached.
+  print('Verifying stability (${_stabilityWindow.inSeconds}s)...');
+  final stabilityDeadline = DateTime.now().add(_stabilityWindow);
+  var stillResumed = true;
+  while (DateTime.now().isBefore(stabilityDeadline)) {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    final crashLog =
+        Process.runSync('adb', ['logcat', '-b', 'crash', '-d']).stdout.toString();
+    if (crashLog.contains(_packageName)) {
+      stderr.writeln('FAIL: app crashed during stability window:\n$crashLog');
+      _cleanup();
+      exit(1);
+    }
+    final dumpsys = Process.runSync(
+        'adb', ['shell', 'dumpsys', 'activity', 'activities']);
+    stillResumed = dumpsys.stdout.toString().split('\n').any((l) =>
+        l.contains('ResumedActivity') && l.contains(_packageName));
+    if (!stillResumed) break;
+  }
 
   // Capture a screenshot for visual verification.
   print('Capturing screenshot...');
@@ -149,7 +170,7 @@ Future<void> main() async {
   print('');
   print('=== Results ===');
   print('Activity resumed: yes');
-  print('Still running after 5s: $stillResumed');
+  print('Still resumed after ${_stabilityWindow.inSeconds}s: $stillResumed');
 
   if (!stillResumed) {
     stderr.writeln('FAIL: Activity crashed or was stopped');
