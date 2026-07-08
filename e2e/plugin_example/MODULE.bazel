@@ -3,7 +3,7 @@
 module(name = "rules_flutter_plugin_example")
 
 bazel_dep(name = "rules_flutter", version = "0.0.0")
-bazel_dep(name = "rules_dart", version = "0.4.4")
+bazel_dep(name = "rules_dart", version = "0.4.5")
 bazel_dep(name = "rules_android", version = "0.7.2")
 bazel_dep(name = "rules_android_ndk", version = "0.1.5")
 bazel_dep(name = "rules_kotlin", version = "2.3.20")
