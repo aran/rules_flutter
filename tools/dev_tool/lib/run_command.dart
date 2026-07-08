@@ -467,6 +467,18 @@ class RunCommand {
       compilationMode = config;
     }
 
+    // Debug (JIT) launches await the app's Dart VM service. On Android that
+    // service can only bind if the APK holds android.permission.INTERNET —
+    // enforcement is kernel-level (AID_INET group) and applies even to
+    // 127.0.0.1 — so tell Android devices to preflight the installed package.
+    // --allow-no-vm-service opts out of requiring a VM service, so it also
+    // skips the preflight (mirroring the post-launch no-VM-service abort).
+    if (compilationMode == 'dbg' && !allowNoVmService) {
+      for (final device in devices.whereType<AndroidDevice>()) {
+        device.expectsVmService = true;
+      }
+    }
+
     final allExtraArgs = [
       ...extraArgs,
       ...devices.first.buildArgs,
@@ -711,7 +723,12 @@ class RunCommand {
         'device': device.name,
       });
 
-      final appInstance = await device.launch(appFile);
+      final AppInstance appInstance;
+      try {
+        appInstance = await device.launch(appFile);
+      } on StateError catch (e) {
+        throw DevToolException('Launch failed on ${device.name}: ${e.message}');
+      }
 
       // Connect to VM service (native devices only; web has no VM service).
       //

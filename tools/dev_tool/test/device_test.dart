@@ -475,6 +475,199 @@ void main() {
 
   });
 
+  group('AndroidDevice INTERNET preflight', () {
+    // Realistic `dumpsys package <pkg>` excerpt. The requested-permissions
+    // section is omitted entirely when the APK requests no permissions.
+    String dumpsysOutput({
+      required String package,
+      required List<String> requestedPermissions,
+    }) {
+      final buf = StringBuffer()
+        ..writeln('Packages:')
+        ..writeln('  Package [$package] (5b7a1c2):')
+        ..writeln('    userId=10190')
+        ..writeln('    codePath=/data/app/~~q3zA==/$package-r7Yw==');
+      if (requestedPermissions.isNotEmpty) {
+        buf.writeln('    requested permissions:');
+        for (final perm in requestedPermissions) {
+          buf.writeln('      $perm');
+        }
+      }
+      buf
+        ..writeln('    install permissions:')
+        ..writeln('      android.permission.VIBRATE: granted=true')
+        ..writeln('    User 0: ceDataInode=73543 installed=true');
+      return buf.toString();
+    }
+
+    AndroidDevice makeDevice({
+      required List<(String, List<String>)> calls,
+      required Future<ProcessResult> Function(List<String> args) onDumpsys,
+      required FakeProcess logcat,
+    }) {
+      return AndroidDevice(
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async {
+          calls.add((exe, args));
+          if (args.contains('dumpsys')) return onDumpsys(args);
+          return ProcessResult(0, 0, '', '');
+        },
+        startProcess: (exe, args) async {
+          calls.add((exe, args));
+          return logcat;
+        },
+      )..expectsVmService = true;
+    }
+
+    test('proceeds when the installed package requests INTERNET', () async {
+      final calls = <(String, List<String>)>[];
+      final fakeLogcat = FakeProcess();
+      final device = makeDevice(
+        calls: calls,
+        logcat: fakeLogcat,
+        onDumpsys: (args) async => ProcessResult(
+          0,
+          0,
+          dumpsysOutput(package: 'com.example.app', requestedPermissions: [
+            'android.permission.INTERNET',
+          ]),
+          '',
+        ),
+      );
+
+      Future.delayed(Duration(milliseconds: 20), () {
+        fakeLogcat.emitStdout(
+            'I/flutter: The Dart VM service is listening on http://127.0.0.1:12345/abc=/');
+      });
+
+      final instance = await device.launch('/path/to/app.apk');
+      expect(instance.vmServiceUri, isNotNull);
+
+      final dumpsysCall =
+          calls.firstWhere((c) => c.$2.contains('dumpsys'));
+      expect(dumpsysCall.$2, containsAllInOrder(
+          ['shell', 'dumpsys', 'package', 'com.example.app']));
+      // The activity was started (check passed, launch proceeded).
+      expect(calls.any((c) => c.$2.contains('am')), isTrue);
+    });
+
+    test('fails fast with diagnostic when INTERNET is missing', () async {
+      final calls = <(String, List<String>)>[];
+      final device = makeDevice(
+        calls: calls,
+        logcat: FakeProcess(),
+        onDumpsys: (args) async => ProcessResult(
+          0,
+          0,
+          dumpsysOutput(package: 'com.example.app', requestedPermissions: [
+            'android.permission.VIBRATE',
+          ]),
+          '',
+        ),
+      );
+
+      Object? caught;
+      try {
+        await device.launch('/path/to/app.apk');
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught, isA<StateError>());
+      final message = caught.toString();
+      expect(message, contains('com.example.app'));
+      expect(message, contains('/path/to/app.apk'));
+      expect(message, contains('android.permission.INTERNET'));
+      expect(message, contains('Dart VM service'));
+      expect(message, contains('android/app/src/debug/AndroidManifest.xml'));
+      expect(message, contains('android_example'));
+
+      // Failed before starting the activity or tailing logcat.
+      expect(calls.any((c) => c.$2.contains('am')), isFalse);
+      expect(calls.any((c) => c.$2.contains('logcat')), isFalse);
+    });
+
+    test('fails when the package requests no permissions at all', () async {
+      final device = makeDevice(
+        calls: [],
+        logcat: FakeProcess(),
+        onDumpsys: (args) async => ProcessResult(
+          0,
+          0,
+          dumpsysOutput(
+              package: 'com.example.app', requestedPermissions: const []),
+          '',
+        ),
+      );
+
+      expect(
+        () => device.launch('/path/to/app.apk'),
+        throwsA(isA<StateError>().having((e) => e.message, 'message',
+            contains('android.permission.INTERNET'))),
+      );
+    });
+
+    test('surfaces dumpsys query failure instead of skipping', () async {
+      final device = makeDevice(
+        calls: [],
+        logcat: FakeProcess(),
+        onDumpsys: (args) async =>
+            ProcessResult(0, 1, '', 'error: device offline'),
+      );
+
+      expect(
+        () => device.launch('/path/to/app.apk'),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('dumpsys'), contains('error: device offline')),
+        )),
+      );
+    });
+
+    test('surfaces missing package record as an error', () async {
+      final device = makeDevice(
+        calls: [],
+        logcat: FakeProcess(),
+        onDumpsys: (args) async =>
+            ProcessResult(0, 0, 'Unable to find package: com.example.app', ''),
+      );
+
+      expect(
+        () => device.launch('/path/to/app.apk'),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('dumpsys'), contains('com.example.app')),
+        )),
+      );
+    });
+
+    test('does not run when the launch expects no VM service', () async {
+      final calls = <(String, List<String>)>[];
+      final fakeLogcat = FakeProcess();
+      final device = AndroidDevice(
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async {
+          calls.add((exe, args));
+          return ProcessResult(0, 0, '', '');
+        },
+        startProcess: (exe, args) async => fakeLogcat,
+      );
+      expect(device.expectsVmService, isFalse);
+
+      Future.delayed(Duration(milliseconds: 10), () {
+        fakeLogcat.complete(0);
+      });
+
+      await device.launch('/path/to/app.apk');
+
+      expect(calls.any((c) => c.$2.contains('dumpsys')), isFalse);
+      expect(calls.any((c) => c.$2.contains('am')), isTrue);
+    });
+  });
+
   group('MacOSDevice.launch', () {
     test('extracts .app from .zip before launching', () async {
       final calls = <(String, List<String>)>[];

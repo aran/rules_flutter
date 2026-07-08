@@ -435,6 +435,11 @@ class AndroidDevice extends Device {
   final ProcessRunSync _runProcess;
   final ProcessStarter _startProcess;
 
+  /// Whether the upcoming launch expects the app to host a Dart VM service
+  /// (debug/JIT builds). Set by the run command before [launch]; enables the
+  /// INTERNET-permission preflight, which release/profile launches skip.
+  bool expectsVmService = false;
+
   AndroidDevice({
     this.deviceId,
     String? packageName,
@@ -496,6 +501,12 @@ class AndroidDevice extends Device {
       throw StateError('adb install failed: ${installResult.stderr}');
     }
 
+    // Step 1a: Debug launches await the VM service, which can never come up
+    // without android.permission.INTERNET — fail fast instead.
+    if (expectsVmService && _packageName != null) {
+      await _verifyInternetPermission(_packageName!, appPath);
+    }
+
     // Step 2: Start adb logcat to capture VM service URI.
     final logcat = await _startProcess(
       adbPath,
@@ -550,6 +561,70 @@ class AndroidDevice extends Device {
     }
 
     return AppInstance(process: logcat, vmServiceUri: vmServiceUri);
+  }
+
+  /// Fails the launch when the installed [packageName] does not request
+  /// `android.permission.INTERNET`.
+  ///
+  /// Android enforces the INTERNET permission at the kernel level (AID_INET
+  /// group membership): a process without it cannot create any socket —
+  /// including the 127.0.0.1 server socket the Dart VM service must bind —
+  /// so a debug launch would only ever time out waiting for the service.
+  /// Queries the installed package (not the APK on disk) so the check
+  /// reflects exactly what the device enforces.
+  Future<void> _verifyInternetPermission(
+      String packageName, String apkPath) async {
+    final result = await _runProcess(
+      adbPath,
+      _adbArgs(['shell', 'dumpsys', 'package', packageName]),
+    );
+    if (result.exitCode != 0) {
+      throw StateError(
+          'Could not verify INTERNET permission for $packageName: '
+          '`adb shell dumpsys package` failed (exit ${result.exitCode}): '
+          '${result.stderr}');
+    }
+    final output = result.stdout as String;
+    if (!output.contains('Package [$packageName]')) {
+      throw StateError(
+          'Could not verify INTERNET permission for $packageName: '
+          '`adb shell dumpsys package` returned no package record:\n'
+          '${output.trim()}');
+    }
+    if (!_requestsInternetPermission(output)) {
+      throw StateError(
+          '$packageName ($apkPath) does not request '
+          'android.permission.INTERNET, so the Dart VM service cannot bind '
+          'its socket and this debug launch would hang.\n'
+          'Cause: flutter create declares INTERNET only in variant manifests '
+          '(android/app/src/debug/AndroidManifest.xml), which '
+          'flutter_android_app does not merge into the APK.\n'
+          'Workaround: add <uses-permission '
+          'android:name="android.permission.INTERNET"/> to the manifest your '
+          'debug APK is built from (see e2e/android_example\'s '
+          'android/app/src/main/AndroidManifest.xml), or pass '
+          '--allow-no-vm-service to launch without debugging.');
+    }
+  }
+
+  /// True when the dumpsys package record lists
+  /// `android.permission.INTERNET` under `requested permissions:`.
+  /// A package that requests no permissions has no such section at all.
+  static bool _requestsInternetPermission(String dumpsysOutput) {
+    final lines = const LineSplitter().convert(dumpsysOutput);
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].trim() != 'requested permissions:') continue;
+      final headerIndent = lines[i].length - lines[i].trimLeft().length;
+      for (var j = i + 1; j < lines.length; j++) {
+        final line = lines[j];
+        if (line.trim().isEmpty) break;
+        final indent = line.length - line.trimLeft().length;
+        if (indent <= headerIndent) break;
+        final permission = line.trim().split(RegExp(r'[:\s]')).first;
+        if (permission == 'android.permission.INTERNET') return true;
+      }
+    }
+    return false;
   }
 
   @override

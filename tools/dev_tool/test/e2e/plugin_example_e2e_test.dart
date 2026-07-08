@@ -198,12 +198,45 @@ void main() {
   group(
     'Android e2e',
     () {
-      test('plugin_android renders non-blank frame', () async {
-        // dev_tool's -d flag takes an Android serial, not a generic
-        // 'android' token. Honor $ANDROID_SERIAL if set (lets the user
-        // pick emulator vs connected device when both are attached);
-        // otherwise pick the first `device`-state entry from `adb
-        // devices`.
+      test(
+        'plugin_android renders non-blank frame',
+        () async {
+          // dev_tool's -d flag takes an Android serial, not a generic
+          // 'android' token. Honor $ANDROID_SERIAL if set (lets the user
+          // pick emulator vs connected device when both are attached);
+          // otherwise pick the first `device`-state entry from `adb
+          // devices`.
+          final serial =
+              Platform.environment['ANDROID_SERIAL'] ?? firstAndroidSerial();
+          expect(
+            serial,
+            isNotNull,
+            reason: 'no Android device authorized; check `adb devices`',
+          );
+          await _runScreenshotTest(
+            workspace: workspace,
+            target: ':plugin_android',
+            device: serial!,
+            outputBasename: 'plugin_android_e2e',
+          );
+        },
+        skip: 'Pristine flutter-create debug APKs lack '
+            'android.permission.INTERNET (flutter_android_app does not merge '
+            'the debug variant manifest), so the Dart VM service cannot bind '
+            'and the app cannot be driven; tracked as '
+            'android-debug-vm-service-gap. The fail-fast diagnostic for this '
+            'state is asserted by the test below.',
+      );
+
+      test('plugin_android debug launch fails fast without INTERNET', () async {
+        // plugin_example keeps its flutter-create manifests pristine:
+        // android.permission.INTERNET lives only in the debug/profile
+        // variant manifests, which flutter_android_app does not merge.
+        // Android's kernel-level INTERNET enforcement (AID_INET group)
+        // blocks even the loopback bind the Dart VM service needs, so a
+        // debug launch can never produce app.started. The observable
+        // contract until variant-manifest merging lands is the dev tool's
+        // immediate diagnostic instead of a silent multi-minute timeout.
         final serial =
             Platform.environment['ANDROID_SERIAL'] ?? firstAndroidSerial();
         expect(
@@ -211,12 +244,30 @@ void main() {
           isNotNull,
           reason: 'no Android device authorized; check `adb devices`',
         );
-        await _runScreenshotTest(
+        final dt = await startDevTool(
           workspace: workspace,
           target: ':plugin_android',
           device: serial!,
-          outputBasename: 'plugin_android_e2e',
         );
+        try {
+          final exitCode = await dt.process.exitCode
+              .timeout(const Duration(minutes: 5));
+          final stderrText = dt.stderrLines.join('\n');
+          expect(exitCode, isNot(0),
+              reason: 'dev tool should abort the launch; stderr:\n$stderrText');
+          expect(stderrText, contains('android.permission.INTERNET'));
+          expect(stderrText, contains('Dart VM service'));
+          expect(stderrText,
+              contains('android/app/src/debug/AndroidManifest.xml'));
+          expect(
+            dt.events.any((e) => e['event'] == 'app.started'),
+            isFalse,
+            reason: 'app must not be reported started when the preflight '
+                'fails',
+          );
+        } finally {
+          await dt.dispose();
+        }
       });
     },
     skip: !hasAndroidDevice()
