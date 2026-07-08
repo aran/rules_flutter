@@ -484,7 +484,10 @@ def flutter_android_app(
 
     if not base_manifest:
         # Try to discover flutter create output.
-        discovered_manifests = native.glob(["android/app/src/main/AndroidManifest.xml"])
+        discovered_manifests = native.glob(
+            ["android/app/src/main/AndroidManifest.xml"],
+            allow_empty = True,
+        )
         if discovered_manifests:
             # Flutter create case — preprocess manifest for Gradle variables.
             # Same pattern as flutter_ios_app preprocessing Info.plist for Xcode
@@ -501,11 +504,17 @@ def flutter_android_app(
             base_manifest = "__%s_manifest" % name
 
             # Discover resources from flutter create output.
-            discovered_resources = native.glob(["android/app/src/main/res/**"])
+            discovered_resources = native.glob(
+                ["android/app/src/main/res/**"],
+                allow_empty = True,
+            )
             resources = list(resources) + discovered_resources
 
             # Discover and compile Kotlin sources from flutter create output.
-            discovered_kotlin = native.glob(["android/app/src/main/kotlin/**/*.kt"])
+            discovered_kotlin = native.glob(
+                ["android/app/src/main/kotlin/**/*.kt"],
+                allow_empty = True,
+            )
             if discovered_kotlin:
                 _kt_android_library(
                     name = "__%s_runner" % name,
@@ -523,7 +532,10 @@ def flutter_android_app(
     if debug_manifest == False:
         debug_overlay = None
     elif debug_manifest == None:
-        discovered_debug = native.glob(["android/app/src/debug/AndroidManifest.xml"])
+        discovered_debug = native.glob(
+            ["android/app/src/debug/AndroidManifest.xml"],
+            allow_empty = True,
+        )
         debug_overlay = discovered_debug[0] if discovered_debug else None
     else:
         debug_overlay = debug_manifest
