@@ -97,14 +97,14 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 
 ### Plugin verification matrix
 
-`e2e/plugin_example` exercises three real pub.dev plugins — `path_provider` (federated, SwiftPM Apple, Kotlin Android, pure-Dart Linux/Windows), `url_launcher` (federated, SwiftPM Apple, Kotlin Android, real C++ Linux/Windows, web Dart), `package_info_plus` (monolithic, every platform including web) — plus the hand-written `:greeting_plugin` (regression case for pure-Bazel-deps plugins). `lib/main.dart` resolves four strings from those plugins and renders + emits them on a single `plugin_example_results …` log line. Each platform's e2e check asserts the line is correct; empty/null/error content fails loudly.
+`e2e/plugin_example` exercises three real pub.dev plugins — `path_provider` (federated, SwiftPM Apple, **jnigen Android** — path_provider_android ≥ 2.3 calls Java through `package:jni`, whose C support library `libdartjni.so` is built from source by the bundled `ext/jni` overlay and packaged at `lib/<abi>/` — pure-Dart Linux/Windows), `url_launcher` (federated, SwiftPM Apple, Kotlin Android, real C++ Linux/Windows, web Dart), `package_info_plus` (monolithic, every platform including web) — plus the hand-written `:greeting_plugin` (regression case for pure-Bazel-deps plugins). `lib/main.dart` resolves four strings from those plugins and renders + emits them on a single `plugin_example_results …` log line. Each platform's e2e check asserts the line is correct; empty/null/error content fails loudly.
 
 | Assertion | Source | Expected |
 |---|---|---|
 | `appName=…` | `PackageInfo.fromPlatform()` | `Plugin Example` on macOS/iOS (from `CFBundleName` in the generated Info.plist), `plugin_example` on web (from the auto-generated `version.json`'s `app_name`). Failure means the `package_info_plus` registrant didn't fire on that platform. |
 | `documentsPath=…` | `getApplicationDocumentsDirectory().path` (`kIsWeb`-guarded) | `/Users/…` on macOS, `/var/…` on iOS, `/home/…` on Linux, `C:\Users\…` on Windows, `/data/user/0/…` on Android, `web: not supported` on web. |
 | `tempPath=…` | `getTemporaryDirectory().path` (`kIsWeb`-guarded) | Absolute path with the platform-appropriate prefix; web shows `web: not supported`. |
-| `launchOk=launch ok` | `canLaunchUrl(Uri.parse('https://flutter.dev'))` | Exact `launch ok`. Failure means the `url_launcher` registrant didn't fire. |
+| `launchOk=launch ok` | `canLaunchUrl(Uri.parse('https://flutter.dev'))` | Exact `launch ok` on macOS/iOS/Linux/Windows/web. On Android the correct value is `launch denied`: `canLaunchUrl` is subject to package visibility and the app declares no `<queries>` for https VIEW intents (flutter create output ships untouched). Either way the channel responded — an `error:` value means the `url_launcher` registrant didn't fire. |
 | `greeting=Hello from GreetingPlugin!` | `//greeting_plugin:greeting_plugin` (regression case) | Exact match. |
 
 | Platform | Where the assertion runs |
@@ -112,11 +112,35 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 | Web | `npx playwright test` in `e2e/plugin_example/playwright/web.spec.js` (asserts the four strings via captured console messages). |
 | macOS | `:verify_macos_app_test` (manual stdout check) plus the `macOS e2e` group of `tools/dev_tool/test/e2e/plugin_example_e2e_test.dart` (runs `:plugin_macos`, captures a screenshot via the dev_tool's HTTP control channel, asserts the PNG is well-formed and non-blank). Run with `cd tools/dev_tool && dart test test/e2e/plugin_example_e2e_test.dart --tags=e2e --plain-name="macOS"`. |
 | iOS Simulator | `iOS Simulator e2e` group of the same file. Boot any iOS simulator first (`xcrun simctl boot <udid>`), then run `dart test … --plain-name="iOS Simulator"`. |
-| Android | `:android_bundle_build_test` (build) plus the `Android e2e` group. Pre-step: bring up a device — either USB-authorize a phone (`adb devices` shows `device`) or boot an emulator (`emulator -avd flutter_test &`). The test resolves the first authorized serial via `firstAndroidSerial()` and runs `:plugin_android` against it; both emulator and connected-device paths must pass. The dev_tool screenshot uses `_flutter.screenshot` for debug builds, falling back to `adb screencap`. |
+| Android | `:android_bundle_build_test` (build), `:verify_android_apk_test` (APK content: `libdartjni.so` present + ELF/ABI-valid, jni support classes in dex — runs in `bazel test //...`), `:verify_android_app_test` (manual: install on emulator/device, RESUMED + crash-buffer fail-fast, asserts the `plugin_example_results` logcat line reports a real `/data/user/0/…` path from path_provider — proves jnigen plugin registration end to end), plus the `Android e2e` group. Pre-step: bring up a device — either USB-authorize a phone (`adb devices` shows `device`) or boot an emulator (`emulator -avd flutter_test &`). The test resolves the first authorized serial via `firstAndroidSerial()` and runs `:plugin_android` against it; both emulator and connected-device paths must pass. The dev_tool screenshot uses `_flutter.screenshot` for debug builds, falling back to `adb screencap`. |
 | Linux | `:linux_bundle_build_test` (build only). Visual verification on the GCP VM is manual (see § Linux visual verification). |
 | Windows | `:windows_bundle_build_test` (build only). Visual verification on the GCP VM is manual (see § Windows visual verification). |
 
 The dev_tool screenshot is the dispositive end-to-end gate per platform: if Native Assets are broken the app crashes before drawing, and if plugin auto-wiring is broken `MissingPluginException` blanks the screen — both fail the non-blank PNG check (default threshold 4 KB, well above any blank/solid-color PNG).
+
+### Android plugin native source builds (externalNativeBuild)
+
+Some pub packages compile C/C++ for Android via Gradle's
+`externalNativeBuild` (CMake/ndk-build) — e.g. `package:jni`, whose
+`libdartjni.so` every jnigen-based plugin loads with
+`System.loadLibrary("dartjni")`. rules_flutter has no generic translation
+for arbitrary Gradle native builds; instead:
+
+1. A curated overlay reproduces the build with `cc_library` +
+   `cc_shared_library` (compiled by the registered NDK toolchain via the
+   Android bundle's platform transition) and ships the `.so` through
+   `flutter_plugin.native_deps` behind a
+   `select({"@platforms//os:android": …})`. The library flows through the
+   existing transitive native-libs pathway into the bundle's
+   `native_libs.jar` at `lib/<abi>/`, subject to the same ELF/ABI machine
+   validation as every other packaged library. `ext/jni/1/` is the
+   canonical example (note `shared_lib_name` must yield the exact filename
+   `System.loadLibrary` resolves).
+2. Packages declaring `externalNativeBuild` that no overlay handles fail
+   the Android build at load time with a message pointing at
+   `flutter.plugin_overlays` — never a silently incomplete APK.
+   Non-Android platforms are unaffected (the check lives in the spoke's
+   `android/` sub-package, loaded only via the hub's Android aggregator).
 
 ### Native Assets overlay authoring
 

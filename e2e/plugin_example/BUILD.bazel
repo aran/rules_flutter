@@ -275,6 +275,34 @@ build_test(
     targets = [":plugin_android"],
 )
 
+# APK content verifier: asserts every plugin's native pieces are packaged —
+# including package:jni's libdartjni.so (jnigen plugins load it via
+# System.loadLibrary), its shared Java support classes, and that every
+# packaged .so is ELF for the declared ABI.
+dart_test(
+    name = "verify_android_apk_test",
+    data = [":plugin_android"],
+    main = "test/verify_android_apk_test.dart",
+    tags = ["android"],
+)
+
+# Runtime verifier for the Android APK. Installs on a connected emulator or
+# device, waits for RESUMED, and asserts the plugin_example_results logcat
+# line reports a real /data/user/0/... path from path_provider — proving
+# jnigen plugin registration (libdartjni.so) end to end. Tagged "manual" +
+# "exclusive" because it needs a live device; run explicitly per
+# docs/TESTING.md § Plugin verification matrix.
+dart_test(
+    name = "verify_android_app_test",
+    data = [":plugin_android"],
+    main = "test/verify_android_app_test.dart",
+    tags = [
+        "android",
+        "exclusive",
+        "manual",
+    ],
+)
+
 build_test(
     name = "web_build_test",
     targets = [":plugin_web"],

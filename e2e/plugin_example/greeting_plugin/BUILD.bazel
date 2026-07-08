@@ -8,11 +8,12 @@ flutter_plugin(
     srcs = ["lib/greeting_plugin.dart"],
     dart_plugin_class = "GreetingPlugin",
     platforms = [
-        "macos",
+        "android",
+        "ios",
         "linux",
+        "macos",
         "web",
         "windows",
-        "ios",
     ],
     visibility = ["//visibility:public"],
 )
