@@ -31,9 +31,9 @@ const _requiredDexClasses = <String, String>{
       'Lcom/github/dart_lang/jni_flutter/JniFlutterPlugin;',
 };
 
-/// Native libraries every plugin_example APK must carry for arm64-v8a.
+/// Native libraries every plugin_example APK must carry for arm64-v8a,
+/// regardless of compilation mode.
 const _requiredNativeLibs = <String, String>{
-  'AOT-compiled Dart code': 'lib/arm64-v8a/libapp.so',
   'Flutter engine': 'lib/arm64-v8a/libflutter.so',
   'package:jni C support library (System.loadLibrary("dartjni"))':
       'lib/arm64-v8a/libdartjni.so',
@@ -63,6 +63,44 @@ void main() {
     }
 
     var failed = false;
+
+    // --- Compilation mode detection ---
+    // Debug APKs run Dart from kernel_blob.bin inside flutter_assets (JIT);
+    // release APKs AOT-compile it into lib/<abi>/libapp.so. Exactly one of
+    // the two ships.
+    final hasKernelBlob =
+        File('${tmpDir.path}/assets/flutter_assets/kernel_blob.bin')
+            .existsSync();
+    final hasLibApp =
+        File('${tmpDir.path}/lib/arm64-v8a/libapp.so').existsSync();
+    if (hasKernelBlob == hasLibApp) {
+      stderr.writeln('FAIL: expected exactly one of kernel_blob.bin (debug) '
+          'and libapp.so (release); found '
+          '${hasKernelBlob ? "both" : "neither"}');
+      failed = true;
+    }
+    final isDebug = hasKernelBlob;
+    print('OK: APK is a ${isDebug ? "debug (JIT)" : "release (AOT)"} build');
+
+    // --- INTERNET permission: present iff debug ---
+    // flutter create declares android.permission.INTERNET only in
+    // android/app/src/debug/AndroidManifest.xml; flutter_android_app merges
+    // that variant manifest into -c dbg APKs (the Dart VM service cannot
+    // bind without it) and must leave release APKs without it.
+    final binaryManifest = File('${tmpDir.path}/AndroidManifest.xml');
+    final hasInternet =
+        _fileContainsString(binaryManifest, 'android.permission.INTERNET');
+    if (hasInternet == isDebug) {
+      print('OK: INTERNET permission '
+          '${isDebug ? "present in debug" : "absent from release"} APK');
+    } else {
+      stderr.writeln(isDebug
+          ? 'FAIL: debug APK does not declare android.permission.INTERNET — '
+              'the debug variant manifest did not merge'
+          : 'FAIL: release APK declares android.permission.INTERNET — the '
+              'debug variant manifest leaked into a release build');
+      failed = true;
+    }
 
     // --- Native library presence ---
     _requiredNativeLibs.forEach((description, path) {
