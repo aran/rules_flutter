@@ -48,6 +48,7 @@ flutter_application(
         "@deps//:flutter",
         "@deps//:package_info_plus",
         "@deps//:path_provider",
+        "@deps//:record_android",
         "@deps//:url_launcher",
         "@rules_flutter//flutter:material_icons",
     ],

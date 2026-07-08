@@ -7,6 +7,7 @@ End-to-end demonstrator for `rules_flutter`'s pub.dev plugin pipeline. Imports t
 - **`path_provider`** — federated umbrella (`default_package` style). `path_provider_foundation` exercises Swift Package Manager (`darwin/path_provider_foundation/Sources/path_provider_foundation/`). `path_provider_linux` and `path_provider_windows` are pure Dart (no native dir). `path_provider_android` is Kotlin.
 - **`url_launcher`** — federated. SwiftPM Apple. Real C++ on Linux (`xdg-open` via GTK) and Windows (`ShellExecuteW`). Kotlin Android. Web Dart impl.
 - **`package_info_plus`** — monolithic; one package owns every platform's native code (ObjC on Apple, Kotlin Android, web Dart).
+- **`record_android`** — Android-only federated implementation, depended on directly (no umbrella). Regression case for a plugin that ships `android/src/main/res/` resources (`R.drawable.ic_mic`) and declares no Gradle dependencies at all — it compiles purely against the Flutter embedding's exported androidx classpath, and its library manifest's RECORD_AUDIO permission must merge into the APK (requires `--merge_android_manifest_permissions`, see `.bazelrc`).
 - **`//greeting_plugin`** — hand-written Bazel `flutter_plugin` target with `dart_plugin_class = "GreetingPlugin"`. Regression case for pure-Bazel-deps plugins.
 
 ## Building and verifying

@@ -130,6 +130,32 @@ void main() {
       }
     });
 
+    // --- Plugin resource + manifest merge checks (record_android) ---
+    // record_android ships android/src/main/res/drawable/ic_mic.xml and a
+    // library manifest declaring RECORD_AUDIO. Both must survive into the
+    // APK: the resource entry name lands in resources.arsc's key string
+    // pool, and the permission lands in the merged binary
+    // AndroidManifest.xml (strings there are UTF-16 in binary XML).
+    final arsc = File('${tmpDir.path}/resources.arsc');
+    if (_fileContainsString(arsc, 'ic_mic')) {
+      print('OK: resources.arsc defines ic_mic '
+          "(record_android's drawable merged)");
+    } else {
+      stderr.writeln("FAIL: ic_mic not found in resources.arsc — "
+          "record_android's res/ was dropped");
+      failed = true;
+    }
+    final mergedManifest = File('${tmpDir.path}/AndroidManifest.xml');
+    if (_fileContainsString(
+        mergedManifest, 'android.permission.RECORD_AUDIO')) {
+      print('OK: merged AndroidManifest.xml declares RECORD_AUDIO '
+          "(record_android's library manifest merged)");
+    } else {
+      stderr.writeln('FAIL: RECORD_AUDIO not found in the merged '
+          "AndroidManifest.xml — record_android's manifest did not merge");
+      failed = true;
+    }
+
     if (failed) {
       stderr.writeln('\nAPK contents:');
       _listRecursive(tmpDir.path, '');
@@ -234,4 +260,32 @@ void _listRecursive(String path, String indent) {
       _listRecursive(entity.path, '$indent  ');
     }
   }
+}
+
+/// Whether [file] contains [needle] encoded as either UTF-8 or UTF-16LE.
+/// Binary Android artifacts mix both: aapt2 emits UTF-8 string pools in
+/// resources.arsc but UTF-16 in binary XML.
+bool _fileContainsString(File file, String needle) {
+  if (!file.existsSync()) return false;
+  final bytes = file.readAsBytesSync();
+  final utf8Needle = needle.codeUnits;
+  final utf16Needle = <int>[];
+  for (final unit in needle.codeUnits) {
+    utf16Needle
+      ..add(unit & 0xff)
+      ..add(unit >> 8);
+  }
+  return _containsSublist(bytes, utf8Needle) ||
+      _containsSublist(bytes, utf16Needle);
+}
+
+bool _containsSublist(List<int> haystack, List<int> needle) {
+  outer:
+  for (var i = 0; i + needle.length <= haystack.length; i++) {
+    for (var j = 0; j < needle.length; j++) {
+      if (haystack[i + j] != needle[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
 }

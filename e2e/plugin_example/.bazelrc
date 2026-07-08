@@ -3,4 +3,10 @@ common --java_runtime_version=remotejdk_25
 common --tool_java_language_version=25
 common --tool_java_runtime_version=remotejdk_25
 
+# Merge <uses-permission> entries from plugin library manifests into the
+# APK manifest, matching AGP's manifest merger. Bazel strips them by
+# default; without this, record_android's RECORD_AUDIO never reaches the
+# APK and the permission cannot be granted.
+common --merge_android_manifest_permissions
+
 try-import %workspace%/.bazelrc.user

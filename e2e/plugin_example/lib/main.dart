@@ -1,7 +1,9 @@
 import 'dart:developer' as developer;
 
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/material.dart';
 import 'package:greeting_plugin/greeting_plugin.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -74,12 +76,30 @@ class _HomeState extends State<_Home> {
             return 'audio ok';
           });
 
+    // record_android is an Android-only federated implementation used
+    // without its umbrella package: the regression case for a pub plugin
+    // that ships android/src/main/res/ resources (R.drawable.ic_mic) and
+    // declares no Gradle dependencies at all. Talking to its MethodChannel
+    // directly proves the plugin compiled, registered, and responds.
+    final recordHasPermission =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+            ? await _safe(() async {
+                const channel = MethodChannel('com.llfbandit.record/messages');
+                await channel
+                    .invokeMethod<void>('create', {'recorderId': 'e2e'});
+                final has = await channel.invokeMethod<bool>(
+                    'hasPermission', {'recorderId': 'e2e', 'request': false});
+                return 'has=$has';
+              })
+            : 'not supported';
+
     final results = _PluginResults(
       appName: appName,
       documentsPath: documentsPath,
       tempPath: tempPath,
       launchOk: launchOk,
       audioSession: audioSession,
+      recordHasPermission: recordHasPermission,
     );
 
     // Emit a single line so e2e tests (Playwright + the macOS verifier) can
@@ -89,7 +109,8 @@ class _HomeState extends State<_Home> {
         'plugin_example_results greeting=${GreetingPlugin.greeting} | '
         'appName=$appName | documentsPath=$documentsPath | '
         'tempPath=$tempPath | launchOk=$launchOk | '
-        'audioSession=$audioSession';
+        'audioSession=$audioSession | '
+        'recordHasPermission=$recordHasPermission';
     developer.log(summary, name: 'plugin_example');
     debugPrint(summary);
 
@@ -134,6 +155,10 @@ class _HomeState extends State<_Home> {
                 _Row(label: 'tempPath', value: r.tempPath),
                 _Row(label: 'launchOk', value: r.launchOk),
                 _Row(label: 'audioSession', value: r.audioSession),
+                _Row(
+                  label: 'recordHasPermission',
+                  value: r.recordHasPermission,
+                ),
                 // Plain keyed Text for the agent getText e2e (SelectableText
                 // rich spans aren't readable through ext.rules_flutter.getText).
                 Text(
@@ -157,6 +182,7 @@ class _PluginResults {
     required this.tempPath,
     required this.launchOk,
     required this.audioSession,
+    required this.recordHasPermission,
   });
 
   final String appName;
@@ -164,6 +190,7 @@ class _PluginResults {
   final String tempPath;
   final String launchOk;
   final String audioSession;
+  final String recordHasPermission;
 }
 
 class _Row extends StatelessWidget {

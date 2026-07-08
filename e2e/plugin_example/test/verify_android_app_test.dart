@@ -57,6 +57,26 @@ Future<void> main() async {
   }
   print('APK installed successfully');
 
+  // record_android's library manifest declares RECORD_AUDIO; `pm grant`
+  // rejects permissions an app does not declare, so a successful grant
+  // proves the plugin's manifest merged into the APK. Granting up front
+  // also makes the app's hasPermission probe deterministic (has=true).
+  print('Granting RECORD_AUDIO (proves record_android manifest merge)...');
+  final grant = Process.runSync('adb', [
+    'shell',
+    'pm',
+    'grant',
+    _packageName,
+    'android.permission.RECORD_AUDIO',
+  ]);
+  final grantOutput = '${grant.stdout}${grant.stderr}'.trim();
+  if (grant.exitCode != 0 || grantOutput.isNotEmpty) {
+    stderr.writeln('FAIL: pm grant RECORD_AUDIO failed — record_android\'s '
+        'manifest did not merge into the APK: $grantOutput');
+    exit(1);
+  }
+  print('RECORD_AUDIO granted');
+
   // Clear log buffers so crash and results checks only see this run.
   Process.runSync('adb', ['logcat', '-b', 'crash', '-c']);
   Process.runSync('adb', ['logcat', '-c']);
@@ -193,6 +213,10 @@ Future<void> main() async {
       resultsLine.contains('launchOk=launch denied'));
   expectResult('audio_session resolved',
       resultsLine.contains('audioSession=audio ok'));
+  // record_android registered, its resources compiled, and its
+  // MethodChannel responded with the permission granted above.
+  expectResult('record_android channel responded with granted permission',
+      resultsLine.contains('recordHasPermission=has=true'));
   expectResult('no plugin returned an error', !resultsLine.contains('error:'));
 
   if (!resultsOk) {

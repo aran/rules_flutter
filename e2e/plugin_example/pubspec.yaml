@@ -9,3 +9,7 @@ dependencies:
   url_launcher: ^6.3.0
   package_info_plus: ^8.0.0
   audio_session: ^0.1.0
+  # Android-only federated implementation, depended on directly (no
+  # umbrella): regression case for a plugin that ships android/ resources
+  # (R.drawable.ic_mic) and declares no Gradle dependencies at all.
+  record_android: 1.5.1
