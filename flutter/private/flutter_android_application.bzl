@@ -98,7 +98,7 @@ def _symlink_assets_dir(ctx, flutter_assets):
     ctx.actions.symlink(output = out, target_file = flutter_assets)
     return out
 
-def _create_native_libs_jar(ctx, native_libs, abi):
+def _create_native_libs_jar(ctx, aot_output, native_libs, abi):
     """Package native libs into a jar at lib/<abi>/*.so.
 
     This matches flutter.jar's convention (which puts libflutter.so at
@@ -107,11 +107,16 @@ def _create_native_libs_jar(ctx, native_libs, abi):
 
     Every library is validated to be an ELF shared object with the ABI's
     machine type before it is zipped — a wrong-format library fails the
-    build instead of producing an APK that crashes on device.
+    build instead of producing an APK that crashes on device. Two libraries
+    claiming the same packaged filename are a hard error too: the zip would
+    otherwise silently drop one of them.
 
     Args:
         ctx: Rule context.
-        native_libs: List of .so files to package.
+        aot_output: The AOT compile output, packaged as libapp.so (Android
+            convention: the engine loads the Dart snapshot via
+            System.loadLibrary("app")). None in debug/JIT mode.
+        native_libs: Plugin/FFI .so files to package under their own names.
         abi: Android ABI string (e.g. "arm64-v8a").
 
     Returns:
@@ -120,12 +125,27 @@ def _create_native_libs_jar(ctx, native_libs, abi):
     jar = ctx.actions.declare_file(ctx.label.name + "_native_libs.jar")
     expected_machine = android_elf_machine_for_abi(abi)
 
+    entries = ([("libapp.so", aot_output)] if aot_output else []) + [
+        (lib.basename, lib)
+        for lib in native_libs
+    ]
+
     commands = [_ELF_VALIDATION_DEF]
     zip_entries = []
-    for i, lib in enumerate(native_libs):
-        # The first lib is the AOT output — name it libapp.so (Android convention:
-        # System.loadLibrary("app") maps to libapp.so).
-        basename = "libapp.so" if i == 0 else lib.basename
+    seen_basenames = {}
+    for basename, lib in entries:
+        if basename in seen_basenames:
+            fail(
+                "flutter_android_bundle: two native libraries would both be " +
+                "packaged as lib/{abi}/{basename}: {first} and {second}. ".format(
+                    abi = abi,
+                    basename = basename,
+                    first = seen_basenames[basename].path,
+                    second = lib.path,
+                ) +
+                "Rename one of them — Android can only load one.",
+            )
+        seen_basenames[basename] = lib
         commands.append('validate_android_elf "{lib}" {machine} "{abi}"'.format(
             lib = lib.path,
             machine = expected_machine,
@@ -146,7 +166,7 @@ def _create_native_libs_jar(ctx, native_libs, abi):
     ctx.actions.run_shell(
         command = "\n".join(commands),
         arguments = zip_entries,
-        inputs = native_libs,
+        inputs = [lib for _, lib in entries],
         tools = [ctx.executable._zipper],
         outputs = [jar],
         mnemonic = "FlutterNativeLibsJar",
@@ -211,10 +231,11 @@ def _flutter_android_bundle_impl(ctx):
     abi = ctx.attr.android_abi
 
     # Create a jar containing native libs at lib/<abi>/*.so.
-    # In debug mode (JIT), there are no native libs — create an empty jar
-    # so the java_import pipeline in the macro doesn't break.
+    # In debug mode (JIT) with no plugin/FFI libs there is nothing to
+    # package — create an empty jar so the java_import pipeline in the
+    # macro doesn't break.
     if all_native_libs:
-        native_libs_jar = _create_native_libs_jar(ctx, all_native_libs, abi)
+        native_libs_jar = _create_native_libs_jar(ctx, aot_output, native_libs, abi)
     else:
         native_libs_jar = ctx.actions.declare_file(ctx.label.name + "_native_libs.jar")
 
