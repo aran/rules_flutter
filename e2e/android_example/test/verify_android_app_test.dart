@@ -12,7 +12,6 @@
 import 'dart:io';
 
 const _packageName = 'com.example.flutterapp';
-const _activityName = 'io.flutter.embedding.android.FlutterActivity';
 const _timeout = Duration(seconds: 30);
 
 Future<void> main() async {
@@ -59,17 +58,42 @@ Future<void> main() async {
   }
   print('APK installed successfully');
 
-  // Launch the activity.
-  print('Starting activity $_packageName/$_activityName ...');
+  // Resolve the installed package's launcher activity, then launch it.
+  final resolve = Process.runSync('adb', [
+    'shell',
+    'cmd',
+    'package',
+    'resolve-activity',
+    '--brief',
+    '-a',
+    'android.intent.action.MAIN',
+    '-c',
+    'android.intent.category.LAUNCHER',
+    _packageName,
+  ]);
+  final component = resolve.stdout
+      .toString()
+      .trim()
+      .split('\n')
+      .where((l) => l.startsWith('$_packageName/'))
+      .toList();
+  if (resolve.exitCode != 0 || component.isEmpty) {
+    stderr.writeln('Failed to resolve launcher activity for $_packageName: '
+        '${resolve.stdout}${resolve.stderr}');
+    exit(1);
+  }
+
+  print('Starting activity ${component.single} ...');
   final start = Process.runSync('adb', [
     'shell',
     'am',
     'start',
     '-n',
-    '$_packageName/$_activityName',
+    component.single,
   ]);
-  if (start.exitCode != 0) {
-    stderr.writeln('Failed to start activity: ${start.stderr}');
+  final startOutput = '${start.stdout}${start.stderr}';
+  if (start.exitCode != 0 || startOutput.contains('Error')) {
+    stderr.writeln('Failed to start activity: $startOutput');
     exit(1);
   }
 
@@ -81,8 +105,10 @@ Future<void> main() async {
     final dumpsys = Process.runSync(
         'adb', ['shell', 'dumpsys', 'activity', 'activities']);
     final output = dumpsys.stdout.toString();
-    if (output.contains('mResumedActivity') &&
-        output.contains(_packageName)) {
+    // Matches both `mResumedActivity`/`ResumedActivity:` (older releases)
+    // and `topResumedActivity=` (API 29+).
+    if (output.split('\n').any((l) =>
+        l.contains('ResumedActivity') && l.contains(_packageName))) {
       resumed = true;
       break;
     }
