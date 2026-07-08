@@ -177,6 +177,13 @@ def flutter_android_manifest_gen(
 
     The template uses FlutterActivity as the main activity with embedding v2.
 
+    Debug builds (`-c dbg`) declare `android.permission.INTERNET`, matching
+    the permission Gradle merges from flutter create's debug variant
+    manifest: Android enforces INTERNET at the kernel level (AID_INET group
+    membership), so without it the Dart VM service cannot bind even its
+    loopback socket and debugging/hot reload are impossible. Release builds
+    declare no permissions.
+
     Args:
         name: Target name. Pass to android_binary manifest.
         package_name: Android package name (e.g. "com.example.myapp").
@@ -188,16 +195,39 @@ def flutter_android_manifest_gen(
     tags = kwargs.pop("tags", ["manual"])
     display_name = app_name or package_name
 
+    substitutions = {
+        "PACKAGE_NAME": package_name,
+        "APP_NAME": display_name,
+        "MIN_SDK_VERSION": min_sdk_version,
+        "TARGET_SDK_VERSION": target_sdk_version,
+    }
+
     expand_template(
-        name = name,
+        name = "__%s_dbg" % name,
         template = "@rules_flutter//flutter/private/runners/android:AndroidManifest.xml",
-        out = name + "/AndroidManifest.xml",
-        substitutions = {
-            "PACKAGE_NAME": package_name,
-            "APP_NAME": display_name,
-            "MIN_SDK_VERSION": min_sdk_version,
-            "TARGET_SDK_VERSION": target_sdk_version,
+        out = "__%s_dbg/AndroidManifest.xml" % name,
+        substitutions = substitutions | {
+            "INTERNET_PERMISSION": "<uses-permission android:name=\"android.permission.INTERNET\"/>",
         },
+        tags = tags,
+    )
+
+    expand_template(
+        name = "__%s_opt" % name,
+        template = "@rules_flutter//flutter/private/runners/android:AndroidManifest.xml",
+        out = "__%s_opt/AndroidManifest.xml" % name,
+        substitutions = substitutions | {
+            "INTERNET_PERMISSION": "",
+        },
+        tags = tags,
+    )
+
+    native.alias(
+        name = name,
+        actual = select({
+            "@rules_flutter//flutter/private:dbg": "__%s_dbg" % name,
+            "//conditions:default": "__%s_opt" % name,
+        }),
         tags = tags,
         **kwargs
     )
@@ -252,6 +282,12 @@ def flutter_android_runner_lib_gen(
                 "APP_NAME": package_name,
                 "MIN_SDK_VERSION": ANDROID_MIN_SDK_VERSION,
                 "TARGET_SDK_VERSION": ANDROID_TARGET_SDK_VERSION,
+                # Never a permission here: this is a LIBRARY manifest, and
+                # rules_android's merger strips library permissions unless
+                # --merge_android_manifest_permissions is set — the permission
+                # would silently come and go with a flag. The binary manifest
+                # (flutter_android_manifest_gen) owns INTERNET.
+                "INTERNET_PERMISSION": "",
             },
             tags = tags,
         )
