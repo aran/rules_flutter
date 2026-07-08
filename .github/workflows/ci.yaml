@@ -35,7 +35,6 @@ jobs:
 
       - name: bazel test //...
         run: bazel test //...
-          exit $rc
 
   dart-tool-tests:
     name: Dart tool tests
