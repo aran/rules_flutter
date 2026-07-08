@@ -46,13 +46,38 @@ void main() {
     stderr.writeln('Missing TEST_SRCDIR or TEST_WORKSPACE env vars');
     exit(1);
   }
+  final base = '$testSrcDir/$testWorkspace';
 
-  final apkPath = '$testSrcDir/$testWorkspace/plugin_android.apk';
-  if (!File(apkPath).existsSync()) {
-    stderr.writeln('APK not found at $apkPath');
-    exit(1);
+  // Verify both the ambient-configuration APK (release under a default
+  // `bazel test`) and a copy force-built under `-c dbg` by the debug_apk
+  // transition. Checking both in one default `bazel test //...` run exercises
+  // the debug variant-manifest merge in both directions — INTERNET must be
+  // absent from the release APK and present in the debug APK — without
+  // building this test itself under `-c dbg`.
+  final cases = [
+    ('ambient', '$base/plugin_android.apk', null),
+    ('-c dbg', '$base/plugin_android_dbg.apk', true),
+  ];
+
+  var failed = false;
+  for (final (label, apkPath, mustBeDebug) in cases) {
+    print('\n=== Verifying $label APK (${apkPath.split('/').last}) ===');
+    if (!File(apkPath).existsSync()) {
+      stderr.writeln('APK not found at $apkPath');
+      exit(1);
+    }
+    if (_verifyApk(apkPath, mustBeDebug)) failed = true;
   }
 
+  if (failed) exit(1);
+  print('\nAll plugin_example APK verification checks passed.');
+}
+
+/// Verifies a single APK. [mustBeDebug] asserts the detected compilation mode
+/// when non-null (the `-c dbg` transition must yield a debug build); null
+/// accepts whatever the ambient configuration produced. Returns true on any
+/// failure.
+bool _verifyApk(String apkPath, bool? mustBeDebug) {
   final tmpDir = Directory.systemTemp.createTempSync('plugin_apk_test');
   try {
     final result =
@@ -81,6 +106,13 @@ void main() {
     }
     final isDebug = hasKernelBlob;
     print('OK: APK is a ${isDebug ? "debug (JIT)" : "release (AOT)"} build');
+
+    if (mustBeDebug != null && isDebug != mustBeDebug) {
+      stderr.writeln('FAIL: expected a ${mustBeDebug ? "debug" : "release"} '
+          'APK but detected a ${isDebug ? "debug" : "release"} build — the '
+          'compilation-mode transition did not apply');
+      failed = true;
+    }
 
     // --- INTERNET permission: present iff debug ---
     // flutter create declares android.permission.INTERNET only in
@@ -197,10 +229,8 @@ void main() {
     if (failed) {
       stderr.writeln('\nAPK contents:');
       _listRecursive(tmpDir.path, '');
-      exit(1);
     }
-
-    print('\nAll plugin_example APK verification checks passed.');
+    return failed;
   } finally {
     tmpDir.deleteSync(recursive: true);
   }

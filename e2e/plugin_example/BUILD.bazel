@@ -32,6 +32,7 @@ load(
 )
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
+load(":debug_apk.bzl", "debug_apk")
 
 exports_files(["pubspec.lock"])
 
@@ -276,13 +277,26 @@ build_test(
     targets = [":plugin_android"],
 )
 
+# The plugin_android APK rebuilt under -c dbg, so the default-configuration
+# APK verifier can assert debug-only content (the merged debug variant
+# manifest's INTERNET permission) without building the test under -c dbg.
+debug_apk(
+    name = "plugin_android_dbg",
+    apk = ":plugin_android",
+    tags = ["android"],
+)
+
 # APK content verifier: asserts every plugin's native pieces are packaged —
 # including package:jni's libdartjni.so (jnigen plugins load it via
 # System.loadLibrary), its shared Java support classes, and that every
-# packaged .so is ELF for the declared ABI.
+# packaged .so is ELF for the declared ABI. Verifies both the ambient APK
+# (release) and the -c dbg APK, asserting INTERNET is present iff debug.
 dart_test(
     name = "verify_android_apk_test",
-    data = [":plugin_android"],
+    data = [
+        ":plugin_android",
+        ":plugin_android_dbg",
+    ],
     main = "test/verify_android_apk_test.dart",
     tags = ["android"],
 )
