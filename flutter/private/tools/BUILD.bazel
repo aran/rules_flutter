@@ -4,6 +4,7 @@ exports_files(
     [
         "generate_asset_manifest.dart",
         "bundle_app.dart",
+        "merge_android_manifests.dart",
     ],
     visibility = ["//flutter:__subpackages__"],
 )
