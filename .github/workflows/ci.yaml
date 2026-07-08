@@ -26,29 +26,23 @@ jobs:
       - name: Clone rules_dart
         run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
 
-      # The root `bazel test //...` cold-fetches every registered engine
-      # (android/ios/macos/web/desktop) plus the full androidx maven closure
-      # into Bazel's output tree. That overflows the ubuntu-latest runner's
-      # ~14 GB root filesystem during the loading phase; the runner dies with
-      # no Bazel error (the step ends mid-load with no exit code). Keeping the
-      # output tree and repository cache on the ~70 GB /mnt disk gives the cold
-      # fetch room. The e2e workspaces resolve smaller per-workspace modules and
-      # don't hit this.
-      - name: Prepare Bazel output dir on /mnt (large disk)
-        run: |
-          sudo mkdir -p /mnt/bazel
-          sudo chown "$USER" /mnt/bazel
-          df -h / /mnt
-
       - name: Mount Bazel cache
         uses: actions/cache@v5
         with:
-          path: /mnt/bazel
+          path: ~/.cache/bazel
           key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: bazel-unit-${{ runner.os }}-
 
+      # tools/windows_screenshot is Windows-only (target_compatible_with
+      # windows) and its BUILD loads @windows_pip — a pip hub of Windows-only
+      # wheels (dxcam et al.). Merely loading that package evaluates the pip
+      # extension, which crashes the Bazel server on this Linux runner: the
+      # step dies mid-load with no exit code (not OOM or disk — verified: swap
+      # and a 145 GB /mnt both made no difference). Delete the package so it is
+      # never loaded here. It is the only referrer of @windows_pip and is
+      # skipped on Linux regardless, so root coverage is unchanged.
       - name: bazel test //...
-        run: bazel --output_user_root=/mnt/bazel test //... --repository_cache=/mnt/bazel/repocache
+        run: bazel test //... --deleted_packages=tools/windows_screenshot
 
   dart-tool-tests:
     name: Dart tool tests
