@@ -33,6 +33,20 @@ jobs:
           key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: bazel-unit-${{ runner.os }}-
 
+      # On a cold cache this job resolves the full root MODULE.bazel, whose
+      # rules_android_maven install pulls a large androidx/coursier closure.
+      # Coursier's JVM plus Bazel's own server JVM can spike past the 7 GB
+      # ubuntu-latest runner's RAM during the loading phase, and the OOM killer
+      # SIGKILLs Bazel mid-load (the step dies ~10 s in with no Bazel error).
+      # Extra swap gives that transient peak somewhere to go. The e2e workspaces
+      # use smaller per-workspace modules and don't hit this.
+      - name: Add swap headroom (cold maven resolution + Bazel JVM)
+        run: |
+          sudo fallocate -l 10G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
       - name: bazel test //...
         run: bazel test //...
 
@@ -89,13 +103,23 @@ jobs:
       - name: Clone rules_dart
         run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
 
+      # The Xcode build number is part of the cache key so a runner-image Xcode
+      # bump invalidates the cache instead of restoring one whose cached Swift
+      # compile actions reference an Xcode that is no longer installed. Without
+      # this, after macos-latest moved from Xcode 16.4 to 26.x, restored caches
+      # asked `xcode-locator 16.4.0.16F6` for a missing Xcode and failed the
+      # iOS build (e.g. plugin_example's audio_session Swift module).
+      - name: Capture Xcode build for cache key (macOS)
+        if: runner.os == 'macOS'
+        run: echo "XCODE_BUILD=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "$GITHUB_ENV"
+
       - name: Mount Bazel cache (macOS)
         if: runner.os == 'macOS'
         uses: actions/cache@v5
         with:
           path: ~/Library/Caches/bazel
-          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
-          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
+          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
+          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-
 
       - name: Mount Bazel cache (Linux)
         if: runner.os == 'Linux'
