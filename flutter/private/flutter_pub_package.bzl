@@ -195,6 +195,45 @@ def _detect_android_manifest(ctx):
         return "android/src/main/AndroidManifest.xml"
     return ""
 
+def _detect_android_native_build(ctx):
+    """True when the plugin's Gradle build compiles native code with the NDK.
+
+    Gradle-built Flutter plugins declare `externalNativeBuild` in
+    `android/build.gradle*` to compile C/C++ sources (CMake / ndk-build)
+    into a shared library the APK must carry — e.g. package:jni's
+    libdartjni.so. rules_flutter has no generic translation for those
+    builds; packages that need one ship a curated overlay (bundled under
+    `@rules_flutter//ext/` or user-supplied via `flutter.plugin_overlays`).
+    Detection lets the generated android/ sub-package fail loudly instead
+    of silently producing an APK missing the library.
+    """
+    for filename in ("android/build.gradle", "android/build.gradle.kts"):
+        p = ctx.path(filename)
+        if p.exists and "externalNativeBuild" in ctx.read(p):
+            return True
+    return False
+
+def _make_android_native_build_unsupported_content(package_name, version):
+    """Generate an `android/BUILD.bazel` that fails at load time.
+
+    Emitted for plugins whose Gradle build compiles native code for Android
+    (externalNativeBuild) when no overlay provides a Bazel translation.
+    Android builds load this file through the hub's
+    `android/all_android_plugin_libs` aggregator and fail with a clear
+    message; non-Android platforms never load it and are unaffected.
+    """
+    message = (
+        "package:{pkg} {version} compiles native code for Android via " +
+        "Gradle's externalNativeBuild, which rules_flutter cannot " +
+        "translate automatically. An APK built without that library would " +
+        "crash at plugin registration, so this is a hard error. Provide a " +
+        "plugin overlay for {pkg} (flutter.plugin_overlays in MODULE.bazel) " +
+        "that compiles the package's native sources with cc_shared_library " +
+        "and ships them through flutter_plugin.native_deps — see " +
+        "@rules_flutter//ext/jni for the canonical example."
+    ).format(pkg = package_name, version = version)
+    return 'fail("' + message + '")\n'
+
 def _parse_consumer_proguard_files(content):
     """Extract `consumerProguardFiles` paths from a Gradle build script.
 
@@ -1198,6 +1237,9 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_native_build = False
+        if android_info:
+            android_native_build = _detect_android_native_build(ctx)
         if android_info and android_info.get("pluginClass", ""):
             android_src_dir = _detect_android_source_dir(ctx)
             android_java_package = android_info.get("package", "") or ""
@@ -1244,6 +1286,7 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_native_build = False
     else:
         build_content = make_dart_library_build_content(
             name = ctx.attr.package_name,
@@ -1255,22 +1298,30 @@ def _flutter_pub_package_impl(ctx):
         android_extra_maven_labels = []
         android_manifest = ""
         android_consumer_proguard_specs = []
+        android_native_build = False
 
     ctx.file("BUILD.bazel", build_content)
 
     # Always emit `android/BUILD.bazel`. Bazel only loads it when something
     # queries `@<spoke>//android:lib`, so non-Android workspaces don't pay
-    # the @rules_android / @rules_kotlin cost.
-    ctx.file(
-        "android/BUILD.bazel",
-        _make_android_subpackage_build_content(
+    # the @rules_android / @rules_kotlin cost. Plugins whose Gradle build
+    # compiles native Android code that autogen cannot translate get a
+    # load-time fail() here instead — Android builds break loudly rather
+    # than shipping an APK missing the library.
+    if android_native_build:
+        android_build_content = _make_android_native_build_unsupported_content(
+            ctx.attr.package_name,
+            ctx.attr.version,
+        )
+    else:
+        android_build_content = _make_android_subpackage_build_content(
             android_src_dir = android_src_dir,
             java_package = android_java_package,
             extra_maven_labels = android_extra_maven_labels,
             android_manifest = android_manifest,
             consumer_proguard_specs = android_consumer_proguard_specs,
-        ),
-    )
+        )
+    ctx.file("android/BUILD.bazel", android_build_content)
 
 flutter_pub_package = repository_rule(
     implementation = _flutter_pub_package_impl,
