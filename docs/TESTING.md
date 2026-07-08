@@ -73,7 +73,7 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 - Linux-only targets (linux bundle tests, linux_example) are skipped on macOS/Windows.
 - Windows-only targets (windows_example) are skipped on macOS/Linux.
 - `android_example` and `hello_world` (Android targets) require `ANDROID_HOME` to be set to the Android SDK path (e.g. `export ANDROID_HOME=$HOME/Library/Android/sdk` on macOS) and `ANDROID_NDK_HOME` to the NDK path (e.g. `export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<version>`).
-- Android AOT builds **must** use `--platforms=@rules_flutter//flutter/platforms:android_arm64` to produce correct ELF binaries. Without it, the build silently produces a host-format binary that crashes on device.
+- Android builds need no platform flags: `flutter_android_bundle` transitions the application to the Android platform matching its `android_abi`, and packaging hard-fails on any non-ELF native library. `verify_android_apk_test` in `e2e/android_example` asserts every packaged `.so` is ELF with the ABI's machine type.
 - If Xcode beta causes `local_config_xcode` errors, add `--repo_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 - `cross_compile_example` has no test targets; verify with `bazel build :cross_linux`.
 

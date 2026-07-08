@@ -112,16 +112,16 @@ Build mode is controlled by Bazel's standard compilation mode flag:
 |------|--------|:---:|:---:|-------|
 | macOS | macOS | Yes | Yes | Native build |
 | macOS | iOS | Yes | Yes | Via `rules_apple` platform transition |
-| macOS | Android | Yes | Yes | `--platforms=...:android_arm64` |
+| macOS | Android | Yes | Yes | Automatic platform transition in the Android rules |
 | macOS | Linux | No | Yes | Cross-compile with LLVM CC toolchain; JIT only (no cross gen_snapshot for desktop) |
 | macOS | Windows | No | Yes | JIT only; requires Windows CC cross-toolchain |
 | macOS | Web | Yes | N/A | Web uses dart2wasm/dart2js, not gen_snapshot |
 | Linux | Linux | Yes | Yes | Native build |
-| Linux | Android | Yes | Yes | `--platforms=...:android_arm64` |
+| Linux | Android | Yes | Yes | Automatic platform transition in the Android rules |
 | Linux | iOS | No | No | Requires Xcode (macOS only) |
 | Linux | Web | Yes | N/A | |
 | Windows | Windows | Yes | Yes | Native build |
-| Windows | Android | Yes | Yes | `--platforms=...:android_arm64` |
+| Windows | Android | Yes | Yes | Automatic platform transition in the Android rules |
 | Windows | Web | Yes | N/A | |
 
 **Key limitation:** Desktop-to-desktop AOT cross-compilation (e.g. macOS→Linux release) is not supported because Flutter does not publish cross-gen_snapshot binaries for desktop targets. Use debug/JIT mode for cross-compiled desktop bundles, or build natively on the target platform.
@@ -316,7 +316,7 @@ bazel_dep(name = "rules_android_ndk", version = "0.1.5")
 
 use_repo(flutter, "flutter_toolchains", "flutter_android_engine_arm64")
 
-# Android NDK CC toolchain (required for --platforms=android_arm64).
+# Android NDK CC toolchain (used for native/FFI deps built for Android).
 android_ndk_repository_extension = use_extension(
     "@rules_android_ndk//:extension.bzl",
     "android_ndk_repository_extension",
@@ -327,10 +327,12 @@ register_toolchains("@androidndk//:all")
 
 Set `ANDROID_NDK_HOME` to your NDK path (e.g. in `.bazelrc.user`: `build --action_env=ANDROID_NDK_HOME=/path/to/ndk`).
 
-Build with cross-compilation:
+Build — no platform flags needed. `flutter_android_bundle` transitions the
+Flutter application (AOT compile, FFI deps, and all) to the Android platform
+matching its `android_abi`:
 
 ```sh
-bazel build //:my_app_android --platforms=@rules_flutter//flutter/platforms:android_arm64
+bazel build //:my_app_android
 ```
 
 | Attribute | Description |
@@ -338,7 +340,7 @@ bazel build //:my_app_android --platforms=@rules_flutter//flutter/platforms:andr
 | `application` | A `flutter_application` target (required). |
 | `package_name` | Android package name, e.g. `"com.example.myapp"` (required). |
 | `app_name` | Display name. Defaults to target name. |
-| `android_abi` | Engine ABI — `"arm64"` (default), `"x64"`, or `"arm"`. |
+| `android_abi` | Target ABI — `"arm64"` (default) or `"x64"`. Selects the engine and the Android platform the app is built for. |
 | `min_sdk_version` | Minimum Android SDK version. |
 | `target_sdk_version` | Target Android SDK version. |
 | `manifest` | Override AndroidManifest.xml (auto-discovered from `flutter create` output or generated). |

@@ -99,7 +99,7 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
 
     Args:
         name: Target name. Add to android_binary deps.
-        android_abi: Engine ABI — "arm64" (default), "x64", or "arm".
+        android_abi: Engine ABI — "arm64" (default) or "x64".
         **kwargs: Additional arguments (e.g. visibility, tags).
     """
     tags = kwargs.pop("tags", ["manual"])
@@ -108,11 +108,10 @@ def flutter_android_engine(name, android_abi = "arm64", **kwargs):
     abi_to_repo = {
         "arm64": "flutter_android_engine_arm64",
         "x64": "flutter_android_engine_x64",
-        "arm": "flutter_android_engine_arm",
     }
     repo = abi_to_repo.get(android_abi)
     if not repo:
-        fail("Unsupported android_abi '%s'. Use arm64, x64, or arm." % android_abi)
+        fail("Unsupported android_abi '%s'. Use arm64 or x64." % android_abi)
 
     _java_import(
         name = name,
@@ -272,7 +271,8 @@ def flutter_android_app(
         application: A flutter_application target (required).
         package_name: Android package name, e.g. "com.example.myapp" (required).
         app_name: User-facing display name. Defaults to name.
-        android_abi: Engine ABI — "arm64" (default), "x64", or "arm".
+        android_abi: Target ABI — "arm64" (default) or "x64". Selects the
+            engine and the Android platform the application is built for.
         min_sdk_version: Minimum Android SDK version.
         target_sdk_version: Target Android SDK version.
         manifest: Override AndroidManifest.xml. If not set, auto-discovered
@@ -442,6 +442,7 @@ def _short_abi_to_full(abi):
     mapping = {
         "arm64": "arm64-v8a",
         "x64": "x86_64",
-        "arm": "armeabi-v7a",
     }
-    return mapping.get(abi, abi)
+    if abi not in mapping:
+        fail("Unsupported android_abi '%s'. Use arm64 or x64." % abi)
+    return mapping[abi]

@@ -4,7 +4,7 @@ Tests the pure helper functions used by linux, android, and windows bundle rules
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:common.bzl", "compute_android_jni_path", "compute_desktop_bundle_copies")
+load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_elf_machine_for_abi", "android_platform_for_abi", "compute_android_jni_path", "compute_desktop_bundle_copies")
 
 # -- compute_desktop_bundle_copies tests --
 
@@ -142,6 +142,42 @@ def _android_jni_path_custom_basename_test_impl(ctx):
 
     return unittest.end(env)
 
+# -- Android ABI table tests --
+
+def _android_abi_platform_test_impl(ctx):
+    """Each ABI maps to its //flutter/platforms target."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(
+        env,
+        Label("//flutter/platforms:android_arm64"),
+        android_platform_for_abi("arm64-v8a"),
+    )
+    asserts.equals(
+        env,
+        Label("//flutter/platforms:android_x64"),
+        android_platform_for_abi("x86_64"),
+    )
+
+    return unittest.end(env)
+
+def _android_abi_elf_machine_test_impl(ctx):
+    """Each ABI maps to its ELF e_machine value."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, 183, android_elf_machine_for_abi("arm64-v8a"))  # EM_AARCH64
+    asserts.equals(env, 62, android_elf_machine_for_abi("x86_64"))  # EM_X86_64
+
+    return unittest.end(env)
+
+def _android_abi_table_complete_test_impl(ctx):
+    """The ABI table covers exactly the supported cross-compile ABIs."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, ["arm64-v8a", "x86_64"], sorted(ANDROID_ABIS.keys()))
+
+    return unittest.end(env)
+
 _t0_test = unittest.make(_linux_debug_copies_test_impl)
 _t1_test = unittest.make(_linux_release_copies_test_impl)
 _t2_test = unittest.make(_windows_release_copies_test_impl)
@@ -150,6 +186,9 @@ _t4_test = unittest.make(_no_artifacts_copies_test_impl)
 _t5_test = unittest.make(_android_jni_path_arm64_test_impl)
 _t6_test = unittest.make(_android_jni_path_x86_64_test_impl)
 _t7_test = unittest.make(_android_jni_path_custom_basename_test_impl)
+_t8_test = unittest.make(_android_abi_platform_test_impl)
+_t9_test = unittest.make(_android_abi_elf_machine_test_impl)
+_t10_test = unittest.make(_android_abi_table_complete_test_impl)
 
 def platform_bundle_test_suite(name):
     unittest.suite(
@@ -162,4 +201,7 @@ def platform_bundle_test_suite(name):
         _t5_test,
         _t6_test,
         _t7_test,
+        _t8_test,
+        _t9_test,
+        _t10_test,
     )

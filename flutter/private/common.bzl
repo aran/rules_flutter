@@ -503,6 +503,52 @@ def compute_android_jni_path(abi, basename):
     """
     return "jni/{}/{}".format(abi, basename)
 
+# Android ABIs with AOT cross-compilation support. Single source of truth
+# mapping each ABI to the Bazel platform Android rules transition to and the
+# ELF e_machine value native libraries packaged for that ABI must carry.
+ANDROID_ABIS = {
+    "arm64-v8a": struct(
+        platform = Label("//flutter/platforms:android_arm64"),
+        elf_machine = 183,  # EM_AARCH64
+    ),
+    "x86_64": struct(
+        platform = Label("//flutter/platforms:android_x64"),
+        elf_machine = 62,  # EM_X86_64
+    ),
+}
+
+def android_platform_for_abi(abi):
+    """The Bazel platform label Android rules build for, given an ABI.
+
+    Args:
+        abi: Android ABI string ("arm64-v8a" or "x86_64").
+
+    Returns:
+        A Label for the platform under //flutter/platforms.
+    """
+    if abi not in ANDROID_ABIS:
+        fail("Unsupported Android ABI '{}'. Supported: {}.".format(
+            abi,
+            ", ".join(ANDROID_ABIS.keys()),
+        ))
+    return ANDROID_ABIS[abi].platform
+
+def android_elf_machine_for_abi(abi):
+    """The ELF e_machine value native libraries must have for an ABI.
+
+    Args:
+        abi: Android ABI string ("arm64-v8a" or "x86_64").
+
+    Returns:
+        The e_machine value as an int (e.g. 183 for EM_AARCH64).
+    """
+    if abi not in ANDROID_ABIS:
+        fail("Unsupported Android ABI '{}'. Supported: {}.".format(
+            abi,
+            ", ".join(ANDROID_ABIS.keys()),
+        ))
+    return ANDROID_ABIS[abi].elf_machine
+
 def host_target_arch(ctx, flutter_sdk_info):
     """Best-effort target architecture string for Native Assets.
 

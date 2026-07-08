@@ -72,42 +72,39 @@ void main() {
       '${tmpDir.path}/AndroidManifest.xml',
     );
 
-    // --- Binary format check ---
-    // Verify libapp.so format. When built with
-    //   --platforms=@rules_flutter//flutter/platforms:android_arm64
-    // it must be ELF. Without --platforms it will be Mach-O (host format).
-    // The REQUIRE_ELF env var controls whether Mach-O is a hard failure.
-    final libappPath = '${tmpDir.path}/lib/arm64-v8a/libapp.so';
-    if (File(libappPath).existsSync()) {
-      final bytes = File(libappPath).readAsBytesSync();
-      if (bytes.length >= 4) {
-        final isElf = bytes[0] == 0x7f &&
-            bytes[1] == 0x45 && // 'E'
-            bytes[2] == 0x4c && // 'L'
-            bytes[3] == 0x46; // 'F'
-        final isMachO = bytes[0] == 0xcf &&
-            bytes[1] == 0xfa &&
-            bytes[2] == 0xed &&
-            bytes[3] == 0xfe;
-        final requireElf =
-            Platform.environment['REQUIRE_ELF']?.toLowerCase() == 'true';
-        if (isElf) {
-          print('OK: libapp.so is ELF format (correct for Android)');
-        } else if (isMachO) {
-          if (requireElf) {
-            stderr.writeln(
-                'FAIL: libapp.so is Mach-O format (macOS) — built without --platforms=android_arm64?');
+    // --- Binary format checks ---
+    // Every native library in the APK must be an ELF shared object whose
+    // machine type matches its ABI directory. Android's linker cannot load
+    // anything else (a host-format Mach-O libapp.so crashes at startup with
+    // "VM snapshot invalid"), so any other format is a hard failure.
+    final libDir = Directory('${tmpDir.path}/lib');
+    var checkedLibs = 0;
+    if (libDir.existsSync()) {
+      for (final abiDir in libDir.listSync().whereType<Directory>()) {
+        final abi = abiDir.path.split('/').last;
+        final expectedMachine = _elfMachineForAbi[abi];
+        if (expectedMachine == null) {
+          stderr.writeln('FAIL: unexpected ABI directory lib/$abi');
+          failed = true;
+          continue;
+        }
+        for (final lib in abiDir.listSync().whereType<File>()) {
+          checkedLibs++;
+          final name = 'lib/$abi/${lib.path.split('/').last}';
+          final error = _validateElf(lib, expectedMachine);
+          if (error != null) {
+            stderr.writeln('FAIL: $name — $error');
             failed = true;
           } else {
-            print(
-                'WARN: libapp.so is Mach-O format (host) — build with --platforms=android_arm64 for device');
+            print('OK: $name is ELF (machine 0x'
+                '${expectedMachine.toRadixString(16)}, correct for $abi)');
           }
-        } else {
-          stderr.writeln(
-              'FAIL: libapp.so has unknown format (magic: ${bytes.sublist(0, 4)})');
-          failed = true;
         }
       }
+    }
+    if (checkedLibs == 0) {
+      stderr.writeln('FAIL: no native libraries found under lib/');
+      failed = true;
     }
 
     if (failed) {
@@ -120,6 +117,39 @@ void main() {
   } finally {
     tmpDir.deleteSync(recursive: true);
   }
+}
+
+/// ELF e_machine values by Android ABI directory name.
+const _elfMachineForAbi = <String, int>{
+  'arm64-v8a': 0xb7, // EM_AARCH64
+  'x86_64': 0x3e, // EM_X86_64
+};
+
+/// Returns an error message if [file] is not an ELF shared object with the
+/// given e_machine, or null if it is valid.
+String? _validateElf(File file, int expectedMachine) {
+  final bytes = file.readAsBytesSync();
+  if (bytes.length < 20) {
+    return 'file too small to be an ELF binary (${bytes.length} bytes)';
+  }
+  final isElf =
+      bytes[0] == 0x7f && bytes[1] == 0x45 && bytes[2] == 0x4c && bytes[3] == 0x46;
+  if (!isElf) {
+    final isMachO =
+        bytes[0] == 0xcf && bytes[1] == 0xfa && bytes[2] == 0xed && bytes[3] == 0xfe;
+    if (isMachO) {
+      return 'Mach-O binary (host format) — the build was not transitioned '
+          'to an Android platform';
+    }
+    return 'not an ELF binary (magic: ${bytes.sublist(0, 4)})';
+  }
+  // e_machine: 2 bytes little-endian at offset 18.
+  final machine = bytes[18] | (bytes[19] << 8);
+  if (machine != expectedMachine) {
+    return 'ELF machine 0x${machine.toRadixString(16)} does not match '
+        'expected 0x${expectedMachine.toRadixString(16)}';
+  }
+  return null;
 }
 
 void _listRecursive(String path, String indent) {
