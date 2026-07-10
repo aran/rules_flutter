@@ -3,7 +3,7 @@
 module(name = "rules_flutter_codegen_e2e")
 
 bazel_dep(name = "rules_flutter", version = "0.0.0")
-bazel_dep(name = "rules_dart", version = "0.4.5")
+bazel_dep(name = "rules_dart", version = "0.4.6")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "apple_support", version = "2.5.4")
 bazel_dep(name = "rules_apple", version = "4.5.3")

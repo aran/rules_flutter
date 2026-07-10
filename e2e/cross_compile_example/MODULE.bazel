@@ -3,7 +3,7 @@
 module(name = "rules_flutter_cross_compile_example")
 
 bazel_dep(name = "rules_flutter", version = "0.0.0")
-bazel_dep(name = "rules_dart", version = "0.4.5")
+bazel_dep(name = "rules_dart", version = "0.4.6")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "llvm", version = "0.8.11")
 
