@@ -69,18 +69,25 @@ Future<void> main() async {
     mulResult = mul(3, 4);
     final parts = (await _querySqlite()).split('|');
     sqliteVersion = parts[1];
-    marker = 'ffi_example_result add(3,4)=$addResult mul(3,4)=$mulResult '
+    marker =
+        'ffi_example_result add(3,4)=$addResult mul(3,4)=$mulResult '
         'sqlite=${parts[0]}';
-  } catch (e) {
+  } on Object catch (e) {
+    // Deliberately broad: a native library that fails to load throws an Error
+    // (ArgumentError from asset-id resolution or DynamicLibrary.open), not an
+    // Exception, and recording that failure in the marker file is exactly what
+    // the runtime e2e tests read. Narrowing here would kill the app before the
+    // marker is written, leaving the tests to time out with no diagnostic.
     addResult = -1;
     mulResult = -1;
     sqliteVersion = 'unavailable';
     marker = 'ffi_example_error $e';
   }
   try {
-    File('${Directory.systemTemp.path}/ffi_result.txt')
-        .writeAsStringSync(marker);
-  } catch (_) {
+    File(
+      '${Directory.systemTemp.path}/ffi_result.txt',
+    ).writeAsStringSync(marker);
+  } on FileSystemException {
     // Temp dir unavailable — the test will time out and report it.
   }
   debugPrint('$marker (sqlite3 $sqliteVersion)');
@@ -94,16 +101,26 @@ Future<void> main() async {
   );
 }
 
+/// Root widget of the FFI example, displaying results from three native
+/// libraries: two this workspace builds directly, and one that arrives as a
+/// code asset attached to a pub package.
 class MyApp extends StatelessWidget {
+  /// Creates the FFI example's root widget from the values `main` computed.
   const MyApp({
-    super.key,
     required this.addResult,
     required this.mulResult,
     required this.sqliteVersion,
+    super.key,
   });
 
+  /// Sum returned by the bundled `add` native library.
   final int addResult;
+
+  /// Product returned by the bundled `multiply` native library.
   final int mulResult;
+
+  /// Version string from the Bazel-built libsqlite3 that reaches the app as a
+  /// code asset on `package:sqlite3`.
   final String sqliteVersion;
 
   @override

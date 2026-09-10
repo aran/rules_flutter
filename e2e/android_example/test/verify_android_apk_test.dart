@@ -2,6 +2,13 @@
 /// expected structure: classes.dex, native libs, flutter_assets, and manifest.
 ///
 /// APK is a zip file — we extract it to a temp dir and verify contents.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -57,8 +64,7 @@ void main() {
   // Extract to temp directory (APK is a zip).
   final tmpDir = Directory.systemTemp.createTempSync('android_apk_test');
   try {
-    final result =
-        Process.runSync('unzip', ['-q', apkPath, '-d', tmpDir.path]);
+    final result = Process.runSync('unzip', ['-q', apkPath, '-d', tmpDir.path]);
     if (result.exitCode != 0) {
       stderr.writeln('Failed to extract APK: ${result.stderr}');
       exit(1);
@@ -136,8 +142,10 @@ void main() {
             stderr.writeln('FAIL: $name — $error');
             failed = true;
           } else {
-            print('OK: $name is ELF (machine 0x'
-                '${expectedMachine.toRadixString(16)}, correct for $abi)');
+            print(
+              'OK: $name is ELF (machine 0x'
+              '${expectedMachine.toRadixString(16)}, correct for $abi)',
+            );
           }
         }
       }
@@ -149,10 +157,9 @@ void main() {
 
     // --- Engine runtime class checks ---
     final definedClasses = <String>{};
-    for (final dex in Directory(tmpDir.path)
-        .listSync()
-        .whereType<File>()
-        .where((f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path))) {
+    for (final dex in Directory(tmpDir.path).listSync().whereType<File>().where(
+      (f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path),
+    )) {
       definedClasses.addAll(_definedClassDescriptors(dex));
     }
     if (definedClasses.isEmpty) {
@@ -163,8 +170,10 @@ void main() {
       if (definedClasses.contains(descriptor)) {
         print('OK: $descriptor defined in dex ($artifact)');
       } else {
-        stderr.writeln('FAIL: $descriptor not defined in any dex — '
-            'runtime dependency $artifact is missing from the APK');
+        stderr.writeln(
+          'FAIL: $descriptor not defined in any dex — '
+          'runtime dependency $artifact is missing from the APK',
+        );
         failed = true;
       }
     });
@@ -195,10 +204,16 @@ String? _validateElf(File file, int expectedMachine) {
     return 'file too small to be an ELF binary (${bytes.length} bytes)';
   }
   final isElf =
-      bytes[0] == 0x7f && bytes[1] == 0x45 && bytes[2] == 0x4c && bytes[3] == 0x46;
+      bytes[0] == 0x7f &&
+      bytes[1] == 0x45 &&
+      bytes[2] == 0x4c &&
+      bytes[3] == 0x46;
   if (!isElf) {
     final isMachO =
-        bytes[0] == 0xcf && bytes[1] == 0xfa && bytes[2] == 0xed && bytes[3] == 0xfe;
+        bytes[0] == 0xcf &&
+        bytes[1] == 0xfa &&
+        bytes[2] == 0xed &&
+        bytes[3] == 0xfe;
     if (isMachO) {
       return 'Mach-O binary (host format) — the build was not transitioned '
           'to an Android platform';
@@ -251,10 +266,11 @@ Set<String> _definedClassDescriptors(File dexFile) {
   final descriptors = <String>{};
   for (var i = 0; i < classDefsSize; i++) {
     // class_def_item is 8 u4 fields; the first is the type_ids index.
-    final typeIdx =
-        data.getUint32(classDefsOff + 32 * i, Endian.little);
-    final descriptorIdx =
-        data.getUint32(typeIdsOff + 4 * typeIdx, Endian.little);
+    final typeIdx = data.getUint32(classDefsOff + 32 * i, Endian.little);
+    final descriptorIdx = data.getUint32(
+      typeIdsOff + 4 * typeIdx,
+      Endian.little,
+    );
     descriptors.add(stringAt(descriptorIdx));
   }
   return descriptors;

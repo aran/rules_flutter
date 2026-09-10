@@ -95,8 +95,14 @@ class _HomeState extends State<_Home> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('canary=${r.canary}', textScaler: const TextScaler.linear(1.4)),
-                Text('blob=${r.blob}', textScaler: const TextScaler.linear(1.4)),
+                Text(
+                  'canary=${r.canary}',
+                  textScaler: const TextScaler.linear(1.4),
+                ),
+                Text(
+                  'blob=${r.blob}',
+                  textScaler: const TextScaler.linear(1.4),
+                ),
               ],
             ),
           );

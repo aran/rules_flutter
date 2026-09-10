@@ -1,8 +1,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
-load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_codegen")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_test")
+load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_analysis_options", "dart_analyze_test", "dart_binary", "dart_codegen", "dart_format_test", "dart_library")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_gen_l10n", "flutter_library", "flutter_test")
 load(
     "@rules_flutter//flutter:macos.bzl",
     "MACOS_MINIMUM_OS_VERSION",
@@ -15,6 +15,15 @@ load(
     "flutter_macos_runner_lib_gen",
 )
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
+
+# The generator scripts this package's codegen rules invoke by file label.
+# Named once here because both the `dart_binary` analysis handles and their
+# `dart_analyze_test`s iterate it — see the comment at those comprehensions.
+_GENERATOR_SCRIPTS = [
+    "simple_generator",
+    "json_generator",
+    "aggregate_generator",
+]
 
 # --- Per-file codegen (dart_codegen) ---
 # Generates a .g.dart companion for each source file independently.
@@ -204,6 +213,22 @@ flutter_test(
     ],
 )
 
+# Exercises: Native Assets under flutter_tester. The library is owned by a
+# dependency, so nothing here names an asset — the way a pub package's
+# hook-built library arrives. A test loads no application bundle, so this is
+# what pins the runfiles-resolved path in the manifest the frontend_server
+# embeds into the test's kernel.
+flutter_test(
+    name = "native_asset_test",
+    package_name = "codegen_e2e",
+    main = "test/native_asset_test.dart",
+    deps = [
+        "//native_add",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
 # Exercises: a flutter_web_bundle whose `lib/main.dart` reaches `user.dart`
 # (with `part 'user.g.dart'`) via a relative import — covering both the
 # dart2js/dart2wasm compile and the icon-tree-shaking kernel compile. Both
@@ -230,4 +255,222 @@ flutter_web_bundle(
 build_test(
     name = "flutter_web_codegen_test",
     targets = [":web_app"],
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    visibility = [
+        "//dep_lib:__pkg__",
+        "//dep_part:__pkg__",
+        "//native_add:__pkg__",
+    ],
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "codegen_e2e",
+    # Mirrors the app's srcs rather than globbing: `user.g.dart` is a build
+    # output, so a source glob cannot see it, and analysing `lib/user.dart`
+    # without it fails on the unresolved `part`. lib/model.dart and
+    # lib/order.dart belong to a different target with generated parts of
+    # their own and are not part of this app.
+    srcs = [
+        "lib/main.dart",
+        "lib/user.dart",
+        ":user_json",
+    ],
+    deps = [
+        "//dep_lib",
+        "//dep_part",
+        "@deps//:flutter",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "golden_test",
+    "golden_undeclared_test",
+    "native_asset_test",
+    "test_api_only_test",
+    "user_test",
+]]
+
+# Static analysis of the per-file-codegen sources. `lib/model.dart` and
+# `lib/order.dart` are inputs to `:model_generated` / `:order_generated` and
+# belong to no other target — `:app_lib` deliberately excludes them. Each
+# declares a `part`, so the generated companion has to be in `srcs` beside it
+# or the `part` directive does not resolve; that is the same colocation
+# `:app_lib` does for `user.dart`.
+#
+# A `dart_library`, not a `flutter_library`: neither file imports `dart:ui` or
+# anything from Flutter, so nothing here needs `sky_engine`.
+dart_library(
+    name = "models_lib",
+    package_name = "codegen_e2e",
+    srcs = [
+        "lib/model.dart",
+        "lib/order.dart",
+        ":model_generated",
+        ":order_generated",
+    ],
+)
+
+dart_analyze_test(
+    name = "models_analyze_test",
+    size = "small",
+    options = ":options",
+    target = ":models_lib",
+)
+
+# Analysis handles for the generator scripts.
+#
+# `generator` and `generator_script` take a bare `.dart` file label — the
+# script runs as `dart <script>` with no package resolution of its own — so
+# there is no target for `dart_analyze_test` to point at. A `dart_binary` over
+# the same source supplies the missing target.
+#
+# Deliberately not wired into any codegen rule. `generator_bin` enlists its
+# executable in the persistent-worker protocol (see
+# `dart/private/dart_aggregate_codegen.bzl`), which these plain scripts do not
+# speak, so moving one into that slot to gain a target would hand it worker
+# requests it cannot answer.
+#
+# `options`, matching the test-source analyze targets above: these generators
+# hold to the same very_good_analysis bar as the app code.
+[dart_binary(
+    name = name,
+    main = "tools/%s.dart" % name,
+) for name in _GENERATOR_SCRIPTS]
+
+[dart_analyze_test(
+    name = "%s_analyze" % name,
+    size = "small",
+    options = ":options",
+    target = ":%s" % name,
+) for name in _GENERATOR_SCRIPTS]
+
+# Every `.dart` file that sits directly in this package — its nested packages
+# (`dep_lib`, `dep_part`, `native_add`) carry their own `format_test`. Unlike
+# `app_lib`/`models_lib` above, this needs no hand-picked list: `dart format`
+# is purely syntactic, so it has no reason to exclude `user.dart`'s generated
+# `part` companion the way the analyze `srcs` do — that companion lives in
+# `bazel-out`, outside anything `glob()` on the source tree can see, so there
+# is nothing to exclude in the first place.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+        "tools/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
+)
+
+# --- Localizations (flutter_gen_l10n) ---
+# Exercises: the vendored `flutter gen-l10n` generator end to end — arb files in,
+# AppLocalizations Dart out, compiled and run against package:flutter.
+#
+# `app_es.arb` and `app_es_419.arb` are both present on purpose. gen-l10n emits
+# one Dart file per primary language subtag, so the two collapse into a single
+# app_localizations_es.dart. A rule deriving one output per input arb would
+# declare a file the generator never writes; this target is what holds that.
+flutter_gen_l10n(
+    name = "app_l10n",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_es.arb",
+        "lib/l10n/app_es_419.arb",
+    ],
+)
+
+flutter_test(
+    name = "l10n_test",
+    package_name = "codegen_e2e",
+    srcs = [":app_l10n"],
+    main = "test/l10n_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_localizations",
+        "@deps//:flutter_test",
+        "@deps//:intl",
+    ],
+)
+
+# Exercises: the golden-file comparator the rule installs. Goldens reach a test
+# only through `data` — the comparator reads them out of runfiles — so this is
+# the spelling every golden suite needs.
+flutter_test(
+    name = "golden_test",
+    package_name = "codegen_e2e",
+    data = glob(["test/goldens/**"]),
+    main = "test/golden_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# The paired negative: same test directory, same PNG on disk, no `data`. Do
+# not "fix" it by adding one.
+flutter_test(
+    name = "golden_undeclared_test",
+    package_name = "codegen_e2e",
+    main = "test/golden_undeclared_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# Exercises: the `test_api`-only configuration the rule documents as supported.
+# It is what fails if the bootstrap's golden block stops being gated on
+# `package:flutter_test`, since nothing here can resolve that package. Do not
+# add `@deps//:flutter_test` to it.
+flutter_test(
+    name = "test_api_only_test",
+    package_name = "codegen_e2e",
+    main = "test/test_api_only_test.dart",
+    deps = ["@deps//:test_api"],
 )

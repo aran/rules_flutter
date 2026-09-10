@@ -1,0 +1,39 @@
+"""Two pub hubs in one workspace, sharing packages — one agreeing, one not.
+
+The shape a consumer reaches by resolving two lock files: an app's own
+dependencies beside a tool's, or a rules_flutter hub beside a rules_dart one.
+`//hub_a` and `//hub_b` differ in exactly one way — `clock` is 1.1.2 in the
+first and 1.1.3 in the second — while `path` is the same 1.9.1 in both, so an
+agreeing package and a disagreeing one are available side by side with nothing
+else varying. Both locks state the same SDK constraint on purpose, so the
+spokes derive the same `language_version` and the package version is the only
+difference between them.
+
+This is not a hypothetical arrangement. rules_flutter's own root workspace
+already runs two hubs — `dev_tool_deps` and `gen_l10n_deps` — which share
+eleven package names and disagree on two of them, `clock` and `meta`. Nothing
+there merges the two records into one target's closure today, so the case goes
+unobserved; this workspace is where it is observed.
+"""
+
+module(name = "dual_hub_e2e")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.6.3")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.pub(
+    name = "hub_a",
+    lock = "//hub_a:pubspec.lock",
+)
+flutter.pub(
+    name = "hub_b",
+    lock = "//hub_b:pubspec.lock",
+)
+use_repo(flutter, "hub_a", "hub_b")

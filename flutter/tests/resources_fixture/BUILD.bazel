@@ -1,0 +1,90 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_format_test")
+load("//flutter:defs.bzl", "flutter_library", "flutter_plugin")
+load("//flutter/tests:dart_resources_test.bzl", "dart_in_resources_fails_test", "resources_probe")
+
+# A library whose lib/ holds a Dart source, a YAML file, and a shader. The
+# shader is deliberately listed on BOTH channels: `resources` says it is part
+# of the package's lib/ tree (package:-URI addressable, staged wherever the
+# whole package is), `pkg_shaders` says it is compiled and bundled into
+# flutter_assets. The two have different destinations, so a lib/ shader is
+# legitimately both — this fixture pins that coexistence.
+flutter_library(
+    name = "resources_library",
+    package_name = "resources_fixture",
+    srcs = ["lib/fixture.dart"],
+    pkg_shaders = {"lib/glow.frag": "lib/glow.frag"},
+    resources = [
+        "lib/data.yaml",
+        "lib/glow.frag",
+    ],
+)
+
+flutter_plugin(
+    name = "resources_plugin",
+    package_name = "resources_plugin",
+    srcs = ["lib/fixture.dart"],
+    plugin_platforms_json = '{"web":{"pluginClass":"FixturePlugin"}}',
+    resources = ["lib/data.yaml"],
+)
+
+resources_probe(
+    name = "library_resources_probe",
+    expected_basenames = [
+        "data.yaml",
+        "glow.frag",
+    ],
+    deps = [":resources_library"],
+)
+
+resources_probe(
+    name = "plugin_resources_probe",
+    expected_basenames = ["data.yaml"],
+    deps = [":resources_plugin"],
+)
+
+build_test(
+    name = "resources_probe_test",
+    size = "small",
+    targets = [
+        ":library_resources_probe",
+        ":plugin_resources_probe",
+    ],
+)
+
+# Mis-filed Dart source: refused, mirroring dart_library.
+flutter_library(
+    name = "dart_in_resources_library",
+    package_name = "dart_in_resources",
+    srcs = ["lib/fixture.dart"],
+    resources = ["lib/fixture.dart"],
+    tags = ["manual"],
+)
+
+flutter_plugin(
+    name = "dart_in_resources_plugin",
+    package_name = "dart_in_resources_plugin",
+    srcs = ["lib/fixture.dart"],
+    plugin_platforms_json = '{"web":{"pluginClass":"FixturePlugin"}}',
+    resources = ["lib/fixture.dart"],
+    tags = ["manual"],
+)
+
+dart_in_resources_fails_test(
+    name = "dart_in_resources_library_test",
+    size = "small",
+    target_under_test = ":dart_in_resources_library",
+)
+
+dart_in_resources_fails_test(
+    name = "dart_in_resources_plugin_test",
+    size = "small",
+    target_under_test = ":dart_in_resources_plugin",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

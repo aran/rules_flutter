@@ -80,6 +80,109 @@ void main() {
       expect(File('$outputDir/copied/sub/file2.txt').readAsStringSync(), 'two');
     });
 
+    test('excludes by exact name and by extension, and only those', () async {
+      final srcDir = Directory('${tempDir.path}/srcdir')..createSync();
+      File('${srcDir.path}/main.dart.js').writeAsStringSync('js');
+      File('${srcDir.path}/main.dart.js.deps').writeAsStringSync('deps');
+      File('${srcDir.path}/main.dart.js.info.json').writeAsStringSync('info');
+      File('${srcDir.path}/keep.me').writeAsStringSync('keep');
+      final outputDir = '${tempDir.path}/output';
+
+      await run({
+        'output_dir': outputDir,
+        'copy_dirs': [
+          {
+            'src': srcDir.path,
+            'dst': '.',
+            'exclude': ['*.deps', 'main.dart.js.info.json'],
+          },
+        ],
+      });
+
+      expect(File('$outputDir/main.dart.js').existsSync(), isTrue);
+      expect(File('$outputDir/keep.me').existsSync(), isTrue);
+      expect(File('$outputDir/main.dart.js.deps').existsSync(), isFalse);
+      expect(File('$outputDir/main.dart.js.info.json').existsSync(), isFalse);
+    });
+
+    test('copies everything when no exclude is given', () async {
+      // Nothing is filtered unless the build asked for it, so an asset
+      // legitimately named `*.deps` survives.
+      final srcDir = Directory('${tempDir.path}/srcdir')..createSync();
+      File('${srcDir.path}/asset.deps').writeAsStringSync('mine');
+      final outputDir = '${tempDir.path}/output';
+
+      await run({
+        'output_dir': outputDir,
+        'copy_dirs': [
+          {'src': srcDir.path, 'dst': '.'},
+        ],
+      });
+
+      expect(File('$outputDir/asset.deps').readAsStringSync(), 'mine');
+    });
+
+    // Both shapes, because the validation has two branches and the
+    // `*.`-prefixed one is the branch that can skip the check by taking the
+    // extension path first — `*.info.*` looks like a valid extension pattern
+    // right up to its second wildcard.
+    for (final pattern in ['main.*.js', '*.info.*', '*.f?o', 'a?.txt']) {
+      test('refuses `$pattern`, which would silently never match', () async {
+        final srcDir = Directory('${tempDir.path}/srcdir')..createSync();
+        File('${srcDir.path}/a.txt').writeAsStringSync('a');
+
+        await expectLater(
+          run({
+            'output_dir': '${tempDir.path}/output',
+            'copy_dirs': [
+              {
+                'src': srcDir.path,
+                'dst': '.',
+                'exclude': [pattern],
+              },
+            ],
+          }),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+    }
+
+    test('extracts a file out of a copied tree to a declared path', () async {
+      final srcDir = Directory('${tempDir.path}/srcdir')..createSync();
+      File('${srcDir.path}/main.dart.js.info.json').writeAsStringSync('{}');
+      final declared = '${tempDir.path}/declared/app_info.json';
+
+      await run({
+        'output_dir': '${tempDir.path}/output',
+        'extracts': [
+          {'src': '${srcDir.path}/main.dart.js.info.json', 'dst': declared},
+        ],
+      });
+
+      expect(File(declared).readAsStringSync(), '{}');
+    });
+
+    test('names the missing file when an extract source is absent', () async {
+      await expectLater(
+        run({
+          'output_dir': '${tempDir.path}/output',
+          'extracts': [
+            {
+              'src': '${tempDir.path}/gone.json',
+              'dst': '${tempDir.path}/o.json',
+            },
+          ],
+        }),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.path,
+            'path',
+            contains('gone.json'),
+          ),
+        ),
+      );
+    });
+
     test('creates symlinks', () async {
       final outputDir = '${tempDir.path}/output';
 
@@ -107,7 +210,9 @@ void main() {
       });
 
       expect(
-          File('$outputDir/info.txt').readAsStringSync(), 'generated content');
+        File('$outputDir/info.txt').readAsStringSync(),
+        'generated content',
+      );
     });
 
     test('fails on a missing config file', () async {

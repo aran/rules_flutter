@@ -16,8 +16,10 @@
 # directory in via `sourceSets { main { java { srcDirs '../java/...' } } }`.
 # The `android/` sub-package overlay consumes it via :jni_java_support_srcs.
 #
-# Substitutions ({HUB_NAME}, {PKG}, {VERSION}) are injected by
-# `flutter_pub_package`'s `_resolve_overlay_template`.
+# Placeholders (HUB_NAME, PKG, VERSION, LANGUAGE_VERSION, DEPS — written in
+# braces below, and deliberately not in this comment, because substitution
+# rewrites comment text too) are injected by `flutter_pub_package`'s
+# `_resolve_overlay_template`.
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
@@ -29,7 +31,7 @@ flutter_plugin(
         ["lib/**/*.dart"],
         allow_empty = True,
     ),
-    language_version = "3.3",
+    language_version = "{LANGUAGE_VERSION}",
     native_deps = select({
         "@platforms//os:android": [":dartjni"],
         "//conditions:default": [],
@@ -38,13 +40,7 @@ flutter_plugin(
     plugin_platforms_json = "{\"android\":{\"ffiPlugin\":true,\"package\":\"com.github.dart_lang.jni\",\"pluginClass\":\"JniPlugin\"},\"linux\":{\"ffiPlugin\":true},\"windows\":{\"ffiPlugin\":true}}",
     visibility = ["//visibility:public"],
     deps = [
-        "@{HUB_NAME}__args//:args",
-        "@{HUB_NAME}__collection//:collection",
-        "@{HUB_NAME}__ffi//:ffi",
-        "@{HUB_NAME}__meta//:meta",
-        "@{HUB_NAME}__package_config//:package_config",
-        "@{HUB_NAME}__path//:path",
-        "@{HUB_NAME}__plugin_platform_interface//:plugin_platform_interface",
+        {DEPS}
     ],
 )
 

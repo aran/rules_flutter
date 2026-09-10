@@ -6,7 +6,20 @@ to each app's kernel-compile srcs directly so it resolves
 `package:flutter` through the user's pub-managed `@deps`.
 """
 
+load("@rules_dart//dart:defs.bzl", "dart_format_test")
+
 exports_files(
     ["agent.dart"],
     visibility = ["//flutter:__subpackages__"],
+)
+
+# Not a `dart_library` and reached by no `dart_binary` or `dart_test`, so
+# nothing else in this package can carry it to a check the way
+# `dart_analyze_test`'s `target=` attribute does. `dart_format_test` needs no
+# such handle — it takes files directly — so this is the whole cost.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    options = "//:analysis_options.yaml",
 )

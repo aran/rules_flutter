@@ -2,14 +2,17 @@ name: codegen_e2e
 publish_to: none
 
 environment:
-  sdk: ^3.0.0
+  sdk: ^3.12.0
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_localized_locales: ^2.0.5
 dev_dependencies:
+  very_good_analysis: ^10.3.0
   test: ^1.30.0
   flutter_test:
     sdk: flutter

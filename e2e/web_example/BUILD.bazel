@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_dart//dart:defs.bzl", "dart_test")
-load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle", "flutter_web_index_html_gen", "flutter_web_manifest_gen")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_library")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle", "flutter_web_manifest_gen")
 
 exports_files(["pubspec.lock"])
 
@@ -13,18 +14,28 @@ flutter_web_app(
     name = "app_wasm",
     package_name = "web_example",
     app_name = "Web Example",
+    # A first-party asset, so the web dev loop's asset reload has something
+    # real to deliver.
+    assets = glob(["assets/**"]),
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     deps = [
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
     ],
 )
 
-# Variant with a non-default base_href, exercising
-# flutter_web_index_html_subst on the user-provided web/index.html.
+# Variant with a non-default base_href, exercising substitution of the
+# user-provided web/index.html.
 flutter_web_app(
     name = "app_wasm_subpath",
     package_name = "web_example",
     app_name = "Web Example (subpath)",
+    # A first-party asset, so the web dev loop's asset reload has something
+    # real to deliver.
+    assets = glob(["assets/**"]),
     base_href = "/web_example/",
     deps = [
         "@deps//:flutter",
@@ -37,12 +48,6 @@ flutter_web_app(
 # JS build (dart2js + canvaskit) — legacy, wider browser support
 # =============================================================================
 
-flutter_web_index_html_gen(
-    name = "app_js_index",
-    app_name = "Web Example JS",
-    base_href = "/web_example_js/",
-)
-
 flutter_web_manifest_gen(
     name = "app_js_manifest",
     app_name = "Web Example JS",
@@ -51,11 +56,17 @@ flutter_web_manifest_gen(
 flutter_web_bundle(
     name = "app_js",
     package_name = "web_example",
+    assets = glob(["assets/**"]),
+    base_href = "/web_example_js/",
     compiler = "dart2js",
-    index_html = ":app_js_index",
+    # Exercised here rather than on the unminified target: only minified
+    # output has names to choose, so alongside `minify_js = "false"` this
+    # setting reaches the command line and decides nothing.
+    frequency_based_minification = False,
     main = "lib/main.dart",
     manifest_json = ":app_js_manifest",
     renderer = "canvaskit",
+    title = "Web Example JS",
     web_assets = glob(
         ["web/**"],
         exclude = [
@@ -85,12 +96,49 @@ flutter_web_app(
 )
 
 # =============================================================================
+# Approach 5: Tier 2 with a bootstrap template carrying a web_define
+#
+# The dev loop's boot path, end to end: `templates/dev_bootstrap.js` sets a
+# global from `web_defines`, and `web_define_e2e_test.dart` reads that global
+# off the live page of a `-d chrome` run. Nothing else here proves a define
+# reaches the browser rather than only the built bundle.
+#
+# In the root package because it reuses this package's `lib/main.dart` and
+# assets; a target beside `custom_boot`'s templates would have to carry copies
+# of both. dart2js + canvaskit to keep the debug compile this adds as cheap as
+# the sibling `:app_js`.
+# =============================================================================
+
+flutter_web_bundle(
+    name = "app_dev_boot",
+    package_name = "web_example",
+    # `lib/main.dart` reads one, and an app reporting a failed asset load is a
+    # worse signal to run an assertion against than one that boots cleanly.
+    assets = glob(["assets/**"]),
+    bootstrap_js = "templates/dev_bootstrap.js",
+    compiler = "dart2js",
+    main = "lib/main.dart",
+    renderer = "canvaskit",
+    title = "Web Example (dev boot)",
+    web_defines = {"API_URL": "https://api.example.com"},
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# =============================================================================
 # Tests
 # =============================================================================
 
 build_test(
     name = "wasm_build_test",
     targets = [":app_wasm"],
+)
+
+build_test(
+    name = "dev_boot_build_test",
+    targets = [":app_dev_boot"],
 )
 
 build_test(
@@ -116,4 +164,160 @@ dart_test(
         ":app_wasm_subpath",
     ],
     main = "test/verify_index_html_test.dart",
+)
+
+dart_test(
+    name = "verify_service_worker_test",
+    data = [
+        ":app_js",
+        ":app_no_pwa",
+        ":app_wasm",
+    ],
+    main = "test/verify_service_worker_test.dart",
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    visibility = ["//custom_boot:__pkg__"],
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart.
+#
+# `flutter_web_app` provides `DartAnalyzableInfo`, so a bundle can be an
+# analysis target directly — `//custom_boot:custom_boot_analyze` is one. This
+# library covers strictly more: the bundles here name only
+# `main = "lib/main.dart"`, while this globs all of `lib/`, so anything under it
+# that no bundle reaches would otherwise be analyzed by nothing.
+flutter_library(
+    name = "app_lib",
+    package_name = "web_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "@deps//:flutter",
+        # Supplies lib/_embedder.yaml — the only way `dart:ui` resolves.
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# =============================================================================
+# Approach 4: compiler settings on a real app
+#
+# Everything above builds with the defaults. This target turns on the flags a
+# deployment actually reaches for, so they are exercised against a real
+# Flutter app rather than only against a `void main() {}` fixture — several of
+# them (csp, the experiments, dump-info) only do anything once there is a
+# program with imports, interop and icons in it.
+# =============================================================================
+
+flutter_web_app(
+    name = "app_tuned",
+    package_name = "web_example",
+    app_name = "Web Example (tuned)",
+    assets = glob(["assets/**"]),
+    # The size report, produced as a named output rather than deployed.
+    dump_info = True,
+    # Kept unminified and unstripped so the bundle can be read.
+    minify_js = "false",
+    minify_wasm = "false",
+    strip_wasm = False,
+    # Serves the renderer from the app itself, which is what lets this bundle
+    # run under a `script-src 'self'` policy — the CDN copy is a script the
+    # page may not fetch, and the app never boots without it.
+    use_local_canvaskit = True,
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+build_test(
+    name = "tuned_build_test",
+    targets = [":app_tuned"],
+)
+
+# A profile build of the same app: release-shaped, but readable.
+flutter_web_app(
+    name = "app_profile",
+    package_name = "web_example",
+    app_name = "Web Example (profile)",
+    assets = glob(["assets/**"]),
+    profile = True,
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+build_test(
+    name = "profile_build_test",
+    targets = [":app_profile"],
+)
+
+dart_test(
+    name = "verify_compiler_flags_test",
+    data = [
+        # The negative half of the `useLocalCanvasKit` check: a build that
+        # never asked for it must not carry it, or the positive assertion
+        # would hold for every bundle and mean nothing.
+        ":app_js",
+        ":app_tuned",
+        ":app_wasm",
+    ],
+    main = "test/verify_compiler_flags_test.dart",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_compiler_flags_test",
+    "verify_index_html_test",
+    "verify_service_worker_test",
+]]
+
+# Every `.dart` file directly in this package — `custom_boot` carries its own
+# `format_test`. `templates/dev_bootstrap.js` is JS, not Dart, so it is outside
+# this glob's reach regardless.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

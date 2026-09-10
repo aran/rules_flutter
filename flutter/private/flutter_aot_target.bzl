@@ -8,7 +8,7 @@ platforms (ELF .so).
 """
 
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "flutter_compile_kernel")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "KERNEL_COMPILE_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "flutter_compile_kernel")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 
 def _flutter_aot_target_impl(ctx):
@@ -19,7 +19,12 @@ def _flutter_aot_target_impl(ctx):
     is_debug = bazel_mode == "dbg"
 
     # Step 1: Kernel compilation.
-    kernel_dill = flutter_compile_kernel(ctx, flutter_sdk_info, aot = not is_debug).kernel_dill
+    kernel_dill = flutter_compile_kernel(
+        ctx,
+        flutter_sdk_info,
+        aot = not is_debug,
+        profile = ctx.attr.profile,
+    ).kernel_dill
 
     # In debug mode, return the kernel .dill directly (JIT, no gen_snapshot).
     if is_debug:
@@ -60,14 +65,11 @@ def _flutter_aot_target_impl(ctx):
         DefaultInfo(files = depset([output])),
     ]
 
-# flutter_aot_target needs core compilation attrs plus AOT-specific options.
-_AOT_ATTRS = {k: v for k, v in FLUTTER_APPLICATION_ATTRS.items() if k in (
-    "main",
-    "package_name",
-    "srcs",
-    "deps",
-    "defines",
-    "_extra_dart_defines",
+# The compile inputs arrive as a bundle, the gen_snapshot options by name.
+# Taking them from the shared bundle rather than copying attrs keeps this rule
+# from missing one `flutter_compile_kernel` reads — an attr reaching `ctx.attr`
+# on a rule that never declared it fails at analysis.
+_AOT_ATTRS = KERNEL_COMPILE_ATTRS | {k: v for k, v in FLUTTER_APPLICATION_ATTRS.items() if k in (
     "profile",
     "obfuscate",
     "split_debug_info",

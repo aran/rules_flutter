@@ -1,0 +1,4 @@
+# Disable lockfile for e2e tests (they use local_path_override which changes frequently)
+common --lockfile_mode=off
+
+try-import %workspace%/.bazelrc.user

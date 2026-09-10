@@ -14,10 +14,12 @@ effectively overriding the default named toolchain due to toolchain resolution p
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
+load("//flutter/private:flutter_gen_l10n_repo.bzl", "flutter_gen_l10n_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
 load("//flutter/private:flutter_sdk_package.bzl", "flutter_sdk_package")
 load("//flutter/private:pub_lock_sdks.bzl", "parse_lock_sdk_constraints", "version_below_lower_bound")
+load("//flutter/private:versions.bzl", "flutter_source_sha256")
 load(":repositories.bzl", "flutter_register_toolchains")
 
 _DEFAULT_NAME = "flutter"
@@ -32,10 +34,16 @@ def _parse_version(v):
     result = []
     for x in parts:
         if not x.isdigit():
+            # Parenthesised before `.format`: without them it binds to the last
+            # fragment of the concatenation alone, so this printed a literal
+            # `{}` for the version and then substituted the version into the
+            # slot meant for the offending component — which was never shown.
             fail(
-                "Invalid Flutter version '{}': expected numeric components " +
-                "separated by dots (e.g. '3.41.2'), but got non-numeric " +
-                "component '{}'.".format(v, x),
+                (
+                    "Invalid Flutter version '{}': expected numeric " +
+                    "components separated by dots (e.g. '3.41.2'), but got " +
+                    "non-numeric component '{}'."
+                ).format(v, x),
             )
         result.append(int(x))
     return result
@@ -73,7 +81,10 @@ _flutter_plugin_overlays = tag_class(attrs = {
               "label points at an `ext/BUILD.bazel` (or equivalent) that " +
               "anchors a directory tree of `<package>/<version>/BUILD.bazel.tpl` " +
               "overrides. flutter_pub_package walks user roots first, then the " +
-              "bundled `@rules_flutter//ext:BUILD.bazel`.",
+              "bundled `@rules_flutter//ext:BUILD.bazel`. A template declares " +
+              "its language version and its dependencies by placeholder " +
+              "(`{LANGUAGE_VERSION}`, `{DEPS}`), never by hand; see " +
+              "docs/TESTING.md \"Native Assets overlay authoring\".",
         allow_files = True,
         default = [],
     ),
@@ -108,6 +119,17 @@ def _toolchain_extension(module_ctx):
         flutter_register_toolchains(
             name = name,
             flutter_version = selected,
+        )
+
+        # The gen-l10n generator, carved out of the same release's
+        # flutter_tools. Declared unconditionally because bzlmod repositories
+        # are lazy: a workspace that never references `@{name}_gen_l10n` never
+        # fetches the tarball, the same way gen_snapshot repos work.
+        flutter_gen_l10n_repo(
+            name = name + "_gen_l10n",
+            flutter_version = selected,
+            sha256 = flutter_source_sha256(selected),
+            hub_name = "gen_l10n_deps",
         )
         selected_versions[name] = selected
 
@@ -204,12 +226,16 @@ def _toolchain_extension(module_ctx):
                     ignore_hook = name in ignore_hooks,
                 )
 
-            # Create spoke repos for Flutter SDK packages.
+            # Create spoke repos for Flutter SDK packages. Each pins the same
+            # framework source tarball, so the checksum is read once here for
+            # all of them.
+            sdk_source_sha256 = flutter_source_sha256(flutter_version)
             for name in sdk_flutter.keys():
                 flutter_sdk_package(
                     name = hub_name + "__" + name,
                     package_name = name,
                     flutter_version = flutter_version,
+                    sha256 = sdk_source_sha256,
                     hub_name = hub_name,
                     lock_packages = all_package_names,
                 )

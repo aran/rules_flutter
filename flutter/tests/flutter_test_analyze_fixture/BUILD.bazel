@@ -1,0 +1,59 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test")
+load("//flutter:defs.bzl", "flutter_test")
+
+# The guard on `flutter_test`'s `DartAnalyzableInfo`, in the root workspace so
+# `bazel test //...` covers it. Test sources are the files this whole provider
+# exists to reach: a `flutter_test` compiles its `main` to a kernel, which
+# rejects broken code but is indifferent to everything `dart analyze
+# --fatal-infos` reports.
+#
+# Four things have to hold for `:analyze_test` to pass, and it fails loudly if
+# any stops:
+#
+#   * `flutter_test` provides `DartAnalyzableInfo` at all;
+#   * `main` is in it, so `test/counter_test.dart` is analyzed;
+#   * the nested closure names *this* package, so
+#     `package:flutter_test_analyze_fixture/counter.dart` resolves — the
+#     package-less closure a `dart_test` gets would report it missing;
+#   * `sky_engine` reaches the analyzer without any dep here naming it, so
+#     `dart:ui` resolves.
+#
+# `manual` because the test cannot run, for two independent reasons.
+# `:fake_test_api` satisfies the package-name check that gates the rule but is
+# not `package:test_api`, so the generated bootstrap would not compile. And a
+# `flutter_test` cannot build in a non-root Bazel package at all: `package_for`
+# (rules_dart `dart/private/source_set.bzl`) claims every path under a
+# non-empty `lib_root`, so the generated bootstrap joins this package's group,
+# triggers source assembly into a `.pkgsrcs` directory, and its relative import
+# of `main` stops resolving. Every `flutter_test` that runs today sits at a
+# workspace root, where `lib_root` is `""` and only `lib/…` is claimed.
+#
+# Only the analysis closure is exercised, and `manual` does not hide it —
+# `:analyze_test` depends on this target, and a dependency is built regardless
+# of the tag.
+#
+# The running `test_api`-only configuration lives at `e2e/codegen`'s root
+# instead; see `//:test_api_only_test` there.
+flutter_test(
+    name = "fixture_test",
+    package_name = "flutter_test_analyze_fixture",
+    srcs = ["lib/counter.dart"],
+    main = "test/counter_test.dart",
+    tags = ["manual"],
+    deps = ["//flutter/tests/flutter_test_analyze_fixture/fake_test_api"],
+)
+
+dart_analyze_test(
+    name = "analyze_test",
+    size = "small",
+    target = ":fixture_test",
+)
+
+# `:fake_test_api` is its own package (see the comment there), so this glob
+# does not reach it.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

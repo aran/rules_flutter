@@ -10,9 +10,11 @@
 # explicit `sdk_frameworks`, which rules_apple's own examples use
 # uniformly. This overlay supplies it.
 #
-# Substitutions ({HUB_NAME}, {PKG}, {VERSION}) are injected by
-# `flutter_pub_package`'s `_resolve_overlay_template`. The overlay sits
-# under `0/`, so any 0.x audio_session version routes here.
+# Placeholders (HUB_NAME, PKG, VERSION, LANGUAGE_VERSION, DEPS — written in
+# braces below, and deliberately not in this comment, because substitution
+# rewrites comment text too) are injected by `flutter_pub_package`'s
+# `_resolve_overlay_template`. The overlay sits under `0/`, so any 0.x
+# audio_session version routes here.
 
 load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
 load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
@@ -28,15 +30,12 @@ flutter_plugin(
         "@platforms//os:ios": [":{PKG}_apple_ios"],
         "//conditions:default": [],
     }),
-    language_version = "3.4",
+    language_version = "{LANGUAGE_VERSION}",
     package_name = "{PKG}",
     plugin_platforms_json = "{\"android\":{\"package\":\"com.ryanheise.audio_session\",\"pluginClass\":\"AudioSessionPlugin\"},\"ios\":{\"pluginClass\":\"AudioSessionPlugin\"},\"macos\":{\"pluginClass\":\"AudioSessionPlugin\"},\"web\":{\"fileName\":\"audio_session_web.dart\",\"pluginClass\":\"AudioSessionWeb\"}}",
     visibility = ["//visibility:public"],
     deps = [
-        "@{HUB_NAME}__flutter//:flutter",
-        "@{HUB_NAME}__flutter_web_plugins//:flutter_web_plugins",
-        "@{HUB_NAME}__meta//:meta",
-        "@{HUB_NAME}__rxdart//:rxdart",
+        {DEPS}
     ],
 )
 

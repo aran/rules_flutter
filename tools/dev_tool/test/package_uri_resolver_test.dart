@@ -9,21 +9,27 @@ void main() {
     PackageUriResolver make(List<({String name, String libRoot})> pkgs) =>
         PackageUriResolver(workspaceRoot: ws, sourcePackages: pkgs);
 
-    test('maps an app lib file (root package, empty libRoot) to package: URI',
-        () {
-      final r = make([(name: 'app', libRoot: '')]);
-      expect(r.toPackageUri('$ws/lib/main.dart'), 'package:app/main.dart');
-      expect(r.toPackageUri('$ws/lib/sub/widget.dart'),
-          'package:app/sub/widget.dart');
-    });
+    test(
+      'maps an app lib file (root package, empty libRoot) to package: URI',
+      () {
+        final r = make([(name: 'app', libRoot: '')]);
+        expect(r.toPackageUri('$ws/lib/main.dart'), 'package:app/main.dart');
+        expect(
+          r.toPackageUri('$ws/lib/sub/widget.dart'),
+          'package:app/sub/widget.dart',
+        );
+      },
+    );
 
     test('maps a dependency package source under its libRoot', () {
       final r = make([
         (name: 'app', libRoot: ''),
         (name: 'dep', libRoot: 'packages/dep'),
       ]);
-      expect(r.toPackageUri('$ws/packages/dep/lib/api.dart'),
-          'package:dep/api.dart');
+      expect(
+        r.toPackageUri('$ws/packages/dep/lib/api.dart'),
+        'package:dep/api.dart',
+      );
     });
 
     test('longest libDir prefix wins for nested packages', () {
@@ -34,8 +40,10 @@ void main() {
         (name: 'inner', libRoot: 'lib/vendored'),
       ]);
       // libDir(outer) = /work/app/lib ; libDir(inner) = /work/app/lib/vendored/lib
-      expect(r.toPackageUri('$ws/lib/vendored/lib/x.dart'),
-          'package:inner/x.dart');
+      expect(
+        r.toPackageUri('$ws/lib/vendored/lib/x.dart'),
+        'package:inner/x.dart',
+      );
       expect(r.toPackageUri('$ws/lib/main.dart'), 'package:outer/main.dart');
     });
 
@@ -59,7 +67,10 @@ void main() {
 
     test('normalizes input paths (handles .. and trailing separators)', () {
       final r = make([(name: 'app', libRoot: '')]);
-      expect(r.toPackageUri('$ws/lib/foo/../main.dart'), 'package:app/main.dart');
+      expect(
+        r.toPackageUri('$ws/lib/foo/../main.dart'),
+        'package:app/main.dart',
+      );
     });
   });
 }

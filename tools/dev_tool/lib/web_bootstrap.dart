@@ -15,9 +15,16 @@ import 'dart:io' show Platform;
 /// If [pluginRegistrantEntrypoint] is provided, imports it and calls
 /// `registerPlugins()` before running the app — matching Flutter's
 /// `generateMainDartFile()` from `main_dart.dart`.
+///
+/// If [agentExtensionsEntrypoint] is provided, imports it and registers the
+/// `ext.rules_flutter.*` agent surface first of all. This is the web
+/// counterpart of what the native rules get from the engine's pre-main
+/// plugin-registrant hook, which web has no equivalent of — DDC runs this
+/// file's `main()` and nothing before it.
 String generateSyntheticMainDart({
   required String appEntrypoint,
   String? pluginRegistrantEntrypoint,
+  String? agentExtensionsEntrypoint,
 }) {
   final pluginImport = pluginRegistrantEntrypoint != null
       ? "import '$pluginRegistrantEntrypoint' as pluginRegistrant;"
@@ -27,6 +34,17 @@ String generateSyntheticMainDart({
     registerPlugins: () {
       pluginRegistrant.registerPlugins();
     },'''
+      : '';
+  final agentImport = agentExtensionsEntrypoint != null
+      ? "import '$agentExtensionsEntrypoint' as agentExtensions;"
+      : '';
+  // Before `bootstrapEngine`, which does not return until the app is running:
+  // registering after it would leave the whole startup window — the one an
+  // agent acts in the moment `app.started` arrives — with no extensions at all.
+  // Nothing here needs a binding; the agent defers all binding-dependent setup
+  // to first invocation precisely so it can be registered this early.
+  final registerAgent = agentExtensionsEntrypoint != null
+      ? '  agentExtensions.registerRulesFlutterAgentExtensions();\n'
       : '';
 
   return '''
@@ -40,12 +58,13 @@ import 'dart:async';
 
 import '$appEntrypoint' as entrypoint;
 $pluginImport
+$agentImport
 
 typedef _UnaryFunction = dynamic Function(List<String> args);
 typedef _NullaryFunction = dynamic Function();
 
 Future<void> main() async {
-  await ui_web.bootstrapEngine(
+$registerAgent  await ui_web.bootstrapEngine(
     runApp: () {
       if (entrypoint.main is _UnaryFunction) {
         return (entrypoint.main as _UnaryFunction)(<String>[]);
@@ -56,37 +75,6 @@ $registerPluginsCallback
   );
 }
 ''';
-}
-
-/// Generate the `flutter_bootstrap.js` script.
-///
-/// Embeds `flutter.js` inline and sets up `_flutter.buildConfig` with DDC
-/// compilation target, then calls `_flutter.loader.load()` to initialize
-/// the engine and load `main.dart.js`.
-///
-/// Matches Flutter's `_serveFlutterBootstrapJs()` + `_buildConfigString`.
-String generateFlutterBootstrapJs({
-  required String flutterJsContents,
-  required String engineRevision,
-}) {
-  return '''
-$flutterJsContents
-
-if (!window._flutter) {
-  window._flutter = {};
-}
-_flutter.buildConfig = ${_buildConfigJson(engineRevision)};
-
-_flutter.loader.load();
-''';
-}
-
-String _buildConfigJson(String engineRevision) {
-  // Match Flutter's exact build config structure for DDC dev mode.
-  // useLocalCanvasKit: true tells flutter.js to load CanvasKit from the
-  // relative path "canvaskit/" instead of gstatic.com CDN. This matches
-  // Flutter's dev server behavior — faster loads, no external dependency.
-  return '{"engineRevision":"$engineRevision","builds":[{"compileTarget":"dartdevc","renderer":"canvaskit","mainJsPath":"main.dart.js"}],"useLocalCanvasKit":true}';
 }
 
 // ---- DDC Bootstrap Scripts (served as JS to the browser) ----
@@ -318,57 +306,3 @@ String generateDDCMainModuleScript({
 String generateOnLoadEndScript() {
   return r'window.$onLoadEndCallback();';
 }
-
-/// Generate the `flutter_bootstrap.js` for WASM mode.
-///
-/// Uses `dart2wasm` compile target and the specified renderer.
-String generateWasmFlutterBootstrapJs({
-  required String flutterJsContents,
-  required String engineRevision,
-  String renderer = 'skwasm',
-}) {
-  final config = '{"engineRevision":"$engineRevision","builds":'
-      '[{"compileTarget":"dart2wasm","renderer":"$renderer",'
-      '"mainWasmPath":"main.dart.wasm","jsSupportRuntimePath":"main.dart.mjs"}]}';
-  return '''
-$flutterJsContents
-
-if (!window._flutter) {
-  window._flutter = {};
-}
-_flutter.buildConfig = $config;
-
-_flutter.loader.load();
-''';
-}
-
-/// CSS loading indicator shown while DDC modules are loading.
-///
-/// Matches Flutter's loading progress bar style.
-const loadingIndicatorCss = '''
-.flutter-loader {
-  width: 100%;
-  height: 8px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 10000;
-  background-color: #e0e0e0;
-}
-.flutter-loader .indeterminate {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-.flutter-loader .indeterminate .bar {
-  position: absolute;
-  height: 100%;
-  background-color: #1a73e8;
-  animation: flutter-loading 2.1s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
-}
-@keyframes flutter-loading {
-  0% { left: -35%; right: 100%; }
-  60% { left: 100%; right: -90%; }
-  100% { left: 100%; right: -90%; }
-}
-''';

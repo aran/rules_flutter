@@ -40,6 +40,8 @@ def _flutter_plist_merge_impl(ctx):
     for addition in ctx.files.additions:
         arguments += ["--addition", addition.path]
         inputs.append(addition)
+    for key in ctx.attr.drop_empty_keys:
+        arguments += ["--drop-empty", key]
     arguments += ["--output", output.path]
 
     ctx.actions.run(
@@ -67,9 +69,19 @@ flutter_plist_merge = rule(
         ),
         "additions": attr.label_list(
             doc = "Plist files whose root-dictionary keys merge into `base`, " +
-                  "in order.",
+                  "in order. May be empty when `drop_empty_keys` is the only " +
+                  "job.",
             allow_files = True,
-            mandatory = True,
+        ),
+        "drop_empty_keys": attr.string_list(
+            doc = "Keys to remove from `base` when their value is an empty " +
+                  "string. For the `flutter create` scaffold's own " +
+                  "placeholders: the macOS `Info.plist` declares " +
+                  "`CFBundleIconFile` as `<string></string>` for Xcode to " +
+                  "fill in, and Apple's plisttool refuses that against the " +
+                  "value `macos_application` generates from an app icon " +
+                  "catalog. A key with a real value is left alone, so a " +
+                  "genuine conflict is still reported.",
         ),
         "mode": attr.string(
             doc = "How a key present in both the base and an addition is " +
@@ -90,7 +102,8 @@ flutter_plist_merge = rule(
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
     ],
-    doc = "Merges plist additions into a base plist under an explicit mode.",
+    doc = "Merges plist additions into a base plist under an explicit mode, " +
+          "and drops the scaffold placeholders named by `drop_empty_keys`.",
 )
 
 def flutter_entitlements_merge(name, additions, base = None, **kwargs):

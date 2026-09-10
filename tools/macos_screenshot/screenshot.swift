@@ -25,6 +25,23 @@ struct Args {
   let title: String?
 }
 
+/// Why a capture fails *after* the windows have been found and named.
+///
+/// Reaching here means `SCShareableContent` enumerated successfully, which
+/// itself requires Screen Recording — so the permission is granted and "grant
+/// Screen Recording" is the wrong answer. What
+/// ScreenCaptureKit will not do is start a stream against a powered-down panel,
+/// and it keeps enumerating windows perfectly well after the display idles out.
+/// A suite runs unattended for minutes and a terminal driving it does not count
+/// as user activity, so `displaysleep` reaches it mid-run.
+let sleepingDisplayHint =
+  "ScreenCaptureKit enumerated the windows, so Screen Recording is granted"
+  + " — what it could not do is start a capture stream. The usual cause is a"
+  + " sleeping display: it keeps enumerating windows after the panel powers"
+  + " down. Confirm with `pmset -g log | grep \"Display is turned\"`, and hold"
+  + " it awake with `caffeinate -d <command>` (plain `caffeinate` prevents"
+  + " system sleep only, which is not the same thing)."
+
 func die(_ msg: String, code: Int32 = 1) -> Never {
   FileHandle.standardError.write((msg + "\n").data(using: .utf8)!)
   exit(code)
@@ -87,16 +104,25 @@ func writePNG(_ image: CGImage, to path: String) {
 @available(macOS 14.0, *)
 func captureSingle(windows: [SCWindow], title: String, to outputPath: String) async {
   guard let match = windows.first(where: { $0.title == title }) else {
-    let available = windows.compactMap { $0.title }
+    // No permission claim here, for the reason given on `dieNoOnScreenWindow`:
+    // this line is only reachable once the enumeration succeeded, and the grant
+    // is a precondition of that. An untitled window is just untitled.
+    let available = windows.map { w -> String in
+      let t = w.title ?? ""
+      return t.isEmpty ? "<untitled>" : "\"\(t)\""
+    }.joined(separator: ", ")
     die(
-      "No window titled \"\(title)\" for the target pid. Available titles: \(available). (Titles require Screen Recording permission to be populated.)"
+      "No window titled \"\(title)\" for the target pid. Its \(windows.count) "
+        + "window(s): \(available)."
     )
   }
   do {
     let image = try await captureWindow(match)
     writePNG(image, to: outputPath)
   } catch {
-    die("Failed to capture window titled \"\(title)\": \(error.localizedDescription)")
+    die(
+      "Failed to capture window titled \"\(title)\": \(error.localizedDescription)\n"
+        + sleepingDisplayHint)
   }
 }
 
@@ -124,7 +150,9 @@ func captureComposite(windows: [SCWindow], to outputPath: String) async {
     }
   }
   if captures.isEmpty {
-    die("No capturable windows for the target pid.")
+    die(
+      "No capturable windows for the target pid, though \(windows.count) "
+        + "window(s) were found.\n" + sleepingDisplayHint)
   }
 
   let unionRect = captures.dropFirst().reduce(captures[0].rect) { $0.union($1.rect) }
@@ -173,6 +201,64 @@ func captureComposite(windows: [SCWindow], to outputPath: String) async {
   writePNG(composite, to: outputPath)
 }
 
+/// Report what the enumeration found when the target pid owns no window in
+/// ScreenCaptureKit's on-screen set.
+///
+/// A cause named but not established is worse than no cause at all: it costs
+/// every later reader the round trip to disprove it. In particular, a window
+/// absent from the on-screen set need not be minimized or hidden — one whose
+/// `AXMinimized` is false and whose frame sits wholly inside the display can
+/// stay out of the capturable set regardless.
+///
+/// So the empty set is re-enumerated *including* off-screen windows, and this
+/// reports what came back rather than why. The two shapes it can come back in
+/// are still worth telling apart, because the caller acts on them differently:
+///   * windows exist but none are in the on-screen set — reported with their
+///     titles and geometry, and with no claim about the reason;
+///   * no windows at all — the app has not created one, or this is not the pid
+///     that owns its UI.
+///
+/// Do not report a third shape — "every title is empty, so Screen Recording
+/// must be missing". Reaching this function at all proves the opposite.
+/// `SCShareableContent` does not degrade to titleless windows when the grant is
+/// absent — it *fails*, with `SCStreamErrorUserDeclined` (-3801, "the user did
+/// not allow TCCs to start capture"), which `main`'s catch reports before
+/// anything can get here. Degrading to titleless output is
+/// `CGWindowListCopyWindowInfo` behaviour, the pre-macOS-15 API this file
+/// replaces, which omits `kCGWindowName` without the grant. And plenty of
+/// windows simply have no title: with the grant present, Finder and Tailscale
+/// both enumerate with every title empty.
+@available(macOS 14.0, *)
+func dieNoOnScreenWindow(pid: pid_t) async -> Never {
+  let all: SCShareableContent
+  do {
+    all = try await SCShareableContent.excludingDesktopWindows(
+      true, onScreenWindowsOnly: false)
+  } catch {
+    die(
+      "No on-screen windows found for pid \(pid), and re-enumerating with "
+        + "off-screen windows included also failed: \(error.localizedDescription)")
+  }
+  let owned = all.windows.filter { $0.owningApplication?.processID == pid }
+  if owned.isEmpty {
+    die(
+      "No windows at all for pid \(pid) — on screen or off. Either the app has "
+        + "not created its window yet, or this pid does not own the app's UI.")
+  }
+
+  let described = owned.map { w -> String in
+    let title = w.title ?? ""
+    let name = title.isEmpty ? "<untitled>" : "\"\(title)\""
+    return
+      "\(name) \(Int(w.frame.width))x\(Int(w.frame.height)) at (\(Int(w.frame.minX)),\(Int(w.frame.minY)))"
+  }.joined(separator: ", ")
+
+  die(
+    "pid \(pid) owns \(owned.count) window(s), and ScreenCaptureKit's on-screen set — the only "
+      + "windows it can capture — contains none of them: \(described)."
+  )
+}
+
 @main
 struct Main {
   static func main() async {
@@ -198,9 +284,7 @@ struct Main {
     }
     let windows = content.windows.filter { $0.owningApplication?.processID == args.pid }
     if windows.isEmpty {
-      die(
-        "No on-screen windows found for pid \(args.pid). The app may not have opened a window yet, or Screen Recording permission is not granted."
-      )
+      await dieNoOnScreenWindow(pid: args.pid)
     }
     if let title = args.title {
       await captureSingle(windows: windows, title: title, to: args.outputPath)

@@ -101,7 +101,7 @@ class AppLogStream {
   bool _closed = false;
 
   AppLogStream({this.capacity = _defaultCapacity})
-      : assert(capacity > 0, 'capacity must be positive');
+    : assert(capacity > 0, 'capacity must be positive');
 
   /// Close this stream once every future in [sources] has completed.
   ///
@@ -188,7 +188,9 @@ class AppLogStream {
   /// line and reports the gap in [LogPage.missed]; it is never silently
   /// treated as if it had been contiguous.
   LogPage read(int cursor, {int limit = _maxPageSize}) {
-    final effectiveLimit = limit <= 0 ? 0 : (limit > _maxPageSize ? _maxPageSize : limit);
+    final effectiveLimit = limit <= 0
+        ? 0
+        : (limit > _maxPageSize ? _maxPageSize : limit);
     if (_buffer.isEmpty || effectiveLimit == 0) {
       return LogPage(lines: const [], nextCursor: _nextCursor, missed: 0);
     }
@@ -309,9 +311,11 @@ AppLogPump pumpProcessLines(
   }
 
   return AppLogPump._([
-    linesOf(process.stdout)
-        .listen((l) => handle(l, isError: false), onDone: onStreamDone),
-    linesOf(process.stderr)
-        .listen((l) => handle(l, isError: stderrIsError), onDone: onStreamDone),
+    linesOf(
+      process.stdout,
+    ).listen((l) => handle(l, isError: false), onDone: onStreamDone),
+    linesOf(
+      process.stderr,
+    ).listen((l) => handle(l, isError: stderrIsError), onDone: onStreamDone),
   ], done);
 }

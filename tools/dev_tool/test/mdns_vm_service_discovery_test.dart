@@ -10,8 +10,7 @@ import 'fakes.dart';
 Future<List<NetworkInterface>> noInterfaces({
   bool includeLinkLocal = false,
   InternetAddressType type = InternetAddressType.any,
-}) async =>
-    const [];
+}) async => const [];
 
 void main() {
   const bundleId = 'com.example.app';
@@ -31,7 +30,9 @@ void main() {
     test('accepts the bundle id verbatim', () {
       expect(
         mdnsInstanceMatchesBundleId(
-            'com.example.app.$dartVmServiceMdnsName', 'com.example.app'),
+          'com.example.app.$dartVmServiceMdnsName',
+          'com.example.app',
+        ),
         isTrue,
       );
     });
@@ -41,7 +42,9 @@ void main() {
     test('accepts a conflict-renamed instance', () {
       expect(
         mdnsInstanceMatchesBundleId(
-            'com.example.app (2).$dartVmServiceMdnsName', 'com.example.app'),
+          'com.example.app (2).$dartVmServiceMdnsName',
+          'com.example.app',
+        ),
         isTrue,
       );
     });
@@ -49,15 +52,19 @@ void main() {
     test('rejects a different app that starts with the same bundle id', () {
       expect(
         mdnsInstanceMatchesBundleId(
-            'com.example.app.share.$dartVmServiceMdnsName', 'com.example.app'),
+          'com.example.app.share.$dartVmServiceMdnsName',
+          'com.example.app',
+        ),
         isFalse,
       );
     });
 
     test('rejects another service type', () {
       expect(
-        mdnsInstanceMatchesBundleId('com.example.app._http._tcp.local',
-            'com.example.app'),
+        mdnsInstanceMatchesBundleId(
+          'com.example.app._http._tcp.local',
+          'com.example.app',
+        ),
         isFalse,
       );
     });
@@ -89,8 +96,10 @@ void main() {
 
     test('rejects a hostname that merely shares a suffix', () {
       expect(
-        mdnsTargetMatchesHostname('Other-iPhone.coredevice.local',
-            deviceHostnames),
+        mdnsTargetMatchesHostname(
+          'Other-iPhone.coredevice.local',
+          deviceHostnames,
+        ),
         isFalse,
       );
     });
@@ -163,78 +172,108 @@ void main() {
     test('closes the client it opened', () async {
       final factory = FakeMDnsClientFactory(
         records: dartVmServiceRecords(
-            instance: bundleId, host: deviceHost, port: 1, authCode: 'a'),
+          instance: bundleId,
+          host: deviceHost,
+          port: 1,
+          authCode: 'a',
+        ),
       );
-      await discoveryOver(factory)
-          .discover(bundleId: bundleId, hostnames: deviceHostnames);
+      await discoveryOver(
+        factory,
+      ).discover(bundleId: bundleId, hostnames: deviceHostnames);
       expect(factory.clients.single.stopped, isTrue);
     });
 
     // A one-shot mDNS query is UDP and gets lost; RFC 6762 §5.1 requires the
-    // querier to retransmit. Without this the real thing found a USB-attached
-    // iPhone about two times in five.
-    test('retransmits until an answer arrives', () async {
-      final factory = FakeMDnsClientFactory(
-        silentAttempts: 2,
-        records: dartVmServiceRecords(
-            instance: bundleId, host: deviceHost, port: 50541, authCode: 'a'),
-      );
+    // querier to retransmit.
+    test(
+      'retransmits until an answer arrives',
+      () async {
+        final factory = FakeMDnsClientFactory(
+          silentAttempts: 2,
+          records: dartVmServiceRecords(
+            instance: bundleId,
+            host: deviceHost,
+            port: 50541,
+            authCode: 'a',
+          ),
+        );
 
-      final record = await discoveryOver(factory).discover(
-        bundleId: bundleId,
-        hostnames: deviceHostnames,
-        timeout: const Duration(seconds: 20),
-      );
+        final record = await discoveryOver(factory).discover(
+          bundleId: bundleId,
+          hostnames: deviceHostnames,
+          timeout: const Duration(seconds: 20),
+        );
 
-      expect(record.port, 50541);
-      expect(factory.clients.length, 3);
-    }, timeout: const Timeout(Duration(seconds: 30)));
+        expect(record.port, 50541);
+        expect(factory.clients.length, 3);
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
 
     // A lookup that answers instantly — nothing on the link, or a client that
     // short-circuits — must not become a tight loop of queries.
-    test('paces retransmissions instead of spinning', () async {
-      final factory = FakeMDnsClientFactory();
-      final elapsed = Stopwatch()..start();
+    test(
+      'paces retransmissions instead of spinning',
+      () async {
+        final factory = FakeMDnsClientFactory();
+        final elapsed = Stopwatch()..start();
 
-      await expectLater(
-        discoveryOver(factory).discover(
-          bundleId: bundleId,
-          hostnames: deviceHostnames,
-          timeout: const Duration(seconds: 3),
-        ),
-        throwsA(isA<MdnsDiscoveryException>()),
-      );
+        await expectLater(
+          discoveryOver(factory).discover(
+            bundleId: bundleId,
+            hostnames: deviceHostnames,
+            timeout: const Duration(seconds: 3),
+          ),
+          throwsA(isA<MdnsDiscoveryException>()),
+        );
 
-      // 3s at 1s then 2s intervals is two queries, not hundreds.
-      expect(factory.clients.length, lessThanOrEqualTo(4));
-      expect(elapsed.elapsed, greaterThanOrEqualTo(const Duration(seconds: 3)));
-    }, timeout: const Timeout(Duration(seconds: 30)));
+        // 3s at 1s then 2s intervals is two queries, not hundreds.
+        expect(factory.clients.length, lessThanOrEqualTo(4));
+        expect(
+          elapsed.elapsed,
+          greaterThanOrEqualTo(const Duration(seconds: 3)),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
 
     // A launch that legitimately takes minutes is indistinguishable from a
     // hang unless something says so.
-    test('reports that it is still waiting once past slowAfter', () async {
-      final factory = FakeMDnsClientFactory();
-      final reported = <Duration>[];
+    test(
+      'reports that it is still waiting once past slowAfter',
+      () async {
+        final factory = FakeMDnsClientFactory();
+        final reported = <Duration>[];
 
-      await expectLater(
-        discoveryOver(factory).discover(
-          bundleId: bundleId,
-          hostnames: deviceHostnames,
-          timeout: const Duration(seconds: 4),
-          slowAfter: const Duration(seconds: 1),
-          onSlow: reported.add,
-        ),
-        throwsA(isA<MdnsDiscoveryException>()),
-      );
+        await expectLater(
+          discoveryOver(factory).discover(
+            bundleId: bundleId,
+            hostnames: deviceHostnames,
+            timeout: const Duration(seconds: 4),
+            slowAfter: const Duration(seconds: 1),
+            onSlow: reported.add,
+          ),
+          throwsA(isA<MdnsDiscoveryException>()),
+        );
 
-      expect(reported, hasLength(1), reason: 'once, not once per retry');
-      expect(reported.single, greaterThanOrEqualTo(const Duration(seconds: 1)));
-    }, timeout: const Timeout(Duration(seconds: 30)));
+        expect(reported, hasLength(1), reason: 'once, not once per retry');
+        expect(
+          reported.single,
+          greaterThanOrEqualTo(const Duration(seconds: 1)),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
 
     test('stays quiet when the answer arrives before slowAfter', () async {
       final factory = FakeMDnsClientFactory(
         records: dartVmServiceRecords(
-            instance: bundleId, host: deviceHost, port: 1, authCode: 'a'),
+          instance: bundleId,
+          host: deviceHost,
+          port: 1,
+          authCode: 'a',
+        ),
       );
       final reported = <Duration>[];
 
@@ -261,8 +300,13 @@ void main() {
           resolveAddress: true,
           timeout: const Duration(seconds: 1),
         ),
-        throwsA(isA<MdnsDiscoveryException>().having(
-            (e) => e.message, 'message', isNot(contains('link-local')))),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.message,
+            'message',
+            isNot(contains('link-local')),
+          ),
+        ),
       );
     });
 
@@ -285,7 +329,8 @@ void main() {
 
       expect(record.address?.address, '192.168.1.244');
       expect(
-        record.uriFor(host: record.address!.address, port: record.port)
+        record
+            .uriFor(host: record.address!.address, port: record.port)
             .toString(),
         'http://192.168.1.244:50541/a/',
       );
@@ -294,7 +339,11 @@ void main() {
     test('fails loudly when the address cannot be resolved', () async {
       final factory = FakeMDnsClientFactory(
         records: dartVmServiceRecords(
-            instance: bundleId, host: deviceHost, port: 1, authCode: 'a'),
+          instance: bundleId,
+          host: deviceHost,
+          port: 1,
+          authCode: 'a',
+        ),
       );
 
       expect(
@@ -303,9 +352,13 @@ void main() {
           hostnames: deviceHostnames,
           resolveAddress: true,
         ),
-        throwsA(isA<MdnsDiscoveryException>().having(
-            (e) => e.failure, 'failure',
-            MdnsDiscoveryFailure.addressUnresolved)),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.failure,
+            'failure',
+            MdnsDiscoveryFailure.addressUnresolved,
+          ),
+        ),
       );
     });
 
@@ -314,10 +367,11 @@ void main() {
     test('ignores the same bundle id advertised by another host', () async {
       final factory = FakeMDnsClientFactory(
         records: dartVmServiceRecords(
-            instance: bundleId,
-            host: 'Mac-Studio.local',
-            port: 50541,
-            authCode: 'a'),
+          instance: bundleId,
+          host: 'Mac-Studio.local',
+          port: 50541,
+          authCode: 'a',
+        ),
       );
 
       await expectLater(
@@ -326,19 +380,26 @@ void main() {
           hostnames: deviceHostnames,
           timeout: const Duration(seconds: 1),
         ),
-        throwsA(isA<MdnsDiscoveryException>()
-            .having((e) => e.failure, 'failure', MdnsDiscoveryFailure.notFound)
-            .having((e) => e.message, 'message', contains('Mac-Studio'))),
+        throwsA(
+          isA<MdnsDiscoveryException>()
+              .having(
+                (e) => e.failure,
+                'failure',
+                MdnsDiscoveryFailure.notFound,
+              )
+              .having((e) => e.message, 'message', contains('Mac-Studio')),
+        ),
       );
     });
 
     test('ignores another app on the same device', () async {
       final factory = FakeMDnsClientFactory(
         records: dartVmServiceRecords(
-            instance: 'com.example.other',
-            host: deviceHost,
-            port: 50541,
-            authCode: 'a'),
+          instance: 'com.example.other',
+          host: deviceHost,
+          port: 50541,
+          authCode: 'a',
+        ),
       );
 
       await expectLater(
@@ -347,8 +408,13 @@ void main() {
           hostnames: deviceHostnames,
           timeout: const Duration(seconds: 1),
         ),
-        throwsA(isA<MdnsDiscoveryException>().having(
-            (e) => e.failure, 'failure', MdnsDiscoveryFailure.notFound)),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.failure,
+            'failure',
+            MdnsDiscoveryFailure.notFound,
+          ),
+        ),
       );
     });
 
@@ -361,8 +427,13 @@ void main() {
           hostnames: deviceHostnames,
           timeout: const Duration(seconds: 1),
         ),
-        throwsA(isA<MdnsDiscoveryException>().having((e) => e.message,
-            'message', contains('No app advertised a Dart VM service'))),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.message,
+            'message',
+            contains('No app advertised a Dart VM service'),
+          ),
+        ),
       );
     });
 
@@ -377,27 +448,41 @@ void main() {
           hostnames: deviceHostnames,
           timeout: const Duration(seconds: 1),
         ),
-        throwsA(isA<MdnsDiscoveryException>().having(
-            (e) => e.message, 'message', contains('link-local'))),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.message,
+            'message',
+            contains('link-local'),
+          ),
+        ),
       );
     });
 
     // package:multicast_dns lets socket errors escape to the ambient zone
     // rather than the returned future, so this catches nothing unless the
     // error zone is wired up.
-    test('turns a socket error into the Local Network permission error',
-        () async {
-      final factory = FakeMDnsClientFactory(
-          startError: const SocketException('Operation not permitted'));
+    test(
+      'turns a socket error into the Local Network permission error',
+      () async {
+        final factory = FakeMDnsClientFactory(
+          startError: const SocketException('Operation not permitted'),
+        );
 
-      await expectLater(
-        discoveryOver(factory)
-            .discover(bundleId: bundleId, hostnames: deviceHostnames),
-        throwsA(isA<MdnsDiscoveryException>()
-            .having((e) => e.failure, 'failure',
-                MdnsDiscoveryFailure.localNetworkPermission)
-            .having((e) => e.message, 'message', contains('Local Network'))),
-      );
-    });
+        await expectLater(
+          discoveryOver(
+            factory,
+          ).discover(bundleId: bundleId, hostnames: deviceHostnames),
+          throwsA(
+            isA<MdnsDiscoveryException>()
+                .having(
+                  (e) => e.failure,
+                  'failure',
+                  MdnsDiscoveryFailure.localNetworkPermission,
+                )
+                .having((e) => e.message, 'message', contains('Local Network')),
+          ),
+        );
+      },
+    );
   });
 }

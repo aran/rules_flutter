@@ -3,8 +3,8 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_test")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load(
     "@rules_flutter//flutter:macos.bzl",
     "MACOS_MINIMUM_OS_VERSION",
@@ -37,15 +37,53 @@ cc_shared_library(
     deps = [":add_cc"],
 )
 
+_APP_DEPS = [
+    "//packages/add_plugin",
+    "@deps//:flutter",
+    "@rules_flutter//flutter:material_icons",
+]
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    visibility = ["//packages/add_plugin:__pkg__"],
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# The app's Dart, as a library, so the analyzer has something to stage.
+# `flutter_application` is a bundle rather than a Dart package and carries no
+# DartInfo, so it cannot be analyzed directly.
+flutter_library(
+    name = "app_lib",
+    package_name = "macos_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = _APP_DEPS + [
+        # Supplies `lib/_embedder.yaml`, the only way the analyzer resolves
+        # `dart:ui`. Without it every Flutter import fails to resolve.
+        "@flutter_sky_engine//:sky_engine",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
 flutter_application(
     name = "app_flutter",
     package_name = "macos_example",
+    # A first-party asset, so the dev loop's asset reload has something real to
+    # deliver. asset_reload_e2e_test edits assets/message.txt while the app
+    # runs and asserts the change reaches the UI.
+    assets = glob(["assets/**"]),
     main = "lib/main.dart",
-    deps = [
-        "//packages/add_plugin",
-        "@deps//:flutter",
-        "@rules_flutter//flutter:material_icons",
-    ],
+    deps = _APP_DEPS,
 )
 
 # =============================================================================
@@ -110,8 +148,8 @@ flutter_macos_app(
 
 # A second app in the same package. Regression guard: each app's runner
 # compiles into its own Swift module, so two of them can be built in one
-# invocation. While every runner shared module_name = "Runner" they both wrote
-# <pkg>/Runner.swiftmodule and analysis failed with an action conflict.
+# invocation. Sharing module_name = "Runner" would make both write
+# <pkg>/Runner.swiftmodule and fail analysis with an action conflict.
 flutter_macos_app(
     name = "app_second",
     app_name = "Flutter App Second",
@@ -257,4 +295,45 @@ dart_test(
         "manual",
     ],
     target_compatible_with = ["@platforms//os:macos"],
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_macos_app_test",
+    "verify_macos_bundle_test",
+    "verify_macos_entitlements_test",
+]]
+
+# Every `.dart` file directly in this package — `packages/add_plugin` carries
+# its own `format_test`.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

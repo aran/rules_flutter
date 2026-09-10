@@ -1,8 +1,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
-load("@rules_dart//dart:defs.bzl", "dart_test")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -27,9 +27,14 @@ exports_files(["pubspec.lock"])
 flutter_application(
     name = "app_flutter",
     package_name = "ios_example",
+    # A first-party asset so the dev loop has something real to deliver here.
+    # iOS is the platform where this mattered: the runner reaches this target
+    # through a split transition, so the app's `flutter_assets` tree lives in a
+    # configuration no bare build produces. asset_reload_e2e_test edits
+    # assets/message.txt on the simulator and asserts the change arrives.
+    assets = glob(["assets/**"]),
     main = "lib/main.dart",
     min_os_version = IOS_MINIMUM_OS_VERSION,
-    visibility = ["//device:__pkg__"],
     deps = [
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
@@ -40,29 +45,21 @@ flutter_application(
 # Shared iOS targets (used by approaches 2 & 3)
 # =============================================================================
 
-DEVICE_VISIBILITY = ["//device:__pkg__"]
-
 flutter_ios_framework_gen(
     name = "app_framework",
     application = ":app_flutter",
-    visibility = DEVICE_VISIBILITY,
 )
 
 flutter_ios_registrant_gen(
     name = "app_registrant",
     application = ":app_flutter",
-    visibility = DEVICE_VISIBILITY,
 )
 
-flutter_ios_engine(
-    name = "app_engine",
-    visibility = DEVICE_VISIBILITY,
-)
+flutter_ios_engine(name = "app_engine")
 
 flutter_ios_native_frameworks_gen(
     name = "app_native_frameworks",
     application = ":app_flutter",
-    visibility = DEVICE_VISIBILITY,
 )
 
 # Shared version for approaches 2 & 3.
@@ -71,7 +68,6 @@ apple_bundle_version(
     build_version = "1.0",
     short_version_string = "1.0",
     tags = ["manual"],
-    visibility = DEVICE_VISIBILITY,
 )
 
 # =============================================================================
@@ -90,8 +86,8 @@ flutter_ios_app(
 
 # A second app in the same package. Regression guard: each app's runner
 # compiles into its own Swift module, so two of them can be built in one
-# invocation. While every runner shared module_name = "Runner" they both wrote
-# <pkg>/Runner.swiftmodule and analysis failed with an action conflict.
+# invocation. Sharing module_name = "Runner" would make both write
+# <pkg>/Runner.swiftmodule and fail analysis with an action conflict.
 flutter_ios_app(
     name = "app_second",
     application = ":app_flutter",
@@ -124,7 +120,6 @@ flutter_ios_info_plist_gen(
     name = "bazel_runner_info_plist",
     app_name = "Flutter App",
     module_name = "BazelRunner",
-    visibility = DEVICE_VISIBILITY,
 )
 
 flutter_ios_runner_lib_gen(
@@ -132,7 +127,6 @@ flutter_ios_runner_lib_gen(
     engine = ":app_engine",
     module_name = "BazelRunner",
     registrant = ":app_registrant",
-    visibility = DEVICE_VISIBILITY,
 )
 
 ios_application(
@@ -226,12 +220,21 @@ build_test(
 
 # Reads the Info.plist out of the built .ipa. Bazel's default fastbuild is
 # not `-c opt`, so this bundle carries the Dart VM service keys *and* the
-# app's own Local Network Privacy keys — the combination that used to fail
-# the build outright in rules_apple's plisttool.
+# app's own Local Network Privacy keys.
 dart_test(
     name = "verify_ios_info_plist_test",
     data = [":app"],
     main = "test/verify_ios_info_plist_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The app icon `flutter create` leaves in the tree, which this BUILD file
+# never mentions — `flutter_ios_app` discovers it, and the bundle has to
+# actually carry it.
+dart_test(
+    name = "verify_ios_app_icon_test",
+    data = [":app"],
+    main = "test/verify_ios_app_icon_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
 )
 
@@ -245,4 +248,76 @@ build_test(
     name = "ios_custom_runner_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":app_custom_runner"],
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "ios_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "@deps//:flutter",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_ios_app_icon_test",
+    "verify_ios_info_plist_test",
+]]
+
+# All of this workspace's Dart, checked against the same `:options` the
+# analyze tests above use.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

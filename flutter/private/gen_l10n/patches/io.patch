@@ -1,0 +1,79 @@
+--- a/lib/src/base/io.dart
++++ b/lib/src/base/io.dart
+@@ -37,9 +37,6 @@
+     as io
+     show
+         IOSink,
+-        InterfaceAddress,
+-        InternetAddressType,
+-        NetworkInterface,
+         Process,
+         ProcessInfo,
+         ProcessSignal,
+@@ -391,66 +388,4 @@
+   File writePidFile(String pidFile) {
+     return _fileSystem.file(pidFile)..writeAsStringSync('12345');
+   }
+-}
+-
+-/// The return type for [listNetworkInterfaces].
+-class NetworkInterface implements io.NetworkInterface {
+-  NetworkInterface(this._delegate);
+-
+-  final io.NetworkInterface _delegate;
+-
+-  @override
+-  List<io.InterfaceAddress> get addresses => _delegate.addresses;
+-
+-  @override
+-  int get index => _delegate.index;
+-
+-  @override
+-  String get name => _delegate.name;
+-
+-  @override
+-  String toString() => "NetworkInterface('$name', $addresses)";
+ }
+-
+-typedef NetworkInterfaceLister =
+-    Future<List<NetworkInterface>> Function({
+-      bool includeLoopback,
+-      bool includeLinkLocal,
+-      io.InternetAddressType type,
+-    });
+-
+-NetworkInterfaceLister? _networkInterfaceListerOverride;
+-
+-// Tests can set up a non-default network interface lister.
+-@visibleForTesting
+-void setNetworkInterfaceLister(NetworkInterfaceLister lister) {
+-  _networkInterfaceListerOverride = lister;
+-}
+-
+-@visibleForTesting
+-void resetNetworkInterfaceLister() {
+-  _networkInterfaceListerOverride = null;
+-}
+-
+-/// This calls [io.NetworkInterface.list] from `dart:io` unless it is overridden
+-/// by [setNetworkInterfaceLister] for a test. If it is overridden for a test,
+-/// it should be reset with [resetNetworkInterfaceLister].
+-Future<List<NetworkInterface>> listNetworkInterfaces({
+-  bool includeLoopback = false,
+-  bool includeLinkLocal = false,
+-  io.InternetAddressType type = io.InternetAddressType.any,
+-}) async {
+-  if (_networkInterfaceListerOverride != null) {
+-    return _networkInterfaceListerOverride!.call(
+-      includeLoopback: includeLoopback,
+-      includeLinkLocal: includeLinkLocal,
+-      type: type,
+-    );
+-  }
+-  final List<io.NetworkInterface> interfaces = await io.NetworkInterface.list(
+-    includeLoopback: includeLoopback,
+-    includeLinkLocal: includeLinkLocal,
+-    type: type,
+-  );
+-  return interfaces.map((io.NetworkInterface interface) => NetworkInterface(interface)).toList();
+-}

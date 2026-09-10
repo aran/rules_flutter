@@ -25,6 +25,16 @@
 ///       and still gets a debuggable VM service — where passing both plists
 ///       to rules_apple's plisttool is a hard build failure.
 ///
+/// `--drop-empty <key>` removes a key from the base whose value is an empty
+/// string. It exists for one shape and says so: a `flutter create` scaffold
+/// declares a key Xcode is expected to fill in — `CFBundleIconFile` in the
+/// macOS `Info.plist` — and leaves it `<string></string>`. Nothing fills it in
+/// here, and when the bundle rule generates its own value from an asset
+/// catalog, Apple's plisttool refuses the pair outright: `found key
+/// "CFBundleIconFile" in two plists with different values: "" != "AppIcon"`.
+/// Only an empty value is dropped, so a plist that actually names an icon file
+/// keeps it and the conflict is still reported.
+///
 /// Only the root `<dict>`'s own keys participate. Values are compared and
 /// carried as verbatim XML, so nested structures pass through untouched and
 /// this tool never has to understand them.
@@ -33,7 +43,7 @@
 ///
 /// Usage:
 ///   dart merge_plists.dart --mode <mode> [--base <path>] \
-///       --addition <path> [--addition <path> ...] --output <path>
+///       [--addition <path> ...] [--drop-empty <key> ...] --output <path>
 ///
 /// `--base` may be omitted, in which case the additions merge into an empty
 /// plist (iOS apps legitimately ship no `Runner.entitlements`).
@@ -215,9 +225,10 @@ List<PlistEntry> parsePlist(String xml, String path) {
   final (dictName, dictSelfClosing, dictIsEnd) = scanner.readTag();
   if (dictIsEnd || dictName != 'dict') {
     _reject(
-        path,
-        'the <plist> root must contain a <dict>, found <$dictName>. '
-        'Entitlements and Info.plist files are always dictionaries.');
+      path,
+      'the <plist> root must contain a <dict>, found <$dictName>. '
+      'Entitlements and Info.plist files are always dictionaries.',
+    );
   }
   if (dictSelfClosing) return [];
 
@@ -234,9 +245,10 @@ List<PlistEntry> parsePlist(String xml, String path) {
     }
     if (name != 'key') {
       _reject(
-          path,
-          'expected a <key> in the root <dict>, found <$name>. Every value '
-          'in a plist dictionary must be preceded by its key.');
+        path,
+        'expected a <key> in the root <dict>, found <$name>. Every value '
+        'in a plist dictionary must be preceded by its key.',
+      );
     }
     if (selfClosing) _reject(path, 'found an empty <key/> with no name.');
     final key = scanner.readText().trim();
@@ -281,8 +293,10 @@ List<String>? _stringArrayItems(String rawValue) {
   }
   // Reject anything in the array that is not a <string>: an array we cannot
   // fully account for must never be silently rewritten.
-  final withoutStrings =
-      body.replaceAll(RegExp(r'<string>.*?</string>', dotAll: true), '');
+  final withoutStrings = body.replaceAll(
+    RegExp(r'<string>.*?</string>', dotAll: true),
+    '',
+  );
   if (withoutStrings.trim().isNotEmpty) return null;
   return items;
 }
@@ -294,6 +308,16 @@ String _renderStringArray(List<String> items) {
   }
   buffer.write('\n\t</array>');
   return buffer.toString();
+}
+
+/// Whether [rawValue] is an empty `<string>` element, in either spelling.
+///
+/// `<string></string>` is what `flutter create` writes; `<string/>` is what a
+/// round trip through `plutil` or Xcode can leave behind. Both mean the same
+/// nothing, and a key that is nothing is the one this tool will drop.
+bool _isEmptyString(String rawValue) {
+  final trimmed = rawValue.trim();
+  return trimmed == '<string></string>' || trimmed == '<string/>';
 }
 
 /// Merges [additions] into [baseEntries] under [mode].
@@ -327,12 +351,13 @@ List<PlistEntry> mergeEntries({
       switch (mode) {
         case MergeMode.strictAdd:
           throw PlistFormatException(
-              'Conflicting value for plist key "${entry.key}":\n'
-              '  ${origin[entry.key]} declares ${_normalize(existing.rawValue)}\n'
-              '  $additionPath declares ${_normalize(entry.rawValue)}\n'
-              'Additions may only add keys, never change one the base '
-              'already sets. Edit the base file if the existing value is '
-              'wrong, or drop the key from the addition.');
+            'Conflicting value for plist key "${entry.key}":\n'
+            '  ${origin[entry.key]} declares ${_normalize(existing.rawValue)}\n'
+            '  $additionPath declares ${_normalize(entry.rawValue)}\n'
+            'Additions may only add keys, never change one the base '
+            'already sets. Edit the base file if the existing value is '
+            'wrong, or drop the key from the addition.',
+          );
         case MergeMode.supplement:
           final baseItems = _stringArrayItems(existing.rawValue);
           final additionItems = _stringArrayItems(entry.rawValue);
@@ -341,9 +366,12 @@ List<PlistEntry> mergeEntries({
             for (final item in additionItems) {
               if (!union.contains(item)) union.add(item);
             }
-            merged[entry.key] = PlistEntry(entry.key, _renderStringArray(union));
+            merged[entry.key] = PlistEntry(
+              entry.key,
+              _renderStringArray(union),
+            );
           }
-          // Otherwise the base wins and the addition is dropped.
+        // Otherwise the base wins and the addition is dropped.
       }
     }
   }
@@ -354,8 +382,10 @@ List<PlistEntry> mergeEntries({
 String renderPlist(List<PlistEntry> entries) {
   final buffer = StringBuffer()
     ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
-    ..writeln('<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">')
+    ..writeln(
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+      '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    )
     ..writeln('<plist version="1.0">')
     ..writeln('<dict>');
   for (final entry in entries) {
@@ -375,19 +405,31 @@ String mergePlists({
   required ({String path, String xml})? base,
   required List<({String path, String xml})> additionSources,
   required MergeMode mode,
+  Set<String> dropEmptyKeys = const {},
 }) {
-  final baseEntries =
-      base == null ? <PlistEntry>[] : parsePlist(base.xml, base.path);
+  final parsedBase = base == null
+      ? <PlistEntry>[]
+      : parsePlist(base.xml, base.path);
+  // Dropped before the merge, not after: an addition legitimately declares
+  // the key this removes, and removing it afterwards would take that with it.
+  final baseEntries = [
+    for (final entry in parsedBase)
+      if (!(dropEmptyKeys.contains(entry.key) &&
+          _isEmptyString(entry.rawValue)))
+        entry,
+  ];
   final additions = <(String, List<PlistEntry>)>[
     for (final addition in additionSources)
       (addition.path, parsePlist(addition.xml, addition.path)),
   ];
-  return renderPlist(mergeEntries(
-    baseEntries: baseEntries,
-    basePath: base?.path ?? '<empty>',
-    additions: additions,
-    mode: mode,
-  ));
+  return renderPlist(
+    mergeEntries(
+      baseEntries: baseEntries,
+      basePath: base?.path ?? '<empty>',
+      additions: additions,
+      mode: mode,
+    ),
+  );
 }
 
 void main(List<String> args) {
@@ -395,12 +437,15 @@ void main(List<String> args) {
   String? outputPath;
   String? modeName;
   final additionPaths = <String>[];
+  final dropEmptyKeys = <String>{};
 
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--base' && i + 1 < args.length) {
       basePath = args[++i];
     } else if (args[i] == '--addition' && i + 1 < args.length) {
       additionPaths.add(args[++i]);
+    } else if (args[i] == '--drop-empty' && i + 1 < args.length) {
+      dropEmptyKeys.add(args[++i]);
     } else if (args[i] == '--output' && i + 1 < args.length) {
       outputPath = args[++i];
     } else if (args[i] == '--mode' && i + 1 < args.length) {
@@ -416,10 +461,17 @@ void main(List<String> args) {
     'supplement': MergeMode.supplement,
   };
   final mode = modes[modeName];
-  if (mode == null || outputPath == null || additionPaths.isEmpty) {
-    stderr.writeln('Usage: dart merge_plists.dart --mode <strict-add|supplement> '
-        '[--base <path>] --addition <path> [--addition <path> ...] '
-        '--output <path>');
+  // Additions are no longer required: `--drop-empty` alone is a real job, and
+  // it is the one the macOS Info.plist needs. Asking for neither is not.
+  if (mode == null ||
+      outputPath == null ||
+      (additionPaths.isEmpty && dropEmptyKeys.isEmpty)) {
+    stderr.writeln(
+      'Usage: dart merge_plists.dart --mode <strict-add|supplement> '
+      '[--base <path>] [--addition <path> ...] [--drop-empty <key> ...] '
+      '--output <path>\n'
+      'At least one of --addition or --drop-empty is required.',
+    );
     exit(1);
   }
 
@@ -434,6 +486,7 @@ void main(List<String> args) {
           (path: path, xml: File(path).readAsStringSync()),
       ],
       mode: mode,
+      dropEmptyKeys: dropEmptyKeys,
     );
   } on PlistFormatException catch (e) {
     stderr.writeln(e.message);

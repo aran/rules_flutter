@@ -1,6 +1,10 @@
 /// Per-file generator for the `dep_part` package: emits a `part of` extension
-/// with a `toJson()` for the first class in the input. Interface (dart_codegen):
-///   dart settings_generator.dart --input <file> --output <file>
+/// with a `toJson()` for the first class in the input.
+///
+/// Interface (dart_codegen):
+/// `dart settings_generator.dart --input <file> --output <file>`
+library;
+
 import 'dart:io';
 
 void main(List<String> args) {
@@ -14,7 +18,9 @@ void main(List<String> args) {
     }
   }
   if (inputPath == null || outputPath == null) {
-    stderr.writeln('Usage: settings_generator.dart --input <file> --output <file>');
+    stderr.writeln(
+      'Usage: settings_generator.dart --input <file> --output <file>',
+    );
     exit(1);
   }
 

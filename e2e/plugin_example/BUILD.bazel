@@ -2,9 +2,9 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
-load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
 load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -40,9 +40,6 @@ flutter_application(
     name = "plugin_app",
     package_name = "plugin_example",
     main = "lib/main.dart",
-    # Visible to the optional, git-ignored //device package for on-device
-    # (signed) iOS builds. See device.example/.
-    visibility = ["//device:__pkg__"],
     deps = [
         "//greeting_plugin",
         "@deps//:audio_session",
@@ -170,6 +167,17 @@ apple_bundle_version(
     tags = ["manual"],
 )
 
+_IOS_DEPS = [
+    ":ios_runner_lib",
+    ":plugin_ios_framework",
+    # Native-asset frameworks (objective_c.framework, needed by modern
+    # path_provider_foundation). Without this the manifest still records
+    # `objective_c.framework/objective_c`, but nothing embeds it, so dyld's
+    # rpath lookup falls through and every path_provider call fails at
+    # runtime while the app otherwise renders normally.
+    ":plugin_ios_native_frameworks",
+]
+
 ios_application(
     name = "plugin_ios",
     bundle_id = "com.example.plugin",
@@ -180,16 +188,28 @@ ios_application(
     resources = [":plugin_ios_privacy_manifests"],
     tags = ["manual"],
     version = ":plugin_ios_version",
-    deps = [
-        ":ios_runner_lib",
-        ":plugin_ios_framework",
-        # Native-asset frameworks (objective_c.framework, needed by modern
-        # path_provider_foundation). Without this the manifest still records
-        # `objective_c.framework/objective_c`, but nothing embeds it, so dyld's
-        # rpath lookup falls through and every path_provider call fails at
-        # runtime while the app otherwise renders normally.
-        ":plugin_ios_native_frameworks",
-    ],
+    deps = _IOS_DEPS,
+)
+
+# The same app, signed for a physical device: `provisioning_profile` is the
+# only difference, so the device bundle shares every Tier-2 `_gen` target with
+# the simulator's `:plugin_ios` above rather than re-deriving them.
+#
+# `//device` is git-ignored and absent from a fresh clone. That is fine: the
+# target is tagged `manual`, so `bazel build //...` never expands it and
+# therefore never loads the missing package. Create it from device.example/.
+ios_application(
+    name = "plugin_ios_device",
+    bundle_id = "com.example.plugin",
+    families = ["iphone"],
+    infoplists = [":ios_runner_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    provisioning_profile = "//device:profile",
+    resources = [":plugin_ios_privacy_manifests"],
+    tags = ["manual"],
+    version = ":plugin_ios_version",
+    deps = _IOS_DEPS,
 )
 
 # =============================================================================
@@ -343,3 +363,92 @@ dart_test(
     ],
     target_compatible_with = ["@platforms//os:macos"],
 )
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    visibility = ["//greeting_plugin:__pkg__"],
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "plugin_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "//greeting_plugin",
+        "@deps//:audio_session",
+        "@deps//:flutter",
+        "@deps//:package_info_plus",
+        "@deps//:path_provider",
+        "@deps//:record_android",
+        "@deps//:url_launcher",
+        "@flutter_sky_engine//:sky_engine",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_android_apk_test",
+    "verify_android_app_test",
+    "verify_macos_app_test",
+]]
+
+# Every `.dart` file directly in this package — `greeting_plugin` carries its
+# own `format_test`.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
+)
+
+# There is deliberately no `flutter_test` target in this workspace. Under
+# `flutter_tester` no plugin registrant runs, so a widget test here could only
+# assert that every plugin is absent — `GreetingPlugin.greeting` reads back
+# 'No greeting registered', and each platform-channel call lands in `_safe` as
+# a MissingPluginException string — inverting the one property plugin_example
+# exists to prove. The rule's own bootstrap is regression-covered by
+# //e2e/hello_world:widget_test. Plugin registration is verified here against
+# real artifacts instead: the APK and runtime verifiers above, and
+# playwright/web.spec.js for web.

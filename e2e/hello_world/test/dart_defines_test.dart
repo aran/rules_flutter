@@ -4,6 +4,8 @@
 ///   workspace's .bazelrc), including a comma inside the value (the flag is
 ///   repeatable, so values are never comma-split),
 /// - flag-beats-attr precedence on a key collision.
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

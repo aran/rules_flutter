@@ -35,6 +35,8 @@ def _checksums_have_key_artifacts_test_impl(ctx):
         # Patched SDKs
         "flutter_patched_sdk.zip",
         "flutter_patched_sdk_product.zip",
+        # Dart SDK sources the analyzer resolves `dart:` URIs from
+        "sky_engine.zip",
         # Host Dart SDKs
         "dart-sdk-darwin-arm64.zip",
         "dart-sdk-darwin-x64.zip",
@@ -63,6 +65,22 @@ def _checksums_have_key_artifacts_test_impl(ctx):
             )
     return unittest.end(env)
 
+def _source_sha256_recorded_for_all_versions_test_impl(ctx):
+    # Every fetch of the framework source tarball is pinned against this
+    # field, so an entry without one cannot be built at all —
+    # `flutter_source_sha256()` fails the extension. Asserted against the raw
+    # struct rather than through the accessor so an omission surfaces as a
+    # test failure naming the version, not as a load-time abort.
+    env = unittest.begin(ctx)
+    for version, meta in FLUTTER_VERSIONS.items():
+        asserts.equals(
+            env,
+            64,
+            len(getattr(meta, "source_sha256", "")),
+            "source_sha256 for {} should be 64-char hex (sha256)".format(version),
+        )
+    return unittest.end(env)
+
 def _checksums_are_sha256_test_impl(ctx):
     env = unittest.begin(ctx)
     for version, checksums in ARTIFACT_CHECKSUMS.items():
@@ -80,6 +98,7 @@ _t1_test = unittest.make(_engine_revision_format_test_impl)
 _t2_test = unittest.make(_checksums_exist_for_all_versions_test_impl)
 _t3_test = unittest.make(_checksums_have_key_artifacts_test_impl)
 _t4_test = unittest.make(_checksums_are_sha256_test_impl)
+_t5_test = unittest.make(_source_sha256_recorded_for_all_versions_test_impl)
 
 def versions_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test)

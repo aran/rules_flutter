@@ -41,16 +41,16 @@ typedef MDnsClientFactory = MDnsClient Function();
 
 /// Lists the host's network interfaces. Injected so the "is the USB network
 /// interface even up?" diagnostic is testable.
-typedef NetworkInterfaceLister = Future<List<NetworkInterface>> Function({
-  bool includeLinkLocal,
-  InternetAddressType type,
-});
+typedef NetworkInterfaceLister =
+    Future<List<NetworkInterface>> Function({
+      bool includeLinkLocal,
+      InternetAddressType type,
+    });
 
 Future<List<NetworkInterface>> _listNetworkInterfaces({
   bool includeLinkLocal = false,
   InternetAddressType type = InternetAddressType.any,
-}) =>
-    NetworkInterface.list(includeLinkLocal: includeLinkLocal, type: type);
+}) => NetworkInterface.list(includeLinkLocal: includeLinkLocal, type: type);
 
 /// Why an mDNS lookup did not produce a VM service.
 enum MdnsDiscoveryFailure {
@@ -143,8 +143,8 @@ class MdnsVmServiceDiscovery {
   MdnsVmServiceDiscovery({
     MDnsClientFactory? clientFactory,
     NetworkInterfaceLister? listNetworkInterfaces,
-  })  : _clientFactory = clientFactory ?? MDnsClient.new,
-        _listInterfaces = listNetworkInterfaces ?? _listNetworkInterfaces;
+  }) : _clientFactory = clientFactory ?? MDnsClient.new,
+       _listInterfaces = listNetworkInterfaces ?? _listNetworkInterfaces;
 
   /// Waits for [bundleId] to advertise a VM service from one of [hostnames].
   ///
@@ -175,9 +175,8 @@ class MdnsVmServiceDiscovery {
     // requires a querier to retransmit, "the interval between the first two
     // queries being at least one second, and doubling". `package:multicast_dns`
     // sends exactly one packet per lookup and stops, so retransmission has to
-    // happen here — without it, discovery against a USB-attached iPhone
-    // succeeded about two times in five. This is not a fallback between
-    // mechanisms; it is the one mechanism, implemented to spec.
+    // happen here. This is not a fallback between mechanisms; it is the one
+    // mechanism, implemented to spec.
     final elapsed = Stopwatch()..start();
     // Every advertisement this query saw and did not take, and which host sent
     // it — the two things needed to tell "the app never started" apart from
@@ -194,13 +193,15 @@ class MdnsVmServiceDiscovery {
       final attemptStart = elapsed.elapsed;
       final remaining = timeout - attemptStart;
       final attemptWindow = window < remaining ? window : remaining;
-      final record = await _guarded(() => _queryOnce(
-            bundleId: bundleId,
-            hostnames: hostnames,
-            resolveAddress: resolveAddress,
-            window: attemptWindow,
-            seen: seen,
-          ));
+      final record = await _guarded(
+        () => _queryOnce(
+          bundleId: bundleId,
+          hostnames: hostnames,
+          resolveAddress: resolveAddress,
+          window: attemptWindow,
+          seen: seen,
+        ),
+      );
       if (record != null) return record;
 
       // The window is the retransmission interval, not just how long to
@@ -208,7 +209,8 @@ class MdnsVmServiceDiscovery {
       // or the client short-circuited — must not become a tight loop of
       // queries, which would flood the link and defeat the backoff.
       final spent = elapsed.elapsed - attemptStart;
-      if (spent < attemptWindow) await Future<void>.delayed(attemptWindow - spent);
+      if (spent < attemptWindow)
+        await Future<void>.delayed(attemptWindow - spent);
 
       window *= 2;
       if (window > _maxQueryWindow) window = _maxQueryWindow;
@@ -216,8 +218,13 @@ class MdnsVmServiceDiscovery {
 
     throw MdnsDiscoveryException(
       MdnsDiscoveryFailure.notFound,
-      await _notFoundMessage(bundleId, hostnames, seen, timeout,
-          overPointToPointLink: !resolveAddress),
+      await _notFoundMessage(
+        bundleId,
+        hostnames,
+        seen,
+        timeout,
+        overPointToPointLink: !resolveAddress,
+      ),
     );
   }
 
@@ -228,15 +235,17 @@ class MdnsVmServiceDiscovery {
   /// denied Local Network permission can be caught.
   Future<T> _guarded<T>(Future<T> Function() body) async {
     final completer = Completer<T>();
-    unawaited(runZonedGuarded(
-      () async {
-        final result = await body();
-        if (!completer.isCompleted) completer.complete(result);
-      },
-      (error, stack) {
-        if (!completer.isCompleted) completer.completeError(error, stack);
-      },
-    ));
+    unawaited(
+      runZonedGuarded(
+        () async {
+          final result = await body();
+          if (!completer.isCompleted) completer.complete(result);
+        },
+        (error, stack) {
+          if (!completer.isCompleted) completer.completeError(error, stack);
+        },
+      ),
+    );
 
     try {
       return await completer.future;
@@ -290,7 +299,9 @@ class MdnsVmServiceDiscovery {
         // for a differently-labelled name that no responder matches. Hence
         // the short timeout — a miss here cannot be recovered by waiting.
         final srvRecords = await _cachedLookup<SrvResourceRecord>(
-            client, ResourceRecordQuery.service(ptr.domainName));
+          client,
+          ResourceRecordQuery.service(ptr.domainName),
+        );
         if (srvRecords.isEmpty) continue;
 
         // The same advertisement arrives once per interface the device is
@@ -310,9 +321,12 @@ class MdnsVmServiceDiscovery {
         if (!mdnsTargetMatchesHostname(srv.target, hostnames)) continue;
 
         final txtRecords = await _cachedLookup<TxtResourceRecord>(
-            client, ResourceRecordQuery.text(ptr.domainName));
+          client,
+          ResourceRecordQuery.text(ptr.domainName),
+        );
         final authCodePath = parseMdnsAuthCodePath(
-            txtRecords.map((r) => r.text).join('\n'));
+          txtRecords.map((r) => r.text).join('\n'),
+        );
 
         InternetAddress? address;
         if (resolveAddress) {
@@ -340,20 +354,24 @@ class MdnsVmServiceDiscovery {
   /// when the record is there, and waits out the timeout for nothing when it
   /// is not.
   static Future<List<T>> _cachedLookup<T extends ResourceRecord>(
-          MDnsClient client, ResourceRecordQuery query) =>
-      client
-          .lookup<T>(query, timeout: const Duration(milliseconds: 500))
-          .toList();
+    MDnsClient client,
+    ResourceRecordQuery query,
+  ) => client
+      .lookup<T>(query, timeout: const Duration(milliseconds: 500))
+      .toList();
 
   Future<InternetAddress> _resolveAddress(
-      MDnsClient client, String target) async {
+    MDnsClient client,
+    String target,
+  ) async {
     // Unlike the SRV/TXT reads above, a host name has ordinary DNS labels, so
     // this one can go out on the wire if the PTR response did not carry an
     // address record for the advertising host.
     final records = await client
         .lookup<IPAddressResourceRecord>(
-            ResourceRecordQuery.addressIPv4(target),
-            timeout: const Duration(seconds: 5))
+          ResourceRecordQuery.addressIPv4(target),
+          timeout: const Duration(seconds: 5),
+        )
         .toList();
     final address = selectMdnsAddress(records.map((r) => r.address).toList());
     if (address == null) {
@@ -376,11 +394,15 @@ class MdnsVmServiceDiscovery {
     required bool overPointToPointLink,
   }) async {
     final buffer = StringBuffer()
-      ..writeln('No Dart VM service advertised for $bundleId on '
-          '${hostnames.join(', ')} within ${timeout.inSeconds}s.');
+      ..writeln(
+        'No Dart VM service advertised for $bundleId on '
+        '${hostnames.join(', ')} within ${timeout.inSeconds}s.',
+      );
     if (seen.isEmpty) {
-      buffer.writeln('No app advertised a Dart VM service at all. The app must '
-          'be built in debug or profile mode.');
+      buffer.writeln(
+        'No app advertised a Dart VM service at all. The app must '
+        'be built in debug or profile mode.',
+      );
     } else {
       buffer.writeln('Saw these advertisements, none of them a match:');
       seen.forEach((instance, host) {
@@ -393,14 +415,19 @@ class MdnsVmServiceDiscovery {
     // needing a link-local interface here.
     if (!overPointToPointLink) return buffer.toString();
     final interfaces = await _listInterfaces(
-        includeLinkLocal: true, type: InternetAddressType.IPv4);
-    final hasLinkLocal =
-        interfaces.any((i) => i.addresses.any((a) => a.isLinkLocal));
+      includeLinkLocal: true,
+      type: InternetAddressType.IPv4,
+    );
+    final hasLinkLocal = interfaces.any(
+      (i) => i.addresses.any((a) => a.isLinkLocal),
+    );
     if (!hasLinkLocal) {
-      buffer.writeln('This machine has no IPv4 link-local interface, so a '
-          'USB-attached device cannot answer an mDNS query. Turn off Personal '
-          'Hotspot on the device, and uncheck "Disable unless needed" for '
-          'iPhone USB under System Settings > Network.');
+      buffer.writeln(
+        'This machine has no IPv4 link-local interface, so a '
+        'USB-attached device cannot answer an mDNS query. Turn off Personal '
+        'Hotspot on the device, and uncheck "Disable unless needed" for '
+        'iPhone USB under System Settings > Network.',
+      );
     }
     return buffer.toString();
   }
@@ -419,8 +446,9 @@ bool mdnsInstanceMatchesBundleId(String domainName, String bundleId) {
   if (!domainName.endsWith(suffix)) return false;
   final instance = domainName.substring(0, domainName.length - suffix.length);
   if (instance == bundleId) return true;
-  return RegExp(r'^' + RegExp.escape(bundleId) + r' \(\d+\)$')
-      .hasMatch(instance);
+  return RegExp(
+    r'^' + RegExp.escape(bundleId) + r' \(\d+\)$',
+  ).hasMatch(instance);
 }
 
 /// Whether an SRV record's [target] names one of [hostnames].

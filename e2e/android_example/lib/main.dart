@@ -1,12 +1,14 @@
+import 'package:android_example/native_add.dart';
 import 'package:flutter/material.dart';
-
-import 'native_add.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
+/// Root widget of the Android example, which renders a sum computed by the
+/// native library packaged into the APK.
 class MyApp extends StatelessWidget {
+  /// Creates the Android example's root widget.
   const MyApp({super.key});
 
   @override

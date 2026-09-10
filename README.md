@@ -20,7 +20,7 @@ If you're already using `flutter build`, here's what you gain by switching to Ba
 ## Compatibility
 
 - **Bazel**: 9+
-- **Flutter SDK**: 3.44.1
+- **Flutter SDK**: 3.47.2
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ bazel_dep(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.44.1")
+flutter.toolchain(flutter_version = "3.47.2")
 use_repo(flutter, "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
@@ -167,6 +167,7 @@ flutter_macos_app(
 | `version` | An `apple_bundle_version` target. Defaults to `"1.0"`. |
 | `entitlements` | Replace the entitlements wiring wholesale. By default the macro auto-discovers `macos/Runner/{DebugProfile,Release}.entitlements` and selects between them by compilation mode. |
 | `additional_entitlements` | Entitlement plist files merged into the selected base in **every** compilation mode. See [Release builds and permissions](#release-builds-and-permissions). |
+| `app_icons` | The app icon. Defaults to the `macos/Runner/Assets.xcassets/AppIcon.appiconset` that `flutter create` writes, so an app ships the icon already in its tree without asking. Pass a list to name a different `.appiconset` or an Icon Composer `.icon` bundle; pass `[]` to ship none. See [App icons](#app-icons). |
 
 Produces a `.app` bundle with `FlutterMacOS.framework`, `App.framework`, and `flutter_assets/`.
 
@@ -266,8 +267,47 @@ use_repo(flutter, "flutter_toolchains", "flutter_ios_engine")
 | `entitlements` | Replace the entitlements wiring. By default the macro auto-discovers `ios/Runner/Runner.entitlements` if present; its absence is a valid, capability-less app. |
 | `additional_entitlements` | Entitlement plist files merged into the base in **every** compilation mode. Works when the app ships no entitlements file at all. See [Release builds and permissions](#release-builds-and-permissions). |
 | `provisioning_profile` | A `.mobileprovision` file (usually a `local_provisioning_profile` target) to sign a device build with. Required for device builds; unused by simulator builds. See [Running an iOS example on a physical device](#running-an-ios-example-on-a-physical-device). |
+| `app_icons` | The app icon. Defaults to the `ios/Runner/Assets.xcassets/AppIcon.appiconset` that `flutter create` writes, so an app ships the icon already in its tree without asking. Pass a list to name a different `.appiconset` or an Icon Composer `.icon` bundle; pass `[]` to ship none. See [App icons](#app-icons). |
 
 The platform transition to iOS arm64 is handled automatically by `rules_apple`'s `ios_application`.
+
+### App icons
+
+On Apple platforms the icon comes from an **asset catalog**, not from loose
+files: `actool` compiles the catalog and has to be told which set inside it is
+the app icon, which is what `rules_apple`'s `app_icons` attribute says and what
+listing the same PNGs under `resources` cannot. `flutter_ios_app` and
+`flutter_macos_app` discover
+`{ios,macos}/Runner/Assets.xcassets/AppIcon.appiconset` — the catalog
+`flutter create` writes — and forward it, so an app that has never mentioned
+its icon ships the one already in its tree, as `flutter build` does from the
+same sources.
+
+To ship something else, name it: `app_icons` takes the files of an
+`.appiconset` or of an Icon Composer `.icon` bundle (`rules_apple` 4.5+
+generates the pre-26 sizes from the latter). It refuses the two together, so
+name exactly one. `app_icons = []` ships no icon.
+
+**Discovery is per-platform, and a missing catalog is silent.** A tree that ran
+`flutter create --platforms=ios .` has `ios/Runner/Assets.xcassets` and no
+macOS counterpart, so the iOS app gets an icon and the macOS app quietly does
+not — there is no error, because an app with no catalog and no `app_icons` has
+said nothing either way. If one platform shows your icon and the other shows
+the placeholder, look for the catalog before looking anywhere else.
+
+macOS icons want the platform's own grid rather than a full-bleed square: the
+rounded shape inset to roughly 824 of the 1024pt canvas, which is what makes it
+sit correctly beside other Dock icons. The rules pass the catalog through
+untouched and impose nothing here.
+
+One `flutter create` detail is handled for you on macOS. Its `Info.plist`
+declares `CFBundleIconFile` as an empty string for Xcode to fill in;
+`macos_application` generates its own value from the catalog, and Apple's
+plisttool refuses two different values for one key — `found key
+"CFBundleIconFile" in two plists with different values: "" != "AppIcon"`. The
+macro drops the empty placeholder, so the scaffold needs no edit. A plist that
+names a *real* icon file is left alone, and still conflicts if you also pass
+`app_icons`.
 
 <details>
 <summary>Advanced: Tier 2 composable rules</summary>
@@ -633,7 +673,34 @@ use_repo(flutter, "flutter_toolchains", "flutter_web_sdk")
 | `deps` | `dart_library` or `flutter_library` dependencies (required). |
 | `main` | The main `.dart` entry point. Default: `"lib/main.dart"`. |
 | `app_name` | Application name for HTML title and manifest. Defaults to target name. |
-| `pwa` | Generate service worker for offline support. Default: `True`. |
+| `pwa` | Ship `flutter_service_worker.js` and register it from the generated bootstrap. Default: `True`. Adds no offline caching — like `flutter build web`, which [deprecated its caching worker](https://github.com/flutter/flutter/issues/156910), the worker unregisters itself and reloads its clients, freeing visitors who still hold a caching worker from an earlier deployment. Visitors without one never get a worker registered. |
+
+#### Content-Security-Policy
+
+A `<meta http-equiv="Content-Security-Policy">` in `web/index.html` applies to
+the built bundle **and** to `flutter_bazel run -d chrome`, because the dev loop
+serves the same page the bundle ships. Measured on `e2e/web_example` against
+Flutter 3.47:
+
+| Policy | Built bundle (`--wasm`) | DDC dev loop |
+| --- | --- | --- |
+| `script-src 'self' 'wasm-unsafe-eval'` | renders | **blank page** |
+| `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'` | renders | renders |
+
+The dev loop needs `'unsafe-inline'` — not `'unsafe-eval'`, which changes
+nothing — and the failure is silent: DWDS connects, the VM service answers, 311
+DDC modules load, no CSP violation reaches the console, and the app never
+paints. `connect-src 'self' ws: wss:` is enough for the dev loop's WebSocket.
+
+A bundle under `default-src 'self'` must also serve its own renderer:
+`use_local_canvaskit = True`, or the engine's `skwasm.js` fetch to
+`www.gstatic.com` is blocked and the page stays blank. Flutter's font fallback
+(`fonts.gstatic.com`) is blocked too — harmless unless the app needs those
+glyphs.
+
+So a policy strict enough to be worth having cannot live in `web/index.html`
+today: it has to reach the bundled page only. Compose `flutter_web_bundle`
+directly with a generated `index_html` if you need that split now.
 
 <details>
 <summary>Advanced: Tier 2 composable rules</summary>
@@ -742,6 +809,69 @@ flutter_test(
 )
 ```
 
+#### Golden files
+
+**Goldens must be declared in `data`, or the test cannot see them.**
+
+```starlark
+flutter_test(
+    name = "widget_test",
+    main = "test/widget_test.dart",
+    data = glob(["test/goldens/**"]),
+    deps = ["@deps//:flutter", "@deps//:flutter_test"],
+)
+```
+
+This is the first thing to check when a golden fails, because the failure does
+not describe it. The comparator reads goldens out of runfiles, so a PNG sitting
+in the source tree that is not an input of the target is invisible — and it
+fails as `Could not be compared against non-existent file`, **word for word the
+message you get when the file really is absent**. A file you can see on disk,
+reported as non-existent, is the confusing case; undeclared is almost always the
+reason.
+
+That the two are indistinguishable is deliberate rather than an oversight: a
+comparison whose inputs are all declared is one whose cached pass still means
+something. Undeclared inputs would make a cached green meaningless.
+
+Otherwise `matchesGoldenFile('goldens/x.png')` means what it means under
+`flutter test`: the golden is read from
+`<directory of the test's `main`>/goldens/x.png`, and a mismatch reports
+upstream's pixel percentage. The comparator is installed into the generated
+bootstrap at the point `flutter test` installs its own.
+
+Regenerate with upstream's flag, under `bazel run`:
+
+```sh
+bazel run //:widget_test -- --update-goldens
+```
+
+That writes the PNGs back to the **source** tree, next to the test, and names
+each file it wrote. The same flag under `bazel test` is refused with exit 64: a
+test action cannot write to the source tree, and a golden regenerated into the
+sandbox would report success while changing nothing. There is no repo-wide
+regeneration command — it is one `bazel run` per target, which
+`bazel query 'tests(//...)'` can drive.
+
+When a comparison fails, the four diff images (`masterImage`, `testImage`,
+`isolatedDiff`, `maskedDiff`) are written to
+`bazel-testlogs/<pkg>/<target>/test.outputs/failures/`, which is what the
+failure message names. Upstream points at a directory beside the test; under
+Bazel that is inside the sandbox and is deleted before you can open it.
+
+Two limits worth knowing, both inherited from Flutter rather than introduced
+here:
+
+- **Goldens are host-specific.** Font rasterisation and antialiasing differ
+  between operating systems, so a PNG generated on macOS may not match one
+  rendered on Linux or Windows. Regenerate on the platform that will check it,
+  or keep per-OS golden directories.
+- **Replacing the comparator disables regeneration.** If a test assigns its own
+  `goldenFileComparator`, `--update-goldens` routes through that object's
+  `update()` instead — typically `LocalFileComparator`'s, which writes into
+  runfiles. The run reports PASS, prints nothing, and leaves the source PNG
+  untouched.
+
 ### `flutter_plugin`
 
 Declares a Flutter plugin with Dart API code and per-platform native implementation dependencies.
@@ -818,6 +948,97 @@ dart_aggregate_codegen(
 )
 ```
 
+### `flutter_gen_l10n`
+
+Generates Flutter's `AppLocalizations` from `.arb` files — the Bazel equivalent
+of `flutter gen-l10n`.
+
+```starlark
+load("@rules_flutter//flutter:defs.bzl", "flutter_gen_l10n")
+
+flutter_gen_l10n(
+    name = "app_l10n",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_es.arb",
+        "lib/l10n/app_es_419.arb",
+    ],
+)
+
+flutter_test(
+    name = "l10n_test",
+    package_name = "my_app",
+    srcs = [":app_l10n"],
+    main = "test/l10n_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_localizations",
+        "@deps//:flutter_test",
+        "@deps//:intl",
+    ],
+)
+```
+
+The generated files land beside the `.arb` files, so a consumer collects them
+by listing the target in `srcs`.
+
+**Keep `@@locale` consistent with the filename.** The rule derives the declared
+output names from the arb *filenames*, while the generator decides what to write
+from each file's `@@locale` field. If `app_english.arb` declares
+`"@@locale": "en"`, Bazel expects `app_localizations_english.dart` and the
+generator writes `app_localizations_en.dart`, which surfaces as an opaque
+"output was not created". Bazel cannot read file contents during analysis, so
+this is a convention the rule cannot check for you.
+
+**`l10n.yaml` is not read.** Configuration comes from rule attributes instead.
+Bazel must know the output file names during analysis, and a config file read
+when the action runs cannot inform that. The attributes mirror upstream's flags
+(`template_arb_file`, `output_class`, `use_deferred_loading`, …) with upstream's
+defaults.
+
+**Outputs are grouped by primary language subtag.** `app_es.arb` and
+`app_es_419.arb` produce a *single* `app_localizations_es.dart` holding both
+`AppLocalizationsEs` and `AppLocalizationsEs419`, matching upstream. Listing one
+output per input arb is therefore wrong.
+
+**Two behaviours differ from the `flutter` CLI**, both deliberate:
+
+- Generated files always use LF line endings. Upstream mirrors the project
+  `pubspec.yaml`'s line endings, which would make build output depend on a file
+  that is not a declared action input.
+- `format` is not offered and setting it upstream-style is an error rather than
+  a silent no-op. Formatting shells out to the `dart` binary, which the action
+  does not have; check the generated sources with a `dart_format_test` if you
+  want it enforced.
+
+**Two `intl`s are in play.** The generator resolves its own `intl` from
+`//flutter/private/gen_l10n:pubspec.lock`; an app *using* the generated code
+needs `intl` in its own lock. Upstream has the same split.
+
+**Bumping Flutter** re-validates this rule by design. The generator is vendored
+out of `flutter_tools` at fetch time by seven patches; a release that moves
+their context makes `repository_ctx.patch` fail, and a new release also needs
+`source_sha256` in `//flutter/private:versions.bzl`. Both are loud. Two things
+neither catches:
+
+- A newly introduced **undeclared runtime read** — reading a file at run time
+  that the action never declared. No static analysis surfaces it; the symptom
+  is a `PathNotFoundException` naming the file.
+- A newly adopted **`dart:io` API**. flutter_tools is only ever compiled by its
+  own bundled Dart, so it can use APIs newer than the Dart a `dart_binary`
+  gets from rules_dart; the symptom is a compile error naming a missing
+  `dart:io` type. The fix is to cut the dead code that uses it — the seventh
+  patch does exactly this for the unused `NetworkInterface` wrapper — not to
+  reach for a toolchain override.
+
+See `//flutter/private:flutter_gen_l10n_repo.bzl`.
+
+**Windows note:** the repository rule extracts all of `packages/flutter_tools`
+(about 19 MB, 1400 files) and uses 20 of them. The deepest extracted path is
+roughly 130 characters relative to the repository root, which is within
+`MAX_PATH` given the short `output_user_root` Windows CI already sets, but it is
+more of that budget than the rule needs.
+
 ## Pub Integration
 
 Use `rules_dart`'s `pub.from_lock()` to resolve pub packages:
@@ -886,6 +1107,25 @@ Two consequences of it being `dart pub` rather than `flutter pub`: it writes
 `.flutter-plugins-dependencies` — rules_flutter generates plugin registrants
 from the build graph, so nothing here reads that file.
 
+**A package below the workspace root** — this repo's own
+`flutter/private/gen_l10n`, or a `tools/*` package — is still resolved by the
+same target. Arguments pass through unchanged, so `dart pub`'s `--directory`
+reaches it:
+
+```sh
+bazel run @rules_flutter//flutter:pub -- get --directory flutter/private/gen_l10n
+```
+
+The target always runs at `BUILD_WORKSPACE_DIRECTORY`, so the path is relative
+to the workspace root and does not change with your shell's location. Without
+`--directory` it resolves the root `pubspec.yaml`, which in a ruleset does not
+exist.
+
+This form exists so there is never a reason to reach for a separately installed
+Dart. Resolving a nested package by hand is the same silent trap the warning
+above describes, and it is worse here than at the root, because nothing about
+the resulting lock looks wrong.
+
 ## Native Interop
 
 Flutter applications can depend on native code built by other Bazel rules. This replaces Flutter's `native_assets` build hook system.
@@ -919,7 +1159,7 @@ flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flut
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `str` | Flutter SDK version string (e.g. `"3.44.1"`). |
+| `version` | `str` | Flutter SDK version string (e.g. `"3.47.2"`). |
 | `engine_revision` | `str` | Engine commit hash. |
 | `dart` | `File` | The `dart` executable from the Flutter-bundled Dart SDK. |
 | `dartaotruntime` | `File` | The `dartaotruntime` executable for running AOT snapshots. |
@@ -999,15 +1239,21 @@ the pair the same way: on a CoreDevice with Xcode ≥ 26 `flutter_tools` selects
 combined `devicectlAndLldb` log source, noting that `idevicesyslog` "stopped
 working with at least Xcode 26."
 
-Expect the first line to take a while. Starting a debug build under the JIT
-breakpoint is slow: the engine traps to the debugger for every executable page
-it allocates, and the handler writes to device memory over the debugserver
-link. On a recent iPhone, resume to the engine's first log takes
-**~45 s over a cable and ~6–7 minutes over the network**. That is the platform,
-not this tool — setting `--auto-continue` on the breakpoint changes nothing,
-because the cost is the memory write rather than the stop/resume handshake. Use
-a cable when you can. The tool prints a "still waiting" note at 45 s so a slow
-launch is distinguishable from a hang.
+Expect the first line to take longer than on a host. Starting a debug build
+under the JIT breakpoint is not free: the engine traps to the debugger for every
+executable page it allocates, and the handler writes to device memory over the
+debugserver link. Setting `--auto-continue` on the breakpoint changes nothing,
+because the cost is the memory write rather than the stop/resume handshake. On a
+recent iPhone with a healthy Xcode install, resume to the engine's first log
+measured **~8 s over a cable and ~40 s over the network**. A cable
+is still several times faster, but the network is not a different order of
+magnitude.
+
+Minutes-long launches mean something is wrong on the *host*, not on the phone.
+The usual cause is an unfinished Xcode symbol copy, which leaves lldb without
+the on-disk shared cache; check that Xcode has finished copying symbols for the
+device before looking anywhere else. The tool prints a "still waiting" note at 45 s so
+a slow launch stays distinguishable from a hang.
 
 ### Finding the VM service
 
@@ -1037,7 +1283,7 @@ The two halves are chosen together from what `devicectl list devices` reports:
 a wireless launch also passes `--vm-service-host=0.0.0.0` so the service is
 reachable off-device, and a wired launch deliberately does not.
 
-Two things are worth knowing when it fails:
+Three things are worth knowing when it fails:
 
 - **Local Network permission.** On macOS the mDNS socket needs it. Denied, the
   failure is a specific error naming System Settings > Privacy & Security >
@@ -1047,14 +1293,26 @@ Two things are worth knowing when it fails:
   to retransmit. Against a USB-attached iPhone a single query succeeded roughly
   two times in five, so discovery retransmits with the specified backoff; in
   practice it resolves in ~200 ms and worst-observed 3.3 s.
+- **`dns-sd` is not evidence of what this tool can see**, in either direction.
+  It answers from mDNSResponder's table, which holds records a raw multicast
+  socket cannot reach: over USB, CoreDevice proxies the device's Bonjour records
+  in as **local-only registrations**, invisible to a multicast socket by design.
+  So `package:multicast_dns` seeing nothing over USB while `dns-sd` lists the
+  phone is correct on both sides. The table also keeps **ghosts** — stale
+  `_dartVmService` registrations on `lo0` from booted simulators, with no app
+  running. Unplugged, the phone multicasts for real on `en0`/`en1` and the raw
+  socket sees it. If you do reach for `dns-sd`, read the interface index on each
+  `Add` line — interface 1 is `lo0` and proves nothing about the device.
 
 Hot reload and hot restart get the same allowance. A reload is quick — only the
 changed library is compiled and no pages are re-JITed — but a restart re-runs
 `main()` and so pays the breakpoint cost again, taking about as long as the
-original launch. The per-call budget is therefore five minutes wired and fifteen
-wireless, against thirty seconds on a host. Too short a budget does not merely
-wait less: it abandons the RPC and force-closes the VM-service connection,
-reporting a timeout for a restart that was on its way to succeeding.
+original launch. The per-call budget is five minutes wired and fifteen wireless,
+against thirty seconds on a host. Those are backstops for a run that will never
+succeed, deliberately sized for the worst host state seen rather than for the
+seconds a healthy one takes: too short a budget does not merely wait less, it
+abandons the RPC and force-closes the VM-service connection, reporting a timeout
+for a restart that was on its way to succeeding.
 
 `devicectl list devices` also lists devices that were paired once and are not
 attached now. Those are filtered out, so `-d ios` picks the device that is
@@ -1065,6 +1323,44 @@ hardware one means anything to usbmuxd, so that is what `iproxy` and `lldb` are
 addressed with; getting this wrong yields a port forward that binds locally and
 then resets every connection, which surfaces much later as a DDS failure.
 
+### Assets and fonts
+
+An edit to a bundled asset goes live the same way an edit to a `.dart` file
+does, on hot reload or a watched save. The tool tracks the built
+`flutter_assets` tree, so it knows which workspace directories feed it and can
+answer "did an asset change?" from a few directory listings — a run whose assets
+are untouched never pays for a `bazel build` on a Dart edit.
+
+When one has changed, the bundle is rebuilt and only the differing entries are
+uploaded into the app's devFS, which is what makes this work on a phone, inside
+an APK, and inside a sandboxed `flutter create` macOS app — none of which can
+read `bazel-out`. Everything not uploaded still resolves to what shipped: the
+engine keeps the original bundle behind the devFS directory. A changed font
+additionally re-registers the engine's font collection, so re-exporting a `.ttf`
+in place takes effect (upstream ignores that until a restart).
+
+On web the dev server already serves `assets/` off the build tree per request,
+so only the page's caches have to be dropped. Fonts are the exception there —
+the web engine registers them once at startup and exposes no reload hook — and
+the reload says so rather than reporting success.
+
+### Debugging from the first line
+
+`flutter_bazel run --start-paused` holds the app at the beginning of `main()`
+so a debugger can attach before any app code runs. The switch reaches each
+platform the way that platform accepts one — `FLUTTER_ENGINE_SWITCH_<N>` on
+desktop, an `--ez start-paused true` intent extra on Android, trailing argv on
+iOS — and on web there is no switch at all: DWDS gates `main()`, so the tool
+simply withholds the run request and DWDS starts the app when a client resumes
+it.
+
+The pause is reported only once it has been *observed* (the main isolate's own
+`pauseEvent`), so a target that ignored the switch is called out rather than
+leaving you waiting at a debugger for an app that already ran. While paused,
+`app.*` commands answer with the reason instead of blocking on an isolate that
+cannot run, and `--route` / `--trace-startup` are skipped with a warning —
+both need a framework that has not started yet.
+
 ### Agent / external-tool control surface
 
 `flutter_bazel run` starts an HTTP control channel by default (disable with `--no-http-control-channel`). External tools — IDE integrations, AI coding agents, end-to-end test harnesses — drive the running app over this channel without needing a TTY.
@@ -1072,20 +1368,70 @@ then resets every connection, which surfaces much later as a DDS failure.
 ```sh
 bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- \
   run --target //:my_app --machine
-# stdout emits a JSON line: {"event":"http_control_channel","uri":"http://[::1]:PORT","token":"..."}
-# stdout also emits {"event":"app.start","appId":"..."} when the app attaches
+# stderr emits the channel's own record — as a JSON line under LOG_FORMAT=json,
+# carrying every endpoint below as data rather than as prose. Each one comes
+# with the URL that works, token included; the token is a query parameter
+# (`tokenParam`), not an Authorization header:
+#   {"message":"http_control_channel","uri":"http://localhost:PORT",
+#    "token":"...","tokenParam":"token","endpoints":[
+#      {"method":"POST","path":"/command",
+#       "url":"http://localhost:PORT/command?token=...", ...}, ...]}
+# stdout emits the protocol stream, starting with daemon.connected:
+#   [{"event":"app.start","params":{"appId":"...","deviceId":"macOS", ...}}]
 ```
+
+**What counts as protocol on stdout.** A line is a protocol message if and
+only if it is a `[{…}]` envelope; anything else is passthrough output and a
+client should hand it to the user rather than parse it. That is upstream's own
+convention — `flutter_tools`' DAP and the Dart-Code extension both filter
+exactly this way — and it is what makes the invocation above safe: under
+`bazel run`, this tool's stdout **is** bazel's stdout, and bazel forwards a
+successful action's stdout to it. So a run that has to rebuild the tool first
+prints, for instance, `Generated: /…/flutter_bazel` from `dart compile exe`
+ahead of the first envelope. Nothing before `daemon.connected` is addressed to
+a protocol client.
 
 Once the channel is up:
 
 | Endpoint | Verb | Purpose |
 | --- | --- | --- |
 | `/command?token=<token>` | `POST` | Run a machine-protocol method against a running session. Body: `{"method":"app.<X>", "params":{"appId":"...", ...}}`. |
-| `/sessions/{appId}/screenshot/flutter?token=<token>` | `GET` | PNG of the Flutter widget tree (`_flutter.screenshot` via VM service). **Not available on iOS or web** — see below. |
-| `/sessions/{appId}/screenshot/native?token=<token>` | `GET` | PNG of the app as the platform sees it (`screencapture` / `scrot` / `simctl io screenshot` / `adb screencap` / CDP). Works on every device. |
+| `/sessions/{appId}/screenshot/flutter?token=<token>` | `GET` | PNG of the Flutter widget tree (`_flutter.screenshot` via VM service). **Not available on any device at the pinned Flutter** — see below. |
+| `/sessions/{appId}/screenshot/native?token=<token>` | `GET` | PNG of the app as the platform sees it (`screencapture` / `scrot` / `simctl io screenshot` / `adb screencap` on a physical Android device, `adb emu screenrecord screenshot` on an emulator / CDP). Works on every device. |
+
+**When the picture was taken.** Both endpoints wait for the app to go idle before capturing, so a screenshot taken straight after an `app.tap` includes what the tap did. Without that wait a capture is just a moment — it returns the frame from *before* the action painted, and a stale picture is indistinguishable from a feature that did not work. The answer says which you got: `X-Settled: yes` (idle first), `no` (the wait ran out, or the app is backgrounded), or `skipped` (`&settle=false`, or this run has no VM service to ask — `--wasm`, `--profile`), with `X-Settle-Detail` carrying the reason for anything but `yes`. Never fatal: an app that cannot settle is the one whose picture is most worth having. `app.settle` is the same wait as a command, for use between two of your own.
+| `/commands?token=<token>` | `GET` | What this run can be asked to do: `{"protocolVersion", "commands":[{"name","longRunning"}]}`. See below. |
 | `/sessions/{appId}/logs?token=<token>` | `GET` | The app's console output, from a bounded ring buffer. See below. |
 
-**Which screenshot.** `screenshot/flutter` captures only the widget tree, with no OS chrome, by asking the engine — but the engine cannot encode a compressed screenshot under **Impeller**, and there is no engine screenshot on web at all. iOS (always Impeller) and web therefore answer `501` naming `screenshot/native`, rather than a `500` that reads as transient; elsewhere, an app that renders with Impeller gets the same pointer attached to the engine's own error. `screenshot/native` is the one that works everywhere.
+**Which screenshot.** `screenshot/flutter` captures only the widget tree, with no OS chrome, by asking the engine — but the engine cannot encode a compressed screenshot under **Impeller**, and there is no engine screenshot on web at all. Since Flutter 3.47 every platform renders with Impeller by default, so every device answers `501` naming `screenshot/native`, rather than a `500` that reads as transient. An app that turns Impeller off could serve it; the dev tool does not try to detect that, because the renderer is a runtime property of the app and `screenshot/native` captures both. `screenshot/native` is the one that works everywhere.
+
+**Which commands.** The set is not fixed when a client connects — it grows
+through a run, and it is a statement about *this* run rather than about the
+tool. A web run gains `app.setViewport` once the browser is up and never
+offers `app.buildInfo` at all, because only a `-c dbg` native build carries
+the record that command reads; a native debug run gains `app.buildInfo` once
+the plan is resolved. The agent commands (`app.tap`, `app.getText`, …) are
+offered once the plan says this run has a VM service to reach the app's
+extensions through — every native run, and on a browser only the DDC dev
+loop — and answer once that service actually exists, which on web and on an
+iOS device is well after `app.started`. So re-read `/commands` rather than
+caching the first answer. `longRunning` marks the commands that
+rebuild or recompile before they answer — the ones worth a generous timeout,
+and the ones `app.progress` is emitted for.
+
+A `--machine` client does not need this endpoint: it is handed the list on
+`daemon.connected` and again on every `daemon.commandsChanged`, because it
+reads stdout from the first byte and cannot miss either. `daemon.connected`
+also carries `protocolVersion`, which says which of these fields to expect.
+
+It is also told things this channel has no way to push: `app.devTools` carries
+the DevTools URL for the app once there is one to serve, `app.debugPort` the
+VM service's `port`, `wsUri` and `baseUri`, and `app.webLaunchUrl` the address
+a web run is served at — the browser this tool launches uses a scratch profile
+and may be headless, so that URL is how you open the page in your own browser.
+The full event list is the header of
+`tools/dev_tool/lib/machine_protocol.dart`, which is the registry rather than
+a copy of it.
 
 **Reading logs.** `/logs` is a cursor-polling endpoint rather than a stream: there is no long-lived connection, and a caller reads exactly as much as it asks for.
 
@@ -1101,25 +1447,65 @@ Once the channel is up:
 ```sh
 # Tail, then poll forward.
 curl -s "$URI/sessions/$APP/logs?token=$T"
-# {"lines":[{"i":812,"t":"flutter: meter -18dB","err":false}],
+# {"lines":[{"index":812,"text":"flutter: meter -18dB","error":false}],
 #  "nextCursor":813,"launch":1,"missed":0,"dropped":0,"closed":false}
 
 curl -s "$URI/sessions/$APP/logs?token=$T&since=813"
 ```
 
-`err` marks lines that arrived on an error channel — the process's stderr, a VM-service `Stderr` event, `console.error`. It is a *channel*, not a severity: platforms that hand the whole device log over one stream (iOS via `devicectl`/`simctl`, Android via `logcat`) deliver engine `[ERROR:…]` lines with `err:false`, so match on the text when you care about engine errors there.
+`error` marks lines that arrived on an error channel — the process's stderr, a VM-service `Stderr` event, `console.error` — the same bit, under the same name, that `app.log` uses. It is a *channel*, not a severity: platforms that hand the whole device log over one stream (iOS via `devicectl`/`simctl`, Android via `logcat`) deliver engine `[ERROR:…]` lines with `error:false`, so match on the text when you care about engine errors there.
 
 `missed` is non-zero when the requested cursor had already been evicted, so a poller learns it has a gap instead of reading a short page as though it were complete; `dropped` is the total evicted over the run. `closed` turns true once the app's output source has ended — no further lines can arrive, so a poll loop can stop. The buffer survives the app's exit, so a crashed app's final output is still readable.
 
 `launch` is which launch of the app the page came from: `1` for the original, one more for each relaunch (see `app.restart` below). Each launch buffers its own output from zero, so a cursor only means anything within one launch — when `launch` changes, drop your cursor and re-tail.
 
-App-driving methods (proxied to the agent extensions registered from the generated plugin registrant, which the engine invokes before `main()` on every launch — so they survive hot restart):
+App-driving methods (proxied to the agent extensions the app registers before `main()` on every launch, so they survive hot restart — from the generated plugin registrant the engine invokes on native, and from the dev tool's generated entrypoint on web):
 
 `app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`,
 `app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`,
-`app.waitFor`, `app.waitForAbsent`, `app.pageBack`.
+`app.waitFor`, `app.waitForAbsent`, `app.pageBack`, `app.settle`.
+
+Two more are offered only by the runs that can serve them, and appear in
+`/commands` when they are: `app.buildInfo` — which build tree backs the
+running app, read from a record `flutter_compile_kernel` bakes into `-c dbg`
+native builds — and `app.setViewport`, which resizes a web run's browser.
+
+**A web run without a VM service offers none of them.** `--wasm`, `--profile`
+and `--no-hot` serve a bundle built by dart2wasm or dart2js, where
+`dart:developer`'s `registerExtension` is a no-op stub and there is no service
+to dispatch through in any case, so the driving methods above are absent from
+`/commands` rather than present and refusing. The run says so once, up front,
+as an `agent_surface_unavailable` log record. What such a run can still do:
+`/logs` (its console arrives over CDP), `/sessions/{appId}/screenshot/native`
+(CDP's own capture) and `app.restart` (a bazel rebuild plus a page reload).
+To drive the widget tree, run the same target as the DDC dev loop — neither
+`--wasm` nor `--profile`.
+
+These are answerable later than `app.started` suggests, on every platform. `app.started` means `main()` has begun running — the same thing upstream's daemon protocol means by it — and an app that has begun running has not yet built a widget tree. On `-d chrome` the gap is DWDS: the browser's VM service only exists once the page has connected, and DWDS holds `main()` back until it does, so nothing is registered for the first few seconds of a run or of a hot restart. On a physical device the gap is the app's own start: a debug build on an iPhone JITs through the debugger and its VM service answers *nothing* — not an agent call, not `getVersion` — until the app paints, measured at 61s after `app.started`.
+
+A command issued in that window waits it out rather than failing, so you can fire on `app.started` and need no readiness poll of your own. The wait is reported as an `app.progress` pair (`Waiting for the app to render its first frame`) so a client can show it, and an app that never paints is refused with a reason rather than a bare timeout. Waiting for a widget is still yours to ask for, with `app.waitFor`.
 
 Lifecycle methods: `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
+
+`app.stop` stops the **one app** its `appId` names, as upstream's does; a run
+driving two devices carries on with the other, and ends when its last app
+does. It needs the `appId` — a bare `app.stop` is refused rather than read as
+"all of them". `daemon.shutdown` is the one that ends the run: every app, the
+browser, the compiler and this process.
+
+**How a command says no.** Every failure, on either transport, is a top-level
+`error` carrying the reason — there is no second place to look. Over HTTP the
+status says which kind it is: `404` the command or the app does not exist
+here, `400` the request was malformed (a missing parameter, two selectors),
+`501` this run cannot serve it (an engine screenshot under Impeller), `422` it
+was asked properly and could not be done — the app refused, or never answered.
+A `500` means the tool itself broke, which is the one case worth retrying or
+reporting. On the stdin protocol the same failure is upstream's
+`{"id":…, "error":"<reason>"}`, with `error` a string.
+
+What stays inside `result` is an outcome that carries its own verdict: a hot
+reload answers `{"succeeded":false, "error":…}`, because it ran and reported a
+failure rather than refusing to run.
 
 **Restarts that relaunch.** A hot restart swaps Dart code into the running process, which cannot replace a native library it has already `dlopen`ed. So `app.restart` first rebuilds the app and, when the bundle's loose native libraries (`native_deps`) changed, relaunches the process instead of restarting the isolate:
 
@@ -1141,14 +1527,20 @@ The channel is a property of the *run*, not of the app process: the port, the to
 | `type` | a widget whose runtime type name equals the string (e.g. `ElevatedButton`) |
 | `semanticsLabel` | a widget whose semantics label equals the string |
 
-Passing zero or more than one selector returns a clear error. Other params: `durationMs` (longPress/drag/scrollIntoView), `dx`/`dy` (drag/scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`.
+Passing zero or more than one selector returns a clear error. Other params: `durationMs` (longPress/drag/scrollIntoView), `dx`/`dy` (drag/scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`, `settle`, `requireHit`.
 
 A selector reaches the same distance for every method: put the `Key` on the widget you would point at — the `Chip`, the `ListTile`, the button — not on the `Text` or `EditableText` it happens to build.
 
 - **`getText`** returns the text of the first text-bearing descendant of the match in pre-order (`Text`, including `Text.rich`; `RichText`; `EditableText`), and lists every one of them in `texts` — so a container holding two strings is visible as two rather than silently reported as its first. `{"text":"Increment (agent)","texts":["Increment (agent)"]}`.
 - **`enterText`** takes `text` as the string to type, which is why it is the one method whose selector vocabulary excludes the `text` selector: `key`, `tooltip`, `type` and `semanticsLabel` apply. With a selector it focuses the first `EditableText` under the match and types into it — no preceding `tap` needed — and echoes what it typed into: `{"enteredText":"hi","into":"ValueKey(emailField)"}`. With no selector it types into whatever is focused (`flutter_driver`'s model), reporting `"into":"focused"`.
 
-**Settling and timeouts.** After dispatching input, interaction methods wait until the app is idle (no animations in flight) before returning, so a follow-up `getRect`/`getText` sees post-action layout — the same model as `flutter_driver`. The wait is bounded by `timeoutMs` (default 10000); if the app can't settle within it — e.g. the window is minimized/occluded so the embedder has paused vsync — the method returns a `TimeoutException` error rather than blocking forever. The input is still delivered.
+**Settling and timeouts.** After dispatching input, interaction methods wait until the app is idle (no animations in flight) before returning, so a follow-up `getRect`/`getText` sees post-action layout — the same model as `flutter_driver`. The wait is bounded by `timeoutMs` (default 10000); if the app can't settle within it the method returns a `TimeoutException` error rather than blocking forever, and the error says how many animations were still in flight — zero means the app was backgrounded mid-command and the frame being awaited never arrived. **The input is still delivered**, so that error means "I cannot promise the result is observable yet", never "nothing happened"; retrying it taps twice. An app that was *already* backgrounded returns immediately instead: backgrounding is what stops frames (minimizing or covering its window does not), so there is no frame to wait for and none of `timeoutMs` is spent.
+
+**Reaching the widget.** Being in the tree is not the same as being where a pointer can land. A child of a scroll view that is scrolled past is laid out at coordinates outside the viewport; one behind a dialog or an overlay is covered. A selector still finds it and it still has a rect, so `tap`, `longPress`, `doubleTap` and `drag` hit-test the point before dispatching and **refuse** when nothing there resolves to the target. The refusal names which case it is and gives the matching remedy — scroll it into view, or move what covers it; a coordinate that lands in a different pane is the second, and telling you to scroll a widget already on screen would send you nowhere. This is `WidgetController`'s `warnIfMissed` with the fatal choice made: a success response for an event nobody received is worse than an error.
+
+`app.scrollIntoView` is the way through, and it answers the question directly: its `reachable` field says whether a tap would now land. (`iterations` counts drag-scrolls of a lazy list; `0` means the target was already built and `Scrollable.ensureVisible` was used, which is not "there was nothing to do".) `requireHit: "false"` dispatches at the point anyway — upstream's `warnIfMissed: false`, for a caller who means it.
+
+**`settle: "false"`** turns the wait off for one command — `flutter_driver`'s `runUnsynchronized` under a name that says what it disables. Some apps never go idle: a spinner, a progress indicator, a hand-rolled caret, any perpetual `AnimationController` holds a transient frame callback for as long as it runs, so *every* command against such an app spends its whole `timeoutMs` and fails. What you give up is the guarantee the wait exists for — an immediate `getText` after an unsynchronised `tap` races the rebuild and reads the pre-action value about as often as not — so resynchronise with `app.waitFor` on the value you expect rather than reading straight back. `settle` takes `"true"` or `"false"` and rejects anything else: a typo here would otherwise choose the opposite behaviour in silence.
 
 **curl note.** The endpoints speak plain HTTP/1.1; no special flags are needed — `curl -s "$URI/..."` works. (If your `curl` is configured to attempt HTTP/2, add `--http1.1`.)
 
@@ -1297,7 +1689,7 @@ load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 # In a git-ignored //device package, so the credential stays local.
 local_provisioning_profile(
     name = "profile",
-    profile_name = "iOS Team Provisioning Profile: com.example.myapp",
+    profile_name = "iOS Team Provisioning Profile: *",
     tags = ["manual"],
 )
 ```
@@ -1316,6 +1708,29 @@ the same construction, not a second hand-assembled one. `flutter_ios_app`
 defaults to `tags = ["manual"]`, so `bazel build //...` on a fresh clone does
 not expand the target and therefore does not load the missing `//device`
 package.
+
+The same split applies when the app is hand-assembled from the Tier-2 `_gen`
+rules: give the device `ios_application` `provisioning_profile` and the same
+`deps` list as the simulator one, and keep both in the committed BUILD file.
+Only `local_provisioning_profile` belongs in `//device` — it is the one fact
+that is genuinely per-developer. Putting the assembly there instead hides it
+from review, from CI and from every refactor, and it drifts: two of this
+repository's own examples had a git-ignored device app that had silently
+diverged from its committed simulator twin.
+
+**Naming the profile.** `profile_name` matches the profile's `Name` field,
+which is *not* always `iOS Team Provisioning Profile: <bundle id>`. Xcode mints
+a per-bundle-id profile only for an App ID registered explicitly in the
+developer portal; for an unregistered id — which an example or scratch app's
+usually is — automatic signing issues the team **wildcard** profile instead,
+named `iOS Team Provisioning Profile: *` over App ID `<TEAM>.*`, and that is
+what covers your bundle id. List what you actually have:
+
+```sh
+for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+  security cms -D -i "$f" | plutil -extract Name raw -
+done
+```
 
 Without `provisioning_profile`, a device build fails at analysis with
 *"The provisioning_profile attribute must be set for device builds on this

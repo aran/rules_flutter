@@ -1,3 +1,6 @@
+# Disable lockfile for e2e tests (they use local_path_override which changes frequently)
+common --lockfile_mode=off
+
 # Use a remote JDK so the build works without a local Java installation.
 common --java_runtime_version=remotejdk_25
 common --tool_java_language_version=25

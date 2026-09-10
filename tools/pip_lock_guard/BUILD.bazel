@@ -1,0 +1,65 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test", "dart_test")
+load(":source_repo.bzl", "SOURCE_REPO")
+
+# Keeps `MODULE.bazel.lock`'s pip extension facts honest on every host.
+#
+# `.bazelrc` enforces `--lockfile_mode=error`, but a checkout that overrides a
+# module — the sibling rules_dart every developer here uses — has to turn
+# lockfile checking off entirely, and then Bazel checks nothing. This test does,
+# because a `bazel test` does not care what `--lockfile_mode` is set to.
+#
+# The three vendored requirements files are verbatim copies of
+# `@rules_python//tools/publish:requirements_{linux,darwin,windows}.txt`, which
+# cannot be depended on directly: rules_python exports nothing from that
+# package, and naming the source files here fails analysis with a visibility
+# error. The test asserts the selected rules_python version so the copies
+# cannot go stale silently.
+_DATA = {
+    "PIP_FACTS_LOCK": "//:MODULE.bazel.lock",
+    "PIP_FACTS_MODULE": "//:MODULE.bazel",
+    "PIP_FACTS_IOS_REQUIREMENTS": "//tools/ios_screenshot:requirements_lock.txt",
+    "PIP_FACTS_PUBLISH_LINUX": ":rules_python_publish_requirements_linux.txt",
+    "PIP_FACTS_PUBLISH_DARWIN": ":rules_python_publish_requirements_darwin.txt",
+    "PIP_FACTS_PUBLISH_WINDOWS": ":rules_python_publish_requirements_windows.txt",
+}
+
+# Runfiles keys use the apparent repo name, which `package:runfiles` translates
+# through `_repo_mapping`; `SOURCE_REPO` tells it whose mapping to read.
+_RUNFILES_KEYS = {
+    "PIP_FACTS_LOCK": "rules_flutter/MODULE.bazel.lock",
+    "PIP_FACTS_MODULE": "rules_flutter/MODULE.bazel",
+    "PIP_FACTS_IOS_REQUIREMENTS": "rules_flutter/tools/ios_screenshot/requirements_lock.txt",
+    "PIP_FACTS_PUBLISH_LINUX": "rules_flutter/tools/pip_lock_guard/rules_python_publish_requirements_linux.txt",
+    "PIP_FACTS_PUBLISH_DARWIN": "rules_flutter/tools/pip_lock_guard/rules_python_publish_requirements_darwin.txt",
+    "PIP_FACTS_PUBLISH_WINDOWS": "rules_flutter/tools/pip_lock_guard/rules_python_publish_requirements_windows.txt",
+}
+
+dart_test(
+    name = "pip_facts_test",
+    size = "small",
+    data = _DATA.values(),
+    defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO] +
+              ["%s=%s" % (name, key) for name, key in _RUNFILES_KEYS.items()],
+    main = "pip_facts_test.dart",
+    deps = [
+        "@dev_tool_deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
+# A test's `main` belongs to no package's `lib/`, so it appears in no
+# `DartInfo` and nothing else analyzes it — compiling the test to a kernel
+# rejects broken code but is indifferent to everything `dart analyze` reports.
+# The `dart_test`'s own `DartAnalyzableInfo` is what reaches it.
+dart_analyze_test(
+    name = "pip_facts_analyze",
+    size = "small",
+    target = ":pip_facts_test",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    options = "//:analysis_options.yaml",
+)

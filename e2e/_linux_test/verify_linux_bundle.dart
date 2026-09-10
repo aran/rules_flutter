@@ -69,20 +69,38 @@ void main(List<String> args) {
 
   // In release mode libapp.so exists; in debug mode data/flutter_assets/kernel_blob.bin exists.
   final hasAotLib = File('$bundlePath/lib/libapp.so').existsSync();
-  final hasKernelBlob = File('$bundlePath/data/flutter_assets/kernel_blob.bin').existsSync();
+  final hasKernelBlob = File(
+    '$bundlePath/data/flutter_assets/kernel_blob.bin',
+  ).existsSync();
   if (hasAotLib) {
-    check('AOT snapshot (release)', '$bundlePath/lib/libapp.so', nonEmpty: true);
+    check(
+      'AOT snapshot (release)',
+      '$bundlePath/lib/libapp.so',
+      nonEmpty: true,
+    );
   } else if (hasKernelBlob) {
-    check('Kernel blob (debug)', '$bundlePath/data/flutter_assets/kernel_blob.bin', nonEmpty: true);
+    check(
+      'Kernel blob (debug)',
+      '$bundlePath/data/flutter_assets/kernel_blob.bin',
+      nonEmpty: true,
+    );
   } else {
-    stderr.writeln('FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found');
+    stderr.writeln(
+      'FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found',
+    );
     failed = true;
   }
 
   // Flutter assets.
   check('flutter_assets directory', '$bundlePath/data/flutter_assets');
-  check('AssetManifest.bin', '$bundlePath/data/flutter_assets/AssetManifest.bin');
-  check('FontManifest.json', '$bundlePath/data/flutter_assets/FontManifest.json');
+  check(
+    'AssetManifest.bin',
+    '$bundlePath/data/flutter_assets/AssetManifest.bin',
+  );
+  check(
+    'FontManifest.json',
+    '$bundlePath/data/flutter_assets/FontManifest.json',
+  );
   check('NOTICES.Z', '$bundlePath/data/flutter_assets/NOTICES.Z');
 
   // ICU data.

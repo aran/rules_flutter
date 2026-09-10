@@ -10,13 +10,17 @@
 /// `ios/Runner/Info.plist`, where they survive into release — and this
 /// example does.
 ///
-/// That combination used to be unbuildable. The VM service plist was passed
-/// *beside* the app's, and rules_apple's plisttool hard-fails when two
-/// plists declare one key with different values, so declaring
-/// `NSLocalNetworkUsageDescription` broke every `-c dbg` build with an error
-/// that named neither rules_flutter nor the reason. The keys are now merged
-/// into the app's plist with the app's values winning and the Bonjour
-/// service lists unioned. This test asserts that on the real artifact.
+/// rules_apple's plisttool hard-fails when two plists declare one key with
+/// different values, so the VM service keys are merged into the app's own
+/// plist — the app's values win and the Bonjour service lists are unioned —
+/// rather than passed beside it. This test asserts that on the real artifact.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -66,15 +70,16 @@ void main() {
       stderrEncoding: utf8,
     );
     if (converted.exitCode != 0) {
-      stderr.writeln('plutil failed (exit ${converted.exitCode}):');
-      stderr.writeln(converted.stderr);
+      stderr
+        ..writeln('plutil failed (exit ${converted.exitCode}):')
+        ..writeln(converted.stderr);
       exit(1);
     }
     final plist = converted.stdout as String;
 
     var failed = false;
 
-    void check(String description, bool condition) {
+    void check(String description, {required bool condition}) {
       if (condition) {
         print('OK: $description');
       } else {
@@ -85,24 +90,25 @@ void main() {
 
     check(
       "the app's own Bonjour service survives the merge ($_appService)",
-      plist.contains(_appService),
+      condition: plist.contains(_appService),
     );
     check(
       'the Dart VM service is unioned in, not substituted for it ($_vmService)',
-      plist.contains(_vmService),
+      condition: plist.contains(_vmService),
     );
     check(
       "the app's own NSLocalNetworkUsageDescription wins over rules_flutter's",
-      plist.contains(_appUsageDescriptionPrefix),
+      condition: plist.contains(_appUsageDescriptionPrefix),
     );
     check(
       "rules_flutter's VM-service description did not overwrite the app's",
-      !plist.contains('Allow Flutter tools to find and connect'),
+      condition: !plist.contains('Allow Flutter tools to find and connect'),
     );
 
     if (failed) {
-      stderr.writeln('\n--- Info.plist ---');
-      stderr.writeln(plist);
+      stderr
+        ..writeln('\n--- Info.plist ---')
+        ..writeln(plist);
       exit(1);
     }
 

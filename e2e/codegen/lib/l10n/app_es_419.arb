@@ -1,0 +1,6 @@
+{
+  "@@locale": "es_419",
+  "greeting": "¡Hola, {name}!",
+  "bookCount": "{count, plural, =0{Sin libros} =1{1 libro} other{{count} libros}}",
+  "pronoun": "{gender, select, male{Él lee} female{Ella lee} other{Elle lee}}"
+}

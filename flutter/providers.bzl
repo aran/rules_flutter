@@ -34,7 +34,15 @@ FlutterSdkInfo = provider(
 )
 
 FlutterInfo = provider(
-    doc = "Information about a Flutter library's sources, dependencies, and assets.",
+    doc = """The channels a Flutter library contributes to its consumers.
+
+Read this directly off any target that provides it. To *build* one, call \
+`flutter_info()` from `//flutter/private:flutter_info.bzl` rather than this \
+constructor: it takes what a target contributes itself and merges every \
+dependency's values internally, so a field added here needs no change in the \
+rules that produce `FlutterInfo`. Constructing it here means enumerating and \
+merging each field by hand, and a field left empty rather than forwarded \
+silently discards every dependency's contribution.""",
     fields = {
         "asset_dirs": "depset[File]: Directories containing Flutter assets.",
         "shader_srcs": "depset[File]: Raw shader source files (.frag/.glsl) to compile per-platform.",
@@ -43,7 +51,6 @@ FlutterInfo = provider(
         "apple_plugin_libraries": "depset[struct]: Apple plugin swift_libraries. Each struct has: platform (str: 'macos' | 'ios'), label (Label), cc_info (CcInfo or None), swift_info (SwiftInfo or None), package (str: pub package name). Used by the runner aggregator to merge per-platform link/compile inputs.",
         "linux_plugin_libraries": "depset[struct]: Linux plugin source bundles. Each struct has: label (Label), srcs (depset[File]), hdrs (depset[File]), include_dirs (depset[str]), package (str). The Linux runner folds these into its compile.",
         "windows_plugin_libraries": "depset[struct]: Windows plugin source bundles. Each struct has: label (Label), srcs (depset[File]), hdrs (depset[File]), include_dirs (depset[str]), package (str). The Windows runner folds these into its compile.",
-        "android_plugin_libraries": "depset[struct]: Android plugin libraries. Each struct has: label (Label), package (str). flutter_android_application adds the labels to the android_binary's deps.",
         "apple_privacy_manifests": "depset[File]: Apple `PrivacyInfo.xcprivacy` files contributed by transitive plugins. Apple requires every framework to ship one since iOS 17.4 / macOS 14.4; the macOS / iOS application rules bundle them into `Contents/Resources/<pkg>/PrivacyInfo.xcprivacy` (or the iOS analog) so App Store submission's privacy aggregator picks them up.",
         "native_assets": "depset[FlutterNativeAssetInfo]: Per-target Native Assets `CodeAsset` declarations contributed by transitive `flutter_native_asset` rules.",
         "data_assets": "depset[FlutterDataAssetInfo]: Per-package Native Assets `DataAsset` declarations contributed by transitive `flutter_data_asset` rules.",
@@ -88,5 +95,9 @@ FlutterApplicationInfo = provider(
         "bundled_code_assets": "depset[File]: Native-Assets `CodeAsset` library files (.dylib/.so/.dll) to embed in the platform bundle. Each platform application rule reads this and threads the files into the platform's existing embedding mechanism.",
         "bundled_data_assets": "depset[FlutterDataAssetInfo]: Native-Assets `DataAsset` declarations to bundle under `flutter_assets/data/<pkg>/<name>`.",
         "apple_privacy_manifests": "depset[File]: Aggregated Apple `PrivacyInfo.xcprivacy` files from transitive plugins. The macOS / iOS application rules thread these into `additional_contents` of the bundle so Apple's App Store submission validator sees the merged privacy declaration.",
+        "plugins": "list[struct]: Deduplicated plugin metadata aggregated from the application's whole dependency graph. Each struct has: name (str), platforms (dict of platform -> {pluginClass, dartPluginClass, package}). The per-platform registrant generators read this to emit `GeneratedPluginRegistrant`.",
+        "apple_plugin_libraries": "depset[struct]: Aggregated Apple plugin swift_libraries, same shape as `FlutterInfo.apple_plugin_libraries`. Read by the runner aggregator to merge per-platform link/compile inputs.",
+        "linux_plugin_libraries": "depset[struct]: Aggregated Linux plugin source bundles, same shape as `FlutterInfo.linux_plugin_libraries`. The Linux runner folds these into its compile.",
+        "windows_plugin_libraries": "depset[struct]: Aggregated Windows plugin source bundles, same shape as `FlutterInfo.windows_plugin_libraries`. The Windows runner folds these into its compile.",
     },
 )

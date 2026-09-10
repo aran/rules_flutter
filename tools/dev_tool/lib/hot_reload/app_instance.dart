@@ -10,6 +10,8 @@
 /// is `.ignore()`d here.
 import 'dart:async';
 
+import 'flutter_error_report.dart';
+
 import '../vm_service_client.dart';
 
 enum ApplyMode {
@@ -28,10 +30,40 @@ class Applied extends ApplyOutcome {
 }
 
 /// The VM responded but the reload itself reported failure (or the upload
-/// to devFS failed). [reason] is best-effort diagnostic text.
+/// to devFS failed).
+///
+/// [reason] is all there is, because a refusal is the tool's own account of a
+/// delivery that did not happen — see [VerdictRefused]. An app's own error
+/// report belongs to an app that took the code, which is an
+/// [AppliedThenThrew].
 class ApplyFailed extends ApplyOutcome {
   final String reason;
   const ApplyFailed(this.reason);
+}
+
+/// The VM took the code, and the app then reported a framework error on the
+/// frame that followed.
+///
+/// A failure to whoever asked for the reload, and *not* a failure of the
+/// reload: the app is running exactly what was just sent. That is why this is
+/// not an [ApplyFailed] — anything recording what the app has (the compiler's
+/// accepted baseline, the applied-versions record) must advance for it, where a
+/// refusal must roll back. Telling the compiler to discard code the VM is
+/// already running leaves its baseline describing a program no app has, and
+/// the next delta is computed against that fiction.
+///
+/// [error] is required: the app's report is what distinguishes this case from
+/// a clean apply, and it is kept whole for the same reason [ApplyFailed.error]
+/// is.
+class AppliedThenThrew extends ApplyOutcome {
+  final FlutterErrorReport error;
+  const AppliedThenThrew(this.error);
+
+  /// One line naming the failure, from the report's own fields.
+  String get reason =>
+      error.description ??
+      error.renderedText ??
+      'the app reported an error after the code was applied';
 }
 
 /// The reload exceeded the per-call latency budget. The connection has
@@ -80,10 +112,14 @@ class VmServiceAppInstance implements AppInstance {
     };
 
     try {
-      final ok = await inner.timeout(rpcTimeout);
-      if (ok) return const Applied();
-      return ApplyFailed(
-          _client.lastReloadError ?? 'reloadSources reported failure');
+      return switch (await inner.timeout(rpcTimeout)) {
+        VerdictApplied() => const Applied(),
+        VerdictAppErrored(:final error) => AppliedThenThrew(error),
+        // The client's own reason, whatever the failing step was. Naming one
+        // step here would be a guess about a refusal that may never have got as
+        // far as the upload.
+        VerdictRefused(:final reason) => ApplyFailed(reason),
+      };
     } on TimeoutException {
       // The leaked future will resolve when the WebSocket closes during
       // forceDisconnect (or when the VM eventually responds — we don't

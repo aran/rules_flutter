@@ -89,15 +89,39 @@ def native_asset_framework_name(filename):
             sanitized += c
     return sanitized
 
-def _path_list_for(asset, target_os):
+def _path_list_for(asset, target_os, layout):
     """Return the manifest path-list shape for `asset`.
 
     For `dynamic_loading_bundle` the engine's `KernelAssetAbsolutePath` is the
-    path it `dlopen`s inside the bundle. On iOS the dylib is wrapped in a
-    `.framework`, so the path is `<name>.framework/<name>`; every other OS
-    places a loose dylib/so/dll and uses the bare basename.
+    path it `dlopen`s. Under `layout = "bundle"` that is resolved inside the
+    platform bundle slot: on iOS the dylib is wrapped in a `.framework`, so the
+    path is `<name>.framework/<name>`; every other OS places a loose
+    dylib/so/dll and uses the bare basename.
+
+    Under `layout = "runfiles"` there is no bundle — a `flutter_test` runs out
+    of Bazel's runfiles tree — so the entry is the library's runfiles-relative
+    path. A path with a separator in it is resolved by the loader against the
+    process's working directory, and Bazel runs a test with that set to the
+    runfiles root, so the same string works for every asset without the runner
+    having to rewrite the manifest (it is baked into the kernel at build time
+    and cannot be rewritten later).
+
+    That last part is why this is unverified on Windows: without
+    `--enable_runfiles` Bazel there uses a runfiles *manifest* instead of a
+    symlink tree, so no such relative path exists on disk to resolve against.
+    A Windows `flutter_test` reaching a `dynamic_loading_bundle` asset is
+    expected to fail at the first `@Native` call rather than silently — the
+    engine reports the unresolved id — but nothing here has been run on
+    Windows to confirm the shape of that failure.
     """
     if asset.link_mode == "dynamic_loading_bundle":
+        if layout == "runfiles":
+            # `dlopen` searches its loader paths for a name with no separator
+            # in it, rather than opening it as a file. A consumer in the
+            # workspace root package declares the symlink there, so `short_path`
+            # is a bare basename; `./` makes it a path again.
+            path = asset.file.short_path
+            return ["absolute", path if "/" in path else "./" + path]
         if target_os == "ios":
             fw = native_asset_framework_name(asset.bundle_filename)
             return ["absolute", "%s.framework/%s" % (fw, fw)]
@@ -127,7 +151,8 @@ def write_native_assets_manifest(
         output_file,
         native_assets,
         target_os,
-        target_arch):
+        target_arch,
+        layout = "bundle"):
     """Write the canonical `--native-assets` JSON manifest.
 
     Groups `native_assets` (a list of `FlutterNativeAssetInfo`) under the
@@ -154,6 +179,10 @@ def write_native_assets_manifest(
       target_arch: Target architecture string (`arm64`, `x64`, etc.).
         Empty defers to the host arch implicitly via an empty
         manifest map.
+      layout: Where the bundled libraries will be at run time. `"bundle"`
+        (the default) writes paths relative to the platform application's
+        bundle slot; `"runfiles"` writes each library's runfiles-relative
+        path, for a `flutter_test`, which has no bundle.
     """
     target_string = native_assets_target_string(target_os, target_arch)
 
@@ -170,7 +199,7 @@ def write_native_assets_manifest(
                 "`flutter_plugin(native_assets = ...)` so exactly one of them " +
                 "reaches the application in any given configuration.",
             )
-        section[asset.asset_id] = _path_list_for(asset, target_os)
+        section[asset.asset_id] = _path_list_for(asset, target_os, layout)
 
     # Assets in the graph with no resolvable `<os>_<arch>` key means the
     # manifest would silently omit them and every `@Native` binding
@@ -248,6 +277,12 @@ def bridge_dart_code_assets(ctx, deps):
         if DartInfo not in dep:
             continue
         for pkg in dep[DartInfo].transitive_packages.to_list():
+            # `DartPackageInfo` is rules_dart's, and rules_dart deliberately
+            # tolerates a producer that predates `code_assets` — it is
+            # published, and a third-party rule set may still be building the
+            # record by hand. This mirrors its own `package_code_assets()`,
+            # which is private to rules_dart; exporting it would let this stop
+            # being a copy.
             for asset in (pkg.code_assets if hasattr(pkg, "code_assets") else ()):
                 if asset.asset_id in seen:
                     continue

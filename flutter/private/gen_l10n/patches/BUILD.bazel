@@ -1,0 +1,23 @@
+# The seven cuts that carve `flutter gen-l10n` out of flutter_tools, applied by
+# `flutter_gen_l10n_repo` at fetch time. See
+# //flutter/private:flutter_gen_l10n_repo.bzl for what each one removes and what
+# a Flutter version bump has to re-check.
+#
+# `io.patch` removes dead networking code. It is NOT a Dart-version workaround
+# and must not be reverted when rules_dart ships a newer Dart — see that file's
+# header.
+#
+# Almost entirely deletions (+14/-199): a deletion whose context has moved makes
+# `repository_ctx.patch` fail loudly, which is the signal a rewrite would not
+# give.
+exports_files(
+    [
+        "gen_l10n.patch",
+        "localizations_utils.patch",
+        "signals.patch",
+        "process.patch",
+        "features.patch",
+        "io.patch",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,83 @@
+--- a/lib/src/localizations/gen_l10n.dart
++++ b/lib/src/localizations/gen_l10n.dart
+@@ -3,15 +3,11 @@
+ // found in the LICENSE file.
+ 
+ import 'package:meta/meta.dart';
+-import 'package:process/process.dart';
+ 
+-import '../artifacts.dart';
+ import '../base/common.dart';
+ import '../base/file_system.dart';
+-import '../base/io.dart';
+ import '../base/logger.dart';
+ import '../convert.dart';
+-import '../flutter_manifest.dart';
+ import 'gen_l10n_templates.dart';
+ import 'gen_l10n_types.dart';
+ import 'localizations_utils.dart';
+@@ -24,31 +20,12 @@
+   required LocalizationOptions options,
+   required Logger logger,
+   required FileSystem fileSystem,
+-  required Artifacts artifacts,
+-  required ProcessManager processManager,
+ }) async {
+-  // If generating a synthetic package, generate a warning if
+-  // flutter: generate is not set.
+-  final FlutterManifest? flutterManifest = FlutterManifest.createFromPath(
+-    projectDir.childFile('pubspec.yaml').path,
+-    fileSystem: projectDir.fileSystem,
+-    logger: logger,
+-  );
+-  if (flutterManifest == null || !flutterManifest.generateLocalizations) {
+-    throwToolExit(
+-      'Attempted to generate localizations code without having '
+-      'the flutter: generate flag turned on.'
+-      '\n'
+-      'Check pubspec.yaml and ensure that flutter: generate: true has '
+-      'been added and rebuild the project. Otherwise, the localizations '
+-      'source code will not be importable.',
+-    );
+-  }
+-
+   precacheLanguageAndRegionTags();
+ 
+-  // Use \r\n if project's pubspec file contains \r\n.
+-  final bool useCRLF = projectDir.childFile('pubspec.yaml').readAsStringSync().contains('\r\n');
++  // Generated output is always LF: keying line endings off a file that
++  // is not an action input would make the output host-dependent.
++  const useCRLF = false;
+ 
+   LocalizationsGenerator generator;
+   try {
+@@ -82,23 +59,12 @@
+   }
+ 
+   if (options.format) {
+-    // Only format Dart files using `dart format`.
+-    final List<String> formatFileList = generator.outputFileList
+-        .where((String e) => e.endsWith('.dart'))
+-        .toList(growable: false);
+-    if (formatFileList.isEmpty) {
+-      return generator;
+-    }
+-    final String dartBinary = artifacts.getArtifactPath(Artifact.engineDartBinary);
+-    final command = <String>[dartBinary, 'format', ...formatFileList];
+-    final ProcessResult result = await processManager.run(command);
+-    if (result.exitCode != 0) {
+-      throw ProcessException(dartBinary, command, '''
+-`dart format` failed with exit code ${result.exitCode}
+-
+-stdout:\n${result.stdout}\n
+-stderr:\n${result.stderr}''', result.exitCode);
+-    }
++    throwToolExit(
++      'l10n.yaml sets `format: true`, which this build rule does not support: '
++      'formatting shells out to the `dart` binary, which is not available to '
++      'the action. Set `format: false` and check formatting with a separate '
++      'dart_format_test target instead.',
++    );
+   }
+ 
+   return generator;

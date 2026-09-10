@@ -6,6 +6,13 @@
 /// an UnsatisfiedLinkError.
 ///
 /// APK is a zip file — we extract it to a temp dir and verify contents.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -80,8 +87,7 @@ void main() {
 bool _verifyApk(String apkPath, bool? mustBeDebug) {
   final tmpDir = Directory.systemTemp.createTempSync('plugin_apk_test');
   try {
-    final result =
-        Process.runSync('unzip', ['-q', apkPath, '-d', tmpDir.path]);
+    final result = Process.runSync('unzip', ['-q', apkPath, '-d', tmpDir.path]);
     if (result.exitCode != 0) {
       stderr.writeln('Failed to extract APK: ${result.stderr}');
       exit(1);
@@ -93,24 +99,29 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
     // Debug APKs run Dart from kernel_blob.bin inside flutter_assets (JIT);
     // release APKs AOT-compile it into lib/<abi>/libapp.so. Exactly one of
     // the two ships.
-    final hasKernelBlob =
-        File('${tmpDir.path}/assets/flutter_assets/kernel_blob.bin')
-            .existsSync();
-    final hasLibApp =
-        File('${tmpDir.path}/lib/arm64-v8a/libapp.so').existsSync();
+    final hasKernelBlob = File(
+      '${tmpDir.path}/assets/flutter_assets/kernel_blob.bin',
+    ).existsSync();
+    final hasLibApp = File(
+      '${tmpDir.path}/lib/arm64-v8a/libapp.so',
+    ).existsSync();
     if (hasKernelBlob == hasLibApp) {
-      stderr.writeln('FAIL: expected exactly one of kernel_blob.bin (debug) '
-          'and libapp.so (release); found '
-          '${hasKernelBlob ? "both" : "neither"}');
+      stderr.writeln(
+        'FAIL: expected exactly one of kernel_blob.bin (debug) '
+        'and libapp.so (release); found '
+        '${hasKernelBlob ? "both" : "neither"}',
+      );
       failed = true;
     }
     final isDebug = hasKernelBlob;
     print('OK: APK is a ${isDebug ? "debug (JIT)" : "release (AOT)"} build');
 
     if (mustBeDebug != null && isDebug != mustBeDebug) {
-      stderr.writeln('FAIL: expected a ${mustBeDebug ? "debug" : "release"} '
-          'APK but detected a ${isDebug ? "debug" : "release"} build — the '
-          'compilation-mode transition did not apply');
+      stderr.writeln(
+        'FAIL: expected a ${mustBeDebug ? "debug" : "release"} '
+        'APK but detected a ${isDebug ? "debug" : "release"} build — the '
+        'compilation-mode transition did not apply',
+      );
       failed = true;
     }
 
@@ -120,17 +131,23 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
     // that variant manifest into -c dbg APKs (the Dart VM service cannot
     // bind without it) and must leave release APKs without it.
     final binaryManifest = File('${tmpDir.path}/AndroidManifest.xml');
-    final hasInternet =
-        _fileContainsString(binaryManifest, 'android.permission.INTERNET');
+    final hasInternet = _fileContainsString(
+      binaryManifest,
+      'android.permission.INTERNET',
+    );
     if (hasInternet == isDebug) {
-      print('OK: INTERNET permission '
-          '${isDebug ? "present in debug" : "absent from release"} APK');
+      print(
+        'OK: INTERNET permission '
+        '${isDebug ? "present in debug" : "absent from release"} APK',
+      );
     } else {
-      stderr.writeln(isDebug
-          ? 'FAIL: debug APK does not declare android.permission.INTERNET — '
-              'the debug variant manifest did not merge'
-          : 'FAIL: release APK declares android.permission.INTERNET — the '
-              'debug variant manifest leaked into a release build');
+      stderr.writeln(
+        isDebug
+            ? 'FAIL: debug APK does not declare android.permission.INTERNET — '
+                  'the debug variant manifest did not merge'
+            : 'FAIL: release APK declares android.permission.INTERNET — the '
+                  'debug variant manifest leaked into a release build',
+      );
       failed = true;
     }
 
@@ -166,10 +183,31 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
           if (error != null) {
             stderr.writeln('FAIL: $name — $error');
             failed = true;
-          } else {
-            print('OK: $name is ELF (machine 0x'
-                '${expectedMachine.toRadixString(16)}, correct for $abi)');
+            continue;
           }
+          final (align, alignError) = _minLoadAlignment(lib);
+          if (alignError != null) {
+            stderr.writeln('FAIL: $name — $alignError');
+            failed = true;
+            continue;
+          }
+          if (align! < 16384) {
+            stderr.writeln(
+              'FAIL: $name has LOAD alignment 0x'
+              '${align.toRadixString(16)}, below the 16384 a 16KB-page device '
+              'requires. It would install and then fail to load at launch '
+              '("ELF alignment check failed") on hardware booted that way, '
+              'with nothing wrong at build time. See the rules_android_ndk '
+              'pin in MODULE.bazel.',
+            );
+            failed = true;
+            continue;
+          }
+          print(
+            'OK: $name is ELF (machine 0x'
+            '${expectedMachine.toRadixString(16)}, correct for $abi) '
+            'aligned 0x${align.toRadixString(16)}',
+          );
         }
       }
     }
@@ -180,10 +218,9 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
 
     // --- Plugin runtime class checks ---
     final definedClasses = <String>{};
-    for (final dex in Directory(tmpDir.path)
-        .listSync()
-        .whereType<File>()
-        .where((f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path))) {
+    for (final dex in Directory(tmpDir.path).listSync().whereType<File>().where(
+      (f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path),
+    )) {
       definedClasses.addAll(_definedClassDescriptors(dex));
     }
     if (definedClasses.isEmpty) {
@@ -194,8 +231,10 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
       if (definedClasses.contains(descriptor)) {
         print('OK: $descriptor defined in dex ($source)');
       } else {
-        stderr.writeln('FAIL: $descriptor not defined in any dex — '
-            '$source is missing from the APK');
+        stderr.writeln(
+          'FAIL: $descriptor not defined in any dex — '
+          '$source is missing from the APK',
+        );
         failed = true;
       }
     });
@@ -208,21 +247,31 @@ bool _verifyApk(String apkPath, bool? mustBeDebug) {
     // AndroidManifest.xml (strings there are UTF-16 in binary XML).
     final arsc = File('${tmpDir.path}/resources.arsc');
     if (_fileContainsString(arsc, 'ic_mic')) {
-      print('OK: resources.arsc defines ic_mic '
-          "(record_android's drawable merged)");
+      print(
+        'OK: resources.arsc defines ic_mic '
+        "(record_android's drawable merged)",
+      );
     } else {
-      stderr.writeln("FAIL: ic_mic not found in resources.arsc — "
-          "record_android's res/ was dropped");
+      stderr.writeln(
+        'FAIL: ic_mic not found in resources.arsc — '
+        "record_android's res/ was dropped",
+      );
       failed = true;
     }
     final mergedManifest = File('${tmpDir.path}/AndroidManifest.xml');
     if (_fileContainsString(
-        mergedManifest, 'android.permission.RECORD_AUDIO')) {
-      print('OK: merged AndroidManifest.xml declares RECORD_AUDIO '
-          "(record_android's library manifest merged)");
+      mergedManifest,
+      'android.permission.RECORD_AUDIO',
+    )) {
+      print(
+        'OK: merged AndroidManifest.xml declares RECORD_AUDIO '
+        "(record_android's library manifest merged)",
+      );
     } else {
-      stderr.writeln('FAIL: RECORD_AUDIO not found in the merged '
-          "AndroidManifest.xml — record_android's manifest did not merge");
+      stderr.writeln(
+        'FAIL: RECORD_AUDIO not found in the merged '
+        "AndroidManifest.xml — record_android's manifest did not merge",
+      );
       failed = true;
     }
 
@@ -249,12 +298,14 @@ String? _validateElf(File file, int expectedMachine) {
   if (bytes.length < 20) {
     return 'file too small to be an ELF binary (${bytes.length} bytes)';
   }
-  final isElf = bytes[0] == 0x7f &&
+  final isElf =
+      bytes[0] == 0x7f &&
       bytes[1] == 0x45 &&
       bytes[2] == 0x4c &&
       bytes[3] == 0x46;
   if (!isElf) {
-    final isMachO = bytes[0] == 0xcf &&
+    final isMachO =
+        bytes[0] == 0xcf &&
         bytes[1] == 0xfa &&
         bytes[2] == 0xed &&
         bytes[3] == 0xfe;
@@ -271,6 +322,58 @@ String? _validateElf(File file, int expectedMachine) {
         'expected 0x${expectedMachine.toRadixString(16)}';
   }
   return null;
+}
+
+/// The smallest `p_align` across the file's `PT_LOAD` segments, or an error
+/// message if the program headers cannot be read.
+///
+/// This is what a 16KB-page device checks when it maps a library. A `.so`
+/// linked with `-Wl,-z,max-page-size=4096` loads on a 4KB device and is
+/// refused on a 16KB one, and nothing says so at build time: the APK builds,
+/// installs, and the app dies on launch. Asserted here so a toolchain that
+/// regresses shows up as a failing test rather than as a crash on 16KB-page
+/// hardware, which no device in this repo's test loop provides.
+(int?, String?) _minLoadAlignment(File file) {
+  final bytes = file.readAsBytesSync();
+  final data = ByteData.sublistView(bytes);
+  // e_ident[EI_CLASS]: 1 = ELF32, 2 = ELF64. Android ships both — armeabi-v7a
+  // and x86 are 32-bit.
+  final is64 = bytes[4] == 2;
+  const ptLoad = 1;
+  // Bounds are checked rather than caught: a header pointing outside the file
+  // is a malformed library, which is a fact about the input and belongs in the
+  // return value — not a RangeError to be trapped.
+  final headerSize = is64 ? 64 : 52;
+  if (bytes.length < headerSize) {
+    return (null, 'file is shorter than an ELF header (${bytes.length} bytes)');
+  }
+  final phoff = is64
+      ? data.getUint64(0x20, Endian.little)
+      : data.getUint32(0x1c, Endian.little);
+  final phentsize = data.getUint16(is64 ? 0x36 : 0x2a, Endian.little);
+  final phnum = data.getUint16(is64 ? 0x38 : 0x2c, Endian.little);
+  final entrySize = is64 ? 0x38 : 0x20;
+  if (phentsize < entrySize) {
+    return (
+      null,
+      'ELF program header entries are $phentsize bytes, too '
+          'small to hold a p_align',
+    );
+  }
+  if (phoff + phnum * phentsize > bytes.length) {
+    return (null, 'ELF program headers run past the end of the file');
+  }
+  var min = -1;
+  for (var i = 0; i < phnum; i++) {
+    final off = phoff + i * phentsize;
+    if (data.getUint32(off, Endian.little) != ptLoad) continue;
+    final align = is64
+        ? data.getUint64(off + 0x30, Endian.little)
+        : data.getUint32(off + 0x1c, Endian.little);
+    if (min < 0 || align < min) min = align;
+  }
+  if (min < 0) return (null, 'no PT_LOAD segments to check alignment on');
+  return (min, null);
 }
 
 /// Parses a dex file and returns the descriptors of all classes it defines
@@ -311,8 +414,10 @@ Set<String> _definedClassDescriptors(File dexFile) {
   for (var i = 0; i < classDefsSize; i++) {
     // class_def_item is 8 u4 fields; the first is the type_ids index.
     final typeIdx = data.getUint32(classDefsOff + 32 * i, Endian.little);
-    final descriptorIdx =
-        data.getUint32(typeIdsOff + 4 * typeIdx, Endian.little);
+    final descriptorIdx = data.getUint32(
+      typeIdsOff + 4 * typeIdx,
+      Endian.little,
+    );
     descriptors.add(stringAt(descriptorIdx));
   }
   return descriptors;

@@ -6,13 +6,10 @@
 /// it, so these conventional paths resolve under Bazel just as they do under
 /// the flutter tool. For the zero-path `@Native` asset-id pattern, see
 /// `add_plugin`.
-library mul_plugin;
+library;
 
 import 'dart:ffi' as ffi;
 import 'dart:io' show Platform;
-
-typedef _MulNative = ffi.Int32 Function(ffi.Int32 a, ffi.Int32 b);
-typedef _MulDart = int Function(int a, int b);
 
 ffi.DynamicLibrary _openMulLib() {
   // iOS bundles the dylib as an embedded `mul.framework`; the framework
@@ -29,4 +26,8 @@ ffi.DynamicLibrary _openMulLib() {
 /// Call the native `mul` function from the bundled shared library.
 int mul(int a, int b) => _mulFn(a, b);
 
-final _mulFn = _openMulLib().lookupFunction<_MulNative, _MulDart>('mul');
+final int Function(int, int) _mulFn = _openMulLib()
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Int32, ffi.Int32),
+      int Function(int, int)
+    >('mul');

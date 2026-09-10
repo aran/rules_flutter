@@ -11,3 +11,7 @@ node_modules/
 test-results/
 local.properties
 **/Flutter/ephemeral/
+
+# Throwaway measurement probes written while diagnosing. Never committed:
+# an agent staged this tree once with `git add -A` and had to rewrite history.
+.probes/

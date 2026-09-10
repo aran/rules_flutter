@@ -1,0 +1,26 @@
+name: flutter_gen_l10n
+description: >-
+  Pub dependencies for the vendored `flutter gen-l10n` generator.
+
+  These are generation-time dependencies of the generator itself, resolved
+  independently of whatever a consuming app resolves. In particular this
+  `intl` is the one the generator's own code imports; an app that *uses* the
+  generated localizations needs `intl` in its own lock as well. Upstream has
+  the same split — flutter_tools depends on `intl` to generate, and the app
+  depends on `intl` to run.
+
+  Pins match flutter_tools 3.47.2 exactly. Bumping the Flutter version means
+  re-checking them against that release's `packages/flutter_tools/pubspec.yaml`.
+publish_to: none
+
+environment:
+  sdk: ^3.10.0-0
+
+dependencies:
+  file: 7.0.1
+  intl: 0.20.3
+  meta: 1.18.3
+  path: 1.9.1
+  process: 5.0.5
+  stack_trace: 1.12.1
+  yaml: 3.1.3

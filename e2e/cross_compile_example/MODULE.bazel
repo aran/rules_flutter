@@ -3,9 +3,9 @@
 module(name = "rules_flutter_cross_compile_example")
 
 bazel_dep(name = "rules_flutter", version = "0.0.0")
-bazel_dep(name = "rules_dart", version = "0.4.9")
+bazel_dep(name = "rules_dart", version = "0.6.3")
 bazel_dep(name = "platforms", version = "1.1.0")
-bazel_dep(name = "llvm", version = "0.8.11")
+bazel_dep(name = "llvm", version = "0.8.19")
 
 local_path_override(
     module_name = "rules_flutter",
@@ -13,12 +13,12 @@ local_path_override(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.44.1")
+flutter.toolchain(flutter_version = "3.47.2")
 flutter.pub(
     name = "deps",
     lock = "//:pubspec.lock",
 )
-use_repo(flutter, "deps", "flutter_toolchains")
+use_repo(flutter, "deps", "flutter_sky_engine", "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
 

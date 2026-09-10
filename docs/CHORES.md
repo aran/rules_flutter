@@ -24,6 +24,10 @@ The latest tag is the current stable release.
 - `flutter/private/versions.bzl` — `FLUTTER_VERSIONS` and `ARTIFACT_CHECKSUMS` dicts
 - `MODULE.bazel` — `flutter_version` in `flutter.toolchain()` call
 - All `e2e/*/MODULE.bazel` — `flutter_version` in `flutter.toolchain()` calls
+- `e2e/_overlay_tests/*/MODULE.bazel` — same call, one directory deeper, so a
+  `e2e/*/MODULE.bazel` glob misses it, and no CI job runs it to notice
+- `README.md` — the "Flutter SDK" compatibility line, the installation snippet,
+  and the `FlutterInfo.version` example
 
 **Procedure**:
 
@@ -44,7 +48,12 @@ The latest tag is the current stable release.
 
 **Files**:
 
-- `.bazelversion`
+- Every `.bazelversion` — the repo root plus one per workspace with a
+  `MODULE.bazel`, including `e2e/_overlay_tests/*`. A workspace without one does
+  not inherit the root's: bazelisk reads only its own workspace root and
+  otherwise fetches the newest release, so a missing file silently runs a
+  different Bazel than the rest of the sweep.
+  `find . -name .bazelversion -not -path '*/bazel-*'` is the list.
 - `.bcr/presubmit.yml` — `bazel:` matrix value (if major version changes)
 
 **Procedure**:
@@ -66,12 +75,19 @@ The latest tag is the current stable release.
 **Files**:
 
 - `MODULE.bazel` — `bazel_dep()` version strings
+- Every `e2e/*/MODULE.bazel` and `e2e/_overlay_tests/*/MODULE.bazel` — these
+  declare their own `bazel_dep`s rather than inheriting the root's, so a root-only
+  bump leaves them behind. `bazel_skylib`, `rules_cc` and `apple_support` appear
+  in most; `rules_android`, `rules_kotlin`, `rules_java`, `rules_jvm_external`
+  and `rules_go` in the three Android ones; `llvm` only in
+  `cross_compile_example`
 
 **Procedure**:
 
 1. For each `bazel_dep` in root `MODULE.bazel`, check latest version on BCR
 2. Update versions, skip any already current
-3. Regenerate lock files
+3. Mirror the same versions into the e2e workspaces that declare them
+4. Regenerate lock files
 
 **Verification**: `bazel build //...` passes.
 
@@ -81,21 +97,73 @@ The latest tag is the current stable release.
 
 ## Lock File Refresh
 
-**Trigger**: After any change to `MODULE.bazel` files or their transitive deps.
+**Trigger**: After any change to the root `MODULE.bazel`, its transitive deps,
+or `.bazelversion` — the lock records a format version (Bazel 9.1.0 writes 26,
+9.2.0 writes 28) as well as registry hashes.
 
-**Workspaces** (directories containing `MODULE.bazel`): root (`.`) plus every
-subdirectory of `e2e/` that has a `MODULE.bazel` — currently 14 e2e workspaces
-(`android_example`, `codegen`, `cross_compile_example`,
-`ffi_example`, `ffi_plugin_example`, `hello_world`, `ios_example`,
-`linux_example`, `macos_example`, `multi_window_example`, `plugin_example`,
-`smoke`, `web_example`, `windows_example`).
+**Only the root lock is enforced.** Every `e2e/*` workspace sets
+`--lockfile_mode=off` in its own `.bazelrc`, because each one is overridden onto
+a sibling `rules_dart` in local development, and their locks are intentionally
+left stale. Refreshing them produces a large diff that nothing checks.
 
-**Procedure**: Run `bazel mod deps --lockfile_mode=update` in each workspace.
-Equivalent to the list above, iterate with a shell loop over `e2e/*/MODULE.bazel`.
+**Procedure**: move `.bazelrc.user` aside — its `--override_module` line changes
+the module graph away from the registry one CI resolves, and forces
+`--lockfile_mode` off — then `bazel mod deps --lockfile_mode=update`, then put it
+back. Any host will do.
 
-**Verification**: All workspaces report success.
+The lock's pip `facts` are host-independent: rules_python
+2.3.2 records the union of all three files instead (facts `v2`), and a cold
+ubuntu-24.04 x86_64 VM and macOS arm64 now produce byte-identical locks — so
+`.bazelrc` no longer relaxes `--lockfile_mode` per host, and there is no splicing
+or Linux-only step left. Windows is unmeasured; see the comment in `.bazelrc`.
 
-**Automation**: `/refresh-locks` slash command.
+**A rules_python bump is still the one to slow down for.** It carries the
+requirements files the facts are derived from, so the recording moves with it,
+and it can move the facts *schema* — 2.0.0 to 2.3.2 went `v1` to `v2`, which
+dropped the `index_urls` map and changed hashes from bare hex to `sha256:<hex>`.
+Refresh all three
+`tools/pip_lock_guard/rules_python_publish_requirements_{linux,darwin,windows}.txt`
+copies from the release's `tools/publish/`, and update
+`_expectedRulesPythonVersion` and `_expectedFactVersion` in
+`tools/pip_lock_guard/pip_facts_test.dart`. That test re-derives the facts from
+those copies and fails on any drift, on every host, so it is what tells you
+whether the bump landed correctly.
+
+**Verification**: `bazel test //...` in the root passes, `pip_facts_test`
+included. To check the lock the way CI does, move `.bazelrc.user` aside and run
+`bazel mod deps --lockfile_mode=error`.
+
+**Automation**: none.
+
+---
+
+## Release Archive Contents
+
+**Trigger**: Adding or removing an e2e workspace, or any top-level directory.
+
+**Files**: `.gitattributes`
+
+The release archive is `git archive` output, so `export-ignore` decides what a
+consumer downloads — and what BCR presubmit runs against. Extracting an archive
+and building it is the only thing that catches either of these:
+
+- **Patterns must be anchored with a leading `/`.** Without one they match a
+  basename at any depth: `e2e/` also stripped `tools/dev_tool/test/e2e/`, and
+  that package's `glob(["test/e2e/**/*.dart"])` then failed the whole archive at
+  load time with "glob pattern didn't match anything, but allow_empty is set to
+  False". The archive did not build at all, and nothing in CI looks at it.
+- **`e2e/smoke` has to stay in.** `.bcr/presubmit.yml` names it as
+  `module_path`, and BCR resolves that inside the extracted archive. It was
+  excluded along with the rest of `e2e/`.
+
+So `/e2e/` is excluded workspace by workspace rather than wholesale. **A new e2e
+workspace needs a line here**, or it ships in the archive: the whole tree is 12MB
+against a 1.5MB archive.
+
+**Verification**: `git archive --format=tar HEAD | tar t` and check that
+`e2e/smoke/` and `tools/dev_tool/test/e2e/` are present and no other e2e
+workspace is. To check it builds, extract the archive somewhere clean and run
+`bazel build --nobuild //...` — the load phase is what these mistakes break.
 
 ---
 
@@ -121,8 +189,13 @@ Equivalent to the list above, iterate with a shell loop over `e2e/*/MODULE.bazel
 
 **Files**:
 
-- `docs/ARCHITECTURE.md` — directory tree, provider table, testing table, e2e list
-- `README.md` — examples table, installation snippet, version references
+- `README.md` — examples table, installation snippet, version references. It is
+  the architecture document too: `docs/ARCHITECTURE.md` was listed here long
+  after it stopped existing, so check what a path names before trusting it
+- `docs/TESTING.md` — the e2e workspace list, the sweep commands, the per-device
+  tables
+- `.github/workflows/ci.yaml` — the prose comments carry version claims of
+  their own
 
 **Procedure**: Review hardcoded counts, tables, and version strings against actual state.
 
@@ -167,11 +240,23 @@ and typos to keep CI and local hooks in sync.
 
 - `.pre-commit-config.yaml`
 
-**Procedure**: Handled automatically by Renovate (`:enablePreCommit` preset).
+**Procedure**: `renovate.json` extends `:enablePreCommit`, but treat this as
+manual until you have actually seen a Renovate PR land here.
 
-**Verification**: Renovate opens PRs; CI runs pre-commit checks.
+Reconcile the revs that track something else in this repo:
 
-**Automation**: Renovate — no manual action needed.
+- `keith/pre-commit-buildifier` tracks `buildifier_prebuilt` in `MODULE.bazel`
+  on the buildifier version — the first three components. The fourth is the
+  ruleset's own packaging revision and the mirror repo tags only some of them
+  (there is no 8.5.1.4), so a fourth-component gap is not drift.
+- `google/yamlfmt` and `crate-ci/typos` track `multitool.lock.json` (see
+  § "Multitool Version Bumps").
+- `pre-commit/mirrors-prettier` is archived upstream; `v3.1.0` is the last
+  stable tag and is expected to stay pinned.
+
+**Verification**: `pre-commit run --all-files` passes.
+
+**Automation**: Manual, per above.
 
 ---
 

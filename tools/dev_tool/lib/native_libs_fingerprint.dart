@@ -48,7 +48,10 @@ bool fingerprintsEqual(Map<String, String> a, Map<String, String> b) {
 
 /// Names whose fingerprints differ between [before] and [after] (changed,
 /// added, or removed).
-List<String> changedLibs(Map<String, String> before, Map<String, String> after) {
+List<String> changedLibs(
+  Map<String, String> before,
+  Map<String, String> after,
+) {
   final names = {...before.keys, ...after.keys};
   return [
     for (final n in names)
@@ -58,7 +61,9 @@ List<String> changedLibs(Map<String, String> before, Map<String, String> after) 
 
 bool _isLooseNativeLib(String path) {
   if (path.contains('.framework/')) return false;
-  return path.endsWith('.dylib') || path.endsWith('.so') || path.endsWith('.dll');
+  return path.endsWith('.dylib') ||
+      path.endsWith('.so') ||
+      path.endsWith('.dll');
 }
 
 // ---------------------------------------------------------------- zip TOC --
@@ -102,7 +107,9 @@ Future<Map<String, String>> _fromZipTableOfContents(String zipPath) async {
       final nameLen = cdData.getUint16(pos + 28, Endian.little);
       final extraLen = cdData.getUint16(pos + 30, Endian.little);
       final commentLen = cdData.getUint16(pos + 32, Endian.little);
-      final name = String.fromCharCodes(cd.sublist(pos + 46, pos + 46 + nameLen));
+      final name = String.fromCharCodes(
+        cd.sublist(pos + 46, pos + 46 + nameLen),
+      );
       if (_isLooseNativeLib(name)) {
         out[name] = 'crc32:$crc32:$uncompressedSize';
       }

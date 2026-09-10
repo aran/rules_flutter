@@ -1,0 +1,27 @@
+"""Golden-file comparator for `flutter_test`.
+
+Exports `comparator.dart` for the bootstrap staging in `flutter_test`. Not a
+`dart_library`: the source is added to each test's kernel-compile srcs
+directly so it resolves `package:flutter_test` through the user's pub-managed
+`@deps`, the same arrangement `agent_extensions/agent.dart` uses.
+"""
+
+load("@rules_dart//dart:defs.bzl", "dart_format_test")
+
+exports_files(
+    ["comparator.dart"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+# Not a `dart_library` and reached by no `dart_binary` or `dart_test`, so
+# nothing here can carry it to `dart_analyze_test` the way that rule's
+# `target=` attribute needs. Analysis rides on the e2e instead: a
+# `flutter_test` that stages this file compiles it, and `e2e/codegen`'s golden
+# targets are what fail if it stops compiling. `dart_format_test` takes files
+# directly, so it needs no such handle.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    options = "//:analysis_options.yaml",
+)

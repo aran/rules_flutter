@@ -1,0 +1,27 @@
+# Static analysis for this example, enforced by `bazel test //...`.
+#
+# The `include:` resolves through the staged package_config, so the ruleset has
+# to reach the analyzer as a package. The `:options` `dart_analysis_options`
+# target carries it: it stages the package for options resolution alone, which
+# is what makes a `package:` include work under Bazel without the ruleset
+# becoming a dependency of the code it lints.
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    # Generator output. Nobody edits these by hand, so a lint here can only be
+    # answered by changing a generator whose job is the code shape, not the
+    # code style — and this workspace's generators are deliberately minimal
+    # test fixtures.
+    - "**/*.g.dart"
+
+formatter:
+  # Set directly, not left to inherit from the `include:` above. `dart
+  # format` only resolves a `package:` include when it can see a
+  # package_config for this workspace — the same resolution the `:options`
+  # target stages for the analyzer. Outside that (a bare `dart format` run
+  # with no such resolution available) the include fails, and that failure
+  # was measured to drop every top-level key in this file, not just the
+  # broken one — so the `trailing_commas: preserve` that very_good_analysis
+  # sets never actually reaches the formatter unless it is restated here.
+  trailing_commas: preserve

@@ -17,9 +17,8 @@
 ///
 /// The title match is load-bearing, not cosmetic. `xdotool search --name ''`
 /// also matches the Xvfb *root* window, which exists from the moment the
-/// display starts — so selecting the first result reported success even when
-/// the runner had died on a missing shared library, and screenshotted the
-/// empty root before the app could paint.
+/// display starts, so selecting the first result reports success even when the
+/// runner never came up and screenshots the empty root.
 library;
 
 import 'dart:convert';
@@ -30,7 +29,8 @@ Process? _xvfbProcess;
 Future<void> main(List<String> args) async {
   if (args.length < 2) {
     stderr.writeln(
-        'Usage: dart run verify_linux_app.dart <bundle_dir> <expected_title>');
+      'Usage: dart run verify_linux_app.dart <bundle_dir> <expected_title>',
+    );
     exit(1);
   }
 
@@ -92,16 +92,16 @@ Future<void> main(List<String> args) async {
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stdoutLines.add(line);
-    print('[stdout] $line');
-  });
+        stdoutLines.add(line);
+        print('[stdout] $line');
+      });
   appProcess.stderr
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stderrLines.add(line);
-    print('[stderr] $line');
-  });
+        stderrLines.add(line);
+        print('[stderr] $line');
+      });
 
   // Poll for the app's own window via xdotool.
   print('Waiting for a window titled "$expectedTitle" (up to 30s) ...');
@@ -112,8 +112,10 @@ Future<void> main(List<String> args) async {
   );
 
   if (windowId == null) {
-    stderr.writeln('FAIL: no window titled "$expectedTitle" after 30s. '
-        'The runner may have failed to start — check [stderr] above.');
+    stderr.writeln(
+      'FAIL: no window titled "$expectedTitle" after 30s. '
+      'The runner may have failed to start — check [stderr] above.',
+    );
     appProcess.kill();
     _cleanup();
     _printResult(
@@ -141,7 +143,8 @@ Future<void> main(List<String> args) async {
   // Check window title.
   final windowTitle = await _getWindowTitle(windowId, env);
   print('Window title: $windowTitle');
-  final titleMatch = windowTitle != null &&
+  final titleMatch =
+      windowTitle != null &&
       windowTitle.toLowerCase().contains(expectedTitle.toLowerCase());
 
   // Wait for the app to paint. Under llvmpipe the first frame lands seconds
@@ -159,14 +162,18 @@ Future<void> main(List<String> args) async {
   );
   final painted = screenshotSize > blankDisplaySize * 3 ~/ 2;
   if (screenshotSize > 0) {
-    print('Screenshot: $screenshotPath ($screenshotSize bytes, '
-        'blank display was $blankDisplaySize bytes)');
+    print(
+      'Screenshot: $screenshotPath ($screenshotSize bytes, '
+      'blank display was $blankDisplaySize bytes)',
+    );
   } else {
     print('Screenshot: unavailable (scrot may not be installed)');
   }
   if (!painted) {
-    print('Screenshot is indistinguishable from the blank display — the app '
-        'window exists but nothing was drawn into it.');
+    print(
+      'Screenshot is indistinguishable from the blank display — the app '
+      'window exists but nothing was drawn into it.',
+    );
   }
 
   // Kill the app.
@@ -187,7 +194,8 @@ Future<void> main(List<String> args) async {
   print('=== Results ===');
   print('Window appeared: yes');
   print(
-      'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL - FAIL"})');
+    'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL - FAIL"})',
+  );
   print('Window title contains "$expectedTitle": ${titleMatch ? "yes" : "no"}');
   print('Painted a frame: ${painted ? "yes" : "no"}');
   if (screenshotSize > 0) {
@@ -258,7 +266,10 @@ Future<String?> _pollForWindow(
   return null;
 }
 
-Future<String> _getWindowGeometry(String windowId, Map<String, String> env) async {
+Future<String> _getWindowGeometry(
+  String windowId,
+  Map<String, String> env,
+) async {
   final result = await Process.run(
     'xdotool',
     ['getwindowgeometry', '--shell', windowId],
@@ -267,7 +278,10 @@ Future<String> _getWindowGeometry(String windowId, Map<String, String> env) asyn
   return result.stdout.toString().trim();
 }
 
-Future<String?> _getWindowTitle(String windowId, Map<String, String> env) async {
+Future<String?> _getWindowTitle(
+  String windowId,
+  Map<String, String> env,
+) async {
   final result = await Process.run(
     'xdotool',
     ['getwindowname', windowId],
@@ -309,8 +323,10 @@ Future<int> _takeScreenshot(String outputPath, Map<String, String> env) async {
   if (result.exitCode == 0 && file.existsSync()) {
     return file.lengthSync();
   }
-  stderr.writeln('scrot failed (exit ${result.exitCode}): '
-      '${result.stderr.toString().trim()}');
+  stderr.writeln(
+    'scrot failed (exit ${result.exitCode}): '
+    '${result.stderr.toString().trim()}',
+  );
   return 0;
 }
 

@@ -10,8 +10,8 @@
 #   * kotlinx-coroutines-core — PortContinuation implements
 #     `kotlin.coroutines.Continuation` and returns `Dispatchers.getIO()`.
 #
-# {HUB_NAME} / {PKG} / {VERSION} substitution is performed by
-# `_resolve_overlay_template`.
+# Placeholder substitution is performed by `_resolve_overlay_template`;
+# this comment names none of them, because it rewrites comment text too.
 
 load("@rules_flutter//flutter:android.bzl", "flutter_android_engine")
 load("@rules_java//java:java_library.bzl", "java_library")

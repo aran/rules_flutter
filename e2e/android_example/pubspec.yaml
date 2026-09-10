@@ -1,7 +1,9 @@
 name: android_example
 publish_to: none
 environment:
-  sdk: ^3.0.0
+  sdk: ^3.12.0
 dependencies:
   flutter:
     sdk: flutter
+dev_dependencies:
+  very_good_analysis: ^10.3.0

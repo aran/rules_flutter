@@ -34,22 +34,23 @@ void main() {
     List<String> candidates = const [],
     List<String>? pathNames,
     Map<String, String> environment = const {},
-  }) =>
-      HostTool(
-        name: 'widget',
-        purpose: 'do the thing',
-        remedy: 'Install widget.',
-        candidates: candidates,
-        pathNames: pathNames,
-        environment: environment,
-      );
+  }) => HostTool(
+    name: 'widget',
+    purpose: 'do the thing',
+    remedy: 'Install widget.',
+    candidates: candidates,
+    pathNames: pathNames,
+    environment: environment,
+  );
 
   group('HostTool.find', () {
     test('returns null when the tool is nowhere', () {
       expect(
         tool(
           candidates: [p.join(tmp.path, 'nope', exeName('widget'))],
-          environment: {'PATH': pathValue([dir('empty')])},
+          environment: {
+            'PATH': pathValue([dir('empty')]),
+          },
         ).find(),
         isNull,
       );
@@ -65,7 +66,7 @@ void main() {
         tool(
           candidates: [candidate],
           environment: {
-            'PATH': pathValue([onPath])
+            'PATH': pathValue([onPath]),
           },
         ).find(),
         candidate,
@@ -78,9 +79,11 @@ void main() {
       final found = touch(second, exeName('widget'));
 
       expect(
-        tool(environment: {
-          'PATH': pathValue([first, second])
-        }).find(),
+        tool(
+          environment: {
+            'PATH': pathValue([first, second]),
+          },
+        ).find(),
         found,
       );
     });
@@ -92,9 +95,11 @@ void main() {
       Directory(p.join(onPath, exeName('widget'))).createSync();
 
       expect(
-        tool(environment: {
-          'PATH': pathValue([onPath])
-        }).find(),
+        tool(
+          environment: {
+            'PATH': pathValue([onPath]),
+          },
+        ).find(),
         isNull,
       );
     });
@@ -104,9 +109,12 @@ void main() {
       touch(onPath, exeName('widget'));
 
       expect(
-        tool(pathNames: const [], environment: {
-          'PATH': pathValue([onPath])
-        }).find(),
+        tool(
+          pathNames: const [],
+          environment: {
+            'PATH': pathValue([onPath]),
+          },
+        ).find(),
         isNull,
       );
     });
@@ -118,20 +126,25 @@ void main() {
       final onPath = dir('bin');
 
       expect(
-        () => tool(candidates: [missing], environment: {
-          'PATH': pathValue([onPath])
-        }).require(),
-        throwsA(isA<MissingHostToolException>().having(
-          (e) => e.message,
-          'message',
-          allOf(
-            contains('Could not find widget'),
-            contains('needed to do the thing'),
-            contains(missing),
-            contains('widget on PATH'),
-            contains('Install widget.'),
+        () => tool(
+          candidates: [missing],
+          environment: {
+            'PATH': pathValue([onPath]),
+          },
+        ).require(),
+        throwsA(
+          isA<MissingHostToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('Could not find widget'),
+              contains('needed to do the thing'),
+              contains(missing),
+              contains('widget on PATH'),
+              contains('Install widget.'),
+            ),
           ),
-        )),
+        ),
       );
     });
 
@@ -140,8 +153,13 @@ void main() {
     test('says so when PATH is empty', () {
       expect(
         () => tool(environment: const {'PATH': ''}).require(),
-        throwsA(isA<MissingHostToolException>().having((e) => e.message,
-            'message', contains('widget on PATH (PATH is empty)'))),
+        throwsA(
+          isA<MissingHostToolException>().having(
+            (e) => e.message,
+            'message',
+            contains('widget on PATH (PATH is empty)'),
+          ),
+        ),
       );
     });
 
@@ -171,9 +189,11 @@ void main() {
       final adb = touch(onPath, exeName('adb'));
 
       expect(
-        adbTool(environment: {
-          'PATH': pathValue([onPath])
-        }).find(),
+        adbTool(
+          environment: {
+            'PATH': pathValue([onPath]),
+          },
+        ).find(),
         adb,
       );
     });
@@ -181,15 +201,17 @@ void main() {
     test('tells the user which variable to set when neither is set', () {
       expect(
         () => adbTool(environment: const {'PATH': ''}).require(),
-        throwsA(isA<MissingHostToolException>().having(
-          (e) => e.message,
-          'message',
-          allOf(
-            contains('Could not find adb'),
-            contains('Neither ANDROID_HOME nor ANDROID_SDK_ROOT is set'),
-            contains('platform-tools'),
+        throwsA(
+          isA<MissingHostToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('Could not find adb'),
+              contains('Neither ANDROID_HOME nor ANDROID_SDK_ROOT is set'),
+              contains('platform-tools'),
+            ),
           ),
-        )),
+        ),
       );
     });
 
@@ -199,14 +221,16 @@ void main() {
       final sdk = dir('sdk');
       expect(
         () => adbTool(environment: {'ANDROID_HOME': sdk, 'PATH': ''}).require(),
-        throwsA(isA<MissingHostToolException>().having(
-          (e) => e.message,
-          'message',
-          allOf(
-            contains(p.join(sdk, 'platform-tools', exeName('adb'))),
-            contains('The Android SDK is $sdk'),
+        throwsA(
+          isA<MissingHostToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains(p.join(sdk, 'platform-tools', exeName('adb'))),
+              contains('The Android SDK is $sdk'),
+            ),
           ),
-        )),
+        ),
       );
     });
   });
@@ -214,28 +238,36 @@ void main() {
   group('aapt2Tool', () {
     test('finds aapt2 in the SDK build-tools', () {
       final sdk = dir('sdk');
-      final aapt2 =
-          touch(p.join(sdk, 'build-tools', '35.0.0'), exeName('aapt2'));
+      final aapt2 = touch(
+        p.join(sdk, 'build-tools', '35.0.0'),
+        exeName('aapt2'),
+      );
 
       expect(aapt2Tool(environment: {'ANDROID_HOME': sdk}).find(), aapt2);
     });
 
-    // Lexical ordering puts `9.0.0` last, which would have picked a decade-old
-    // aapt2 over the current one on any SDK still carrying an old version.
+    // Lexical ordering puts `9.0.0` last, which would pick a decade-old aapt2
+    // over the current one on any SDK still carrying an old version.
     test('prefers the newest build-tools, ordered numerically', () {
       final sdk = dir('sdk');
       touch(p.join(sdk, 'build-tools', '9.0.0'), exeName('aapt2'));
-      final newest =
-          touch(p.join(sdk, 'build-tools', '34.0.0'), exeName('aapt2'));
+      final newest = touch(
+        p.join(sdk, 'build-tools', '34.0.0'),
+        exeName('aapt2'),
+      );
 
       expect(aapt2Tool(environment: {'ANDROID_HOME': sdk}).find(), newest);
     });
 
     test('skips a build-tools version that has no aapt2', () {
       final sdk = dir('sdk');
-      Directory(p.join(sdk, 'build-tools', '35.0.0')).createSync(recursive: true);
-      final older =
-          touch(p.join(sdk, 'build-tools', '34.0.0'), exeName('aapt2'));
+      Directory(
+        p.join(sdk, 'build-tools', '35.0.0'),
+      ).createSync(recursive: true);
+      final older = touch(
+        p.join(sdk, 'build-tools', '34.0.0'),
+        exeName('aapt2'),
+      );
 
       expect(aapt2Tool(environment: {'ANDROID_HOME': sdk}).find(), older);
     });
@@ -245,15 +277,17 @@ void main() {
       expect(
         () =>
             aapt2Tool(environment: {'ANDROID_HOME': sdk, 'PATH': ''}).require(),
-        throwsA(isA<MissingHostToolException>().having(
-          (e) => e.message,
-          'message',
-          allOf(
-            contains('Could not find aapt2'),
-            contains('the build-tools package'),
-            contains('sdkmanager "build-tools;35.0.0"'),
+        throwsA(
+          isA<MissingHostToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('Could not find aapt2'),
+              contains('the build-tools package'),
+              contains('sdkmanager "build-tools;35.0.0"'),
+            ),
           ),
-        )),
+        ),
       );
     });
   });
@@ -275,8 +309,10 @@ void main() {
   group('chromeTool', () {
     test('CHROME_EXECUTABLE wins over the installed browser', () {
       final chrome = touch(dir('bin'), exeName('chrome'));
-      expect(chromeTool(environment: {'CHROME_EXECUTABLE': chrome}).find(),
-          chrome);
+      expect(
+        chromeTool(environment: {'CHROME_EXECUTABLE': chrome}).find(),
+        chrome,
+      );
     });
 
     // Asserted on the remedy rather than on a failed lookup: this machine may

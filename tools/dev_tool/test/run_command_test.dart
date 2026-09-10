@@ -1,5 +1,3 @@
-
-import 'package:flutter_bazel_dev_tool/device.dart';
 import 'package:flutter_bazel_dev_tool/run_command.dart';
 import 'package:test/test.dart';
 
@@ -26,15 +24,22 @@ void main() {
     });
 
     test('accepts --no-devtools', () {
-      final results = RunCommand.parser.parse(['-t', '//:app', '--no-devtools']);
+      final results = RunCommand.parser.parse([
+        '-t',
+        '//:app',
+        '--no-devtools',
+      ]);
       expect(results['devtools'], isFalse);
     });
 
     test('accepts multiple --device flags', () {
       final results = RunCommand.parser.parse([
-        '-t', '//:app',
-        '-d', 'macos',
-        '-d', 'chrome',
+        '-t',
+        '//:app',
+        '-d',
+        'macos',
+        '-d',
+        'chrome',
       ]);
       expect(results['device'], ['macos', 'chrome']);
     });
@@ -85,15 +90,22 @@ void main() {
     });
 
     test('accepts --no-http-control-channel', () {
-      final results = RunCommand.parser.parse(['-t', '//:app', '--no-http-control-channel']);
+      final results = RunCommand.parser.parse([
+        '-t',
+        '//:app',
+        '--no-http-control-channel',
+      ]);
       expect(results['http-control-channel'], isFalse);
     });
 
     test('accepts repeated --dart-define, values kept whole', () {
       final results = RunCommand.parser.parse([
-        '-t', '//:app',
-        '--dart-define', 'A=1',
-        '--dart-define', 'B=x,y',
+        '-t',
+        '//:app',
+        '--dart-define',
+        'A=1',
+        '--dart-define',
+        'B=x,y',
       ]);
       expect(results['dart-define'], ['A=1', 'B=x,y']);
     });
@@ -103,14 +115,43 @@ void main() {
       expect(results['dart-define'], isEmpty);
     });
 
+    test('--start-paused defaults to false', () {
+      expect(RunCommand.parser.parse([])['start-paused'], isFalse);
+    });
+
+    test('--start-paused is accepted and not negatable', () {
+      expect(
+        RunCommand.parser.parse(['--start-paused'])['start-paused'],
+        isTrue,
+      );
+      // Negating a flag that only exists to opt in reads as a way to force the
+      // opposite; there is no opposite to force.
+      expect(
+        () => RunCommand.parser.parse(['--no-start-paused']),
+        throwsFormatException,
+      );
+    });
+
+    test('--start-paused help says what stops working while paused', () {
+      // A paused app answers no app.* command and renders no frame. Someone
+      // who reaches for this flag and then finds screenshots timing out should
+      // not have to guess why.
+      final help = RunCommand.parser.usage;
+      expect(help, contains('main()'));
+      expect(help, contains('app.*'));
+    });
+
     test('defaults --allow-no-vm-service to false', () {
       final results = RunCommand.parser.parse(['-t', '//:app']);
       expect(results['allow-no-vm-service'], isFalse);
     });
 
     test('accepts --allow-no-vm-service', () {
-      final results =
-          RunCommand.parser.parse(['-t', '//:app', '--allow-no-vm-service']);
+      final results = RunCommand.parser.parse([
+        '-t',
+        '//:app',
+        '--allow-no-vm-service',
+      ]);
       expect(results['allow-no-vm-service'], isTrue);
     });
 
@@ -119,8 +160,11 @@ void main() {
       // and on Chrome alike. Non-negatable on purpose: "off" is the default
       // and the only safe state, so there is nothing to negate.
       expect(
-        () => RunCommand.parser
-            .parse(['-t', '//:app', '--no-allow-no-vm-service']),
+        () => RunCommand.parser.parse([
+          '-t',
+          '//:app',
+          '--no-allow-no-vm-service',
+        ]),
         throwsFormatException,
       );
     });
@@ -145,44 +189,6 @@ void main() {
     test('accepts custom exit code', () {
       final e = DevToolException('failed', exitCode: 42);
       expect(e.exitCode, 42);
-    });
-  });
-
-  group('assertModeCanRun', () {
-    // The failure this guards is silent — an AOT bundle installs and launches
-    // on a simulator, returns 0, and renders blank forever — so the test is
-    // that the tool refuses rather than that anything reports an error.
-    test('refuses opt on an iOS simulator', () {
-      expect(
-        () => assertModeCanRun('opt', [IOSSimulatorDevice(udid: 'booted')]),
-        throwsA(isA<DevToolException>().having(
-          (e) => e.message,
-          'message',
-          allOf(contains('kernel_blob.bin'), contains('-d ios')),
-        )),
-      );
-    });
-
-    test('allows dbg on an iOS simulator', () {
-      expect(
-        () => assertModeCanRun('dbg', [IOSSimulatorDevice(udid: 'booted')]),
-        returnsNormally,
-      );
-    });
-
-    test('allows opt on every other device', () {
-      expect(
-        () => assertModeCanRun('opt', [MacOSDevice(), IOSDevice()]),
-        returnsNormally,
-      );
-    });
-
-    test('refuses when a simulator is one of several devices', () {
-      expect(
-        () => assertModeCanRun(
-            'opt', [MacOSDevice(), IOSSimulatorDevice(udid: 'booted')]),
-        throwsA(isA<DevToolException>()),
-      );
     });
   });
 

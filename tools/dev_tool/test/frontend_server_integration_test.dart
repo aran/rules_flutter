@@ -40,7 +40,9 @@ void main() {
       );
 
       await server.start();
-      final future = server.recompile('lib/main.dart', ['file:///lib/foo.dart']);
+      final future = server.recompile('lib/main.dart', [
+        'file:///lib/foo.dart',
+      ]);
 
       fakeProcess.complete(1);
 
@@ -49,65 +51,64 @@ void main() {
     });
   });
 
-  group('Concurrent compile cancellation (H5)', () {
-    test('first compile is cancelled when second starts', () async {
-      final fakeProcess = FakeProcess();
-      final server = FrontendServer(
-        dartaotruntimePath: '/fake/dartaotruntime',
-        frontendServerPath: '/fake/frontend_server.snapshot',
-        config: NativeCompilerConfig(patchedSdkRoot: '/fake/sdk'),
-        packageConfig: '/fake/package_config.json',
-        processFactory: (exe, args) async => fakeProcess,
-      );
+  group('Concurrent requests to one compiler', () {
+    // Requests queue rather than cancel one another: the compiler is never told
+    // about a cancellation, so a cancelled request's answer still arrives —
+    // against the next request's completer, as a dill for a compile nobody
+    // asked for. Every production compile is serialized by CommandRunner's
+    // Pool(1) and each app owns its own server, so overlap is a caller bug.
+    FrontendServer serverWith(FakeProcess p) => FrontendServer(
+      dartaotruntimePath: '/fake/dartaotruntime',
+      frontendServerPath: '/fake/frontend_server.snapshot',
+      config: NativeCompilerConfig(patchedSdkRoot: '/fake/sdk'),
+      packageConfig: '/fake/package_config.json',
+      processFactory: (exe, args) async => p,
+    );
 
+    test('a second compile queues behind the first', () async {
+      // The protocol carries no request id, so two exchanges in flight at
+      // once hand one request the other's answer. Serialized, each keeps its
+      // own — which is what lets the debugger's expression compiles share
+      // this compiler with the reload path.
+      final fakeProcess = FakeProcess();
+      final server = serverWith(fakeProcess);
       await server.start();
 
-      // Start first compile.
-      final future1 = server.compile('lib/main.dart');
+      final first = server.compile('lib/main.dart');
+      final second = server.compile('lib/main.dart');
 
-      // Start second compile before first finishes — should cancel first.
-      final future2 = server.compile('lib/main.dart');
-
-      // First should complete with cancellation.
-      final result1 = await future1;
-      expect(result1.success, isFalse);
-      expect(result1.diagnostics, contains('Cancelled'));
-
-      // Complete second normally.
       fakeProcess.emitStdout('result abc123');
-      fakeProcess.emitStdout('abc123 /tmp/out.dill 0');
-      final result2 = await future2;
-      expect(result2.success, isTrue);
-      expect(result2.dillPath, '/tmp/out.dill');
+      fakeProcess.emitStdout('abc123 /tmp/first.dill 0');
+      expect((await first).dillPath, '/tmp/first.dill');
+
+      await pumpEventQueue();
+      fakeProcess.emitStdout('result def456');
+      fakeProcess.emitStdout('def456 /tmp/second.dill 0');
+      expect(
+        (await second).dillPath,
+        '/tmp/second.dill',
+        reason: 'each request keeps its own answer',
+      );
     });
 
-    test('recompile cancels pending compile', () async {
+    test('a recompile queued behind a compile keeps its own answer', () async {
       final fakeProcess = FakeProcess();
-      final server = FrontendServer(
-        dartaotruntimePath: '/fake/dartaotruntime',
-        frontendServerPath: '/fake/frontend_server.snapshot',
-        config: NativeCompilerConfig(patchedSdkRoot: '/fake/sdk'),
-        packageConfig: '/fake/package_config.json',
-        processFactory: (exe, args) async => fakeProcess,
-      );
-
+      final server = serverWith(fakeProcess);
       await server.start();
 
-      final compileFuture = server.compile('lib/main.dart');
-      final recompileFuture = server.recompile('lib/main.dart', ['file:///lib/a.dart']);
+      final first = server.compile('lib/main.dart');
+      final second = server.recompile('lib/main.dart', ['file:///lib/a.dart']);
 
-      // First should be cancelled.
-      final compileResult = await compileFuture;
-      expect(compileResult.success, isFalse);
+      fakeProcess.emitStdout('result abc123');
+      fakeProcess.emitStdout('abc123 /tmp/first.dill 0');
+      expect((await first).dillPath, '/tmp/first.dill');
 
-      // Second should complete normally.
+      await pumpEventQueue();
       fakeProcess.emitStdout('result boundary_1');
       fakeProcess.emitStdout('boundary_1 /tmp/delta.dill 0');
-      final recompileResult = await recompileFuture;
-      expect(recompileResult.success, isTrue);
+      expect((await second).dillPath, '/tmp/delta.dill');
     });
   });
-
   group('Line buffering (M9)', () {
     test('handles partial chunks correctly', () async {
       final fakeProcess = FakeProcess();

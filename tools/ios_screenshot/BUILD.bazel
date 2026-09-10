@@ -1,6 +1,13 @@
 load("@pip//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
 
+# `//tools/pip_lock_guard:pip_facts_test` re-derives MODULE.bazel.lock's pip
+# facts from this file, so it reads it as data rather than trusting the lock.
+exports_files(
+    ["requirements_lock.txt"],
+    visibility = ["//tools/pip_lock_guard:__pkg__"],
+)
+
 py_binary(
     name = "screenshot",
     srcs = ["screenshot.py"],

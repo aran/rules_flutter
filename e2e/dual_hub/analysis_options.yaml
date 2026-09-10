@@ -1,0 +1,13 @@
+# Formatting rules for this workspace's two Dart files, enforced by
+# `bazel test //...`.
+#
+# A bare file rather than a `dart_analysis_options` target with a `package:`
+# include: this workspace deliberately resolves nothing beyond `clock` and
+# `path`, and pulling a lint package in would give its hubs a third shared
+# dependency and blur what the two-hub comparison is measuring.
+
+formatter:
+  # Matches the root's setting. `dart format` falls back to `automate` when
+  # this is unstated, which collapses trailing commas kept to force a
+  # construct multi-line.
+  trailing_commas: preserve

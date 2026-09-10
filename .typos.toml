@@ -1,1 +1,45 @@
 # See https://github.com/crate-ci/typos?tab=readme-ov-file#false-positives how to ignore
+
+[default]
+extend-ignore-re = [
+  # Git SHAs quoted in comments. typos reads a hex string as words and picks
+  # real ones out of it — `537e8ba` reports `ba`.
+  "\\b[0-9a-f]{7,40}\\b",
+]
+
+[default.extend-words]
+# `mis-` as an English prefix — mis-filed, mis-merged, mis-keyed, mis-ordered.
+# typos splits on the hyphen and reports the prefix on its own.
+mis = "mis"
+Mis = "Mis"
+# Both spellings are current; this one is the repo's.
+unparseable = "unparseable"
+# From "catch-alls", split on the hyphen the same way.
+alls = "alls"
+# Flutter's own marker in the web bootstrap template spells it this way. The
+# string has to match upstream's byte for byte, so the misspelling is load-
+# bearing: see ENTRYPOINT_EXTENTION_MARKER in web_bootstrap.dart.
+EXTENTION = "EXTENTION"
+# Apple's Unique Device IDentifier, spelled this way by every tool that emits
+# one (devicectl, simctl, pymobiledevice3) and by the code that consumes them.
+udid = "udid"
+# The Python package. It appears here only as a package name.
+certifi = "certifi"
+# From "PNGs": typos splits the plural off the acronym and reports the stem.
+PN = "PN"
+
+[files]
+# Xcode's project and interface files are generated, and they are dense with
+# random object IDs — five characters in a storyboard (`tne-QT-ifu`,
+# `SEH-ZR-Fo0`), 24 hex in a pbxproj — which land on real words often enough to
+# be reported. Most are also `flutter create` output, which this repo does not
+# edit, so there is nothing to correct even where a hit is real.
+#
+# tls_fixture.dart is a PEM certificate and key inlined as base64, for the same
+# reason: no prose in it to check.
+extend-exclude = [
+  "**/*.storyboard",
+  "**/*.xib",
+  "**/*.pbxproj",
+  "**/tls_fixture.dart",
+]

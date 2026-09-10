@@ -24,7 +24,8 @@ import 'gcloud.dart';
 Future<void> main(List<String> args) async {
   if (args.length < 2) {
     stderr.writeln(
-        'Usage: dart run tools/vm/deploy_bundle.dart <vm-name> <bundle_path> [--windows]');
+      'Usage: dart run tools/vm/deploy_bundle.dart <vm-name> <bundle_path> [--windows]',
+    );
     exit(1);
   }
 
@@ -48,11 +49,16 @@ Future<void> main(List<String> args) async {
   }
 }
 
-Future<void> _deployLinux(String vmName, String bundlePath, String appName) async {
+Future<void> _deployLinux(
+  String vmName,
+  String bundlePath,
+  String appName,
+) async {
   // Determine project root (for verification scripts).
   final scriptDir = Platform.script.resolve('.').toFilePath();
-  final projectRoot =
-      Directory(scriptDir).parent.parent.path; // tools/vm/ -> project root
+  final projectRoot = Directory(
+    scriptDir,
+  ).parent.parent.path; // tools/vm/ -> project root
 
   // Copy bundle to a temp dir (Bazel tree artifacts are read-only).
   print('Preparing bundle for upload ...');
@@ -63,7 +69,10 @@ Future<void> _deployLinux(String vmName, String bundlePath, String appName) asyn
 
   // Upload bundle.
   print('Uploading bundle ...');
-  await sshRun(vmName, 'chmod -R u+w ~/$appName 2>/dev/null; rm -rf ~/$appName || true');
+  await sshRun(
+    vmName,
+    'chmod -R u+w ~/$appName 2>/dev/null; rm -rf ~/$appName || true',
+  );
   await scpToVm(vmName, tmpBundle, '~/$appName');
   tmpDir.deleteSync(recursive: true);
 
@@ -81,8 +90,10 @@ Future<void> _deployLinux(String vmName, String bundlePath, String appName) asyn
   print('');
   print('Running visual verification ...');
   try {
-    final output = await sshRun(vmName,
-        'bash -c \'export PATH="/opt/dart-sdk/bin:/usr/local/bin:\$PATH" && dart run ~/verify_scripts/verify_linux_app.dart ~/$appName "Flutter"\'');
+    final output = await sshRun(
+      vmName,
+      'bash -c \'export PATH="/opt/dart-sdk/bin:/usr/local/bin:\$PATH" && dart run ~/verify_scripts/verify_linux_app.dart ~/$appName "Flutter"\'',
+    );
     print(output);
 
     // Download screenshot if available.
@@ -104,7 +115,11 @@ Future<void> _deployLinux(String vmName, String bundlePath, String appName) asyn
   }
 }
 
-Future<void> _deployWindows(String vmName, String bundlePath, String appName) async {
+Future<void> _deployWindows(
+  String vmName,
+  String bundlePath,
+  String appName,
+) async {
   final scriptDir = Platform.script.resolve('.').toFilePath();
   final projectRoot = Directory(scriptDir).parent.parent.path;
 
@@ -119,19 +134,23 @@ Future<void> _deployWindows(String vmName, String bundlePath, String appName) as
     stderr.writeln('ERROR: VM startup script has not completed yet.');
     stderr.writeln('Tools (Python, PsExec, dxcam) are still installing.');
     stderr.writeln(
-        'Check progress: gcloud compute ssh $vmName --command "type C:\\startup_complete.txt"');
+      'Check progress: gcloud compute ssh $vmName --command "type C:\\startup_complete.txt"',
+    );
     exit(1);
   }
 
   // Verify the auto-logon interactive session and get the session ID.
   // query user returns exit code 1 even on success — force exit 0.
   final sessions = await sshRun(vmName, 'query user & exit /b 0');
-  final sessionMatch =
-      RegExp(r'testuser\s+\S*\s+(\d+)\s+Active').firstMatch(sessions);
+  final sessionMatch = RegExp(
+    r'testuser\s+\S*\s+(\d+)\s+Active',
+  ).firstMatch(sessions);
   if (sessionMatch == null) {
     stderr.writeln('ERROR: No active interactive session for testuser.');
     stderr.writeln('Session output:\n$sessions');
-    stderr.writeln('The auto-logon may not have completed. Try rebooting the VM.');
+    stderr.writeln(
+      'The auto-logon may not have completed. Try rebooting the VM.',
+    );
     exit(1);
   }
   final sessionId = sessionMatch.group(1)!;
@@ -146,25 +165,34 @@ Future<void> _deployWindows(String vmName, String bundlePath, String appName) as
   try {
     // Upload bundle to a shared location accessible to all users.
     print('Uploading bundle ...');
-    await sshRun(vmName, 'if exist C:\\temp\\$appName rmdir /s /q C:\\temp\\$appName');
+    await sshRun(
+      vmName,
+      'if exist C:\\temp\\$appName rmdir /s /q C:\\temp\\$appName',
+    );
     await sshRun(vmName, 'if not exist C:\\temp mkdir C:\\temp');
     await scpToVm(vmName, tmpBundle, 'C:/temp/$appName', compress: true);
 
     // Upload the DXGI screenshot script.
     print('Uploading verification scripts ...');
-    await sshRun(vmName,
-        'if exist C:\\temp\\verify_scripts rmdir /s /q C:\\temp\\verify_scripts');
+    await sshRun(
+      vmName,
+      'if exist C:\\temp\\verify_scripts rmdir /s /q C:\\temp\\verify_scripts',
+    );
     await sshRun(vmName, 'mkdir C:\\temp\\verify_scripts');
-    await scpToVm(vmName, '$projectRoot/e2e/_windows_test/dxgi_screenshot.py',
-        'C:/temp/verify_scripts/dxgi_screenshot.py');
+    await scpToVm(
+      vmName,
+      '$projectRoot/e2e/_windows_test/dxgi_screenshot.py',
+      'C:/temp/verify_scripts/dxgi_screenshot.py',
+    );
   } finally {
     tmpDir.deleteSync(recursive: true);
   }
 
   // Discover Python path.
-  final pythonPath = (await sshRun(vmName,
-          'powershell -Command "(Get-ChildItem C:\\Python* -Directory | Select-Object -First 1).FullName"'))
-      .trim();
+  final pythonPath = (await sshRun(
+    vmName,
+    'powershell -Command "(Get-ChildItem C:\\Python* -Directory | Select-Object -First 1).FullName"',
+  )).trim();
   if (pythonPath.isEmpty) {
     stderr.writeln('ERROR: Python not found on VM.');
     exit(1);
@@ -172,8 +200,10 @@ Future<void> _deployWindows(String vmName, String bundlePath, String appName) as
   print('Python: $pythonPath');
 
   // Find the app executable inside the bundle.
-  final exeList = await sshRun(vmName,
-      'powershell -Command "Get-ChildItem C:\\temp\\$appName\\*.exe | Select-Object -ExpandProperty Name"');
+  final exeList = await sshRun(
+    vmName,
+    'powershell -Command "Get-ChildItem C:\\temp\\$appName\\*.exe | Select-Object -ExpandProperty Name"',
+  );
   final exeName = exeList.trim().split('\n').first.trim();
   if (exeName.isEmpty || !exeName.endsWith('.exe')) {
     stderr.writeln('ERROR: No .exe found in C:\\temp\\$appName\\');
@@ -190,19 +220,23 @@ Future<void> _deployWindows(String vmName, String bundlePath, String appName) as
   final outputRemotePath = 'C:\\temp\\screenshot_out.txt';
 
   // Write the wrapper batch file via PowerShell (avoids cmd.exe escaping).
-  await sshRun(vmName,
-      "powershell -Command \"Set-Content -Path C:\\temp\\run_verify.bat "
-      "-Value '$pythonPath\\python.exe C:\\temp\\verify_scripts\\dxgi_screenshot.py "
-      "C:\\temp\\$appName\\$exeName $screenshotRemotePath 15 "
-      "> $outputRemotePath 2>&1' -Force\"");
+  await sshRun(
+    vmName,
+    "powershell -Command \"Set-Content -Path C:\\temp\\run_verify.bat "
+    "-Value '$pythonPath\\python.exe C:\\temp\\verify_scripts\\dxgi_screenshot.py "
+    "C:\\temp\\$appName\\$exeName $screenshotRemotePath 15 "
+    "> $outputRemotePath 2>&1' -Force\"",
+  );
 
   // Run via PsExec in the interactive session. PsExec propagates the child
   // exit code — force exit 0 so sshRun doesn't throw on screenshot failure.
   try {
-    await sshRun(vmName,
-        'C:\\ProgramData\\chocolatey\\bin\\PsExec64.exe -accepteula '
-        '-i $sessionId -u $windowsTestUser -p $windowsTestPassword '
-        'C:\\temp\\run_verify.bat & exit /b 0');
+    await sshRun(
+      vmName,
+      'C:\\ProgramData\\chocolatey\\bin\\PsExec64.exe -accepteula '
+      '-i $sessionId -u $windowsTestUser -p $windowsTestPassword '
+      'C:\\temp\\run_verify.bat & exit /b 0',
+    );
   } catch (e) {
     stderr.writeln('PsExec command failed: $e');
   }

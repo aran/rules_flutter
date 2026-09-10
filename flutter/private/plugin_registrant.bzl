@@ -505,6 +505,64 @@ def generate_native_plugin_registrant(ctx, plugins, target_platform):
     ctx.actions.write(registrant, content)
     return registrant
 
+# The platforms a dev-loop registrant is generated for. Web is excluded on
+# purpose: its registrant has a different shape (`registerPlugins()` called
+# from the bootstrap wrapper, not the engine's pre-main hook) and travels
+# through the dev config's `webPluginRegistrant` instead.
+# Must name exactly what `detect_target_platform` returns: the dev tool looks
+# up the value the running app reports and fails on a miss rather than falling
+# back. Nothing in the rules couples the two lists, so
+# `flutter_application_test.bzl` asserts they agree.
+DEV_REGISTRANT_PLATFORMS = ("android", "ios", "linux", "macos", "windows")
+
+def generate_dev_plugin_registrants(ctx, plugins, agent_import = None):
+    """Generate one dev-loop Dart plugin registrant per native platform.
+
+    The dev tool obtains its inputs from a bare build of the
+    `flutter_application`, which resolves in the HOST configuration — while
+    the app being reloaded can be running on a different platform (an iOS run
+    driven from a macOS host). The registrant filter input is just a platform
+    string and the plugin metadata (`FlutterInfo.plugins`, parsed from
+    pubspecs) is configuration-independent, so the host build can emit a
+    registrant filtered for every platform; the dev tool then picks the one
+    matching the platform the running app reports
+    (`rules_flutter.build_info.targetPlatform`). Feeding it the host-filtered
+    registrant instead silently registers the wrong plugin set after a hot
+    restart, which is the bug this map exists to prevent.
+
+    These are separate declared files from the build registrant
+    (`generate_dart_plugin_registrant`): that one is compiled into this
+    configuration's kernel, while one of these is compiled by the dev tool's
+    resident frontend_server via `--source` +
+    `-Dflutter.dart_plugin_registrant`.
+
+    Args:
+        ctx: Rule context.
+        plugins: List of plugin structs.
+        agent_import: Optional relative import for the staged agent-extensions
+            library (the files are declared next to it, so a basename works).
+
+    Returns:
+        Dict of platform string → generated .dart File, or None for a
+        platform with no Dart plugins and no agent to register.
+    """
+    registrants = {}
+    for platform in DEV_REGISTRANT_PLATFORMS:
+        content = make_registrant_content(
+            plugins,
+            target_platform = platform,
+            agent_import = agent_import,
+        )
+        if not content:
+            registrants[platform] = None
+            continue
+        out = ctx.actions.declare_file(
+            "%s.dev_plugin_registrant.%s.dart" % (ctx.label.name, platform),
+        )
+        ctx.actions.write(out, content)
+        registrants[platform] = out
+    return registrants
+
 def generate_dart_plugin_registrant(ctx, plugins, target_platform = None, agent_import = None):
     """Generate a Dart plugin registrant source file via ctx.actions.write.
 

@@ -155,6 +155,7 @@ bzl_library(
         "//flutter/private:flutter_desktop_engine_repo",
         "//flutter/private:flutter_dev_root_repo",
         "//flutter/private:flutter_ios_engine_repo",
+        "//flutter/private:flutter_sky_engine_repo",
         "//flutter/private:flutter_web_sdk_repo",
         "//flutter/private:toolchains_repo",
         "//flutter/private:versions",

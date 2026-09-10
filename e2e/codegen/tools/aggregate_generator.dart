@@ -2,10 +2,13 @@
 ///
 /// Interface (dart_aggregate_codegen contract): the primary source arrives as
 /// `--input <exec>`; each additional source arrives as
-/// `--input-asset-extra <exec>|<asset>`. The single output is `--output <path>`.
+/// `--input-asset-extra <exec>|<asset>`. The single output is
+/// `--output <path>`.
 ///
 /// Reads all source files, finds every class definition across them, and
 /// generates a single registry file listing every model class.
+library;
+
 import 'dart:io';
 
 void main(List<String> args) {
@@ -29,8 +32,10 @@ void main(List<String> args) {
   }
 
   if (inputPaths.isEmpty || outputPath == null) {
-    stderr.writeln('Usage: aggregate_generator.dart --input <file> '
-        '[--input-asset-extra <exec>|<asset>...] --output <file>');
+    stderr.writeln(
+      'Usage: aggregate_generator.dart --input <file> '
+      '[--input-asset-extra <exec>|<asset>...] --output <file>',
+    );
     exit(1);
   }
 
@@ -46,20 +51,24 @@ void main(List<String> args) {
 
   allClasses.sort();
 
-  final buffer = StringBuffer();
-  buffer.writeln('// GENERATED CODE - DO NOT MODIFY BY HAND');
-  buffer.writeln('// Aggregate registry generated from ${inputPaths.length} source file(s).');
-  buffer.writeln();
-  buffer.writeln('/// All model classes discovered by the aggregate generator.');
-  buffer.writeln('const List<String> registeredModels = [');
+  final buffer = StringBuffer()
+    ..writeln('// GENERATED CODE - DO NOT MODIFY BY HAND')
+    ..writeln(
+      '// Aggregate registry generated from '
+      '${inputPaths.length} source file(s).',
+    )
+    ..writeln()
+    ..writeln('/// All model classes discovered by the aggregate generator.')
+    ..writeln('const List<String> registeredModels = [');
   for (final cls in allClasses) {
     buffer.writeln("  '$cls',");
   }
-  buffer.writeln('];');
-  buffer.writeln();
-  buffer.writeln('/// Number of registered model classes.');
-  buffer.writeln('const int modelCount = ${allClasses.length};');
-  buffer.writeln();
+  buffer
+    ..writeln('];')
+    ..writeln()
+    ..writeln('/// Number of registered model classes.')
+    ..writeln('const int modelCount = ${allClasses.length};')
+    ..writeln();
 
   File(outputPath).writeAsStringSync(buffer.toString());
 }

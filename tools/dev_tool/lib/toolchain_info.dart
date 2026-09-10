@@ -1,16 +1,21 @@
 /// Extracts Flutter toolchain paths from Bazel.
 ///
-/// Uses `bazel cquery` to discover the paths to:
-/// - dart binary
-/// - dartaotruntime binary
-/// - frontend_server_aot.dart.snapshot
-/// - platform_strong.dill (debug)
-/// - patched SDK root
+/// Two sources, answering two different questions:
+///
+///  * [resolveToolchainPaths] finds the Flutter host toolchain repo in a
+///    workspace's Bazel output base and builds the five paths a run needs out
+///    of it — `dart`, `dartaotruntime`, `frontend_server_aot.dart.snapshot`,
+///    `platform_strong.dill` and the patched SDK root. It answers before
+///    anything is built, which is why it is here and not read off a build.
+///  * [parseDevConfig] reads the `_dev_config.json` a `flutter_application` or
+///    `flutter_web_bundle` emits, which is what the *build* resolved.
 import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+
+import 'dev_tool_exception.dart';
 
 /// Toolchain paths resolved from Bazel.
 class ToolchainPaths {
@@ -29,60 +34,109 @@ class ToolchainPaths {
   });
 }
 
+/// How [resolveToolchainPaths] reaches bazel.
+///
+/// Injected because a test target here runs inside a Bazel sandbox, where
+/// nesting a `bazel` invocation is not possible (see the comment on the
+/// analysis targets in this package's BUILD file), so the failures below cannot
+/// be provoked without a seam.
+typedef BazelRunner =
+    Future<ProcessResult> Function(
+      List<String> args, {
+      required String workingDirectory,
+    });
+
+Future<ProcessResult> _runBazel(
+  List<String> args, {
+  required String workingDirectory,
+}) => Process.run(
+  'bazel',
+  args,
+  workingDirectory: workingDirectory,
+  stdoutEncoding: utf8,
+  stderrEncoding: utf8,
+);
+
+/// What the Flutter host toolchain repo for [platform] is called inside an
+/// output base, in each of the two positions `rules_flutter` can occupy.
+///
+/// A module extension's repos are named
+/// `<canonical repo of the module that DEFINES the extension>+<extension>+<repo>`.
+/// This extension is defined in `rules_flutter`, whose own canonical repo name
+/// is `''` when it is the root module and `rules_flutter+` when it is a
+/// dependency — so there are exactly two possible names, a workspace resolves
+/// `rules_flutter` in one position or the other, and never both. This is an
+/// enumeration of a two-valued fact, not a search: at most one of these exists
+/// in any one output base.
+List<String> flutterToolchainRepoNames(String platform) => [
+  'rules_flutter++flutter+flutter_$platform',
+  '+flutter+flutter_$platform',
+];
+
 /// Resolve Flutter toolchain paths from Bazel for a given target.
 ///
-/// This runs `bazel cquery` to find the toolchain repo, then constructs
-/// paths to the specific binaries within the external repo. [workspace]
-/// must be the consumer's workspace root — it's used as the spawned
-/// bazel process's `workingDirectory` so the call works under
-/// `bazel run` (where `Directory.current` is the runfiles execroot).
+/// [workspace] must be the consumer's workspace root — it's used as the spawned
+/// bazel process's `workingDirectory` so the call works under `bazel run`
+/// (where `Directory.current` is the runfiles execroot).
+///
+/// Runs before anything is built, because the frontend server and the
+/// dartaotruntime that drives it are needed to assemble a run at all. That is
+/// what makes the fetch below load-bearing rather than incidental: on a
+/// workspace whose output base has never been built there is no external repo
+/// to find yet, and this is the call that creates it.
 Future<ToolchainPaths> resolveToolchainPaths(
   String target, {
   required String workspace,
+  BazelRunner runBazel = _runBazel,
 }) async {
-  // Use bazel info to find the output base.
-  final infoResult = await Process.run('bazel', ['info', 'output_base'],
-      workingDirectory: workspace);
-  if (infoResult.exitCode != 0) {
-    throw StateError('Failed to get bazel output_base: ${infoResult.stderr}');
+  final info = await runBazel([
+    'info',
+    'output_base',
+  ], workingDirectory: workspace);
+  if (info.exitCode != 0) {
+    throw DevToolException(
+      'Could not read the Bazel output base for $workspace.\n'
+      '  cd $workspace && bazel info output_base\n'
+      '  exit ${info.exitCode}\n'
+      '${_tail(info.stderr as String)}',
+    );
   }
-  final outputBase = (infoResult.stdout as String).trim();
+  final outputBase = (info.stdout as String).trim();
 
-  // Find the Flutter toolchain repo in the external directory.
-  // With bzlmod the repo name is 'rules_flutter++flutter+flutter_{platform}',
-  // with WORKSPACE it's just 'flutter_{platform}'.
   final platform = detectHostPlatform();
   final externalBase = p.join(outputBase, 'external');
-  final candidates = [
-    'rules_flutter++flutter+flutter_$platform',  // bzlmod
-    'flutter_engine_$platform',  // WORKSPACE
-    'flutter_$platform',  // legacy
-  ];
-  String? externalDir;
-  for (final name in candidates) {
-    final dir = p.join(externalBase, name);
-    if (Directory(dir).existsSync()) {
-      externalDir = dir;
-      break;
+  final candidates = flutterToolchainRepoNames(platform);
+
+  var externalDir = _existingRepo(externalBase, candidates);
+  if (externalDir == null) {
+    // `bazel fetch` analyses the target, and analysis is what resolves the
+    // Flutter toolchain and materializes its repo. Its result is checked: this
+    // is the first bazel command a run makes, so every way the workspace is
+    // unusable surfaces here, and discarding it would turn all of them into
+    // "could not find Flutter toolchain".
+    final fetch = await runBazel([
+      'fetch',
+      target,
+    ], workingDirectory: workspace);
+    if (fetch.exitCode != 0) {
+      throw DevToolException(
+        'Could not fetch what $target needs, so the Flutter toolchain was '
+        'never materialized.\n'
+        '  cd $workspace && bazel fetch $target\n'
+        '  exit ${fetch.exitCode}\n'
+        '${_tail(fetch.stderr as String)}',
+      );
     }
+    externalDir = _existingRepo(externalBase, candidates);
   }
   if (externalDir == null) {
-    // Try fetching the repo first.
-    await Process.run('bazel', ['fetch', target],
-        workingDirectory: workspace,
-        stderrEncoding: utf8, stdoutEncoding: utf8);
-    for (final name in candidates) {
-      final dir = p.join(externalBase, name);
-      if (Directory(dir).existsSync()) {
-        externalDir = dir;
-        break;
-      }
-    }
-  }
-  if (externalDir == null) {
-    throw StateError(
-      'Could not find Flutter toolchain in $externalBase. '
-      'Tried: ${candidates.join(", ")}',
+    throw DevToolException(
+      '`bazel fetch $target` succeeded but left no Flutter toolchain in '
+      '$externalBase.\n'
+      'Looked for: ${candidates.join(', ')}.\n'
+      'That means $target resolves no rules_flutter toolchain — check that '
+      'the workspace registers one (`register_toolchains`) and that $target '
+      'is a Flutter target.',
     );
   }
 
@@ -93,7 +147,11 @@ Future<ToolchainPaths> resolveToolchainPaths(
   return ToolchainPaths(
     dart: p.join(externalDir, 'dart-sdk', 'bin', dartBin),
     dartaotruntime: p.join(externalDir, 'dart-sdk', 'bin', dartaotruntimeBin),
-    frontendServer: p.join(externalDir, 'host-tools', 'frontend_server_aot.dart.snapshot'),
+    frontendServer: p.join(
+      externalDir,
+      'host-tools',
+      'frontend_server_aot.dart.snapshot',
+    ),
     platformDill: p.join(
       externalDir,
       'patched-sdk',
@@ -104,23 +162,30 @@ Future<ToolchainPaths> resolveToolchainPaths(
   );
 }
 
-/// Discover the Bazel-generated package_config.json for the frontend server.
+/// Whichever of [candidates] exists under [externalBase], or null.
 ///
-/// Returns the symlink-resolved path to the config file. The frontend server
-/// resolves the relative URIs in the config relative to the config file's
-/// real location in the Bazel output tree.
-String? discoverPackageConfig(List<String> outputFiles) {
-  String? nested;
-  for (final f in outputFiles) {
-    if (f.endsWith('package_config.json')) {
-      if (!f.contains('.dart_tool')) {
-        return _resolve(f);
-      }
-      nested ??= f;
-    }
+/// At most one can: see [flutterToolchainRepoNames].
+String? _existingRepo(String externalBase, List<String> candidates) {
+  for (final name in candidates) {
+    final dir = p.join(externalBase, name);
+    if (Directory(dir).existsSync()) return dir;
   }
-  if (nested != null) return _resolve(nested);
   return null;
+}
+
+/// The last few lines of [output], so a failure names its own cause without
+/// pasting a whole Bazel run into one exception message.
+///
+/// Bazel writes its diagnostics — `ERROR:` lines included — to stderr, which is
+/// what every caller here passes.
+String _tail(String output, {int lines = 40}) {
+  final trimmed = output.trimRight();
+  // Said rather than left blank: a message that trails off after "exit 2" reads
+  // as truncated output, when what happened is that bazel explained nothing.
+  if (trimmed.isEmpty) return '(bazel wrote nothing to stderr)';
+  final all = trimmed.split('\n');
+  if (all.length <= lines) return trimmed;
+  return all.sublist(all.length - lines).join('\n');
 }
 
 String detectHostPlatform() {
@@ -190,6 +255,21 @@ class DevConfig {
   /// when the build did not emit one (e.g. web dev configs).
   final String devPackageConfig;
 
+  /// Absolute path to the **build** package_config — the one whose `rootUri`s
+  /// are ordinary paths, so a `package:` URI resolved through it can be opened
+  /// as a file. Web only; empty for a native config.
+  ///
+  /// Deliberately a second field rather than a second use of
+  /// [devPackageConfig]. The two answer different questions and a
+  /// source-assembled app is where they diverge: the dev config's `rootUri` is
+  /// `<filesystemScheme>:///<lib_root>`, which the frontend_server resolves
+  /// through `--filesystem-root` and `Uri.toFilePath()` refuses outright. The
+  /// compiler wants the dev one (live sources); DWDS wants this one, because
+  /// its job is to read the source off disk and show it. Handed the dev one it
+  /// throws `Cannot extract a file path from a org-dartlang-app URI` on every
+  /// first-party library and the debugger shows a blank pane.
+  final String buildPackageConfig;
+
   /// Absolute `--filesystem-root` dirs the frontend_server searches for
   /// [filesystemScheme] URIs (live source roots, then generated bazel-out
   /// roots). Empty unless the app package is source-assembled.
@@ -221,22 +301,80 @@ class DevConfig {
   /// String.fromEnvironment values as the initial build.
   final List<String> dartDefines;
 
-  /// Path to the generated plugin registrant (`_PluginRegistrant`), or empty
-  /// when the app has no Dart plugins and no agent extensions. Compiled into
-  /// the dev tool's dills via `--source` and advertised with
-  /// `-Dflutter.dart_plugin_registrant` so the engine's pre-main hook keeps
-  /// firing after hot restart. Absolutized by [parseDevConfig].
-  final String dartPluginRegistrant;
+  /// Per-platform generated plugin registrants (`_PluginRegistrant`), keyed
+  /// by Flutter platform (`android`, `ios`, `linux`, `macos`, `windows`).
+  ///
+  /// A map rather than one file because the dev build runs in the HOST
+  /// configuration while the app can be running on a different platform:
+  /// `generate_dart_plugin_registrant` filters plugins by platform, so the
+  /// host-config registrant is filtered for the host — on an iOS run from a
+  /// macOS host that registers the macOS plugin set after a hot restart,
+  /// silently. The rules emit one registrant per platform and the dev tool
+  /// picks the entry matching [BuildInfo.targetPlatform] via [registrantFor].
+  ///
+  /// The chosen file is compiled into the dev tool's dills via `--source` and
+  /// advertised with `-Dflutter.dart_plugin_registrant` so the engine's
+  /// pre-main hook keeps firing after hot restart. An empty value states that
+  /// platform has no Dart plugins and no agent to register. Values are
+  /// absolutized by [parseDevConfig].
+  final Map<String, String> dartPluginRegistrants;
 
   /// Absolute path to the generated Flutter **web** plugin registrant
   /// (`registerPlugins()`), or `''` when the app has no web plugins.
   ///
-  /// Distinct from [dartPluginRegistrant]: the native registrant is injected
+  /// Distinct from [dartPluginRegistrants]: the native registrant is injected
   /// into the isolate via `--source` + `-Dflutter.dart_plugin_registrant` and
   /// invoked by the engine before `main()`, while the web registrant is
   /// imported by the synthetic web entrypoint and called from
   /// `ui_web.bootstrapEngine(registerPlugins: …)`.
   final String webPluginRegistrant;
+
+  /// Absolute path to the staged AI-agent service extensions
+  /// (`registerRulesFlutterAgentExtensions()`), or `''` for a config that
+  /// predates them.
+  ///
+  /// Web only, and dev-loop only. The native rules compile the same source into
+  /// the app's kernel and let the engine's pre-main registrant hook call it;
+  /// the web bundle cannot, because dart2wasm/dart2js stub out
+  /// `registerExtension`. So the DDC dev loop is the one place it can run, and
+  /// the dev tool imports it from the synthetic entrypoint it generates.
+  final String agentExtensions;
+
+  /// Absolute path to the bootstrap the dev server answers
+  /// `/flutter_bootstrap.js` with. `''` for a native config, which has no page
+  /// to boot.
+  ///
+  /// The build substitutes it, from the same `bootstrap_js` template the bundle
+  /// ships, with the DDC build config a `-d chrome` run compiles under. A
+  /// bootstrap generated by the dev tool instead would ignore the target's
+  /// template and every `web_defines` entry that referenced it, so a define
+  /// would work on `bazel build` and silently do nothing on `run`.
+  final String flutterBootstrapJs;
+
+  /// Language experiments the app was built with, as bare names (`records`),
+  /// not as flags.
+  ///
+  /// The build spells them one way and the frontend server another, so the
+  /// spelling belongs to whoever writes the command line — [CompilerConfig],
+  /// which turns each into `--enable-experiment=<name>`. They go on the
+  /// resident compiler's own argv, which is what makes them apply to the
+  /// initial compile and to every recompile after it: an experiment is a
+  /// property of the process, not of a request.
+  ///
+  /// Without them a source using an experiment fails in the frontend server
+  /// with a parse error pointing at the syntax rather than at the missing
+  /// flag.
+  final List<String> enableExperiments;
+
+  /// Whether DDC's native null assertions are on — `nativeNonNullAsserts` in
+  /// the generated main module.
+  ///
+  /// True unless the build says otherwise, matching the rules' attr default
+  /// (which in turn matches `flutter build web`). Read rather than assumed
+  /// because the dev loop generates `main_module.bootstrap.js` itself: a build
+  /// that turned this off would otherwise get it silently back on under the dev
+  /// loop.
+  final bool nativeNullAssertions;
 
   DevConfig({
     required this.engineRevision,
@@ -247,25 +385,52 @@ class DevConfig {
     required this.patchedSdkRoot,
     required this.appEntrypoint,
     this.devPackageConfig = '',
+    this.buildPackageConfig = '',
     this.filesystemRoots = const [],
     this.filesystemScheme = '',
     this.generatedSourcePaths = const [],
     this.generatedSourceUris = const [],
     this.sourcePackages = const [],
     this.dartDefines = const [],
-    this.dartPluginRegistrant = '',
+    this.dartPluginRegistrants = const {},
     this.webPluginRegistrant = '',
+    this.agentExtensions = '',
+    this.flutterBootstrapJs = '',
+    this.enableExperiments = const [],
+    this.nativeNullAssertions = true,
   });
+
+  /// The registrant for the platform the app is running on, from
+  /// [BuildInfo.targetPlatform].
+  ///
+  /// A missing key is rules/dev-tool version skew or an unknown platform
+  /// string, and it fails by name — falling back to another platform's
+  /// registrant is exactly the silent wrong-plugin-set bug the map exists to
+  /// prevent. An empty value is a real answer: no registrant on this platform.
+  String registrantFor(String platform) {
+    final registrant = dartPluginRegistrants[platform];
+    if (registrant == null) {
+      throw DevToolException(
+        'the dev config carries no plugin registrant for platform '
+        '"$platform" (it has: ${dartPluginRegistrants.keys.join(', ')}). '
+        'The app and this dev tool were built from different revisions of '
+        'rules_flutter.',
+      );
+    }
+    return registrant;
+  }
 
   /// Generated files as `{package: URI → absolute path}` for reload
   /// invalidation, zipped from the parallel [generatedSourceUris] /
   /// [generatedSourcePaths].
   Map<String, String> get generatedFileUris => {
-        for (var i = 0;
-            i < generatedSourceUris.length && i < generatedSourcePaths.length;
-            i++)
-          generatedSourceUris[i]: generatedSourcePaths[i],
-      };
+    for (
+      var i = 0;
+      i < generatedSourceUris.length && i < generatedSourcePaths.length;
+      i++
+    )
+      generatedSourceUris[i]: generatedSourcePaths[i],
+  };
 
   /// Parse from the JSON content of a `_dev_config.json` file. The native
   /// (`flutter_application`) config carries the hot-reload multi-root fields;
@@ -282,13 +447,22 @@ class DevConfig {
       patchedSdkRoot: json['patchedSdkRoot'] as String,
       appEntrypoint: json['appEntrypoint'] as String,
       devPackageConfig: (json['devPackageConfig'] as String?) ?? '',
+      buildPackageConfig: (json['buildPackageConfig'] as String?) ?? '',
       filesystemRoots: strList('filesystemRoots'),
       filesystemScheme: (json['filesystemScheme'] as String?) ?? '',
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
       dartDefines: strList('dartDefines'),
-      dartPluginRegistrant: (json['dartPluginRegistrant'] as String?) ?? '',
+      dartPluginRegistrants:
+          ((json['dartPluginRegistrants'] as Map?) ?? const {})
+              .cast<String, String>(),
       webPluginRegistrant: (json['webPluginRegistrant'] as String?) ?? '',
+      agentExtensions: (json['agentExtensions'] as String?) ?? '',
+      flutterBootstrapJs: (json['flutterBootstrapJs'] as String?) ?? '',
+      enableExperiments: strList('enableExperiments'),
+      // Absent means the build's attr default, which is on. Only an explicit
+      // `false` turns it off.
+      nativeNullAssertions: (json['nativeNullAssertions'] as bool?) ?? true,
       sourcePackages: [
         for (final e in (json['sourcePackages'] as List?) ?? const [])
           (
@@ -336,7 +510,8 @@ String? findDevConfig(List<String> files) {
 /// from `/bazel-out/` onward) and prepend it to make all paths absolute.
 DevConfig parseDevConfig(String path) {
   final resolved = File(path).resolveSymbolicLinksSync();
-  final json = jsonDecode(File(resolved).readAsStringSync()) as Map<String, dynamic>;
+  final json =
+      jsonDecode(File(resolved).readAsStringSync()) as Map<String, dynamic>;
 
   // Derive execution root: resolved path contains .../execroot/_main/bazel-out/...
   // Split into path components (separator-agnostic, so it works on Windows
@@ -344,10 +519,13 @@ DevConfig parseDevConfig(String path) {
   // from the 'bazel-out' segment onward.
   final parts = p.split(resolved);
   final bazelOutIdx = parts.indexOf('bazel-out');
-  final execRoot = bazelOutIdx > 0 ? p.joinAll(parts.sublist(0, bazelOutIdx)) : null;
+  final execRoot = bazelOutIdx > 0
+      ? p.joinAll(parts.sublist(0, bazelOutIdx))
+      : null;
 
   if (execRoot != null) {
-    String abs(String value) => p.isAbsolute(value) ? value : p.join(execRoot, value);
+    String abs(String value) =>
+        p.isAbsolute(value) ? value : p.join(execRoot, value);
 
     // Make execution-root-relative path strings absolute.
     for (final key in [
@@ -356,11 +534,24 @@ DevConfig parseDevConfig(String path) {
       'frontendServer',
       'patchedSdkRoot',
       'devPackageConfig',
-      'dartPluginRegistrant',
+      'buildPackageConfig',
       'webPluginRegistrant',
+      'agentExtensions',
+      'flutterBootstrapJs',
     ]) {
       final value = json[key];
       if (value is String && value.isNotEmpty) json[key] = abs(value);
+    }
+    // The per-platform registrant map: absolutize each path value. Empty
+    // values mean "no registrant on that platform" and stay empty.
+    final registrants = json['dartPluginRegistrants'] as Map?;
+    if (registrants != null) {
+      json['dartPluginRegistrants'] = {
+        for (final e in registrants.entries)
+          e.key as String: (e.value as String).isEmpty
+              ? ''
+              : abs(e.value as String),
+      };
     }
     // Absolutize the exec-relative path LISTS (roots incl. "" → execroot, and
     // generated output paths). `generatedSourcesTarget` holds bazel labels, not
@@ -374,6 +565,48 @@ DevConfig parseDevConfig(String path) {
   }
 
   return DevConfig.fromJson(json);
+}
+
+/// Fail naming a file the build declared and did not write.
+///
+/// Every path here is one the build put in `_dev_config.json` and this tool
+/// then reads or hands to the frontend_server. Present in the config and
+/// absent on disk means a build reported success without materializing an
+/// output, which otherwise surfaces far from its cause — a compiler exiting
+/// with no file named.
+///
+/// Called by the pipeline assemblers rather than by [parseDevConfig]: parsing
+/// a config and requiring its contents to exist are separate concerns, and a
+/// unit test may legitimately parse one whose paths were never built.
+void requireDeclaredFilesExist(DevConfig config) {
+  final missing = <String>[];
+
+  for (final entry in {
+    'devPackageConfig': config.devPackageConfig,
+    'buildPackageConfig': config.buildPackageConfig,
+  }.entries) {
+    if (entry.value.isNotEmpty && !File(entry.value).existsSync()) {
+      missing.add('${entry.key}: ${entry.value}');
+    }
+  }
+
+  for (final path in config.generatedSourcePaths) {
+    if (!File(path).existsSync()) missing.add('generatedSourcePaths: $path');
+  }
+
+  if (missing.isEmpty) return;
+
+  throw DevToolException(
+    'the build declared files it did not write:\n'
+    '  ${missing.join('\n  ')}\n'
+    'These paths come from _dev_config.json, so the build produced them as '
+    'declarations and something served the actions from cache without '
+    'materializing the outputs. Bazel writes an output to this machine when '
+    'it belongs to a target named on the command line; being an input to an '
+    'action is not enough. If you are seeing this after changing what the dev '
+    'tool asks bazel to build, the request no longer covers everything the '
+    'config points at.',
+  );
 }
 
 /// Find DDC dev files in build outputs and construct [WebToolchainPaths].
@@ -411,8 +644,9 @@ WebToolchainPaths buildWebToolchainFromOutputs(
   if (stackTraceMapperJs == null) missing.add('_ddc_stack_trace_mapper.js');
   if (missing.isNotEmpty) {
     throw StateError(
-        'Missing DDC dev files in build outputs: ${missing.join(', ')}.\n'
-        'Ensure the target is a flutter_web_bundle built with -c dbg.');
+      'Missing DDC dev files in build outputs: ${missing.join(', ')}.\n'
+      'Ensure the target is a flutter_web_bundle built with -c dbg.',
+    );
   }
 
   return WebToolchainPaths(
@@ -435,14 +669,17 @@ String findWebOutputDir(List<String> outputFiles) {
     }
   }
   throw StateError(
-      'No web output directory found in build outputs.\n'
-      'Expected a directory ending with _web.');
+    'No web output directory found in build outputs.\n'
+    'Expected a directory ending with _web.',
+  );
 }
 
-String _resolve(String path) {
-  try {
-    return File(path).resolveSymbolicLinksSync();
-  } catch (_) {
-    return path;
-  }
-}
+/// Resolve a build output to the path the DDC toolchain is handed.
+///
+/// No catch: `resolveSymbolicLinksSync` throws exactly when the path does not
+/// resolve, and answering that with the unresolved path produces a file that
+/// fails at open time, several steps later, in whichever of `frontend_server`,
+/// DWDS or the browser got there first, naming none of this. Letting the
+/// [FileSystemException] out reports the missing file where the toolchain
+/// claimed to have found it.
+String _resolve(String path) => File(path).resolveSymbolicLinksSync();

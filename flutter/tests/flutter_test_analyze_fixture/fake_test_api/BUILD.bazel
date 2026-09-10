@@ -1,0 +1,23 @@
+load("@rules_dart//dart:defs.bzl", "dart_format_test")
+load("//flutter/tests:native_assets_test.bzl", "legacy_dart_library")
+
+# Its own Bazel package, not a target beside the fixture, because
+# `legacy_dart_library` derives `lib_root` from `ctx.label.package`: declared
+# next to the fixture it would claim the same `rootUri` as the fixture's own
+# package, and two packages cannot share one in a `package_config.json`.
+legacy_dart_library(
+    name = "fake_test_api",
+    package_name = "test_api",
+    srcs = ["lib/backend.dart"],
+    # Also the `language_version` suite's `flutter_test` fixture: the rule
+    # refuses deps exposing neither `package:flutter_test` nor
+    # `package:test_api`, and this is the root workspace's only stand-in.
+    visibility = ["//flutter/tests:__subpackages__"],
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/device.dart';
+import 'package:flutter_bazel_dev_tool/web_options.dart';
 import 'package:test/test.dart';
 
 import 'fakes.dart';
@@ -18,64 +19,143 @@ void main() {
       return tmpDir;
     }
 
-    /// Chrome's real announcement, which is all [WebDevice] reads it for.
-    const devToolsLine =
-        'DevTools listening on ws://127.0.0.1:9222/devtools/browser/abc123';
+    test(
+      'launch serves the app, drives its page, and stop cleans up',
+      () async {
+        // Chrome itself is faked, but the launch still resolves the real binary
+        // first — an explicit skip rather than a swallowed StateError, which
+        // would pass without running any of the assertions.
+        if (findChrome() == null) {
+          markTestSkipped('Chrome is not installed on this host');
+          return;
+        }
 
-    test('launch returns AppInstance with server field', () async {
-      // Chrome itself is faked, but the launch still resolves the real binary
-      // first — an explicit skip rather than a swallowed StateError, which
-      // used to make this pass without running any of the assertions.
-      if (findChrome() == null) {
-        markTestSkipped('Chrome is not installed on this host');
-        return;
-      }
-      final fakeChrome = FakeProcess();
-      final device = WebDevice(
-        startProcess: (exe, args) async => fakeChrome,
-      );
+        // A fake browser debugging endpoint: `/json` lists the tab the fake
+        // Chrome was launched on, anything else is the page's WebSocket. A
+        // fixed well-known port such as 9222 is a landmine here — a real
+        // developer Chrome with debugging enabled commonly sits on it.
+        final cdp = await HttpServer.bind('127.0.0.1', 0);
+        addTearDown(() => cdp.close(force: true));
+        List<String>? chromeArgs;
+        final enableReceived = Completer<String>();
+        cdp.listen((request) async {
+          if (request.uri.path == '/json') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              json.encode([
+                {
+                  'type': 'page',
+                  // The URL the fake Chrome was told to open — the app tab.
+                  'url': chromeArgs!.last,
+                  'webSocketDebuggerUrl': 'ws://127.0.0.1:${cdp.port}/page',
+                },
+              ]),
+            );
+            await request.response.close();
+          } else {
+            final socket = await WebSocketTransformer.upgrade(request);
+            socket.listen((data) {
+              if (!enableReceived.isCompleted) {
+                enableReceived.complete(data as String);
+              }
+            });
+          }
+        });
 
-      final tmpDir = await appDir();
-      final launch = device.launch(tmpDir.path);
-      // The launch now waits for the debugging port, so the fake has to
-      // announce one the way Chrome does.
-      await fakeChrome.outputAttached;
-      fakeChrome.emitStderr('$devToolsLine\n');
+        final fakeChrome = FakeProcess();
+        final device =
+            WebDevice(
+                startProcess: (exe, args) async {
+                  chromeArgs = args;
+                  return fakeChrome;
+                },
+              )
+              ..webOptions = const WebOptions(
+                server: WebServerOptions(crossOriginIsolation: false),
+                browser: BrowserLaunchOptions(),
+                enableExpressionEvaluation: false,
+              );
 
-      final instance = await launch;
-      expect(instance.server, isNotNull);
-      expect(instance.server!.port, greaterThan(0));
-      expect(device.cdpPort, 9222);
+        final tmpDir = await appDir();
+        final launch = device.launch(tmpDir.path);
+        // The launch waits for the debugging port, so the fake has to announce
+        // one the way Chrome does — the fake endpoint's real port, never a
+        // constant.
+        await fakeChrome.outputAttached;
+        fakeChrome.emitStderr(
+          'DevTools listening on '
+          'ws://127.0.0.1:${cdp.port}/devtools/browser/abc123\n',
+        );
 
-      // Verify stop closes the server.
-      await device.stop(instance);
-    });
+        final instance = await launch;
+        expect(instance.server, isNotNull);
+        expect(instance.server!.port, greaterThan(0));
+        expect(device.cdpPort, cdp.port);
+        expect(device.appUrl, 'http://localhost:${instance.server!.port}');
 
-    test('a browser that exits without announcing a debug port fails the launch',
-        () async {
-      if (findChrome() == null) {
-        markTestSkipped('Chrome is not installed on this host');
-        return;
-      }
-      final fakeChrome = FakeProcess();
-      final device = WebDevice(
-        startProcess: (exe, args) async => fakeChrome,
-      );
+        // The console forwarder attached to the app's page and switched its
+        // notifications on — the observable half of "the right tab is driven".
+        final firstMessage =
+            json.decode(await enableReceived.future) as Map<String, dynamic>;
+        expect(firstMessage['method'], 'Runtime.enable');
 
-      final tmpDir = await appDir();
-      final launch = device.launch(tmpDir.path);
-      await fakeChrome.outputAttached;
-      // Chrome dies having said nothing. Silently accepting a null port left
-      // the run with no screenshots, no page reload and no console, and said
-      // nothing about any of it.
-      fakeChrome.complete(1);
+        final profileDir = Directory(
+          chromeArgs!
+              .firstWhere((a) => a.startsWith('--user-data-dir='))
+              .substring('--user-data-dir='.length),
+        );
+        expect(await profileDir.exists(), isTrue);
 
-      await expectLater(
-        launch,
-        throwsA(isA<StateError>().having((e) => e.message, 'message',
-            allOf(contains('exited'), contains('debugging port')))),
-      );
-    });
+        await device.stop(instance);
+        expect(
+          await profileDir.exists(),
+          isFalse,
+          reason:
+              'stop must not leave the Chrome profile behind — a stale '
+              'one belongs to a browser a --user-data-dir scan can still '
+              'find',
+        );
+      },
+    );
+
+    test(
+      'a browser that exits without announcing a debug port fails the launch',
+      () async {
+        if (findChrome() == null) {
+          markTestSkipped('Chrome is not installed on this host');
+          return;
+        }
+        final fakeChrome = FakeProcess();
+        final device =
+            WebDevice(
+                startProcess: (exe, args) async => fakeChrome,
+              )
+              ..webOptions = const WebOptions(
+                server: WebServerOptions(crossOriginIsolation: false),
+                browser: BrowserLaunchOptions(),
+                enableExpressionEvaluation: false,
+              );
+
+        final tmpDir = await appDir();
+        final launch = device.launch(tmpDir.path);
+        await fakeChrome.outputAttached;
+        // Chrome dies having said nothing. Silently accepting a null port
+        // leaves the run with no screenshots, no page reload and no console,
+        // and says nothing about any of it.
+        fakeChrome.complete(1);
+
+        await expectLater(
+          launch,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('exited'), contains('debugging port')),
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('AndroidDevice port forwarding (M8)', () {
@@ -103,15 +183,18 @@ void main() {
       // Wait for the launch to actually attach its reader to logcat before
       // announcing. A fixed delay races the install/start steps that run
       // first, and a line emitted before anyone is listening is dropped —
-      // which left this test timing out rather than failing on an assertion.
-      unawaited(fakeLogcat.outputAttached.then((_) {
-        // A real `adb logcat -v time` record: timestamp, level/tag, padded
-        // pid. Anything else is dropped by [parseLogcatLine], which is what
-        // made this test hang rather than fail when the reader moved to
-        // `-v time`.
-        fakeLogcat.emitStdout('01-01 00:00:00.000 I/flutter ( 1234): '
-            'The Dart VM service is listening on http://127.0.0.1:12345/abc=/');
-      }));
+      // which times this test out rather than failing it on an assertion.
+      unawaited(
+        fakeLogcat.outputAttached.then((_) {
+          // A real `adb logcat -v time` record: timestamp, level/tag, padded
+          // pid. Anything else is dropped by [parseLogcatLine], and a dropped
+          // line hangs this test rather than failing it.
+          fakeLogcat.emitStdout(
+            '01-01 00:00:00.000 I/flutter ( 1234): '
+            'The Dart VM service is listening on http://127.0.0.1:12345/abc=/',
+          );
+        }),
+      );
 
       final instance = await device.launch('/path/to/app.apk');
       expect(instance.vmServiceUri, isNotNull);
@@ -120,8 +203,9 @@ void main() {
       expect(instance.vmServiceUri!.host, '127.0.0.1');
 
       // Verify adb forward was called.
-      final forwardCall = calls.where(
-          (c) => c.$1 == 'adb' && c.$2.contains('forward')).toList();
+      final forwardCall = calls
+          .where((c) => c.$1 == 'adb' && c.$2.contains('forward'))
+          .toList();
       expect(forwardCall, isNotEmpty);
     });
   });
@@ -152,7 +236,11 @@ void main() {
       // Give stop() time to call kill and start awaiting exitCode.
       await Future.delayed(Duration(milliseconds: 20));
       expect(killCalled, isTrue);
-      expect(stopCompleted, isFalse, reason: 'stop should still be awaiting exitCode');
+      expect(
+        stopCompleted,
+        isFalse,
+        reason: 'stop should still be awaiting exitCode',
+      );
 
       // Now complete the process exit.
       exitCompleter.complete(0);

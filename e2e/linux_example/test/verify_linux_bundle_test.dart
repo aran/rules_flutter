@@ -4,6 +4,11 @@
 /// Runs as a Bazel dart_test with the bundle as data dependency.
 library;
 
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 void main() {
@@ -18,8 +23,9 @@ void main() {
   final bundle = Directory(bundlePath);
 
   if (!bundle.existsSync()) {
-    stderr.writeln('Bundle directory not found at $bundlePath');
-    stderr.writeln('Looking for bundle...');
+    stderr
+      ..writeln('Bundle directory not found at $bundlePath')
+      ..writeln('Looking for bundle...');
     _listTree(Directory('$testSrcDir/$testWorkspace'), '');
     exit(1);
   }
@@ -54,31 +60,47 @@ void main() {
 
   // In release mode libapp.so exists; in debug mode data/flutter_assets/kernel_blob.bin exists.
   final hasAotLib = File('$bundlePath/lib/libapp.so').existsSync();
-  final hasKernelBlob = File('$bundlePath/data/flutter_assets/kernel_blob.bin').existsSync();
+  final hasKernelBlob = File(
+    '$bundlePath/data/flutter_assets/kernel_blob.bin',
+  ).existsSync();
   if (hasAotLib) {
-    check('AOT snapshot (release)', '$bundlePath/lib/libapp.so',
-        nonEmpty: true);
+    check(
+      'AOT snapshot (release)',
+      '$bundlePath/lib/libapp.so',
+      nonEmpty: true,
+    );
   } else if (hasKernelBlob) {
-    check('Kernel blob (debug)', '$bundlePath/data/flutter_assets/kernel_blob.bin', nonEmpty: true);
+    check(
+      'Kernel blob (debug)',
+      '$bundlePath/data/flutter_assets/kernel_blob.bin',
+      nonEmpty: true,
+    );
   } else {
-    stderr.writeln('FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found');
+    stderr.writeln(
+      'FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found',
+    );
     failed = true;
   }
 
   // Flutter assets.
   check('flutter_assets directory', '$bundlePath/data/flutter_assets');
   check(
-      'AssetManifest.bin', '$bundlePath/data/flutter_assets/AssetManifest.bin');
+    'AssetManifest.bin',
+    '$bundlePath/data/flutter_assets/AssetManifest.bin',
+  );
   check(
-      'FontManifest.json', '$bundlePath/data/flutter_assets/FontManifest.json');
+    'FontManifest.json',
+    '$bundlePath/data/flutter_assets/FontManifest.json',
+  );
   check('NOTICES.Z', '$bundlePath/data/flutter_assets/NOTICES.Z');
 
   // ICU data.
   check('icudtl.dat', '$bundlePath/data/icudtl.dat', nonEmpty: true);
 
   if (failed) {
-    stderr.writeln('');
-    stderr.writeln('Actual bundle contents:');
+    stderr
+      ..writeln()
+      ..writeln('Actual bundle contents:');
     _listTree(bundle, '');
     exit(1);
   }

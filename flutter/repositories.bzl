@@ -14,9 +14,10 @@ load("//flutter/private:flutter_dev_root_repo.bzl", "flutter_dev_root_repo")
 load("//flutter/private:flutter_ios_engine_repo.bzl", "flutter_ios_engine_repo")
 load("//flutter/private:flutter_linux_sysroot_repo.bzl", "flutter_linux_sysroot_repo")
 load("//flutter/private:flutter_macos_engine_repo.bzl", "flutter_macos_engine_repo")
+load("//flutter/private:flutter_sky_engine_repo.bzl", "flutter_sky_engine_repo")
 load("//flutter/private:flutter_web_sdk_repo.bzl", "flutter_web_sdk_repo")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "HOST_PLATFORMS", "flutter_toolchains_repo")
-load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS", "LINUX_SYSROOT_CHECKSUMS")
+load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS", "LINUX_SYSROOT_CHECKSUMS", "flutter_source_sha256")
 
 def _flutter_engine_artifacts_impl(repository_ctx):
     """Downloads the Flutter engine host artifacts and patched SDK for a given platform."""
@@ -284,6 +285,7 @@ def flutter_register_toolchains(name, **kwargs):
         name = name + "_dev_root",
         flutter_version = flutter_version,
         engine_revision = meta.engine_revision,
+        sha256 = flutter_source_sha256(flutter_version),
     )
 
     # Host platform repos.
@@ -414,6 +416,16 @@ def flutter_register_toolchains(name, **kwargs):
         name = name + "_web_sdk",
         engine_revision = meta.engine_revision,
         sha256 = checksums.get("flutter-web-sdk.zip", ""),
+    )
+
+    # sky_engine (lazy — only fetched when Flutter code is analyzed). Nothing
+    # in a build references it: the compiler gets Flutter's `dart:` libraries
+    # as kernel out of the patched SDK, and only the analyzer needs them as
+    # sources.
+    flutter_sky_engine_repo(
+        name = name + "_sky_engine",
+        engine_revision = meta.engine_revision,
+        sha256 = checksums.get("sky_engine.zip", ""),
     )
 
     # Android engine repos (lazy — one per ABI, only downloaded when Android targets are built).

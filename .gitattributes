@@ -1,12 +1,42 @@
-# Exclude development-only files from release archives
-.bcr/ export-ignore
-.devcontainer/ export-ignore
-.github/ export-ignore
-.gitattributes export-ignore
-.gitignore export-ignore
-.pre-commit-config.yaml export-ignore
-.typos.toml export-ignore
-dev/ export-ignore
-e2e/ export-ignore
-references/ export-ignore
-renovate.json export-ignore
+# Exclude development-only files from release archives.
+#
+# Every pattern is anchored with a leading `/`. Without one, `git archive`
+# matches the basename at any depth, so an unanchored `e2e/` also strips
+# `tools/dev_tool/test/e2e/` and the published archive fails to load.
+#
+# `/e2e/` is listed workspace by workspace rather than wholesale: the archive
+# has to keep `e2e/smoke`, which `.bcr/presubmit.yml` names as `module_path`
+# and BCR resolves inside the extracted archive. Adding an e2e workspace means
+# adding it here — the whole tree is 12MB against a 1.2MB archive, so the
+# exclusions are what keep the download small.
+/.bcr/ export-ignore
+/.devcontainer/ export-ignore
+/.github/ export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.pre-commit-config.yaml export-ignore
+/.typos.toml export-ignore
+/dev/ export-ignore
+/references/ export-ignore
+/renovate.json export-ignore
+/e2e/_compare/ export-ignore
+/e2e/_linux_test/ export-ignore
+/e2e/_macos_test/ export-ignore
+/e2e/_overlay_tests/ export-ignore
+/e2e/_playwright/ export-ignore
+/e2e/_windows_test/ export-ignore
+/e2e/package.json export-ignore
+/e2e/package-lock.json export-ignore
+/e2e/android_example/ export-ignore
+/e2e/codegen/ export-ignore
+/e2e/cross_compile_example/ export-ignore
+/e2e/ffi_example/ export-ignore
+/e2e/ffi_plugin_example/ export-ignore
+/e2e/hello_world/ export-ignore
+/e2e/ios_example/ export-ignore
+/e2e/linux_example/ export-ignore
+/e2e/macos_example/ export-ignore
+/e2e/multi_window_example/ export-ignore
+/e2e/plugin_example/ export-ignore
+/e2e/web_example/ export-ignore
+/e2e/windows_example/ export-ignore

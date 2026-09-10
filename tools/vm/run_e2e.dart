@@ -224,8 +224,7 @@ Future<void> _waitForToolchain(String vmName, {required bool isWindows}) async {
         vmName,
         'cmd /c "type C:\\startup_complete.txt && where bazel"',
       );
-      if (r.exitCode == 0 &&
-          r.stdout.toString().contains('STARTUP_COMPLETE')) {
+      if (r.exitCode == 0 && r.stdout.toString().contains('STARTUP_COMPLETE')) {
         return;
       }
     } else {

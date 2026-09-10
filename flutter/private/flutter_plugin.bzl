@@ -19,12 +19,13 @@ Platform-specific native dependencies use select() in BUILD files:
 
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "derive_lib_root", "derive_package_name")
+load("@rules_dart//dart:utils.bzl", "dart_info", "derive_lib_root", "derive_package_name")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterDataAssetInfo", "FlutterNativeAssetInfo")
 load("//flutter/private:common.bzl", "collect_native_libs")
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo", "FlutterWindowsPluginInfo")
-load("//flutter/private:flutter_library.bzl", "build_flutter_providers", "build_pub_contributions")
+load("//flutter/private:flutter_info.bzl", "flutter_info")
+load("//flutter/private:flutter_library.bzl", "build_pub_contributions")
 
 def build_plugin_struct(name, plugin_platforms):
     """Build a plugin metadata struct from per-platform metadata.
@@ -67,7 +68,7 @@ def _flutter_plugin_impl(ctx):
     )
 
     # Collect native libs from native_deps.
-    native_libs = depset(collect_native_libs(ctx.attr.native_deps))
+    native_libs = collect_native_libs(ctx.attr.native_deps)
 
     # Pull CcInfo + SwiftInfo from the per-platform Apple plugin libraries
     # so the runner aggregator can merge them into the runner's
@@ -118,15 +119,6 @@ def _flutter_plugin_impl(ctx):
             package = package_name,
         ))
 
-    # Android plugin libraries — kt_android_library / android_library
-    # targets that flutter_android_application adds to android_binary.deps.
-    extra_android_plugin_libraries = []
-    for lib in ctx.attr.android_libs:
-        extra_android_plugin_libraries.append(struct(
-            label = lib.label,
-            package = package_name,
-        ))
-
     # Native Assets contributed by this plugin (or its parent ext/ overlay).
     extra_native_assets = []
     for dep in ctx.attr.native_assets:
@@ -161,29 +153,51 @@ def _flutter_plugin_impl(ctx):
         ctx.attr.pkg_shaders,
     )
 
-    dart_info, flutter_info = build_flutter_providers(
-        ctx,
-        package_name,
-        lib_root,
-        extra_plugins = [plugin],
-        extra_native_libs = [native_libs],
-        extra_apple_plugin_libraries = extra_apple_plugin_libraries,
-        extra_linux_plugin_libraries = extra_linux_plugin_libraries,
-        extra_windows_plugin_libraries = extra_windows_plugin_libraries,
-        extra_android_plugin_libraries = extra_android_plugin_libraries,
-        extra_apple_privacy_manifests = extra_apple_privacy_manifests,
-        extra_native_assets = extra_native_assets,
-        extra_data_assets = extra_data_assets,
-        extra_pub_fonts = extra_pub_fonts,
-        extra_pub_assets = extra_pub_assets,
-        extra_pub_shaders = extra_pub_shaders,
-        language_version = ctx.attr.language_version,
-    )
+    # `resources` names the non-Dart remainder of `lib/`; a Dart source there
+    # is a mis-filed `srcs` entry, and identical paths with identical
+    # extensions would otherwise collide silently. Mirrors `dart_library`.
+    for f in ctx.files.resources:
+        if f.extension == "dart":
+            fail(
+                ("%s: `%s` is a Dart source in `resources`. `resources` names " +
+                 "the non-Dart remainder of `lib/`; Dart sources belong in " +
+                 "`srcs`.") % (ctx.label, f.short_path),
+            )
 
+    # A plugin contributes on more channels than a library does, but the shape
+    # is the same: name what this target adds, and let each constructor merge
+    # the dependencies. `shaders` is absent here — a plugin has no such
+    # attribute — which is a thing the caller simply does not say, rather than
+    # something the merge has to probe for.
     return [
-        DefaultInfo(files = depset(ctx.files.srcs)),
-        dart_info,
-        flutter_info,
+        DefaultInfo(files = depset(ctx.files.srcs + ctx.files.resources)),
+        dart_info(
+            label = ctx.label,
+            package_name = package_name,
+            lib_root = lib_root,
+            deps = ctx.attr.deps,
+            srcs = ctx.files.srcs,
+            resources = ctx.files.resources,
+            code_assets = ctx.attr.code_assets,
+            language_version = ctx.attr.language_version,
+            version = ctx.attr.version,
+            has_unreplaced_hook = ctx.attr.has_unreplaced_hook,
+        ),
+        flutter_info(
+            deps = ctx.attr.deps,
+            asset_dirs = ctx.files.assets,
+            plugins = [plugin],
+            native_libs = native_libs,
+            apple_plugin_libraries = extra_apple_plugin_libraries,
+            linux_plugin_libraries = extra_linux_plugin_libraries,
+            windows_plugin_libraries = extra_windows_plugin_libraries,
+            apple_privacy_manifests = extra_apple_privacy_manifests,
+            native_assets = extra_native_assets,
+            data_assets = extra_data_assets,
+            pub_fonts = extra_pub_fonts,
+            pub_assets = extra_pub_assets,
+            pub_shaders = extra_pub_shaders,
+        ),
     ]
 
 flutter_plugin = rule(
@@ -196,6 +210,10 @@ flutter_plugin = rule(
         "deps": attr.label_list(
             doc = "Dart/Flutter library dependencies.",
             providers = [DartInfo],
+        ),
+        "resources": attr.label_list(
+            doc = "Non-Dart files this package ships inside `lib/` — part of its published surface, but never compiled (a web plugin's bundled JS/wasm, templates, YAML). Anything under `lib/` is addressable as `package:<name>/<path>` whatever its extension, so these are members of the package: they ride `DartInfo.transitive_resources` and are staged wherever the whole package is staged, mirroring `dart_library`. Orthogonal to `pkg_assets`/`pkg_shaders`/`font_files`, which name flutter_assets bundle contributions. `.dart` files belong in `srcs`.",
+            allow_files = True,
         ),
         "assets": attr.label_list(
             doc = "Asset files to include.",
@@ -231,6 +249,16 @@ flutter_plugin = rule(
                   "replaces, or empty. Recorded at repo generation; the " +
                   "application that depends on the package fails on it.",
         ),
+        "version": attr.string(
+            doc = "The package's own version, as resolved by pub (e.g. `2.2.0`). " +
+                  "Set automatically by the generated pub spokes; leave it empty on " +
+                  "hand-written targets, which have no resolved version to state. " +
+                  "Mirrors `dart_library`'s attribute, and has its one use: when a " +
+                  "single package name arrives from two hubs, two records stating " +
+                  "different versions fail the build instead of the first one " +
+                  "silently standing in for the second. An empty version never " +
+                  "conflicts.",
+        ),
         "language_version": attr.string(
             doc = "Dart language version (`<major>.<minor>`) for this package's `package_config.json` entry. Mirrors `dart_library`'s attribute. Empty string means defer to the toolchain default.",
         ),
@@ -245,9 +273,6 @@ flutter_plugin = rule(
         "windows_libs": attr.label_list(
             doc = "Windows plugin source bundles (`flutter_windows_plugin_library`). Propagated through `FlutterInfo.windows_plugin_libraries` so the Windows runner folds them into its `cc_common.compile()` pass.",
             providers = [FlutterWindowsPluginInfo],
-        ),
-        "android_libs": attr.label_list(
-            doc = "Android plugin libraries (`flutter_android_plugin_library` or any `kt_android_library`/`android_library`). Propagated through `FlutterInfo.android_plugin_libraries` so flutter_android_application adds them to the android_binary's deps.",
         ),
         "native_assets": attr.label_list(
             doc = "Native Assets `CodeAsset` declarations (each a `flutter_native_asset` target). Propagated through `FlutterInfo.native_assets` and aggregated by `flutter_application` into the `--native-assets` manifest. Declare per-platform asset sets with `select()`: this is what routes each asset to the applications built for its platform, and listing two targets with the same `asset_id` in one configuration fails analysis.",

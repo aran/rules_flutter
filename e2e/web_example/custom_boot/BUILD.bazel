@@ -1,0 +1,115 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle")
+
+# The templating surface, exercised by a real build.
+#
+# A package of its own because `web/flutter_bootstrap.js` is discovered by the
+# `web/` glob of whichever package it sits in: in the workspace root it would
+# have silently become the bootstrap of every Tier 1 target there.
+#
+# Being nested is also what makes this the workspace's coverage for a web app
+# outside the workspace root, where an app's `package:` URIs must resolve
+# against its own package rather than the root's.
+
+# Tier 1 with both templates supplied: web/index.html carrying web_defines and
+# a preserved placeholder, and web/flutter_bootstrap.js carrying the built-ins.
+flutter_web_app(
+    name = "custom_boot",
+    package_name = "custom_boot",
+    app_name = "Custom Boot",
+    keep_placeholders = ["vueThing"],
+    main = "lib/main.dart",
+    web_defines = {"API_URL": "https://api.example.com"},
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# Tier 2 inlining the substituted bootstrap into the page.
+#
+# build_test only, and deliberately so: this target cannot build in `-c dbg`.
+# The dev tool serves index.html as built, next to a flutter_bootstrap.js the
+# build substituted for DDC — so an index carrying an inlined copy of the
+# bundle's would boot the built bundle and hot reload would do nothing, which
+# the templating pass refuses rather than letting a developer discover it from
+# a dead reload key.
+flutter_web_bundle(
+    name = "inline_boot",
+    package_name = "custom_boot",
+    index_html = "inline_index.html",
+    main = "lib/main.dart",
+    title = "Inline Boot",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+build_test(
+    name = "custom_boot_build_test",
+    targets = [
+        ":custom_boot",
+        ":inline_boot",
+    ],
+)
+
+dart_test(
+    name = "verify_templating_test",
+    data = [
+        ":custom_boot",
+        ":inline_boot",
+    ],
+    main = "test/verify_templating_test.dart",
+)
+
+# Static analysis of this package's test source, as a test. A test's `main` belongs to no package's `lib/`, so no
+# `DartInfo` can name it and it reaches the analyzer only through the
+# `dart_test`'s own `DartAnalyzableInfo`.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = "//:options",
+    target = ":%s" % t,
+) for t in [
+    "verify_templating_test",
+]]
+
+# Static analysis of `main.dart`, the app source itself. `flutter_web_bundle`
+# provides `DartAnalyzableInfo`, so the bundle is the analysis target and no
+# shadow `flutter_library` is needed.
+#
+# `:custom_boot` and not `:inline_boot`: the two compile the same `main.dart`
+# from the same `deps`, so a second target would stage identical sources and
+# assert the same thing twice.
+dart_analyze_test(
+    name = "custom_boot_analyze",
+    size = "small",
+    options = "//:options",
+    target = ":custom_boot",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:options",
+)

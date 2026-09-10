@@ -4,8 +4,9 @@
 /// The generated registrant calls GreetingPlugin.registerWith() at startup,
 /// matching the no-arg signature pub.dev's Dart-side plugins use on
 /// non-web platforms (e.g. PathProviderFoundation, UrlLauncherMacOS).
-library greeting_plugin;
+library;
 
+/// Dart-only plugin whose greeting the example renders.
 class GreetingPlugin {
   static String? _customGreeting;
 

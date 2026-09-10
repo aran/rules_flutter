@@ -1,0 +1,68 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test")
+
+# An analysis handle for the VM provisioning scripts. Nothing else in the build
+# compiles them, and the only way to run one is to create a cloud VM and wait on
+# it. `docs/TESTING.md` drives all four by `dart run tools/vm/<script>.dart`, so
+# they are live code, not dead weight.
+#
+# They cannot be `bazel run` targets: each shells out to the `gcloud` CLI and
+# reads project and zone from `gcloud config` defaults, and `deploy_bundle`
+# resolves paths relative to its own script location in the source tree. That
+# is a reason they cannot be *run* by Bazel. It is not a reason they cannot be
+# *analyzed*: `dart_analyze_test` reads `DartAnalyzableInfo` and stages
+# sources, and never asks its operand for compiled output, so a handle that is
+# never run still carries them to the analyzer. `//flutter/private/tools` and
+# `//tools/dev_tool:loose_sources` already make this move.
+#
+# `main` has to be one of them and the four entrypoints are coequal —
+# `run_e2e.dart` roots the handle because it is the largest and mirrors the CI
+# matrix, but nothing turns on that choice. The `glob` is what carries
+# coverage: `DartAnalyzableInfo` is `[main] + srcs`, and the analyzer reports
+# on every file staged into the project whether or not `main` imports it, so
+# the three unimported entrypoints are analyzed exactly as thoroughly as
+# `run_e2e.dart` is.
+#
+# `glob`, not a hand-list. A hand-list is load-bearing where a file does not
+# run until someone adds it to one; these run by `dart run` against a path in
+# the source tree, so nothing would ever force a new script into a list here —
+# a list could only fall behind in exactly the way this target exists to
+# prevent. Flat, because the directory is: `tools/vm/` has no subdirectories.
+# Adding one means widening this to `**/*.dart` *and* dropping a fresh probe at
+# the new depth — this target's non-vacuity probe went in at the top level, so
+# it answers only for the flat shape (see docs/TESTING.md § 1).
+#
+# `compile_mode = "kernel"`: the compile is a byproduct nobody consumes, and
+# only `run_e2e.dart`'s own closure is compiled — the other three entrypoints
+# are unimported. No `deps`: every file here imports `dart:*` and its
+# siblings, nothing from pub. A script that grows a pub import fails this
+# target loudly, as an unresolved import, which is the intended way to learn it
+# needs one.
+dart_binary(
+    name = "vm_scripts",
+    srcs = glob(
+        ["*.dart"],
+        exclude = ["run_e2e.dart"],
+    ),
+    compile_mode = "kernel",
+    main = "run_e2e.dart",
+    visibility = ["//visibility:private"],
+)
+
+dart_analyze_test(
+    name = "vm_scripts_analyze",
+    size = "small",
+    target = ":vm_scripts",
+)
+
+# The same flat `glob`, for the same reason: this target is the only thing that
+# runs `dart format` here, and a hand-list would only fall behind. `gcloud.dart`
+# in particular keeps
+# `getZone()`'s argument list multi-line under `preserve`, which stock
+# `dart format` (`automate`) would collapse — the non-vacuity check for this
+# target is that it stays green with `options` wired and turns red without it.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    options = "//:analysis_options.yaml",
+)

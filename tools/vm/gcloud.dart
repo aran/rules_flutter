@@ -33,8 +33,11 @@ Future<String> getProject() async {
 
 /// Get the active gcloud zone.
 Future<String> getZone() async {
-  final zone =
-      await gcloud(['config', 'get-value', 'compute/zone'], quiet: true);
+  final zone = await gcloud([
+    'config',
+    'get-value',
+    'compute/zone',
+  ], quiet: true);
   if (zone.isEmpty || zone == '(unset)') {
     throw Exception(
       'No default compute zone set. Run: gcloud config set compute/zone <zone>',
@@ -44,7 +47,10 @@ Future<String> getZone() async {
 }
 
 /// Wait for a VM to be ready (SSH-able for Linux, RDP-able for Windows).
-Future<void> waitForSsh(String vmName, {Duration timeout = const Duration(minutes: 5)}) async {
+Future<void> waitForSsh(
+  String vmName, {
+  Duration timeout = const Duration(minutes: 5),
+}) async {
   final deadline = DateTime.now().add(timeout);
   stderr.writeln('Waiting for $vmName to accept SSH ...');
   while (DateTime.now().isBefore(deadline)) {
@@ -74,8 +80,12 @@ Future<void> waitForSsh(String vmName, {Duration timeout = const Duration(minute
 /// For large files to Windows VMs, use `--compress` to speed up transfer
 /// and avoid SSH connection drops. The `--scp-flag=-O` forces the legacy
 /// SCP protocol which is required for Windows OpenSSH compatibility.
-Future<void> scpToVm(String vmName, String localPath, String remotePath,
-    {bool compress = false}) async {
+Future<void> scpToVm(
+  String vmName,
+  String localPath,
+  String remotePath, {
+  bool compress = false,
+}) async {
   await gcloud([
     'compute',
     'scp',
@@ -88,8 +98,12 @@ Future<void> scpToVm(String vmName, String localPath, String remotePath,
 }
 
 /// SCP a remote file/directory from the VM to a local path.
-Future<void> scpFromVm(String vmName, String remotePath, String localPath,
-    {bool compress = false}) async {
+Future<void> scpFromVm(
+  String vmName,
+  String remotePath,
+  String localPath, {
+  bool compress = false,
+}) async {
   await gcloud([
     'compute',
     'scp',

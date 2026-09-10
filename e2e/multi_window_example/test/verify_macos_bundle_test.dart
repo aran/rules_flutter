@@ -1,8 +1,15 @@
 /// Verifies the macOS .app bundle produced by the multi-window example has the
-/// expected structure: two-window runner with FlutterEngineGroup, App.framework,
-/// FlutterMacOS.framework, and correct ObjC class symbols.
+/// expected structure: two-window runner with FlutterEngineGroup,
+/// App.framework, FlutterMacOS.framework, and correct ObjC class symbols.
 ///
 /// rules_apple outputs a .zip — we extract it to a temp dir and verify.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 void main() {
@@ -19,10 +26,11 @@ void main() {
     exit(1);
   }
 
-  final tmpDir = Directory.systemTemp.createTempSync('multi_window_bundle_test');
+  final tmpDir = Directory.systemTemp.createTempSync(
+    'multi_window_bundle_test',
+  );
   try {
-    final result =
-        Process.runSync('unzip', ['-q', zipPath, '-d', tmpDir.path]);
+    final result = Process.runSync('unzip', ['-q', zipPath, '-d', tmpDir.path]);
     if (result.exitCode != 0) {
       stderr.writeln('Failed to extract zip: ${result.stderr}');
       exit(1);
@@ -43,13 +51,20 @@ void main() {
       }
     }
 
-    void checkCommand(String description, String executable, List<String> args,
-        bool Function(String stdout) validate) {
+    void checkCommand(
+      String description,
+      String executable,
+      List<String> args,
+      bool Function(String stdout) validate,
+    ) {
       final result = Process.runSync(executable, args);
       if (result.exitCode != 0) {
-        stderr.writeln(
-            'FAIL: $description — command failed: $executable ${args.join(' ')}');
-        stderr.writeln('  stderr: ${result.stderr}');
+        stderr
+          ..writeln(
+            'FAIL: $description — command failed: '
+            '$executable ${args.join(' ')}',
+          )
+          ..writeln('  stderr: ${result.stderr}');
         failed = true;
         return;
       }

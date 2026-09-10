@@ -1,5 +1,12 @@
 /// Verifies the Linux bundle has the expected structure,
 /// including the native shared library with the correct filename.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 void main() {
@@ -35,23 +42,45 @@ void main() {
   }
 
   check('Runner binary', '$bundlePath/ffi_plugin_linux', nonEmpty: true);
-  check('libflutter_linux_gtk.so', '$bundlePath/lib/libflutter_linux_gtk.so', nonEmpty: true);
+  check(
+    'libflutter_linux_gtk.so',
+    '$bundlePath/lib/libflutter_linux_gtk.so',
+    nonEmpty: true,
+  );
   check('flutter_assets', '$bundlePath/data/flutter_assets');
-  check('AssetManifest.bin', '$bundlePath/data/flutter_assets/AssetManifest.bin');
-  check('FontManifest.json', '$bundlePath/data/flutter_assets/FontManifest.json');
+  check(
+    'AssetManifest.bin',
+    '$bundlePath/data/flutter_assets/AssetManifest.bin',
+  );
+  check(
+    'FontManifest.json',
+    '$bundlePath/data/flutter_assets/FontManifest.json',
+  );
   check('NOTICES.Z', '$bundlePath/data/flutter_assets/NOTICES.Z');
   check('icudtl.dat', '$bundlePath/data/icudtl.dat', nonEmpty: true);
-  check('Native lib libmultiply.so', '$bundlePath/lib/libmultiply.so', nonEmpty: true);
+  check(
+    'Native lib libmultiply.so',
+    '$bundlePath/lib/libmultiply.so',
+    nonEmpty: true,
+  );
 
   // Check for either AOT or debug artifact.
   final hasAot = File('$bundlePath/lib/libapp.so').existsSync();
-  final hasKernelBlob = File('$bundlePath/data/flutter_assets/kernel_blob.bin').existsSync();
+  final hasKernelBlob = File(
+    '$bundlePath/data/flutter_assets/kernel_blob.bin',
+  ).existsSync();
   if (hasAot) {
     check('AOT snapshot', '$bundlePath/lib/libapp.so', nonEmpty: true);
   } else if (hasKernelBlob) {
-    check('Kernel blob (debug)', '$bundlePath/data/flutter_assets/kernel_blob.bin', nonEmpty: true);
+    check(
+      'Kernel blob (debug)',
+      '$bundlePath/data/flutter_assets/kernel_blob.bin',
+      nonEmpty: true,
+    );
   } else {
-    stderr.writeln('FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found');
+    stderr.writeln(
+      'FAIL: Neither lib/libapp.so nor data/flutter_assets/kernel_blob.bin found',
+    );
     failed = true;
   }
 
@@ -64,7 +93,8 @@ void main() {
 }
 
 void _listDir(Directory dir, String indent) {
-  for (final entity in dir.listSync()..sort((a, b) => a.path.compareTo(b.path))) {
+  final entities = dir.listSync()..sort((a, b) => a.path.compareTo(b.path));
+  for (final entity in entities) {
     final name = entity.path.split('/').last;
     if (entity is Directory) {
       stderr.writeln('$indent$name/');

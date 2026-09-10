@@ -5,10 +5,11 @@ library;
 
 import 'dart:ffi' as ffi;
 
-typedef _AddNative = ffi.Int32 Function(ffi.Int32 a, ffi.Int32 b);
-typedef _AddDart = int Function(int a, int b);
+final int Function(int, int) _addFn = ffi.DynamicLibrary.open('libadd.so')
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Int32, ffi.Int32),
+      int Function(int, int)
+    >('add');
 
-final _addFn = ffi.DynamicLibrary.open('libadd.so')
-    .lookupFunction<_AddNative, _AddDart>('add');
-
+/// Returns `a + b`, computed by `libadd.so` inside the APK.
 int nativeAdd(int a, int b) => _addFn(a, b);

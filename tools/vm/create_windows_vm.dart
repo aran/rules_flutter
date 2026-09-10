@@ -18,6 +18,7 @@ library;
 import 'dart:io';
 
 import 'gcloud.dart';
+import 'hermetic_dart.dart';
 
 const _defaultName = 'flutter-windows-test';
 const _machineType = 'e2-standard-4';
@@ -28,7 +29,8 @@ const _imageProject = 'windows-cloud';
 ///
 /// Creates the test user with auto-logon registry keys so the second boot
 /// creates an interactive console session (session 1) automatically — no RDP needed.
-String get _specializeScript => '''
+String get _specializeScript =>
+    '''
 # Install SSH via googet (must happen during sysprep).
 googet -noconfirm=true install google-compute-engine-ssh
 
@@ -58,7 +60,6 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 
 # Install prerequisites.
 choco install -y git --params "/GitAndUnixToolsOnPATH"
-choco install -y dart-sdk
 choco install -y bazelisk
 choco install -y vcredist140
 choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
@@ -71,6 +72,27 @@ choco install -y psexec
 $pythonDir = (Get-ChildItem C:\Python* -Directory | Select-Object -First 1).FullName
 if ($pythonDir) {
     & "$pythonDir\python.exe" -m pip install dxcam numpy Pillow opencv-python-headless > C:\pip_install.log 2>&1
+}
+
+# Dart SDK. The official zip at the version `@rules_dart//dart` resolves to,
+# not `choco install dart-sdk`, which floats to whatever chocolatey last
+# packaged and so cannot match the build. Same URL shape and same source of
+# truth as create_linux_vm.dart — see hermetic_dart.dart. Kept at
+# C:\tools\dart-sdk so the path everything else expects is unchanged.
+# curl.exe and tar.exe, both shipped with Windows Server 2022, rather than
+# Invoke-WebRequest and Expand-Archive: Invoke-WebRequest's progress bar
+# throttles a download this size (~350MB) by an order of magnitude unless
+# $ProgressPreference is silenced, and Expand-Archive is slow on an archive
+# this size for its own reasons. It also matches what create_linux_vm.dart
+# does, for one less difference between them.
+$dartZip = "$env:TEMP\dartsdk.zip"
+curl.exe -sSL -o $dartZip "DART_SDK_URL"
+if (Test-Path C:\tools\dart-sdk) { Remove-Item -Recurse -Force C:\tools\dart-sdk }
+New-Item -ItemType Directory -Force -Path C:\tools | Out-Null
+tar.exe -xf $dartZip -C C:\tools
+$machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+if ($machinePath -notlike "*C:\tools\dart-sdk\bin*") {
+    [System.Environment]::SetEnvironmentVariable("Path", "$machinePath;C:\tools\dart-sdk\bin", "Machine")
 }
 
 # Set BAZEL_VC so Bazel finds MSVC.
@@ -97,11 +119,13 @@ Future<void> main(List<String> args) async {
   final vmName = args.isNotEmpty ? args[0] : _defaultName;
   final project = await getProject();
   final zone = await getZone();
+  final dartVersion = await hermeticDartVersion();
 
   print('Creating Windows VM: $vmName');
   print('  Project: $project');
   print('  Zone: $zone');
   print('  Machine type: $_machineType');
+  print('  Dart SDK: $dartVersion (from @rules_dart//dart)');
   print('  Image: $_imageFamily ($_imageProject)');
   print('  Preemptible: yes');
   print('  SSH: enabled');
@@ -113,7 +137,13 @@ Future<void> main(List<String> args) async {
   final tmpSpecialize = File('${tmpDir.path}/specialize.ps1');
   final tmpStartup = File('${tmpDir.path}/startup.ps1');
   tmpSpecialize.writeAsStringSync(_specializeScript);
-  tmpStartup.writeAsStringSync(_startupScript);
+  tmpStartup.writeAsStringSync(
+    _startupScript.replaceAll(
+      'DART_SDK_URL',
+      'https://storage.googleapis.com/dart-archive/channels/stable/release/'
+          '$dartVersion/sdk/dartsdk-windows-x64-release.zip',
+    ),
+  );
 
   try {
     await gcloud([
@@ -148,7 +178,9 @@ Future<void> main(List<String> args) async {
   print('Python, dxcam, PsExec). This takes ~15 minutes.');
   print('');
   print('The deploy script checks readiness automatically. Just run:');
-  print('  dart run tools/vm/deploy_bundle.dart $vmName <bundle_path> --windows');
+  print(
+    '  dart run tools/vm/deploy_bundle.dart $vmName <bundle_path> --windows',
+  );
   print('');
   print('Delete when done:');
   print('  gcloud compute instances delete $vmName --quiet');

@@ -12,7 +12,9 @@ import 'dart:io';
 
 void main(List<String> args) {
   if (args.length < 2) {
-    stderr.writeln('Usage: dart run compare_artifacts.dart <flutter_dir> <bazel_dir>');
+    stderr.writeln(
+      'Usage: dart run compare_artifacts.dart <flutter_dir> <bazel_dir>',
+    );
     exit(1);
   }
 
@@ -48,7 +50,9 @@ void main(List<String> args) {
     final diffStr = diff == 0
         ? 'same'
         : '${diff > 0 ? '+' : ''}$diff bytes (${_percent(fSize, bSize)})';
-    print('  $f  flutter=${_humanSize(fSize)}  bazel=${_humanSize(bSize)}  $diffStr');
+    print(
+      '  $f  flutter=${_humanSize(fSize)}  bazel=${_humanSize(bSize)}  $diffStr',
+    );
   }
 
   // Only in flutter.
@@ -90,8 +94,10 @@ void main(List<String> args) {
       largerCount++;
     }
   }
-  print('Size comparison (common files): $sameCount same, '
-      '$smallerCount bazel smaller, $largerCount bazel larger');
+  print(
+    'Size comparison (common files): $sameCount same, '
+    '$smallerCount bazel smaller, $largerCount bazel larger',
+  );
 }
 
 /// Lists all files recursively, returning relative path → size.

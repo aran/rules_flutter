@@ -23,7 +23,8 @@ import 'dart:io';
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
     stderr.writeln(
-        'Usage: dart run verify_macos_app.dart <app_path> [expected_title]');
+      'Usage: dart run verify_macos_app.dart <app_path> [expected_title]',
+    );
     exit(1);
   }
 
@@ -36,8 +37,9 @@ Future<void> main(List<String> args) async {
   }
 
   // Extract process name from .app bundle (e.g. "app.app" → "app").
-  final bundleName =
-      Uri.parse(appPath).pathSegments.last.replaceAll('.app', '');
+  final bundleName = Uri.parse(
+    appPath,
+  ).pathSegments.last.replaceAll('.app', '');
 
   // Find the executable binary inside the bundle.
   final binaryPath = '$appPath/Contents/MacOS/$bundleName';
@@ -58,16 +60,16 @@ Future<void> main(List<String> args) async {
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stdoutLines.add(line);
-    print('[stdout] $line');
-  });
+        stdoutLines.add(line);
+        print('[stdout] $line');
+      });
   appProcess.stderr
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stderrLines.add(line);
-    print('[stderr] $line');
-  });
+        stderrLines.add(line);
+        print('[stderr] $line');
+      });
 
   // Poll for the window to appear.
   print('Waiting for window (up to 30s) ...');
@@ -99,8 +101,10 @@ Future<void> main(List<String> args) async {
   final windowSize = await _getWindowSize(bundleName);
   print('Window size: $windowSize');
 
-  final sizeValues =
-      windowSize.split(',').map((s) => int.tryParse(s.trim()) ?? 0).toList();
+  final sizeValues = windowSize
+      .split(',')
+      .map((s) => int.tryParse(s.trim()) ?? 0)
+      .toList();
   final width = sizeValues.isNotEmpty ? sizeValues[0] : 0;
   final height = sizeValues.length > 1 ? sizeValues[1] : 0;
   final hasNonZeroSize = width > 100 && height > 100;
@@ -111,16 +115,19 @@ Future<void> main(List<String> args) async {
   if (expectedTitle != null) {
     titleBarText = await _getWindowTitle(bundleName);
     print('Window title: $titleBarText');
-    titleMatch = titleBarText != null &&
+    titleMatch =
+        titleBarText != null &&
         titleBarText.toLowerCase().contains(expectedTitle.toLowerCase());
   }
 
   // Query accessibility tree (informational only).
   final accessibilityOutput = await _getAccessibilityTree(bundleName);
   print('Accessibility tree (first 500 chars):');
-  print(accessibilityOutput.length > 500
-      ? accessibilityOutput.substring(0, 500)
-      : accessibilityOutput);
+  print(
+    accessibilityOutput.length > 500
+        ? accessibilityOutput.substring(0, 500)
+        : accessibilityOutput,
+  );
 
   // Best-effort screenshot.
   final screenshotPath =
@@ -130,7 +137,8 @@ Future<void> main(List<String> args) async {
     print('Screenshot: $screenshotPath ($screenshotSize bytes)');
   } else {
     print(
-        'Screenshot: unavailable (screencapture failed — expected in some CI environments)');
+      'Screenshot: unavailable (screencapture failed — expected in some CI environments)',
+    );
   }
 
   // Quit the app.
@@ -139,7 +147,8 @@ Future<void> main(List<String> args) async {
 
   // Check process output for Flutter engine messages.
   final allOutput = [...stdoutLines, ...stderrLines].join('\n');
-  final hasEngineMsg = allOutput.contains('flutter') ||
+  final hasEngineMsg =
+      allOutput.contains('flutter') ||
       allOutput.contains('Flutter') ||
       allOutput.contains('Dart');
 
@@ -148,16 +157,19 @@ Future<void> main(List<String> args) async {
   print('=== Results ===');
   print('Window appeared: yes');
   print(
-      'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL — FAIL"})');
+    'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL — FAIL"})',
+  );
   if (expectedTitle != null) {
     print(
-        'Window title contains "$expectedTitle": ${titleMatch == true ? "yes" : "no"}');
+      'Window title contains "$expectedTitle": ${titleMatch == true ? "yes" : "no"}',
+    );
   }
   if (screenshotSize > 0) {
     print('Screenshot: $screenshotPath ($screenshotSize bytes)');
   }
   print(
-      'Flutter engine output detected: ${hasEngineMsg ? "yes" : "no (may be normal)"}');
+    'Flutter engine output detected: ${hasEngineMsg ? "yes" : "no (may be normal)"}',
+  );
   print('Process stdout lines: ${stdoutLines.length}');
   print('Process stderr lines: ${stderrLines.length}');
 
@@ -277,8 +289,10 @@ do shell script "screencapture -x $outputPath"
 Future<void> _quitApp(String bundleName) async {
   await Process.run('osascript', [
     '-e',
-    'tell application "$bundleName" to quit'
-        .replaceAll(r'$bundleName', bundleName),
+    'tell application "$bundleName" to quit'.replaceAll(
+      r'$bundleName',
+      bundleName,
+    ),
   ]);
   await Future<void>.delayed(const Duration(seconds: 2));
 }

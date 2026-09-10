@@ -2,18 +2,22 @@
 #
 # Mirrors `hook/build.dart`:
 #   * macOS+iOS only.
-#   * Compiles every `.c`/`.m` under `src/` plus (macOS only)
-#     `test/util.c` into a single shared library named `objective_c.dylib`,
-#     installed under @rpath at runtime.
+#   * Compiles every `.c`/`.m` under `src/` (plus, up to 9.4, the macOS
+#     `test/util.c` memory helper) into a single shared library named
+#     `objective_c.dylib`, installed under @rpath at runtime.
 #   * Registers the library under the asset id
 #     `package:objective_c/objective_c.dylib` so the kernel manifest the
 #     frontend_server reads via `--native-assets` resolves
 #     `DynamicLibrary.open("objective_c.dylib")` at runtime.
 #
 # Hand-curated translation of the package's `dart build hooks` output.
-# Substitutions ({HUB_NAME}, {PKG}, {VERSION}) are injected by
-# `flutter_pub_package`'s `_resolve_overlay`. We don't read {VERSION}
-# here — the overlay sits under `9/`, so any 9.x version routes here.
+# Placeholders (HUB_NAME, PKG, VERSION, LANGUAGE_VERSION, DEPS — written
+# in braces below, and deliberately not in this comment, because
+# substitution rewrites comment text too) are injected by
+# `flutter_pub_package`'s `_resolve_overlay`. We don't read the version
+# here: the overlay sits under `9/`, so any 9.x routes to it, and
+# everything that varies across 9.x is either substituted or globbed
+# rather than written out.
 
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_cc//cc:objc_library.bzl", "objc_library")
@@ -25,14 +29,14 @@ load("@rules_flutter//flutter:native_assets.bzl", "flutter_native_asset")
 # an empty `platforms` list anyway so the spoke can carry the
 # `native_assets` attribute that anchors the manifest entry. Consumers
 # transitively pick up the dylib + manifest entry simply by depending
-# on `@deps//:{PKG}` like any other pub package.
+# on `@<hub>//:objective_c` like any other pub package.
 flutter_plugin(
     name = "{PKG}",
     srcs = glob(
         ["lib/**/*.dart"],
         allow_empty = True,
     ),
-    language_version = "3.10",
+    language_version = "{LANGUAGE_VERSION}",
     native_assets = select({
         "@platforms//os:macos": [":{PKG}_native_asset"],
         "@platforms//os:ios": [":{PKG}_native_asset"],
@@ -42,19 +46,12 @@ flutter_plugin(
     platforms = [],
     visibility = ["//visibility:public"],
     deps = [
-        "@{HUB_NAME}__code_assets//:code_assets",
-        "@{HUB_NAME}__collection//:collection",
-        "@{HUB_NAME}__ffi//:ffi",
-        "@{HUB_NAME}__hooks//:hooks",
-        "@{HUB_NAME}__logging//:logging",
-        "@{HUB_NAME}__native_toolchain_c//:native_toolchain_c",
-        "@{HUB_NAME}__pub_semver//:pub_semver",
+        {DEPS}
     ],
 )
 
 # Per-platform Apple wrapper that compiles every C / Objective-C file
-# under src/ (and, on macOS, the test/util.c memory helper) into a
-# single archive with `-fobjc-arc` for `.m` files.
+# under src/ into a single archive with `-fobjc-arc` for `.m` files.
 #
 # The Bazel CC toolchain (apple_support's wrapped clang) handles
 # headers and ObjC properly via `objc_library`. The hook sets just
@@ -69,11 +66,16 @@ objc_library(
         ],
         allow_empty = False,
     ) + select({
-        "@platforms//os:macos": [
-            # Hook adds test/util.c on macOS only. iOS skips it because
-            # mach_vm_region (used inside util.c) isn't available there.
-            "test/util.c",
-        ],
+        # Up to 9.4 the hook compiled test/util.c on macOS only — iOS skips
+        # it because mach_vm_region, which util.c calls, is unavailable
+        # there. 9.5.0 deleted the file and moved its replacements behind
+        # the `include_test_utils` user define, which only objective_c's own
+        # test suite sets; a consumer never gets them. A glob spans both:
+        # named literally, the label would not resolve on 9.5+.
+        "@platforms//os:macos": glob(
+            ["test/util.c"],
+            allow_empty = True,
+        ),
         "//conditions:default": [],
     }),
     hdrs = glob(

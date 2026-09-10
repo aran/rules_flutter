@@ -9,15 +9,33 @@ common --config=ruleset
 
 # Bazel settings that apply to this repository.
 # Take care to document any settings that you expect users to apply.
-# Settings that apply only to CI are in .github/workflows/ci.bazelrc
+#
+# There is no CI-only bazelrc. Flags that CI adds and a developer does not are
+# written inline on the `bazel` invocations in .github/workflows/ci.yaml.
 
 # Ensure that the MODULE.bazel.lock file is complete and committed.
 # This is an important security measure: it ensures that developers on the
 # same rule set download dependencies at the same versions with the same bits.
 # This setting does not affect modules that depend on this module.
 #
-# When updating dependencies, use --lockfile_mode=refresh, for example:
+# When updating dependencies:
 #     bazel mod tidy --lockfile_mode=refresh
+#     bazel build --nobuild --lockfile_mode=update //...
+#     bazel build --nobuild --lockfile_mode=error //...
+#
+# All three, in that order. `mod tidy` settles the module graph but evaluates
+# only the extensions it happens to need, so on its own it leaves a lock a
+# build then rejects ("The module extension '...' does not exist in the
+# lockfile"). The `update` pass is what forces the rest in; the `error` pass is
+# what proves the result is self-consistent.
+#
+# In this repo there is a fourth step, first: move every gitignored
+# `.bazelrc.user` aside — the root's plus one per `e2e/*` workspace. Enumerate
+# them rather than counting from memory, because the set grows with the
+# workspaces: `find . -name .bazelrc.user -not -path './bazel-*'`. Each puts
+# `--override_module=rules_dart` on `common`, which applies to `mod tidy` too,
+# and regenerating through one writes a lock that omits the very registry entry
+# it is meant to pin.
 #
 # When testing different versions of Bazel, use --lockfile_mode=update or
 # --lockfile_mode=off. The lock file format changes over time, and different
@@ -25,6 +43,18 @@ common --config=ruleset
 # some modules, and different versions have different dependencies, which
 # also affects the contents of the lock file.
 common --lockfile_mode=error
+
+# `//tools/pip_lock_guard:pip_facts_test` re-derives rules_python's pip "facts"
+# from the checked-in requirements files and fails on any drift, on every host.
+# That matters independently of the lock: a checkout overriding a module (e.g. a
+# sibling rules_dart) has to turn lockfile checking off entirely, and every
+# checkout here does.
+#
+# The lock itself is host-independent under rules_python 2.3.2, whose facts `v2`
+# record the union of all three per-OS requirements files, so it can be
+# regenerated on any host. Windows is unverified: CI's only Windows job builds a
+# separate module with no pip dependency, so it never reads this lock. If it
+# ever disagrees, measure rather than relaxing `--lockfile_mode` again.
 
 # rules_jvm_external 7+ and rules_android 0.7.2+ ship internal tool jars
 # compiled at Java 21+. Bazel's `--tool_java_runtime_version` defaults to

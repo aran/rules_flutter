@@ -44,12 +44,13 @@ One-time setup:
 cp -r device.example device
 mv device/BUILD.bazel.example device/BUILD.bazel
 
-# 2. Obtain a development provisioning profile whose App ID matches the
+# 2. Obtain a development provisioning profile whose App ID covers the
 #    bundle id, installed into
 #    ~/Library/Developer/Xcode/UserData/Provisioning Profiles/
 #    See "Getting a provisioning profile" below.
 
-# 3. Make sure //:app_device's bundle_id matches your profile's App ID.
+# 3. Set device/BUILD.bazel's profile_name to that profile's own Name, and
+#    make sure //:app_device's bundle_id is covered by its App ID.
 
 # 4. Build
 bazel build //:app_device -c opt --ios_multi_cpus=arm64
@@ -81,6 +82,20 @@ change can substitute for it. Two routes:
   scratch Xcode project whose `PRODUCT_BUNDLE_IDENTIFIER` is your bundle id
   will mint the same profile — override it with
   `PRODUCT_BUNDLE_IDENTIFIER=<id> DEVELOPMENT_TEAM=<id>` arguments.
+
+**Naming it.** `profile_name` matches the profile's `Name` field, which is
+*not* always `iOS Team Provisioning Profile: <bundle id>`. Xcode mints a
+per-bundle-id profile only for an App ID registered explicitly in the portal;
+`com.rulesflutter.ios.example` is not one, so automatic signing issues the team
+**wildcard** profile instead — named `iOS Team Provisioning Profile: *` over
+App ID `<TEAM>.*`, which covers any bundle id under your team. That is what
+`device.example/` names by default. List what you actually have:
+
+```sh
+for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+  security cms -D -i "$f" | plutil -extract Name raw -
+done
+```
 
 **Profile expired?** Free-team ("Personal Team") profiles expire after ~7
 days. When the bazel build fails with *"no provisioning profile was found

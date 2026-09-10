@@ -62,19 +62,38 @@ const _vmServiceSupplement = '''
 </plist>
 ''';
 
+/// `macos/Runner/Info.plist` as `flutter create` emits it, cut to the keys
+/// this file is about. `CFBundleIconFile` is empty because the scaffold leaves
+/// it for Xcode to fill in.
+const _macosInfoPlist = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleIconFile</key>
+	<string></string>
+	<key>CFBundleName</key>
+	<string>hello_world</string>
+</dict>
+</plist>
+''';
+
 String merge(
   String? base,
   List<String> additions, {
   MergeMode mode = MergeMode.strictAdd,
-}) =>
-    mergePlists(
-      base: base == null ? null : (path: 'base.entitlements', xml: base),
-      additionSources: [
-        for (var i = 0; i < additions.length; i++)
-          (path: 'addition$i.entitlements', xml: additions[i]),
-      ],
-      mode: mode,
-    );
+  Set<String> dropEmptyKeys = const {},
+}) => mergePlists(
+  base: base == null ? null : (path: 'base.entitlements', xml: base),
+  additionSources: [
+    for (var i = 0; i < additions.length; i++)
+      (path: 'addition$i.entitlements', xml: additions[i]),
+  ],
+  mode: mode,
+  dropEmptyKeys: dropEmptyKeys,
+);
 
 /// The keys of a rendered plist, in order.
 List<String> keysOf(String plist) =>
@@ -138,15 +157,17 @@ void main() {
 ''';
       expect(
         () => merge(_release, [conflicting]),
-        throwsA(isA<PlistFormatException>().having(
-          (e) => e.message,
-          'message',
-          allOf(
-            contains('com.apple.security.app-sandbox'),
-            contains('base.entitlements'),
-            contains('addition0.entitlements'),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('com.apple.security.app-sandbox'),
+              contains('base.entitlements'),
+              contains('addition0.entitlements'),
+            ),
           ),
-        )),
+        ),
       );
     });
 
@@ -209,8 +230,9 @@ void main() {
 </dict>
 </plist>
 ''';
-      final merged = merge(appPlist, [_vmServiceSupplement],
-          mode: MergeMode.supplement);
+      final merged = merge(appPlist, [
+        _vmServiceSupplement,
+      ], mode: MergeMode.supplement);
       expect(keysOf(merged), [
         'CFBundleName',
         'NSBonjourServices',
@@ -228,8 +250,9 @@ void main() {
 </dict>
 </plist>
 ''';
-      final merged = merge(appPlist, [_vmServiceSupplement],
-          mode: MergeMode.supplement);
+      final merged = merge(appPlist, [
+        _vmServiceSupplement,
+      ], mode: MergeMode.supplement);
       expect(
         valueOf(merged, 'NSLocalNetworkUsageDescription'),
         contains('Tin Can finds peers on your network.'),
@@ -248,8 +271,9 @@ void main() {
 </dict>
 </plist>
 ''';
-      final merged = merge(appPlist, [_vmServiceSupplement],
-          mode: MergeMode.supplement);
+      final merged = merge(appPlist, [
+        _vmServiceSupplement,
+      ], mode: MergeMode.supplement);
       final services = valueOf(merged, 'NSBonjourServices');
       expect(services, contains('_tincan._udp'));
       expect(services, contains('_dartVmService._tcp'));
@@ -267,8 +291,9 @@ void main() {
 </dict>
 </plist>
 ''';
-      final merged = merge(appPlist, [_vmServiceSupplement],
-          mode: MergeMode.supplement);
+      final merged = merge(appPlist, [
+        _vmServiceSupplement,
+      ], mode: MergeMode.supplement);
       final services = valueOf(merged, 'NSBonjourServices');
       expect('_dartVmService._tcp'.allMatches(services), hasLength(1));
     });
@@ -283,9 +308,71 @@ void main() {
 </dict>
 </plist>
 ''';
-      final merged = merge(appPlist, [_vmServiceSupplement],
-          mode: MergeMode.supplement);
+      final merged = merge(appPlist, [
+        _vmServiceSupplement,
+      ], mode: MergeMode.supplement);
       expect(valueOf(merged, 'NSBonjourServices'), contains('not-an-array'));
+    });
+  });
+
+  // `flutter create`'s macOS Info.plist declares `CFBundleIconFile` as an
+  // empty string for Xcode to fill in. `macos_application` generates its own
+  // value from the app icon catalog, and Apple's plisttool refuses the pair:
+  // `found key "CFBundleIconFile" in two plists with different values:
+  // "" != "AppIcon"`. Every `flutter create` app hits that the moment it has
+  // an icon.
+  group('drop-empty', () {
+    test('removes a key whose value is an empty string', () {
+      final merged = merge(
+        _macosInfoPlist,
+        const [],
+        mode: MergeMode.supplement,
+        dropEmptyKeys: const {'CFBundleIconFile'},
+      );
+      expect(keysOf(merged), isNot(contains('CFBundleIconFile')));
+      expect(
+        keysOf(merged),
+        containsAll(['CFBundleDevelopmentRegion', 'CFBundleName']),
+        reason: 'nothing else moves',
+      );
+    });
+
+    test('leaves a key that names a real value', () {
+      final named = _macosInfoPlist.replaceFirst(
+        '<string></string>',
+        '<string>MyIcon</string>',
+      );
+      final merged = merge(
+        named,
+        const [],
+        mode: MergeMode.supplement,
+        dropEmptyKeys: const {'CFBundleIconFile'},
+      );
+      expect(valueOf(merged, 'CFBundleIconFile'), '<string>MyIcon</string>');
+    });
+
+    test('recognises the self-closing spelling too', () {
+      final selfClosing = _macosInfoPlist.replaceFirst(
+        '<string></string>',
+        '<string/>',
+      );
+      final merged = merge(
+        selfClosing,
+        const [],
+        mode: MergeMode.supplement,
+        dropEmptyKeys: const {'CFBundleIconFile'},
+      );
+      expect(keysOf(merged), isNot(contains('CFBundleIconFile')));
+    });
+
+    test('leaves a key it was not asked about', () {
+      final merged = merge(
+        _macosInfoPlist,
+        const [],
+        mode: MergeMode.supplement,
+        dropEmptyKeys: const {'CFBundleSomethingElse'},
+      );
+      expect(keysOf(merged), contains('CFBundleIconFile'));
     });
   });
 
@@ -293,8 +380,13 @@ void main() {
     test('a document with no <plist> root', () {
       expect(
         () => parsePlist('<dict/>', 'x.plist'),
-        throwsA(isA<PlistFormatException>()
-            .having((e) => e.message, 'message', contains('<plist>'))),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('<plist>'),
+          ),
+        ),
       );
     });
 
@@ -307,8 +399,13 @@ void main() {
 ''';
       expect(
         () => parsePlist(arrayRoot, 'x.plist'),
-        throwsA(isA<PlistFormatException>()
-            .having((e) => e.message, 'message', contains('<dict>'))),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('<dict>'),
+          ),
+        ),
       );
     });
 
@@ -326,8 +423,13 @@ void main() {
 ''';
       expect(
         () => parsePlist(dupe, 'x.plist'),
-        throwsA(isA<PlistFormatException>()
-            .having((e) => e.message, 'message', contains('twice'))),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('twice'),
+          ),
+        ),
       );
     });
 
@@ -342,8 +444,13 @@ void main() {
 ''';
       expect(
         () => parsePlist(orphan, 'x.plist'),
-        throwsA(isA<PlistFormatException>()
-            .having((e) => e.message, 'message', contains('<key>'))),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('<key>'),
+          ),
+        ),
       );
     });
 
@@ -358,8 +465,13 @@ void main() {
 ''';
       expect(
         () => parsePlist(keyless, 'x.plist'),
-        throwsA(isA<PlistFormatException>()
-            .having((e) => e.message, 'message', contains('no value'))),
+        throwsA(
+          isA<PlistFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('no value'),
+          ),
+        ),
       );
     });
   });

@@ -3,3 +3,12 @@ analyzer:
     - "bazel-*/**"
     - "e2e/**/bazel-*/**"
     - "references/**"
+
+formatter:
+  # very_good_analysis sets `trailing_commas: preserve`, but this file
+  # doesn't include it (it only excludes paths for the analyzer), so nothing
+  # here inherits that default. Stated explicitly so the formatter doesn't
+  # fall back to `automate`, which collapses trailing commas that were kept
+  # to force a construct multi-line — and fights any lint rule that wants
+  # one added back.
+  trailing_commas: preserve

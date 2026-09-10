@@ -4,8 +4,8 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_test")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -36,8 +36,6 @@ cc_library(
     name = "multiply_cc",
     srcs = ["native/multiply.c"],
     hdrs = ["native/multiply.h"],
-    # Visible to the optional, git-ignored //device package (signed iOS).
-    visibility = ["//device:__pkg__"],
     # alwayslink ensures the linker keeps symbols even when only
     # referenced via dart:ffi (no static ObjC/Swift references).
     alwayslink = True,
@@ -53,9 +51,6 @@ flutter_application(
     name = "ffi_plugin_app",
     package_name = "ffi_plugin_example",
     main = "lib/main.dart",
-    # Visible to the optional, git-ignored //device package for on-device
-    # (signed) iOS builds. See device.example/.
-    visibility = ["//device:__pkg__"],
     deps = [
         "//multiply_plugin",
         "@deps//:flutter",
@@ -168,6 +163,20 @@ apple_bundle_version(
     tags = ["manual"],
 )
 
+_IOS_DEPS = [
+    ":ffi_plugin_ios_framework",
+    # Native-asset frameworks. Declared above but easy to leave
+    # unwired: the app still builds and renders, then fails every
+    # native-asset call at runtime because dyld cannot resolve the
+    # framework-relative path the manifest records.
+    ":ffi_plugin_ios_native_frameworks",
+    ":ios_runner_lib",
+    # FFI C library (dart:ffi). alwayslink keeps symbols referenced only
+    # from Dart; on iOS the native code links statically into the app binary
+    # and Dart reaches it through DynamicLibrary.process().
+    ":multiply_cc",
+]
+
 ios_application(
     name = "ffi_plugin_ios",
     bundle_id = "com.example.ffiplugin",
@@ -177,16 +186,27 @@ ios_application(
     minimum_os_version = IOS_MINIMUM_OS_VERSION,
     tags = ["manual"],
     version = ":ffi_plugin_ios_version",
-    deps = [
-        ":ffi_plugin_ios_framework",
-        # Native-asset frameworks. Declared above but easy to leave
-        # unwired: the app still builds and renders, then fails every
-        # native-asset call at runtime because dyld cannot resolve the
-        # framework-relative path the manifest records.
-        ":ffi_plugin_ios_native_frameworks",
-        ":ios_runner_lib",
-        ":multiply_cc",
-    ],
+    deps = _IOS_DEPS,
+)
+
+# The same app, signed for a physical device: `provisioning_profile` is the
+# only difference, so the device bundle shares every Tier-2 `_gen` target with
+# the simulator's `:ffi_plugin_ios` above rather than re-deriving them.
+#
+# `//device` is git-ignored and absent from a fresh clone. That is fine: the
+# target is tagged `manual`, so `bazel build //...` never expands it and
+# therefore never loads the missing package. Create it from device.example/.
+ios_application(
+    name = "ffi_plugin_ios_device",
+    bundle_id = "com.example.ffiplugin",
+    families = ["iphone"],
+    infoplists = [":ios_runner_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    provisioning_profile = "//device:profile",
+    tags = ["manual"],
+    version = ":ffi_plugin_ios_version",
+    deps = _IOS_DEPS,
 )
 
 # =============================================================================
@@ -242,4 +262,78 @@ build_test(
     name = "linux_bundle_build_test",
     target_compatible_with = ["@platforms//os:linux"],
     targets = [":ffi_plugin_linux"],
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    visibility = ["//multiply_plugin:__pkg__"],
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "ffi_plugin_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "//multiply_plugin",
+        "@deps//:flutter",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_linux_bundle_test",
+    "verify_macos_bundle_test",
+]]
+
+# Every `.dart` file directly in this package — `multiply_plugin` carries its
+# own `format_test`.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

@@ -1,16 +1,19 @@
+import 'package:codegen_e2e/user.dart';
 import 'package:dep_lib/catalog.dart';
 import 'package:dep_part/settings.dart';
 import 'package:flutter/material.dart';
-
-import 'user.dart';
 
 void main() {
   runApp(const CodegenApp(user: User('Ada Lovelace', 36)));
 }
 
+/// Root widget of the codegen example, which renders generated output from
+/// three places at once so a regenerated `.g.dart` is visible on hot reload.
 class CodegenApp extends StatelessWidget {
-  const CodegenApp({super.key, required this.user});
+  /// Creates the codegen example's root widget rendering [user].
+  const CodegenApp({required this.user, super.key});
 
+  /// The model whose generated `toJson()` this app displays.
   final User user;
 
   @override

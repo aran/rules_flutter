@@ -22,8 +22,8 @@ selecting the platform-specific toolchain repo at the call site: the rule
 discovers the font File via `ctx.toolchains[...]` instead.
 """
 
-load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("//flutter:providers.bzl", "FlutterInfo")
+load("@rules_dart//dart:utils.bzl", "dart_info_no_package")
+load("//flutter/private:flutter_info.bzl", "flutter_info")
 
 _MATERIAL_ICONS_BUNDLE_PATH = "fonts/MaterialIcons-Regular.otf"
 
@@ -49,34 +49,13 @@ def _flutter_material_icons_impl(ctx):
 
     return [
         DefaultInfo(files = depset([material_font])),
-        # Empty DartInfo so consumers can list this target in
-        # `flutter_application(deps = [...])` (whose `deps` attr requires
-        # DartInfo). The empty depsets contribute nothing to the consumer's
-        # package_config.json or transitive sources — material_icons ships
-        # zero Dart code; only the font.
-        DartInfo(
-            package_name = "rules_flutter_material_icons",
-            lib_root = "",
-            transitive_srcs = depset(),
-            transitive_packages = depset(),
-            transitive_code_asset_files = depset(),
-        ),
-        FlutterInfo(
-            asset_dirs = depset(),
-            shader_srcs = depset(),
-            plugins = [],
-            transitive_native_libs = depset(),
-            apple_plugin_libraries = depset(),
-            linux_plugin_libraries = depset(),
-            windows_plugin_libraries = depset(),
-            android_plugin_libraries = depset(),
-            apple_privacy_manifests = depset(),
-            native_assets = depset(),
-            data_assets = depset(),
-            pub_fonts = depset([contribution]),
-            pub_assets = depset(),
-            pub_shaders = depset(),
-        ),
+        # A DartInfo so consumers can list this target in
+        # `flutter_application(deps = [...])`, whose `deps` attr requires one.
+        # It records no package, so it contributes nothing to the consumer's
+        # package_config.json or transitive sources — material_icons ships zero
+        # Dart code; only the font.
+        dart_info_no_package(),
+        flutter_info(pub_fonts = [contribution]),
     ]
 
 flutter_material_icons = rule(

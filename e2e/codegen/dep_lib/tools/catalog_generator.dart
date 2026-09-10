@@ -1,6 +1,10 @@
 /// Per-file generator for the `dep_lib` package: emits a STANDALONE library
-/// (not a `part of`) that the hand-written sibling imports. Interface
-/// (dart_codegen): dart catalog_generator.dart --input <file> --output <file>
+/// (not a `part of`) that the hand-written sibling imports.
+///
+/// Interface (dart_codegen):
+/// `dart catalog_generator.dart --input <file> --output <file>`
+library;
+
 import 'dart:io';
 
 void main(List<String> args) {
@@ -14,7 +18,9 @@ void main(List<String> args) {
     }
   }
   if (inputPath == null || outputPath == null) {
-    stderr.writeln('Usage: catalog_generator.dart --input <file> --output <file>');
+    stderr.writeln(
+      'Usage: catalog_generator.dart --input <file> --output <file>',
+    );
     exit(1);
   }
 

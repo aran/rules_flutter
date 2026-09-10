@@ -67,8 +67,14 @@ bool get hasRunfilesContext {
 ResolvedRunfile? resolveRunfileWithManifest(String path) {
   // On Windows, Bazel py_binary produces .exe — try both the given key and
   // key.exe so callers don't need to hardcode platform-specific extensions.
+  //
+  // `.exe` FIRST, because a `py_binary` emits *both* launchers side by side:
+  // `screenshot` (the POSIX shell wrapper) and `screenshot.exe`. The bare key
+  // resolves to the shell script, which exists, so resolution succeeds and the
+  // spawn fails instead — `ProcessException: %1 is not a valid Win32
+  // application`, which reads as a corrupt binary rather than the wrong one.
   final keys = Platform.isWindows && !path.endsWith('.exe')
-      ? [path, '$path.exe']
+      ? ['$path.exe', path]
       : [path];
 
   final Runfiles r;
@@ -94,6 +100,12 @@ ResolvedRunfile? resolveRunfileWithManifest(String path) {
 /// runfiles directory is in use (Unix default) — callers that spawn a
 /// `py_binary` subprocess should treat that as "no manifest needs
 /// forwarding"; the directory tree will be inherited via `RUNFILES_DIR`.
+///
+/// The two probe candidates mirror `Runfiles.create` in
+/// `@rules_dart//dart/runfiles`, which cannot be reused here because it
+/// returns a resolver rather than the manifest path this needs to forward.
+/// If rules_dart's candidates change, this copy has to change with them —
+/// there is nothing that would report the drift.
 String? _activeManifestPath() {
   final env = Platform.environment['RUNFILES_MANIFEST_FILE'];
   if (env != null && env.isNotEmpty && File(env).existsSync()) return env;

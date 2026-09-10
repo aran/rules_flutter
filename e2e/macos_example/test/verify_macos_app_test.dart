@@ -5,18 +5,24 @@
 /// Run explicitly: `bazel test :verify_macos_app_test --test_tag_filters=`
 ///
 /// Everything is addressed by the PID this test launched, never by the bundle
-/// name. Naming the process instead let a leftover "Flutter App" — one an
-/// earlier run failed to reap, or a copy the developer launched by hand —
-/// answer for the bundle under test: the window count came back positive, the
-/// size was plausible, and the test passed without the freshly built binary
-/// ever having drawn anything. Launching `Contents/MacOS/<exe>` directly
-/// rather than through `open` is part of that: LaunchServices would activate
-/// an already-running instance of the same bundle id instead of starting ours.
+/// name: a leftover instance — one an earlier run failed to reap, or a copy
+/// launched by hand — would otherwise answer for the bundle under test, and
+/// the run would pass without the freshly built binary drawing anything.
+/// Launching `Contents/MacOS/<exe>` directly rather than through `open` is
+/// part of that: LaunchServices activates an already-running instance of the
+/// same bundle id instead of starting ours.
 ///
 /// Pass criteria:
 /// - App launches without crashing
 /// - Window appears within 30s
-/// - Window width > 100 AND height > 100 (catches the 1x32 sizing bug)
+/// - Window width > 100 AND height > 100
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:io';
 
@@ -37,8 +43,7 @@ Future<void> main() async {
   // Extract to temp directory.
   final tmpDir = Directory.systemTemp.createTempSync('macos_app_test');
   try {
-    final unzip =
-        Process.runSync('unzip', ['-q', zipPath, '-d', tmpDir.path]);
+    final unzip = Process.runSync('unzip', ['-q', zipPath, '-d', tmpDir.path]);
     if (unzip.exitCode != 0) {
       stderr.writeln('Failed to extract zip: ${unzip.stderr}');
       exit(1);
@@ -59,10 +64,12 @@ Future<void> main() async {
     // spending 30s waiting for a window from a process that is already gone.
     var exitCode = -1;
     var exited = false;
-    unawaited(process.exitCode.then((code) {
-      exited = true;
-      exitCode = code;
-    }));
+    unawaited(
+      process.exitCode.then((code) {
+        exited = true;
+        exitCode = code;
+      }),
+    );
 
     // Poll for window to appear (up to 30s).
     print('Waiting for window (up to 30s) ...');
@@ -71,7 +78,9 @@ Future<void> main() async {
     while (DateTime.now().isBefore(deadline)) {
       if (exited) {
         stderr.writeln(
-            'FAIL: process $pid exited with code $exitCode before showing a window');
+          'FAIL: process $pid exited with code $exitCode before '
+          'showing a window',
+        );
         exit(1);
       }
       final count = await _windowCount(pid);
@@ -93,16 +102,17 @@ Future<void> main() async {
     await Future<void>.delayed(const Duration(seconds: 3));
 
     // Check window size.
-    final sizeResult = await Process.run('osascript', [
-      '-e',
-      'tell application "System Events" to tell (first process whose unix id '
-          'is $pid) to get size of window 1',
-    ]);
+    final sizeScript =
+        'tell application "System Events" to tell (first '
+        'process whose unix id is $pid) to get size of window 1';
+    final sizeResult = await Process.run('osascript', ['-e', sizeScript]);
     final sizeStr = sizeResult.stdout.toString().trim();
     print('Window size: $sizeStr');
 
-    final parts =
-        sizeStr.split(',').map((s) => int.tryParse(s.trim()) ?? 0).toList();
+    final parts = sizeStr
+        .split(',')
+        .map((s) => int.tryParse(s.trim()) ?? 0)
+        .toList();
     final width = parts.isNotEmpty ? parts[0] : 0;
     final height = parts.length > 1 ? parts[1] : 0;
 
@@ -116,12 +126,17 @@ Future<void> main() async {
     print('');
     print('=== Results ===');
     print('Window appeared: yes');
-    print('Window size: ${width}x$height (${sizeOk ? "OK" : "FAIL — too small"})');
+    print(
+      'Window size: ${width}x$height '
+      '(${sizeOk ? "OK" : "FAIL — too small"})',
+    );
     print('Process alive: $processAlive');
 
     if (!sizeOk) {
       stderr.writeln(
-          'FAIL: Window size ${width}x$height is too small (expected > 100x100)');
+        'FAIL: Window size ${width}x$height is too small '
+        '(expected > 100x100)',
+      );
       exit(1);
     }
     if (!processAlive) {
@@ -145,16 +160,15 @@ Future<void> main() async {
 /// A desktop with a window server running always has some windowed process, so
 /// a total of zero is the harness failing, not an answer.
 Future<void> _assertWindowEnumerationWorks() async {
-  final result = await Process.run('osascript', [
-    '-e',
-    'tell application "System Events"\n'
-        '  set total to 0\n'
-        '  repeat with p in (processes whose background only is false)\n'
-        '    set total to total + (count of windows of p)\n'
-        '  end repeat\n'
-        '  return total\n'
-        'end tell',
-  ]).timeout(
+  const script =
+      'tell application "System Events"\n'
+      '  set total to 0\n'
+      '  repeat with p in (processes whose background only is false)\n'
+      '    set total to total + (count of windows of p)\n'
+      '  end repeat\n'
+      '  return total\n'
+      'end tell';
+  final result = await Process.run('osascript', ['-e', script]).timeout(
     const Duration(seconds: 20),
     onTimeout: () => ProcessResult(0, 1, '', 'System Events did not respond'),
   );
@@ -163,14 +177,18 @@ Future<void> _assertWindowEnumerationWorks() async {
       : 0;
   if (total > 0) return;
 
-  stderr.writeln('FAIL: System Events reports no windows for any process, so '
-      'it cannot answer for ours either.');
+  stderr.writeln(
+    'FAIL: System Events reports no windows for any process, so '
+    'it cannot answer for ours either.',
+  );
   if (result.exitCode != 0) {
     stderr.writeln('osascript: ${result.stderr.toString().trim()}');
   }
-  stderr.writeln('This is a harness failure, not an app failure. Grant '
-      'accessibility access to the test runner in System Settings > Privacy & '
-      'Security > Accessibility, then `killall "System Events"` and re-run.');
+  stderr.writeln(
+    'This is a harness failure, not an app failure. Grant '
+    'accessibility access to the test runner in System Settings > Privacy & '
+    'Security > Accessibility, then `killall "System Events"` and re-run.',
+  );
   exit(1);
 }
 
@@ -182,27 +200,29 @@ Future<void> _assertWindowEnumerationWorks() async {
 /// a broken harness into a 30-second wait ending in a verdict about the app,
 /// so the error is surfaced instead.
 Future<int> _windowCount(int pid) async {
-  final result = await Process.run('osascript', [
-    '-e',
-    'tell application "System Events" to get (count of windows of (first '
-        'process whose unix id is $pid))',
-  ]);
+  final script =
+      'tell application "System Events" to get (count of windows '
+      'of (first process whose unix id is $pid))';
+  final result = await Process.run('osascript', ['-e', script]);
   if (result.exitCode != 0) {
     final message = result.stderr.toString().trim();
     // The process may not have registered with the window server yet; that
     // shows up as "can't get process" and is a legitimate not-yet.
-    if (message.contains('-1719') || message.contains("Can’t get")) return 0;
-    stderr.writeln('FAIL: cannot query windows via System Events: $message');
-    stderr.writeln(
-        'Grant accessibility access to the test runner, or restart System '
-        'Events, and re-run. This is a harness failure, not an app failure.');
+    if (message.contains('-1719') || message.contains('Can’t get')) return 0;
+    stderr
+      ..writeln('FAIL: cannot query windows via System Events: $message')
+      ..writeln(
+        'Grant accessibility access to the test runner, or restart '
+        'System Events, and re-run. This is a harness failure, not an app '
+        'failure.',
+      );
     exit(1);
   }
   return int.tryParse(result.stdout.toString().trim()) ?? 0;
 }
 
 Future<void> _quitApp(int pid) async {
-  Process.killPid(pid, ProcessSignal.sigterm);
+  Process.killPid(pid);
   await Future<void>.delayed(const Duration(seconds: 2));
   Process.killPid(pid, ProcessSignal.sigkill);
 }

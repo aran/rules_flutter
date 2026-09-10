@@ -45,81 +45,184 @@ void main() {
 
     String uriFor(String relPath) => 'package:app/$relPath';
 
-    test('findChangedFrom returns files whose disk version differs from applied version',
-        () async {
-      writeFile('a.dart', 'v1');
-      final v1 = workspace.snapshot();
-      final applied = AppliedVersions()..markApplied(v1, files: {uriFor('a.dart')});
+    test(
+      'findChangedFrom returns files whose disk version differs from applied version',
+      () async {
+        writeFile('a.dart', 'v1');
+        final v1 = workspace.snapshot();
+        final applied = AppliedVersions()
+          ..markApplied(v1, files: {uriFor('a.dart')});
 
-      // Mutate the file: Dart's mtime stamping is monotonic per write on
-      // APFS, but write a different content to bump size as well so the
-      // Version compares unequal even on coarse-resolution filesystems.
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      writeFile('a.dart', 'v2 longer content');
-      final v2 = workspace.snapshot();
+        // Mutate the file: Dart's mtime stamping is monotonic per write on
+        // APFS, but write a different content to bump size as well so the
+        // Version compares unequal even on coarse-resolution filesystems.
+        writeFile('a.dart', 'v2 longer content');
+        final v2 = workspace.snapshot();
 
-      expect(applied.findChangedFrom(v2), {uriFor('a.dart')});
-    });
+        expect(applied.findChangedFrom(v2), {uriFor('a.dart')});
+      },
+    );
 
-    test('findChangedFrom returns files present on disk but not yet applied', () {
-      writeFile('a.dart', 'v1');
-      final v1 = workspace.snapshot();
-      final applied = AppliedVersions();
+    test(
+      'findChangedFrom returns files present on disk but not yet applied',
+      () {
+        writeFile('a.dart', 'v1');
+        final v1 = workspace.snapshot();
+        final applied = AppliedVersions();
 
-      expect(applied.findChangedFrom(v1), {uriFor('a.dart')});
-    });
+        expect(applied.findChangedFrom(v1), {uriFor('a.dart')});
+      },
+    );
 
-    test('markApplied advances per-file — marking file A does not affect file B',
-        () async {
-      writeFile('a.dart', 'a-v1');
-      writeFile('b.dart', 'b-v1');
-      final v1 = workspace.snapshot();
-      final applied = AppliedVersions();
+    test(
+      'markApplied advances per-file — marking file A does not affect file B',
+      () async {
+        writeFile('a.dart', 'a-v1');
+        writeFile('b.dart', 'b-v1');
+        final v1 = workspace.snapshot();
+        final applied = AppliedVersions();
 
-      applied.markApplied(v1, files: {uriFor('a.dart')});
+        applied.markApplied(v1, files: {uriFor('a.dart')});
 
-      // Only b.dart is unapplied; a.dart was just marked.
-      expect(applied.findChangedFrom(v1), {uriFor('b.dart')});
+        // Only b.dart is unapplied; a.dart was just marked.
+        expect(applied.findChangedFrom(v1), {uriFor('b.dart')});
 
-      // Now edit a.dart — it should appear changed even though b.dart is
-      // also un-applied (per-file state, not a global timestamp).
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      writeFile('a.dart', 'a-v2 longer');
-      final v2 = workspace.snapshot();
-      expect(
-        applied.findChangedFrom(v2),
-        {uriFor('a.dart'), uriFor('b.dart')},
-      );
-    });
+        // Now edit a.dart — it should appear changed even though b.dart is
+        // also un-applied (per-file state, not a global timestamp).
+        writeFile('a.dart', 'a-v2 longer');
+        final v2 = workspace.snapshot();
+        expect(
+          applied.findChangedFrom(v2),
+          {uriFor('a.dart'), uriFor('b.dart')},
+        );
+      },
+    );
 
-    test('clear() makes every disk file appear changed on the next findChangedFrom',
-        () {
-      writeFile('a.dart', 'a-v1');
-      writeFile('b.dart', 'b-v1');
-      final v1 = workspace.snapshot();
-      final applied = AppliedVersions()
-        ..markApplied(v1, files: {uriFor('a.dart'), uriFor('b.dart')});
+    test(
+      'clear() makes every disk file appear changed on the next findChangedFrom',
+      () {
+        writeFile('a.dart', 'a-v1');
+        writeFile('b.dart', 'b-v1');
+        final v1 = workspace.snapshot();
+        final applied = AppliedVersions()
+          ..markApplied(v1, files: {uriFor('a.dart'), uriFor('b.dart')});
 
-      expect(applied.findChangedFrom(v1), isEmpty);
+        expect(applied.findChangedFrom(v1), isEmpty);
 
-      applied.clear();
-      expect(applied.findChangedFrom(v1),
-          {uriFor('a.dart'), uriFor('b.dart')});
-    });
+        applied.clear();
+        expect(applied.findChangedFrom(v1), {
+          uriFor('a.dart'),
+          uriFor('b.dart'),
+        });
+      },
+    );
 
-    test('a file declared by a caller but absent from the snapshot is silently ignored on markApplied',
-        () {
-      // Agents may pass invalidatedFiles for URIs that don't exist on disk
-      // (e.g. about-to-be-flushed editor buffer). markApplied with such
-      // a file should not crash; the file simply doesn't get recorded
-      // until it appears in a real snapshot.
-      writeFile('a.dart', 'a-v1');
-      final v1 = workspace.snapshot();
-      final applied = AppliedVersions();
+    test(
+      'a file declared by a caller but absent from the snapshot is silently ignored on markApplied',
+      () {
+        // Agents may pass invalidatedFiles for URIs that don't exist on disk
+        // (e.g. about-to-be-flushed editor buffer). markApplied with such
+        // a file should not crash; the file simply doesn't get recorded
+        // until it appears in a real snapshot.
+        writeFile('a.dart', 'a-v1');
+        final v1 = workspace.snapshot();
+        final applied = AppliedVersions();
 
-      applied.markApplied(v1, files: {uriFor('phantom.dart'), uriFor('a.dart')});
-      expect(applied.length, 1);
-      expect(applied.versionOf(uriFor('a.dart')), isNotNull);
+        applied.markApplied(
+          v1,
+          files: {uriFor('phantom.dart'), uriFor('a.dart')},
+        );
+        expect(applied.length, 1);
+        expect(applied.versionOf(uriFor('a.dart')), isNotNull);
+      },
+    );
+
+    group('seedFromBuild', () {
+      // The seed has to describe the source the *running app* was built from,
+      // not whatever is on disk when assembly happens to reach it. Assembly
+      // runs a bazel build and starts a frontend server while the app is
+      // already up and answering commands, so a driver that edits in that
+      // window would otherwise have its edit recorded as already-applied and
+      // the first reload would find nothing to do.
+
+      test('seeds a source file that predates the build', () {
+        writeFile('a.dart', 'v1');
+        final snap = workspace.snapshot();
+        final cutoff = DateTime.now().add(const Duration(seconds: 1));
+
+        final applied = AppliedVersions()
+          ..seedFromBuild(snap, builtBefore: cutoff, generated: const {});
+
+        expect(
+          applied.findChangedFrom(snap),
+          isEmpty,
+          reason: 'a file the build consumed is already live in the app',
+        );
+      });
+
+      test('does not seed a source file written after the build started', () {
+        writeFile('a.dart', 'v1');
+        final cutoff = DateTime.now();
+        // The edit lands while assembly is still running.
+        File(
+          p.join(tmp.path, 'lib', 'a.dart'),
+        ).setLastModifiedSync(cutoff.add(const Duration(seconds: 1)));
+        final snap = workspace.snapshot();
+
+        final applied = AppliedVersions()
+          ..seedFromBuild(snap, builtBefore: cutoff, generated: const {});
+
+        expect(
+          applied.findChangedFrom(snap),
+          {uriFor('a.dart')},
+          reason: 'the app cannot be running an edit made after its build',
+        );
+      });
+
+      test('does not seed a source file stamped exactly at the cutoff', () {
+        writeFile('a.dart', 'v1');
+        final snap = workspace.snapshot();
+        // Taken from the snapshot rather than stamped on: `setLastModified`
+        // round-trips through the filesystem's own mtime resolution, which is
+        // coarser than DateTime, so stamping "exactly" the cutoff lands before
+        // it and the boundary never gets tested.
+        final cutoff = snap.versionOf(uriFor('a.dart'))!.mtime;
+
+        final applied = AppliedVersions()
+          ..seedFromBuild(snap, builtBefore: cutoff, generated: const {});
+
+        // Ambiguous either way, so it resolves toward a spurious recompile of
+        // content the app already has rather than toward dropping an edit.
+        expect(applied.findChangedFrom(snap), {uriFor('a.dart')});
+      });
+
+      test('seeds a generated file however late the build wrote it', () {
+        // Generated files are written by the dev build *inside* assembly, so
+        // their mtime is always past the cutoff. Filtering them would unseed
+        // every codegen output on every run.
+        final genDir = Directory(p.join(tmp.path, 'gen'))..createSync();
+        final gen = File(p.join(genDir.path, 'g.dart'))
+          ..writeAsStringSync('generated');
+        gen.setLastModifiedSync(
+          DateTime.now().add(const Duration(seconds: 30)),
+        );
+        const genUri = 'package:app/g.dart';
+        final ws = appWorkspace(tmp.path, generatedFiles: {genUri: gen.path});
+        final snap = ws.snapshot();
+
+        final applied = AppliedVersions()
+          ..seedFromBuild(
+            snap,
+            builtBefore: DateTime.now(),
+            generated: {genUri},
+          );
+
+        expect(
+          applied.findChangedFrom(snap),
+          isEmpty,
+          reason: 'the initial compile consumed exactly this generated file',
+        );
+      });
     });
 
     test('sub-second mtime precision is preserved on macOS APFS', () async {
@@ -130,14 +233,19 @@ void main() {
       if (!Platform.isMacOS) return; // APFS-specific assertion.
       writeFile('a.dart', 'v1');
       final t1 = File(p.join(tmp.path, 'lib', 'a.dart')).statSync().modified;
-      // Write again with different content so size differs (covers the case
-      // where FS resolution is coarser than the test sleep). Then assert that
-      // mtime *also* differs — i.e. APFS sub-second precision is in effect.
+      // 'v1' and 'v2' are the same length on purpose: size is the other half
+      // of `Version`, and letting it move would let this pass without saying
+      // anything about mtime. The 5ms is the interval under test, not a wait
+      // for anything — it is what makes the two writes sub-second apart, which
+      // is the resolution being pinned.
       await Future<void>.delayed(const Duration(milliseconds: 5));
       writeFile('a.dart', 'v2');
       final t2 = File(p.join(tmp.path, 'lib', 'a.dart')).statSync().modified;
-      expect(t2.isAfter(t1), isTrue,
-          reason: 'mtime should differ after a 5ms-apart rewrite on APFS');
+      expect(
+        t2.isAfter(t1),
+        isTrue,
+        reason: 'mtime should differ after a 5ms-apart rewrite on APFS',
+      );
     });
   });
 
@@ -160,8 +268,9 @@ void main() {
 
     test('recurses into nested lib/ subdirectories', () {
       Directory(p.join(tmp.path, 'lib', 'a', 'b')).createSync(recursive: true);
-      File(p.join(tmp.path, 'lib', 'a', 'b', 'c.dart'))
-          .writeAsStringSync('// c');
+      File(
+        p.join(tmp.path, 'lib', 'a', 'b', 'c.dart'),
+      ).writeAsStringSync('// c');
 
       final snap = workspace.snapshot();
       expect(snap.fileUris, contains('package:app/a/b/c.dart'));
@@ -177,27 +286,34 @@ void main() {
     });
 
     test('scans dependency packages and keys them by their package: URI', () {
-      // Regression: the snapshot must cover ALL first-party source packages
-      // (app + local deps), not just the app's own lib/. A dep-source edit was
-      // previously invisible (only <root>/lib was scanned) — and the watcher
-      // keyed it as a bogus file:// URI. Both are now driven by the resolver's
-      // package map, so a dep file is keyed `package:dep/…`.
+      // The snapshot must cover ALL first-party source packages (app + local
+      // deps), not just the app's own lib/. Snapshot and watcher are both
+      // driven by the resolver's package map, so a dep file is keyed
+      // `package:dep/…`.
       Directory(p.join(tmp.path, 'lib')).createSync(recursive: true);
       File(p.join(tmp.path, 'lib', 'main.dart')).writeAsStringSync('// main');
-      Directory(p.join(tmp.path, 'packages', 'dep', 'lib'))
-          .createSync(recursive: true);
-      File(p.join(tmp.path, 'packages', 'dep', 'lib', 'api.dart'))
-          .writeAsStringSync('// api');
+      Directory(
+        p.join(tmp.path, 'packages', 'dep', 'lib'),
+      ).createSync(recursive: true);
+      File(
+        p.join(tmp.path, 'packages', 'dep', 'lib', 'api.dart'),
+      ).writeAsStringSync('// api');
 
-      final ws = appWorkspace(tmp.path, packages: const [
-        (name: 'app', libRoot: ''),
-        (name: 'dep', libRoot: 'packages/dep'),
-      ]);
+      final ws = appWorkspace(
+        tmp.path,
+        packages: const [
+          (name: 'app', libRoot: ''),
+          (name: 'dep', libRoot: 'packages/dep'),
+        ],
+      );
       final snap = ws.snapshot();
-      expect(snap.fileUris, containsAll(<String>[
-        'package:app/main.dart',
-        'package:dep/api.dart',
-      ]));
+      expect(
+        snap.fileUris,
+        containsAll(<String>[
+          'package:app/main.dart',
+          'package:dep/api.dart',
+        ]),
+      );
       expect(
         snap.fileUris.any((u) => u.startsWith('file:')),
         isFalse,

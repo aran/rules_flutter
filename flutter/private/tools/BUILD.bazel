@@ -1,11 +1,26 @@
-load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test")
 
+# The scripts build actions run directly, handed to those actions as raw
+# sources — a rule's `_tool` attr resolves the file label and passes its path to
+# `dart run`, so none of them is a Bazel target of its own.
+#
+# That leaves them with no `DartInfo` and so nothing for `dart_analyze_test` to
+# be pointed at. Their analysis rides on `//flutter/private/tools/test`
+# instead: each one is a `srcs` entry of the `dart_test` that covers it, and a
+# `dart_test`'s `DartAnalyzableInfo` carries `[main] + srcs`, so analyzing the
+# test analyzes the script. **A script exported here without a test in that
+# package is analyzed by nothing** — the test is what carries it, not this list.
 exports_files(
     [
         "generate_asset_manifest.dart",
         "bundle_app.dart",
         "merge_android_manifests.dart",
         "merge_plists.dart",
+        "web_template.dart",
+        # Exported for its unit test's `srcs`, not for a build action: unlike
+        # its neighbours this one is a `dart_binary` main (below), and rules
+        # reach it through that target rather than by file label.
+        "flutter_test_runner.dart",
     ],
     visibility = ["//flutter:__subpackages__"],
 )
@@ -24,4 +39,37 @@ dart_binary(
     main = "flutter_test_runner.dart",
     visibility = ["//flutter:__subpackages__"],
     deps = ["@rules_dart//dart/runfiles"],
+)
+
+# Static analysis of the two entrypoints, as tests — this package is the code
+# that builds everything else in the repo, and until these existed not one of
+# its twelve Dart files was analyzed by anything.
+#
+# Pointed at the binaries rather than at a library: `pub.dart` and
+# `flutter_test_runner.dart` are `main`s belonging to no package's `lib/`, so
+# they appear in no `DartInfo` and reach the analyzer only through each
+# `dart_binary`'s own `DartAnalyzableInfo`.
+[dart_analyze_test(
+    name = "%s_analyze" % name,
+    size = "small",
+    target = ":%s" % name,
+) for name in [
+    "pub_runner",
+    "flutter_test_runner",
+]]
+
+# All twelve scripts, whether or not a `dart_binary` or `dart_test` reaches
+# them — `dart_format_test` takes files directly, so it needs none of the
+# `target=` handles the analyze tests above depend on. Flat glob: this
+# package has no subdirectory of its own (`test/` is
+# `flutter/private/tools/test`, a separate package).
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    # Matches this package's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:analysis_options.yaml",
 )

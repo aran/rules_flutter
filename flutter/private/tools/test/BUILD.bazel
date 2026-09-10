@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test", "dart_test")
 
 # Unit tests for the Dart tools that build actions run.
 #
@@ -7,24 +7,65 @@ load("@rules_dart//dart:defs.bzl", "dart_test")
 # no pub dependencies, deliberately, since a build action runs them straight
 # from the toolchain's Dart.
 #
-# Adding an entry here is the whole cost of a new test file, and the list is
-# the reason a file cannot quietly go unrun — all four of these shipped without
-# targets and were never covered by `bazel test //...`, the canonical runner.
+# A new test file needs an entry here, or nothing runs it.
 #
 # `@dev_tool_deps//:test` is `package:test` from the one pub hub this workspace
 # declares (MODULE.bazel `flutter.pub(name = "dev_tool_deps")`). These tools are
 # not part of the dev tool; they share its hub because a second hub would mean a
 # second pubspec to resolve and keep pinned for a single test-only dependency.
+#
+# The value is the tool plus whatever that tool imports beyond `package:test`.
 _UNIT_TESTS = {
-    "bundle_app_test": "bundle_app.dart",
-    "generate_asset_manifest_test": "generate_asset_manifest.dart",
-    "merge_android_manifests_test": "merge_android_manifests.dart",
-    "merge_plists_test": "merge_plists.dart",
+    "bundle_app_test": ("bundle_app.dart", []),
+    "generate_asset_manifest_test": ("generate_asset_manifest.dart", []),
+    "merge_android_manifests_test": ("merge_android_manifests.dart", []),
+    "merge_plists_test": ("merge_plists.dart", []),
+    "web_template_test": ("web_template.dart", []),
+    "flutter_test_runner_test": (
+        "flutter_test_runner.dart",
+        ["@rules_dart//dart/runfiles"],
+    ),
 }
 
 [dart_test(
     name = name,
     srcs = ["//flutter/private/tools:%s" % tool],
     main = "%s.dart" % name,
-    deps = ["@dev_tool_deps//:test"],
-) for name, tool in _UNIT_TESTS.items()]
+    deps = ["@dev_tool_deps//:test"] + extra_deps,
+) for name, (tool, extra_deps) in _UNIT_TESTS.items()]
+
+# Static analysis, as a test — and the only analysis the tools themselves get.
+#
+# A `dart_test` compiles its `main` to a kernel, which rejects broken code but
+# is indifferent to everything `dart analyze --fatal-infos` reports, so neither
+# these tests nor the tools they cover were analyzed at all until this existed.
+#
+# One target per test, and each covers *two* files: a `dart_test`'s
+# `DartAnalyzableInfo` carries `[main] + srcs`, and the tool under test is a
+# `srcs` entry (above). That is what puts `bundle_app.dart` and its four peers
+# under the analyzer without giving them targets of their own — they are handed
+# to build actions as raw file labels, so a target would change how every
+# consuming rule names them for no analysis gain.
+#
+# Generated from `_UNIT_TESTS` rather than written out, so a new entry is
+# analyzed the day it is added and no tool can be covered by a run target but
+# missed by an analysis one.
+[dart_analyze_test(
+    name = "%s_analyze" % name,
+    size = "small",
+    target = ":%s" % name,
+) for name in _UNIT_TESTS]
+
+# The six test files, by a flat glob rather than off `_UNIT_TESTS`: format
+# checking doesn't need a `target=` handle the way the analyze tests above do,
+# so there is no reason to route it through the same generator.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    # Matches this package's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:analysis_options.yaml",
+)

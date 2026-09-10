@@ -32,14 +32,16 @@ void main() {
       final out = BufferSink();
       TerminalAppLogSink(out: out, err: BufferSink())(line('plain'));
 
-      expect(out.lines, ['plain'],
-          reason: 'a single-device run should read like `flutter run`');
+      expect(out.lines, [
+        'plain',
+      ], reason: 'a single-device run should read like `flutter run`');
     });
 
     test('prefixes with the device name when running multiple devices', () {
       final out = BufferSink();
       TerminalAppLogSink(out: out, err: BufferSink(), prefix: 'macOS')(
-          line('hello'));
+        line('hello'),
+      );
 
       expect(out.lines, ['[macOS] hello']);
     });
@@ -47,7 +49,8 @@ void main() {
     test('prefixes error lines too', () {
       final err = BufferSink();
       TerminalAppLogSink(out: BufferSink(), err: err, prefix: 'Chrome')(
-          line('bad', isError: true));
+        line('bad', isError: true),
+      );
 
       expect(err.lines, ['[Chrome] bad']);
     });
@@ -91,21 +94,26 @@ void main() {
       sink(line('two'));
 
       // Nothing may reach stdout except `[{...}]` envelopes — an IDE parsing
-      // this stream chokes on interleaved raw text, which is what the old
-      // implementation wrote.
+      // this stream chokes on interleaved raw text.
       for (final l in out.lines) {
-        expect(l.startsWith('[{') && l.endsWith('}]'), isTrue,
-            reason: 'unexpected non-protocol line on stdout: $l');
+        expect(
+          l.startsWith('[{') && l.endsWith('}]'),
+          isTrue,
+          reason: 'unexpected non-protocol line on stdout: $l',
+        );
       }
       expect(out.lines, hasLength(2));
     });
 
     test('carries text that would otherwise break the JSON envelope', () {
       MachineAppLogSink(protocol, 'app1')(
-          line('quote " brace } newline-ish \\n'));
+        line('quote " brace } newline-ish \\n'),
+      );
 
-      expect(decodeSingleEvent(out)['params']['log'],
-          'quote " brace } newline-ish \\n');
+      expect(
+        decodeSingleEvent(out)['params']['log'],
+        'quote " brace } newline-ish \\n',
+      );
     });
 
     test('a disabled protocol emits nothing at all', () {
@@ -177,8 +185,11 @@ void main() {
       );
       sink(line('hello'));
 
-      expect(decodeSingleEvent(out)['params']['log'], 'hello',
-          reason: 'no [Chrome] prefix should be baked into the log payload');
+      expect(
+        decodeSingleEvent(out)['params']['log'],
+        'hello',
+        reason: 'no [Chrome] prefix should be baked into the log payload',
+      );
     });
   });
 }

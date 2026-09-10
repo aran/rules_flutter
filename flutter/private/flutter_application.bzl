@@ -11,11 +11,13 @@ This rule produces outputs that platform-specific wrappers consume:
 3. ICU data file (icudtl.dat)
 """
 
+load("@apple_support//lib:apple_support.bzl", "apple_support")
+load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_native_libs", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
-load("//flutter/private:flutter_library.bzl", "dedup_plugins")
+load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
 
 def _flutter_application_impl(ctx):
@@ -74,10 +76,8 @@ def _flutter_application_impl(ctx):
         if FlutterInfo not in dep:
             continue
         info = dep[FlutterInfo]
-        if hasattr(info, "native_assets") and info.native_assets != None:
-            transitive_native_asset_depsets.append(info.native_assets)
-        if hasattr(info, "data_assets") and info.data_assets != None:
-            transitive_data_asset_depsets.append(info.data_assets)
+        transitive_native_asset_depsets.append(info.native_assets)
+        transitive_data_asset_depsets.append(info.data_assets)
     transitive_native_assets = depset(transitive = transitive_native_asset_depsets)
     transitive_data_assets = depset(transitive = transitive_data_asset_depsets)
 
@@ -105,12 +105,33 @@ def _flutter_application_impl(ctx):
 
     bundled_code_assets = collect_bundled_code_asset_files(native_assets_list)
 
+    # Declared before the kernel compile that will later feed it, because a
+    # debug app carries this path inside itself: `flutter_compile_kernel`
+    # bakes it into `rules_flutter.build_info.assetsDir`, and the dev tool
+    # matches the running app's reported value against the tree it watches
+    # and rebuilds. Declaring an output is independent of registering the
+    # action that fills it, so the ordering costs nothing.
+    flutter_assets = declare_flutter_assets_dir(ctx)
+
     # Step 1: Kernel compilation (mode-aware: debug uses debug dill, no AOT).
     compilation = flutter_compile_kernel(
         ctx,
         flutter_sdk_info,
         target_platform = target_platform,
         native_assets_manifest = native_assets_manifest_file,
+        profile = is_profile,
+        track_widget_creation = ctx.attr.track_widget_creation,
+        assets_dir = flutter_assets,
+        platform_build_args = launch_build_args(
+            target_platform,
+            is_simulator = is_ios and apple_support.target_environment_from_rule_ctx(ctx) == "simulator",
+            is_arm64 = ctx.target_platform_has_constraint(
+                ctx.attr._arm64_constraint[platform_common.ConstraintValueInfo],
+            ),
+            is_x86_64 = ctx.target_platform_has_constraint(
+                ctx.attr._x86_64_constraint[platform_common.ConstraintValueInfo],
+            ),
+        ),
     )
     kernel_dill = compilation.kernel_dill
     package_config = compilation.package_config
@@ -170,21 +191,24 @@ def _flutter_application_impl(ctx):
     # Step 3: Shader compilation + asset bundle. Pass data assets so the
     # bundler places them under flutter_assets/data/<pkg>/<name>.
     compiled_shaders = flutter_compile_shaders(ctx, flutter_sdk_info, target_platform)
-    flutter_assets = flutter_build_assets(
+    flutter_build_assets(
         ctx,
         flutter_sdk_info,
+        flutter_assets,
         compiled_shaders,
         kernel_dill = kernel_dill,
         is_debug = is_debug,
         data_assets = transitive_data_assets,
     )
 
-    # Collect plugins from deps for FlutterInfo propagation.
+    # Aggregate the plugin channels from deps. These are what the platform
+    # registrant generators and desktop runners read back off this target —
+    # via FlutterApplicationInfo, since an application is the end of the
+    # library graph and does not contribute to another one.
     all_dep_plugins = []
     apple_plugin_lib_depsets = []
     linux_plugin_lib_depsets = []
     windows_plugin_lib_depsets = []
-    android_plugin_lib_depsets = []
     apple_privacy_manifest_depsets = []
     for dep in ctx.attr.deps:
         if FlutterInfo in dep:
@@ -192,14 +216,11 @@ def _flutter_application_impl(ctx):
             apple_plugin_lib_depsets.append(dep[FlutterInfo].apple_plugin_libraries)
             linux_plugin_lib_depsets.append(dep[FlutterInfo].linux_plugin_libraries)
             windows_plugin_lib_depsets.append(dep[FlutterInfo].windows_plugin_libraries)
-            android_plugin_lib_depsets.append(dep[FlutterInfo].android_plugin_libraries)
-            if hasattr(dep[FlutterInfo], "apple_privacy_manifests") and dep[FlutterInfo].apple_privacy_manifests != None:
-                apple_privacy_manifest_depsets.append(dep[FlutterInfo].apple_privacy_manifests)
+            apple_privacy_manifest_depsets.append(dep[FlutterInfo].apple_privacy_manifests)
     all_plugins = dedup_plugins(all_dep_plugins)
     apple_plugin_libraries = depset(transitive = apple_plugin_lib_depsets)
     linux_plugin_libraries = depset(transitive = linux_plugin_lib_depsets)
     windows_plugin_libraries = depset(transitive = windows_plugin_lib_depsets)
-    android_plugin_libraries = depset(transitive = android_plugin_lib_depsets)
     apple_privacy_manifests = depset(transitive = apple_privacy_manifest_depsets)
 
     default_files = [flutter_assets, package_config, native_assets_manifest_file] + native_libs
@@ -234,12 +255,20 @@ def _flutter_application_impl(ctx):
                 # dev tool replays these as -D on its resident frontend_server
                 # so hot reload/restart recompiles keep the same environment.
                 "dartDefines": compilation.dart_defines,
-                # Generated plugin registrant (exec-relative path, "" when
-                # the app has no Dart plugins and no agent). The dev tool
-                # compiles it into its dills via --source and advertises it
-                # with -Dflutter.dart_plugin_registrant so the engine's
-                # pre-main hook keeps firing after hot restart.
-                "dartPluginRegistrant": compilation.dart_plugin_registrant.path if compilation.dart_plugin_registrant else "",
+                # Generated plugin registrants, keyed by platform
+                # (exec-relative paths, "" when that platform has no Dart
+                # plugins and no agent). One per platform because this dev
+                # build runs in the host configuration while the app can be
+                # running elsewhere; the dev tool selects by the platform the
+                # app reports (build_info.targetPlatform), compiles that file
+                # into its dills via --source, and advertises it with
+                # -Dflutter.dart_plugin_registrant so the engine's pre-main
+                # hook keeps firing — with the right plugin set — after hot
+                # restart.
+                "dartPluginRegistrants": {
+                    platform: registrant.path if registrant else ""
+                    for platform, registrant in compilation.dev_plugin_registrants.items()
+                },
                 "devPackageConfig": compilation.dev_package_config.path,
                 "filesystemRoots": compilation.dev_filesystem_roots,
                 "filesystemScheme": compilation.dev_filesystem_scheme,
@@ -256,8 +285,20 @@ def _flutter_application_impl(ctx):
         )
         default_files.append(dev_config_file)
         default_files.append(compilation.dev_package_config)
-        if compilation.dart_plugin_registrant:
-            default_files.append(compilation.dart_plugin_registrant)
+
+        # The dev registrants are inputs to no action — without this they are
+        # declared but never materialized by the bare build, and the dev tool
+        # would absolutize a dangling path.
+        for registrant in compilation.dev_plugin_registrants.values():
+            if registrant:
+                default_files.append(registrant)
+
+        # The generated sources `_dev_config.json` points the frontend_server
+        # at. These *are* inputs to the kernel compile, which is why they
+        # looked safe — but an input is materialized on the machine that ran
+        # the action, and a cache hit runs none. Declaring them is what makes
+        # the paths in the config true.
+        default_files.extend(compilation.dev_generated_source_files)
 
     output_groups = {
         "native_assets_manifest": depset([native_assets_manifest_file]),
@@ -280,22 +321,10 @@ def _flutter_application_impl(ctx):
             bundled_code_assets = bundled_code_assets,
             bundled_data_assets = transitive_data_assets,
             apple_privacy_manifests = apple_privacy_manifests,
-        ),
-        FlutterInfo(
             plugins = all_plugins,
-            asset_dirs = depset(),
-            shader_srcs = depset(),
-            transitive_native_libs = depset(),
             apple_plugin_libraries = apple_plugin_libraries,
             linux_plugin_libraries = linux_plugin_libraries,
             windows_plugin_libraries = windows_plugin_libraries,
-            android_plugin_libraries = android_plugin_libraries,
-            apple_privacy_manifests = apple_privacy_manifests,
-            native_assets = transitive_native_assets,
-            data_assets = transitive_data_assets,
-            pub_fonts = depset(),
-            pub_assets = depset(),
-            pub_shaders = depset(),
         ),
     ]
     providers.append(OutputGroupInfo(**output_groups))
@@ -303,7 +332,16 @@ def _flutter_application_impl(ctx):
 
 flutter_application = rule(
     implementation = _flutter_application_impl,
-    attrs = dict(FLUTTER_APPLICATION_ATTRS, **PLATFORM_CONSTRAINT_ATTRS),
+    attrs = dicts.add(
+        FLUTTER_APPLICATION_ATTRS,
+        PLATFORM_CONSTRAINT_ATTRS,
+        # Simulator-vs-device is an Apple *environment* constraint, not an OS
+        # one, so it needs apple_support's own attrs on top of the OS set.
+        # `launch_build_args` turns it into `--ios_multi_cpus=sim_arm64` or
+        # `=arm64`, which is the difference between a dev-loop rebuild landing
+        # in the app's output tree and landing in one it never reads.
+        apple_support.platform_constraint_attrs(),
+    ),
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,

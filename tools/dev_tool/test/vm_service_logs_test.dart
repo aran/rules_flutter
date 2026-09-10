@@ -42,7 +42,9 @@ void main() {
 
     test('returns null for an event with no bytes', () {
       expect(
-        decodeVmServiceLogEvent(Event(kind: EventKind.kWriteEvent, timestamp: 0)),
+        decodeVmServiceLogEvent(
+          Event(kind: EventKind.kWriteEvent, timestamp: 0),
+        ),
         isNull,
       );
     });
@@ -53,8 +55,10 @@ void main() {
       final service = FakeVmService();
       await forwardVmServiceLogs(service, AppLogStream());
 
-      expect(service.streamListens,
-          containsAll([EventStreams.kStdout, EventStreams.kStderr]));
+      expect(
+        service.streamListens,
+        containsAll([EventStreams.kStdout, EventStreams.kStderr]),
+      );
     });
 
     test('forwards stdout events as normal lines', () async {
@@ -111,7 +115,8 @@ void main() {
       await forwardVmServiceLogs(service, logs);
 
       service.emitRawStdoutEvent(
-          Event(kind: EventKind.kWriteEvent, timestamp: 0));
+        Event(kind: EventKind.kWriteEvent, timestamp: 0),
+      );
       await pumpEventQueue();
 
       expect(logs.read(0).lines, isEmpty);
@@ -131,8 +136,7 @@ void main() {
     });
 
     test('rethrows an unrelated streamListen failure', () async {
-      final service = FakeVmService()
-        ..failingStreams.add(EventStreams.kStdout);
+      final service = FakeVmService()..failingStreams.add(EventStreams.kStdout);
 
       expect(
         () => forwardVmServiceLogs(service, AppLogStream()),

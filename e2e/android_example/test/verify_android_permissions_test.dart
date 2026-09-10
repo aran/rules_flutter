@@ -16,6 +16,13 @@
 /// APK this test reads takes the non-debug manifest arm: finding INTERNET in
 /// it proves the permission came from `permissions` and not from the debug
 /// variant overlay.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -39,7 +46,9 @@ void main() {
     exit(1);
   }
 
-  final tmpDir = Directory.systemTemp.createTempSync('android_permissions_test');
+  final tmpDir = Directory.systemTemp.createTempSync(
+    'android_permissions_test',
+  );
   try {
     final unzip = Process.runSync(
       'unzip',
@@ -53,15 +62,20 @@ void main() {
     final manifest = File('${tmpDir.path}/AndroidManifest.xml');
     final declared = usesPermissions(manifest.readAsBytesSync());
 
-    print('Permissions declared by the APK: ${declared.isEmpty ? '(none)' : declared.join(', ')}');
+    print(
+      'Permissions declared by the APK: '
+      '${declared.isEmpty ? '(none)' : declared.join(', ')}',
+    );
 
     final missing = _requiredPermissions.difference(declared);
     if (missing.isNotEmpty) {
-      stderr.writeln('FAIL: the APK declares no ${missing.join(', ')}.\n'
-          'A release APK whose permission set is missing what the app needs '
-          'has no build error and no runtime exception — it just cannot open '
-          'a socket. Declare it via flutter_android_app(permissions = [...]), '
-          'which applies in every compilation mode.');
+      stderr.writeln(
+        'FAIL: the APK declares no ${missing.join(', ')}.\n'
+        'A release APK whose permission set is missing what the app needs '
+        'has no build error and no runtime exception — it just cannot open '
+        'a socket. Declare it via flutter_android_app(permissions = [...]), '
+        'which applies in every compilation mode.',
+      );
       exit(1);
     }
 
@@ -103,7 +117,8 @@ Set<String> usesPermissions(Uint8List manifest) {
     final chunkSize = data.getUint32(offset + 4, Endian.little);
     if (chunkSize < 8 || offset + chunkSize > manifest.length) {
       throw FormatException(
-          'AXML chunk at $offset declares an out-of-range size $chunkSize');
+        'AXML chunk at $offset declares an out-of-range size $chunkSize',
+      );
     }
 
     if (type == _chunkStringPool) {
@@ -111,7 +126,8 @@ Set<String> usesPermissions(Uint8List manifest) {
     } else if (type == _chunkXmlStartElement) {
       if (pool == null) {
         throw const FormatException(
-            'AXML START_ELEMENT appears before the string pool');
+          'AXML START_ELEMENT appears before the string pool',
+        );
       }
       final element = _readStartElement(data, offset, headerSize, pool);
       if (element.name == 'uses-permission' ||
@@ -119,7 +135,8 @@ Set<String> usesPermissions(Uint8List manifest) {
         final name = element.attributes['name'];
         if (name == null) {
           throw FormatException(
-              'AXML <${element.name}> has no android:name attribute');
+            'AXML <${element.name}> has no android:name attribute',
+          );
         }
         permissions.add(name);
       }
@@ -135,10 +152,10 @@ Set<String> usesPermissions(Uint8List manifest) {
 }
 
 class _Element {
+  _Element(this.name, this.attributes);
+
   final String name;
   final Map<String, String> attributes;
-
-  _Element(this.name, this.attributes);
 }
 
 _Element _readStartElement(
@@ -188,10 +205,12 @@ List<String> _readStringPool(ByteData data, Uint8List bytes, int offset) {
       // bytes: a leading high bit means the value spans two bytes.
       at = _skipUtf8Length(data, at);
       final (byteLength, contentAt) = _readUtf8Length(data, at);
-      strings.add(utf8.decode(
-        bytes.sublist(contentAt, contentAt + byteLength),
-        allowMalformed: true,
-      ));
+      strings.add(
+        utf8.decode(
+          bytes.sublist(contentAt, contentAt + byteLength),
+          allowMalformed: true,
+        ),
+      );
     } else {
       var length = data.getUint16(at, Endian.little);
       at += 2;

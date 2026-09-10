@@ -52,7 +52,9 @@ class _WriteBuffer {
   }
 
   void _putByteData(ByteData data) {
-    _builder.add(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+    _builder.add(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    );
     _position += data.lengthInBytes;
   }
 
@@ -143,7 +145,12 @@ Uint8List encodeStandardMessage(Object? message) {
 // -- Icon tree shaking helpers -----------------------------------------------
 
 /// Run font-subset, piping code points via stdin. Returns true on success.
-Future<bool> _runFontSubset(String fontSubsetBin, String outputPath, String inputPath, String codePoints) async {
+Future<bool> _runFontSubset(
+  String fontSubsetBin,
+  String outputPath,
+  String inputPath,
+  String codePoints,
+) async {
   // font-subset reads code points from stdin (space-separated, newline-terminated).
   final process = await Process.start(fontSubsetBin, [outputPath, inputPath]);
   try {
@@ -183,7 +190,8 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  final config = json.decode(File(configPath).readAsStringSync()) as Map<String, dynamic>;
+  final config =
+      json.decode(File(configPath).readAsStringSync()) as Map<String, dynamic>;
 
   // Create output directory.
   Directory(outputDir).createSync(recursive: true);
@@ -215,8 +223,7 @@ Future<void> main(List<String> args) async {
   File('$outputDir/FontManifest.json').writeAsStringSync(json.encode(fonts));
 
   // -- Icon tree shaking (optional) ------------------------------------------
-  final iconTreeShaking =
-      config['icon_tree_shaking'] as Map<String, dynamic>?;
+  final iconTreeShaking = config['icon_tree_shaking'] as Map<String, dynamic>?;
   Map<String, Set<int>>? usedCodePoints;
   Map<String, String>? fontFamilyToAsset;
 
@@ -228,32 +235,41 @@ Future<void> main(List<String> args) async {
     // Step 1: Run const_finder to discover used icon code points.
     final constFinderResult = Process.runSync(dart, [
       constFinder,
-      '--kernel-file', kernelDill,
-      '--class-library-uri', 'package:flutter/src/widgets/icon_data.dart',
-      '--class-name', 'IconData',
-      '--annotation-class-name', '_StaticIconProvider',
+      '--kernel-file',
+      kernelDill,
+      '--class-library-uri',
+      'package:flutter/src/widgets/icon_data.dart',
+      '--class-name',
+      'IconData',
+      '--annotation-class-name',
+      '_StaticIconProvider',
       '--annotation-class-library-uri',
       'package:flutter/src/widgets/icon_data.dart',
     ]);
 
     if (constFinderResult.exitCode != 0) {
-      stderr.writeln('const_finder failed (exit ${constFinderResult.exitCode}):');
+      stderr.writeln(
+        'const_finder failed (exit ${constFinderResult.exitCode}):',
+      );
       stderr.writeln(constFinderResult.stderr);
       // Fall through without tree shaking rather than failing the build.
     } else {
       final output =
-          json.decode(constFinderResult.stdout as String) as Map<String, dynamic>;
+          json.decode(constFinderResult.stdout as String)
+              as Map<String, dynamic>;
 
       // Check for non-const IconData usage.
       final nonConst = output['nonConstantLocations'] as List<dynamic>? ?? [];
       if (nonConst.isNotEmpty) {
         stderr.writeln(
-            'Warning: ${nonConst.length} non-const IconData instance(s) found. '
-            'Icon tree shaking disabled.');
+          'Warning: ${nonConst.length} non-const IconData instance(s) found. '
+          'Icon tree shaking disabled.',
+        );
       } else {
         // Build fontFamily → Set<codePoint> map.
         usedCodePoints = <String, Set<int>>{};
-        for (final instance in output['constantInstances'] as List<dynamic>? ?? []) {
+        for (final instance
+            in output['constantInstances'] as List<dynamic>? ?? []) {
           final m = instance as Map<String, dynamic>;
           final family = m['fontFamily'] as String?;
           final pkg = m['fontPackage'] as String?;
@@ -289,7 +305,9 @@ Future<void> main(List<String> args) async {
     Directory(File(dest).parent.path).createSync(recursive: true);
 
     // Check if this asset should be subsetted.
-    if (usedCodePoints != null && fontFamilyToAsset != null && iconTreeShaking != null) {
+    if (usedCodePoints != null &&
+        fontFamilyToAsset != null &&
+        iconTreeShaking != null) {
       final fontSubsetBin = iconTreeShaking['font_subset'] as String;
       String? matchedFamily;
       for (final famEntry in fontFamilyToAsset.entries) {
@@ -299,17 +317,26 @@ Future<void> main(List<String> args) async {
         }
       }
 
-      final codePoints = matchedFamily != null ? usedCodePoints[matchedFamily] : null;
+      final codePoints = matchedFamily != null
+          ? usedCodePoints[matchedFamily]
+          : null;
       if (codePoints != null && codePoints.isNotEmpty) {
         // Run font-subset: code points are piped via stdin.
         final codePointStr = codePoints.map((cp) => cp.toString()).join(' ');
-        final success = await _runFontSubset(fontSubsetBin, dest, entry.value as String, codePointStr);
+        final success = await _runFontSubset(
+          fontSubsetBin,
+          dest,
+          entry.value as String,
+          codePointStr,
+        );
         if (success) {
           final inputSize = File(entry.value as String).lengthSync();
           final outputSize = File(dest).lengthSync();
-          final reduction = ((inputSize - outputSize) / inputSize * 100).toStringAsFixed(1);
+          final reduction = ((inputSize - outputSize) / inputSize * 100)
+              .toStringAsFixed(1);
           stderr.writeln(
-              'Font "${entry.key}" tree-shaken: $inputSize -> $outputSize bytes ($reduction% reduction).');
+            'Font "${entry.key}" tree-shaken: $inputSize -> $outputSize bytes ($reduction% reduction).',
+          );
           continue;
         }
         // Fall through to normal copy on failure.

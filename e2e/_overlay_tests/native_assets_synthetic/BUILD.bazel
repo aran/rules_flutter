@@ -49,9 +49,14 @@ flutter_data_asset(
 #    keeps it acting as a plain pure-Dart container; the only purpose
 #    is to surface FlutterInfo with the asset entries for transitive
 #    pickup by `flutter_application`.
+#
+#    It claims the app's own `package_name` because it shares the app's
+#    Bazel package, and two Dart packages cannot be rooted at one
+#    directory. Carrying no sources it is not a package in its own
+#    right, and its assets are already id'd under the app's name.
 flutter_plugin(
     name = "synthetic_glue",
-    package_name = "native_assets_synthetic_glue",
+    package_name = "native_assets_synthetic",
     srcs = [],
     data_assets = [":synthetic_blob"],
     native_assets = select({

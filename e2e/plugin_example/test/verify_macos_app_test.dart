@@ -15,6 +15,13 @@
 /// Run explicitly:
 ///   bazel test :verify_macos_app_test --test_tag_filters= \
 ///     --strategy=TestRunner=standalone
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -58,37 +65,44 @@ Future<void> main() async {
     final captured = StringBuffer();
 
     void watch(Stream<List<int>> stream, IOSink mirror) {
-      stream.transform(utf8.decoder).transform(const LineSplitter()).listen(
-        (line) {
-          captured.writeln(line);
-          mirror.writeln(line);
-          if (!summaryCompleter.isCompleted && line.contains(_summaryMarker)) {
-            summaryCompleter.complete(line);
-          }
-        },
-        onError: (Object e) {
-          if (!summaryCompleter.isCompleted) {
-            summaryCompleter.completeError(e);
-          }
-        },
-      );
+      stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              captured.writeln(line);
+              mirror.writeln(line);
+              if (!summaryCompleter.isCompleted &&
+                  line.contains(_summaryMarker)) {
+                summaryCompleter.complete(line);
+              }
+            },
+            onError: (Object e) {
+              if (!summaryCompleter.isCompleted) {
+                summaryCompleter.completeError(e);
+              }
+            },
+          );
     }
 
     watch(process.stdout, stdout);
     watch(process.stderr, stderr);
 
-    final summary = await summaryCompleter.future
-        .timeout(const Duration(seconds: 30), onTimeout: () {
-      return '';
-    });
+    final summary = await summaryCompleter.future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        return '';
+      },
+    );
 
     process.kill();
     await process.exitCode;
 
     if (summary.isEmpty) {
-      stderr.writeln('FAIL: $_summaryMarker line not seen within 30s');
-      stderr.writeln('--- captured output ---');
-      stderr.writeln(captured.toString());
+      stderr
+        ..writeln('FAIL: $_summaryMarker line not seen within 30s')
+        ..writeln('--- captured output ---')
+        ..writeln(captured.toString());
       exit(1);
     }
 
@@ -98,10 +112,10 @@ Future<void> main() async {
     if (!summary.contains('appName=Plugin Example')) {
       fails.add('appName is not "Plugin Example"');
     }
-    if (!RegExp(r'documentsPath=/Users/').hasMatch(summary)) {
+    if (!RegExp('documentsPath=/Users/').hasMatch(summary)) {
       fails.add('documentsPath does not start with /Users/');
     }
-    if (!RegExp(r'tempPath=/').hasMatch(summary)) {
+    if (!RegExp('tempPath=/').hasMatch(summary)) {
       fails.add('tempPath is not an absolute path');
     }
     if (!summary.contains('launchOk=launch ok')) {

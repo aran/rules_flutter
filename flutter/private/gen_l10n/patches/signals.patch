@@ -1,0 +1,51 @@
+--- a/lib/src/base/signals.dart
++++ b/lib/src/base/signals.dart
+@@ -6,10 +6,9 @@
+ 
+ import 'package:meta/meta.dart';
+ 
+-import '../globals.dart' as globals;
+ import 'async_guard.dart';
++import 'exit.dart';
+ import 'io.dart';
+-import 'process.dart';
+ 
+ typedef SignalHandler = FutureOr<void> Function(ProcessSignal signal);
+ 
+@@ -18,10 +17,8 @@
+ /// Signal handlers are run in the order that they were added.
+ abstract class Signals {
+   @visibleForTesting
+-  factory Signals.test({
+-    List<ProcessSignal> exitSignals = defaultExitSignals,
+-    ShutdownHooks? shutdownHooks,
+-  }) => LocalSignals._(exitSignals, shutdownHooks: shutdownHooks);
++  factory Signals.test({List<ProcessSignal> exitSignals = defaultExitSignals}) =>
++      LocalSignals._(exitSignals);
+ 
+   // The default list of signals that should cause the process to exit.
+   static const defaultExitSignals = <ProcessSignal>[ProcessSignal.sigterm, ProcessSignal.sigint];
+@@ -50,13 +47,11 @@
+ /// We use a singleton instance of this class to ensure that all handlers for
+ /// fatal signals run before this class calls exit().
+ class LocalSignals implements Signals {
+-  LocalSignals._(this.exitSignals, {ShutdownHooks? shutdownHooks})
+-    : _shutdownHooks = shutdownHooks ?? globals.shutdownHooks;
++  LocalSignals._(this.exitSignals);
+ 
+   static LocalSignals instance = LocalSignals._(Signals.defaultExitSignals);
+ 
+   final List<ProcessSignal> exitSignals;
+-  final ShutdownHooks _shutdownHooks;
+ 
+   // A table mapping (signal, token) -> signal handler.
+   final _handlersTable = <ProcessSignal, Map<Object, SignalHandler>>{};
+@@ -141,7 +136,7 @@
+     // If this was a signal that should cause the process to go down, then
+     // call exit();
+     if (_shouldExitFor(s)) {
+-      await exitWithHooks(0, shutdownHooks: _shutdownHooks);
++      exit(0);
+     }
+   }
+ 

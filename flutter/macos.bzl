@@ -67,7 +67,7 @@ load("//flutter/private:flutter_apple_plugin_library.bzl", _flutter_apple_plugin
 load("//flutter/private:flutter_apple_plugins_aggregator.bzl", _flutter_apple_plugins_aggregator = "flutter_apple_plugins_aggregator")
 load("//flutter/private:flutter_macos_application.bzl", _flutter_macos_framework_rule = "flutter_macos_framework", _flutter_macos_native_libs_rule = "flutter_macos_native_libs", _flutter_macos_privacy_manifests_rule = "flutter_macos_privacy_manifests")
 load("//flutter/private:flutter_macos_registrant.bzl", _flutter_macos_registrant_rule = "flutter_macos_registrant")
-load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge")
+load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
 
 # Re-export for user BUILD files.
@@ -264,6 +264,7 @@ def flutter_macos_app(
         additional_contents = {},
         entitlements = None,
         additional_entitlements = [],
+        app_icons = None,
         resources = [],
         **kwargs):
     """Builds a Flutter macOS .app bundle from a flutter_application target.
@@ -320,13 +321,28 @@ def flutter_macos_app(
             already declares with the same value is deduped; a different
             value is a hard error naming the key and both files. Compose
             `flutter_entitlements_merge` directly for anything more.
+        app_icons: The app icon, as the files of an `.appiconset` or of an
+            Icon Composer `.icon` bundle. Defaults to the conventional
+            `macos/Runner/Assets.xcassets/AppIcon.appiconset` that
+            `flutter create` writes — so an app that has never thought about
+            this ships the icon it already has on disk, which is what
+            `flutter build macos` does with the same tree. Pass a list to
+            name a different one; pass `[]` to ship no icon. rules_apple
+            refuses an `.appiconset` and a `.icon` bundle together, so name
+            exactly one.
+            Discovery is per-platform and its absence is silent: a tree
+            that only ever ran `flutter create --platforms=ios .` has no
+            catalog here, and an app with neither a catalog nor an
+            `app_icons` has said nothing either way, so it ships no icon and
+            there is nothing to report.
         resources: Extra resources. MainMenu.xib is wired separately, through
             the runner library, so that ibtool resolves its Swift classes
             against the runner's module. Resources passed here are compiled
             against the app target's name instead, which is not a module any
             target produces — so a XIB listed here cannot reference the
             runner's Swift classes (an `@objc` class name works regardless).
-        **kwargs: Passed through to macos_application.
+        **kwargs: Passed through to macos_application. The macro sets
+            `app_icons` itself, so pass the named parameter instead.
     """
     display_name = app_name or name
     tags = kwargs.pop("tags", ["manual"])
@@ -487,6 +503,22 @@ def flutter_macos_app(
         ],
     )
 
+    # 6b. App icon — the conventional catalog `flutter create` writes, unless
+    #     the caller named something else. Discovered for the same reason the
+    #     entitlements and the launch storyboard are: the scaffold is the app's
+    #     answer until it says otherwise, and leaving this one undiscovered
+    #     meant every Bazel-built Flutter app shipped the generic icon while
+    #     sixteen PNGs sat in the tree that nothing read.
+    #
+    #     `None` means discover, `[]` means ship none: both states are sayable,
+    #     and an app with no catalog at all is the second without having to
+    #     write it.
+    if app_icons == None:
+        app_icons = native.glob(
+            ["macos/Runner/Assets.xcassets/AppIcon.appiconset/**"],
+            allow_empty = True,
+        )
+
     # 7. Info.plist — preprocess to resolve Xcode variables that rules_apple
     #    doesn't handle (PRODUCT_COPYRIGHT, DEVELOPMENT_LANGUAGE).
     if not info_plist:
@@ -503,6 +535,30 @@ def flutter_macos_app(
         actual_info_plist = "__%s_info_plist" % name
     else:
         actual_info_plist = info_plist
+
+    # 7b. Drop the scaffold's empty `CFBundleIconFile`.
+    #
+    #     `flutter create` writes it as `<string></string>` for Xcode to fill
+    #     in. Nothing fills it in here, and `macos_application` generates its
+    #     own `CFBundleIconFile` from the icon catalog — so with an app icon
+    #     the two disagree and plisttool refuses the build outright:
+    #     `found key "CFBundleIconFile" in two plists with different values:
+    #     "" != "AppIcon"`. Every `flutter create` app hits that, which is why
+    #     it is handled here rather than left for each app to discover.
+    #
+    #     Only when there is an icon, and only when the value is empty: a plist
+    #     that names a real icon file still conflicts, and still says so.
+    if app_icons:
+        _flutter_plist_merge(
+            name = "__%s_info_plist_icon" % name,
+            base = actual_info_plist,
+            additions = [],
+            drop_empty_keys = ["CFBundleIconFile"],
+            mode = "supplement",
+            output_basename = "Info.plist",
+            tags = tags,
+        )
+        actual_info_plist = "__%s_info_plist_icon" % name
 
     # 8. Version — create default apple_bundle_version if not provided.
     if not version:
@@ -530,6 +586,7 @@ def flutter_macos_app(
         minimum_os_version = minimum_os_version,
         infoplists = [actual_info_plist],
         version = version,
+        app_icons = app_icons,
         resources = resources,
         additional_contents = flutter_contents,
         entitlements = entitlements,

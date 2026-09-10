@@ -1,7 +1,7 @@
 name: ffi_example
 publish_to: none
 environment:
-  sdk: ^3.0.0
+  sdk: ^3.12.0
 dependencies:
   flutter:
     sdk: flutter
@@ -11,3 +11,5 @@ dependencies:
   # replacement to the sqlite3 package, and flutter.pub() attaches it. The
   # app depends only on drift.
   drift: ^2.32.0
+dev_dependencies:
+  very_good_analysis: ^10.3.0

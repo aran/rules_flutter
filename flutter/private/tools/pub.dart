@@ -27,7 +27,8 @@ const _requiredEntries = <String>[
   'bin/cache/pkg/sky_engine/pubspec.yaml',
 ];
 
-const _usage = 'Usage:\n'
+const _usage =
+    'Usage:\n'
     '  bazel run @rules_flutter//flutter:pub -- get\n'
     '  bazel run @rules_flutter//flutter:pub -- upgrade\n'
     '  bazel run @rules_flutter//flutter:pub -- add qr';
@@ -54,14 +55,17 @@ Future<void> main(List<String> args) async {
   // in the runfiles tree: `pubspec.lock` is a checked-in file.
   final workspace = Platform.environment['BUILD_WORKSPACE_DIRECTORY'];
   if (workspace == null || workspace.isEmpty) {
-    _fail('BUILD_WORKSPACE_DIRECTORY is not set. Use `bazel run`, not the '
-        'built binary directly.\n$_usage');
+    _fail(
+      'BUILD_WORKSPACE_DIRECTORY is not set. Use `bazel run`, not the '
+      'built binary directly.\n$_usage',
+    );
   }
 
   final runfiles = Runfiles.create();
   final dart = runfiles.rlocation(_requireEnv('FLUTTER_PUB_DART'));
-  final manifest =
-      runfiles.rlocation(_requireEnv('FLUTTER_PUB_VERSION_MANIFEST'));
+  final manifest = runfiles.rlocation(
+    _requireEnv('FLUTTER_PUB_VERSION_MANIFEST'),
+  );
 
   var flutterRoot = File(manifest).absolute.parent;
   for (var i = 1; i < _manifestDepth; i++) {
@@ -69,15 +73,19 @@ Future<void> main(List<String> args) async {
   }
   for (final entry in _requiredEntries) {
     if (!File('${flutterRoot.path}/$entry').existsSync()) {
-      _fail('the FLUTTER_ROOT assembled at ${flutterRoot.path} has no $entry, '
-          'so pub cannot resolve `sdk: flutter` dependencies. The flutter '
-          'tag layout may have changed — see '
-          'flutter/private/flutter_dev_root_repo.bzl.');
+      _fail(
+        'the FLUTTER_ROOT assembled at ${flutterRoot.path} has no $entry, '
+        'so pub cannot resolve `sdk: flutter` dependencies. The flutter '
+        'tag layout may have changed — see '
+        'flutter/private/flutter_dev_root_repo.bzl.',
+      );
     }
   }
 
-  stderr.writeln('flutter:pub: resolving in $workspace with the pinned '
-      'toolchain (FLUTTER_ROOT=${flutterRoot.path})');
+  stderr.writeln(
+    'flutter:pub: resolving in $workspace with the pinned '
+    'toolchain (FLUTTER_ROOT=${flutterRoot.path})',
+  );
 
   final process = await Process.start(
     dart,

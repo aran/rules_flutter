@@ -4,10 +4,10 @@
 /// Android SDK's `adb` and `aapt2`, `lldb` and `iproxy` for a physical iOS
 /// device, Chrome. They belong to the user's machine, so searching the SDK's
 /// own conventional locations and PATH is legitimate — *guessing* is not.
-/// Handing `Process.run` a bare `'aapt2'` and hoping deferred the failure to
-/// the middle of a launch, where it was caught and downgraded to a warning: the
-/// run then installed an APK it could not name, started no activity, and thirty
-/// seconds later blamed VM-service discovery for an app that was never started.
+/// Handing `Process.run` a bare `'aapt2'` and hoping defers the failure into
+/// the middle of a launch, where it surfaces as an unrelated fault: an APK
+/// installed but never named, no activity started, and VM-service discovery
+/// blamed thirty seconds later for an app that was never started.
 ///
 /// So a tool is resolved to a real path before the work that needs it (see
 /// `Device.requiredHostTools`), and absence is an error naming the binary, the
@@ -52,8 +52,8 @@ class HostTool {
     this.candidates = const [],
     List<String>? pathNames,
     Map<String, String>? environment,
-  })  : pathNames = pathNames ?? [name],
-        _environment = environment ?? Platform.environment;
+  }) : pathNames = pathNames ?? [name],
+       _environment = environment ?? Platform.environment;
 
   /// The path to run, or null when this machine does not have the tool.
   String? find() {
@@ -98,9 +98,9 @@ class HostTool {
   }
 
   List<String> _pathCandidates() => [
-        for (final entry in _pathEntries())
-          for (final name in pathNames) p.join(entry, _exeName(name)),
-      ];
+    for (final entry in _pathEntries())
+      for (final name in pathNames) p.join(entry, _exeName(name)),
+  ];
 }
 
 /// The `adb` that installs the APK, starts the activity and carries logcat.
@@ -108,15 +108,18 @@ HostTool adbTool({Map<String, String>? environment}) {
   final env = environment ?? Platform.environment;
   return HostTool(
     name: 'adb',
-    purpose: 'install the app on an Android device, start it, and read its '
+    purpose:
+        'install the app on an Android device, start it, and read its '
         'logs',
     candidates: [
       for (final sdk in androidSdkRoots(env))
         p.join(sdk, 'platform-tools', _exeName('adb')),
     ],
-    remedy: _androidSdkRemedy(env,
-        component: 'the platform-tools package',
-        sdkmanagerPackage: 'platform-tools'),
+    remedy: _androidSdkRemedy(
+      env,
+      component: 'the platform-tools package',
+      sdkmanagerPackage: 'platform-tools',
+    ),
     environment: env,
   );
 }
@@ -136,33 +139,38 @@ HostTool aapt2Tool({Map<String, String>? environment}) {
         for (final version in buildToolsVersions(sdk))
           p.join(sdk, 'build-tools', version, _exeName('aapt2')),
     ],
-    remedy: _androidSdkRemedy(env,
-        component: 'the build-tools package',
-        sdkmanagerPackage: 'build-tools;35.0.0'),
+    remedy: _androidSdkRemedy(
+      env,
+      component: 'the build-tools package',
+      sdkmanagerPackage: 'build-tools;35.0.0',
+    ),
     environment: env,
   );
 }
 
 /// The debugger a physical iOS device needs before its engine will start.
 HostTool lldbTool({Map<String, String>? environment}) => HostTool(
-      name: 'lldb',
-      purpose: 'attach a debugger, without which a debug build will not run on '
-          'a physical iOS device',
-      remedy: 'lldb ships with the Xcode command line tools: install them with '
-          '`xcode-select --install`.',
-      environment: environment,
-    );
+  name: 'lldb',
+  purpose:
+      'attach a debugger, without which a debug build will not run on '
+      'a physical iOS device',
+  remedy:
+      'lldb ships with the Xcode command line tools: install them with '
+      '`xcode-select --install`.',
+  environment: environment,
+);
 
 /// The usbmuxd port forwarder a *wired* iOS device's VM service is reached
 /// through. A wirelessly attached device is dialed at its own address and needs
 /// no forward — see `IOSDevice.requiredHostTools`.
 HostTool iproxyTool({Map<String, String>? environment}) => HostTool(
-      name: 'iproxy',
-      purpose: 'forward the Dart VM service port off a cabled iOS device',
-      remedy: 'iproxy comes with libimobiledevice: `brew install '
-          'libimobiledevice`.',
-      environment: environment,
-    );
+  name: 'iproxy',
+  purpose: 'forward the Dart VM service port off a cabled iOS device',
+  remedy:
+      'iproxy comes with libimobiledevice: `brew install '
+      'libimobiledevice`.',
+  environment: environment,
+);
 
 /// The browser a web run opens the app in.
 HostTool chromeTool({Map<String, String>? environment}) {
@@ -186,7 +194,8 @@ HostTool chromeTool({Map<String, String>? environment}) {
     pathNames: Platform.isLinux
         ? const ['google-chrome', 'chromium-browser']
         : const [],
-    remedy: 'Install Google Chrome, point CHROME_EXECUTABLE at it, or run on a '
+    remedy:
+        'Install Google Chrome, point CHROME_EXECUTABLE at it, or run on a '
         'desktop device (-d macos / -d linux / -d windows).',
     environment: env,
   );
@@ -220,12 +229,13 @@ List<String> androidSdkRoots(Map<String, String> environment) {
 List<String> buildToolsVersions(String sdkRoot) {
   final dir = Directory(p.join(sdkRoot, 'build-tools'));
   if (!dir.existsSync()) return const [];
-  final versions = dir
-      .listSync()
-      .whereType<Directory>()
-      .map((d) => p.basename(d.path))
-      .toList()
-    ..sort((a, b) => _compareVersions(b, a));
+  final versions =
+      dir
+          .listSync()
+          .whereType<Directory>()
+          .map((d) => p.basename(d.path))
+          .toList()
+        ..sort((a, b) => _compareVersions(b, a));
   return versions;
 }
 
@@ -243,9 +253,8 @@ int _compareVersions(String a, String b) {
 }
 
 List<int> _versionSegments(String version) => [
-      for (final part in version.split(RegExp(r'[.\-]')))
-        int.tryParse(part) ?? 0,
-    ];
+  for (final part in version.split(RegExp(r'[.\-]'))) int.tryParse(part) ?? 0,
+];
 
 String _androidSdkRemedy(
   Map<String, String> environment, {

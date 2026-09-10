@@ -10,6 +10,11 @@ String get _libPath {
   throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
 }
 
-final _addFunc = _dylib.lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>('add');
+final int Function(int, int) _addFunc = _dylib
+    .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
+      'add',
+    );
 
+/// Returns `a + b`, computed by the plugin's native library rather than in
+/// Dart.
 int add(int a, int b) => _addFunc(a, b);

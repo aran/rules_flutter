@@ -3,8 +3,9 @@
 # Mirrors what `make_android_subpackage_build_content` would auto-generate
 # for a plugin with Android sources, with no audio_session-specific
 # additions — but the top-level overlay short-circuits the auto-gen path,
-# so we ship the sub-package alongside it. {HUB_NAME} / {PKG} / {VERSION}
-# substitution is performed by `_resolve_overlay_template`.
+# so we ship the sub-package alongside it. Placeholder substitution is
+# performed by `_resolve_overlay_template`; this comment names none of
+# them, because it rewrites comment text too.
 
 load("@rules_flutter//flutter:android.bzl", "flutter_android_engine")
 load("@rules_java//java:java_library.bzl", "java_library")

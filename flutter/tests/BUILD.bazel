@@ -1,12 +1,17 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_format_test")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
 load(":common_test.bzl", "common_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
+load(":flutter_info_test.bzl", "flutter_info_test_suite")
 load(":flutter_library_test.bzl", "flutter_library_test_suite")
 load(":flutter_plugin_test.bzl", "flutter_plugin_test_suite")
 load(":flutter_pub_package_test.bzl", "flutter_pub_package_test_suite")
 load(":flutter_pubspec_test.bzl", "flutter_pubspec_test_suite")
+load(":flutter_sdk_package_test.bzl", "flutter_sdk_package_test_suite")
+load(":flutter_test_bootstrap_test.bzl", "flutter_test_bootstrap_test_suite")
+load(":language_version_test.bzl", "language_version_test_suite")
 load(":linux_sysroot_link_test.bzl", "linux_sysroot_link_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
 load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
@@ -40,6 +45,8 @@ plist_merge_test_suite(name = "plist_merge_test")
 
 web_test_suite(name = "web_test")
 
+flutter_info_test_suite(name = "flutter_info_test")
+
 flutter_library_test_suite(name = "flutter_library_test")
 
 flutter_plugin_test_suite(name = "flutter_plugin_test")
@@ -48,11 +55,17 @@ flutter_pub_package_test_suite(name = "flutter_pub_package_test")
 
 flutter_pubspec_test_suite(name = "flutter_pubspec_test")
 
+flutter_sdk_package_test_suite(name = "flutter_sdk_package_test")
+
+flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")
+
 plugin_registrant_test_suite(name = "plugin_registrant_test")
 
 platform_bundle_test_suite(name = "platform_bundle_test")
 
 linux_sysroot_link_test_suite(name = "linux_sysroot_link_test")
+
+language_version_test_suite(name = "language_version_test")
 
 pub_lock_sdks_test_suite(name = "pub_lock_sdks_test")
 
@@ -76,3 +89,14 @@ build_test(
 )
 
 validation_test_suite(name = "validation_test")
+
+# The two web-fixture entrypoints that sit directly in this package (its
+# subpackages — `analyze_fixture`, `dart_asset_fixture`, and the rest — carry
+# their own `format_test`). Recursive glob because one of the two is under
+# `lib/`; it stops at each subpackage's own `BUILD.bazel` regardless.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

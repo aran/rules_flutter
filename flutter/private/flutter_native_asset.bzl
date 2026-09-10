@@ -27,6 +27,7 @@ of Native Assets today.
 
 load("@rules_cc//cc/common:cc_shared_library_info.bzl", "CcSharedLibraryInfo")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeAssetInfo")
+load("//flutter/private:flutter_info.bzl", flutter_info_provider = "flutter_info")
 
 _VALID_LINK_MODES = (
     "dynamic_loading_bundle",
@@ -133,25 +134,11 @@ def _flutter_native_asset_impl(ctx):
         system_uri = system_uri,
     )
 
-    # Mirror the FlutterInfo shape so flutter_native_asset targets can be
-    # listed directly in `flutter_application(deps = ...)` if a workspace
-    # prefers that over routing through `flutter_plugin(native_assets = ...)`.
-    flutter_info = FlutterInfo(
-        asset_dirs = depset(),
-        shader_srcs = depset(),
-        plugins = [],
-        transitive_native_libs = depset(),
-        apple_plugin_libraries = depset(),
-        linux_plugin_libraries = depset(),
-        windows_plugin_libraries = depset(),
-        android_plugin_libraries = depset(),
-        apple_privacy_manifests = depset(),
-        native_assets = depset([asset_info]),
-        data_assets = depset(),
-        pub_fonts = depset(),
-        pub_assets = depset(),
-        pub_shaders = depset(),
-    )
+    # Carries the asset on the one channel this rule contributes to, so a
+    # `flutter_native_asset` can be listed directly in
+    # `flutter_application(deps = ...)` if a workspace prefers that over
+    # routing through `flutter_plugin(native_assets = ...)`.
+    flutter_info = flutter_info_provider(native_assets = [asset_info])
 
     return [
         DefaultInfo(files = depset([asset_file] if asset_file else [])),

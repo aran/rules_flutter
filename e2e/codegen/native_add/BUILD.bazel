@@ -1,0 +1,59 @@
+"""A Dart package owning a native code asset, reached from a `flutter_test`.
+
+`flutter_application` bundles such a library into the platform bundle slot and
+the engine `dlopen`s it from there. A test has no bundle — it runs out of
+Bazel's runfiles — so this exists to prove the other half of the contract: the
+manifest the frontend_server embeds names a path that resolves in the runfiles
+layout, and the library is actually staged there.
+
+Nothing here mentions Flutter. The asset rides `DartPackageInfo.code_assets`
+and is lifted off the Dart package graph by `bridge_dart_code_assets`, which is
+how a pub package's hook-built library arrives.
+"""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_format_test", "dart_library")
+
+cc_library(
+    name = "native_add_cc",
+    srcs = ["native/native_add.c"],
+    hdrs = ["native/native_add.h"],
+)
+
+cc_shared_library(
+    name = "native_add_shared",
+    shared_lib_name = select({
+        "@platforms//os:macos": "libnative_add.dylib",
+        "@platforms//os:windows": "native_add.dll",
+        "//conditions:default": "libnative_add.so",
+    }),
+    deps = [":native_add_cc"],
+)
+
+# The id is the one the Dart VM derives for an `@Native` with no explicit
+# `assetId` in `lib/native_add.dart` — the library's own URI.
+dart_code_asset(
+    name = "code_asset",
+    asset_id = "package:native_add/native_add.dart",
+    shared_library = ":native_add_shared",
+)
+
+dart_library(
+    name = "native_add",
+    package_name = "native_add",
+    srcs = ["lib/native_add.dart"],
+    code_assets = [":code_asset"],
+    visibility = ["//:__pkg__"],
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["lib/**/*.dart"]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:options",
+)

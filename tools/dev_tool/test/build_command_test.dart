@@ -15,27 +15,39 @@ void main() {
     });
 
     test('accepts --config', () {
-      final results = BuildCommand.parser
-          .parse(['-t', '//:app', '--config', 'release']);
+      final results = BuildCommand.parser.parse([
+        '-t',
+        '//:app',
+        '--config',
+        'release',
+      ]);
       expect(results['config'], 'release');
     });
 
     test('accepts multiple --build-arg values', () {
       final results = BuildCommand.parser.parse([
-        '-t', '//:app',
-        '--build-arg', '--verbose',
-        '--build-arg', '--jobs=4',
+        '-t',
+        '//:app',
+        '--build-arg',
+        '--verbose',
+        '--build-arg',
+        '--jobs=4',
       ]);
       expect(results['build-arg'], ['--verbose', '--jobs=4']);
     });
 
     test('accepts repeated --dart-define, defaults empty', () {
-      expect(BuildCommand.parser.parse(['-t', '//:app'])['dart-define'],
-          isEmpty);
+      expect(
+        BuildCommand.parser.parse(['-t', '//:app'])['dart-define'],
+        isEmpty,
+      );
       final results = BuildCommand.parser.parse([
-        '-t', '//:app',
-        '--dart-define', 'A=1',
-        '--dart-define', 'B=x,y',
+        '-t',
+        '//:app',
+        '--dart-define',
+        'A=1',
+        '--dart-define',
+        'B=x,y',
       ]);
       expect(results['dart-define'], ['A=1', 'B=x,y']);
     });

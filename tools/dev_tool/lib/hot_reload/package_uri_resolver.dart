@@ -28,9 +28,11 @@ class PackageUriResolver {
     final entries = [
       for (final pkg in sourcePackages)
         (
-          libDir: p.normalize(pkg.libRoot.isEmpty
-              ? p.join(workspaceRoot, 'lib')
-              : p.join(workspaceRoot, pkg.libRoot, 'lib')),
+          libDir: p.normalize(
+            pkg.libRoot.isEmpty
+                ? p.join(workspaceRoot, 'lib')
+                : p.join(workspaceRoot, pkg.libRoot, 'lib'),
+          ),
           packageName: pkg.name,
         ),
     ];

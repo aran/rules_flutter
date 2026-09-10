@@ -1,6 +1,23 @@
-load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test")
 
 dart_binary(
     name = "update_flutter_version",
     main = "main.dart",
+)
+
+# `main.dart` belongs to no package's `lib/`, so it appears in no `DartInfo`
+# and nothing else analyzes it. Compiling it rejects broken code but is
+# indifferent to everything `dart analyze` reports. The binary's own
+# `DartAnalyzableInfo` is what reaches it.
+dart_analyze_test(
+    name = "update_flutter_version_analyze",
+    size = "small",
+    target = ":update_flutter_version",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["*.dart"]),
+    options = "//:analysis_options.yaml",
 )

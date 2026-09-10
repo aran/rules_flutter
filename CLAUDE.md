@@ -3,7 +3,7 @@
 **Never claim work is done without full e2e verification.** `bazel test` / `build_test` passing is necessary but NOT sufficient. You must:
 
 1. Run `bazel test //...` in root + all affected e2e workspaces
-2. Run `npx playwright test` in every e2e workspace that has Playwright tests (see docs/TESTING.md § 5)
+2. Run the web rendering checks from the e2e suite (see docs/TESTING.md § 5) — there is no `npx`/Playwright step
 3. For web changes: inspect actual output files (`cat bazel-bin/*/index.html`, etc.) to confirm content is correct
 4. For macOS changes: run the manual runtime test (`bazel test :verify_macos_app_test --test_tag_filters= --strategy=TestRunner=standalone`)
 5. For Linux/Windows changes: run VM-based visual verification if possible

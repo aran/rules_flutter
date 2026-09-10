@@ -3,11 +3,18 @@
 ///
 /// Compiling the app must resolve this `part` directive — which only works if
 /// the kernel compile co-locates the generated file with this source sibling.
+library;
+
 part 'user.g.dart';
 
+/// The model whose `toJson()` the generated `part` supplies.
 class User {
-  final String name;
-  final int age;
-
+  /// Creates a user with the given [name] and [age].
   const User(this.name, this.age);
+
+  /// The user's name.
+  final String name;
+
+  /// The user's age in years.
+  final int age;
 }

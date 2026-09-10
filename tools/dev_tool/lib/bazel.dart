@@ -2,10 +2,48 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'dev_tool_exception.dart';
+import 'logging.dart';
+
+final _logger = Logger('dev_tool.bazel');
+
+/// A bazel invocation the caller needed, which bazel itself rejected.
+///
+/// Carried as a type of its own because of what cures it: the tree on disk. A
+/// bazel command that failed can be asked again the moment the source it
+/// choked on is fixed, which is not true of the other ways assembling a reload
+/// pipeline goes wrong, and the reader's next move is completely different —
+/// they go and look at their own code rather than at the dev tool.
+///
+/// [diagnostics] is a bounded tail of what bazel printed, not a transcript:
+/// every line already reached a machine client as a `subprocess_output`
+/// record, and this exists so the failure itself names its cause rather than
+/// pointing at output that scrolled past.
+class BazelInvocationFailure implements Exception {
+  /// The bazel command, as the user would have typed it: `build //:app`.
+  final String command;
+
+  /// The tail of bazel's own output. Empty only if bazel printed nothing.
+  final String diagnostics;
+
+  const BazelInvocationFailure({
+    required this.command,
+    required this.diagnostics,
+  });
+
+  @override
+  String toString() => diagnostics.isEmpty
+      ? 'bazel $command failed'
+      : 'bazel $command failed:\n$diagnostics';
+}
+
 /// Result of a Bazel build invocation.
 class BazelBuildResult {
   final int exitCode;
   final List<String> outputFiles;
+
+  /// Whatever stderr explains this result: on failure the tail of the build's
+  /// own output, on success the stderr of the cquery that listed the outputs.
   final String stderr;
 
   BazelBuildResult({
@@ -15,6 +53,38 @@ class BazelBuildResult {
   });
 
   bool get success => exitCode == 0;
+
+  /// This result as the failure it is. Only call it on a failed build.
+  BazelInvocationFailure asFailure(String command) {
+    if (success) {
+      throw StateError(
+        'bazel $command succeeded; there is no failure to raise.',
+      );
+    }
+    return BazelInvocationFailure(command: command, diagnostics: stderr);
+  }
+}
+
+/// A [SubprocessOutput] that also keeps the last few lines it emitted.
+///
+/// Bounded, and deliberately small: the whole stream already reaches the user
+/// (text mode) and a machine client (`subprocess_output` records) line by line
+/// as it arrives. This exists only so a failure record can name its own cause.
+class _TailedOutput extends SubprocessOutput {
+  static const _maxLines = 40;
+
+  final List<String> lines = [];
+
+  _TailedOutput({required super.source, required super.stream});
+
+  @override
+  void emitLine(String line) {
+    super.emitLine(line);
+    lines.add(line);
+    if (lines.length > _maxLines) lines.removeAt(0);
+  }
+
+  String get tail => lines.join('\n');
 }
 
 /// Maps `--dart-define KEY=VALUE` values to the rules_flutter build-setting
@@ -24,9 +94,42 @@ class BazelBuildResult {
 /// The flag is repeatable: one occurrence per define, so values containing
 /// commas survive intact.
 List<String> dartDefineFlags(List<String> dartDefines) => [
-      for (final define in dartDefines)
-        '--@rules_flutter//flutter:extra_dart_defines=$define',
-    ];
+  for (final define in dartDefines)
+    '--@rules_flutter//flutter:extra_dart_defines=$define',
+];
+
+/// Requests the build outputs this tool reads off disk.
+///
+/// Bazel materializes an output when it belongs to a target named on the
+/// command line. A launchable target names only its bundle, while this tool
+/// reads the `flutter_application`'s outputs — the assets tree, the dev config,
+/// the package configs, the registrants. Those belong to a configured target
+/// reached through a split transition, which no command line can name, so the
+/// request travels as an aspect over the existing dep edges.
+///
+/// Web needs none of this: `flutter_web_application` declares its own dev
+/// outputs and the tool names that target directly.
+const _devFilesAspect = [
+  '--aspects=@rules_flutter//flutter:dev_files.bzl%flutter_dev_files',
+  '--output_groups=+flutter_dev_files',
+];
+
+/// The argv for a `bazel build` this dev tool runs.
+///
+/// The aspect flags go last. `--output_groups=+name` is additive and a
+/// repeated aspect is applied once, so nothing here overrides what the caller
+/// passed as `--build-arg`.
+List<String> bazelBuildArgs(
+  String target, {
+  String? compilationMode,
+  List<String> extraArgs = const [],
+}) => [
+  'build',
+  target,
+  if (compilationMode != null) ...['-c', compilationMode],
+  ...extraArgs,
+  ..._devFilesAspect,
+];
 
 /// Invokes `bazel build` for the given target and returns output file paths.
 ///
@@ -45,28 +148,50 @@ Future<BazelBuildResult> bazelBuild(
   String? compilationMode,
   List<String> extraArgs = const [],
 }) async {
-  final args = ['build', target];
-  if (compilationMode != null) {
-    args.addAll(['-c', compilationMode]);
-  }
-  args.addAll(extraArgs);
+  final args = bazelBuildArgs(
+    target,
+    compilationMode: compilationMode,
+    extraArgs: extraArgs,
+  );
 
   // Diagnostics + bazel's own output go to STDERR, never stdout: in
   // `--machine` mode the dev tool's stdout is the JSON protocol channel, and a
   // mid-session rebuild (refreshGenerated) would otherwise inject bazel chatter
-  // into it. (bazel build writes progress to stderr anyway, but inheriting
-  // stdout risked corrupting the channel.)
-  stderr.writeln('Running: bazel ${args.join(' ')}');
+  // into it.
+  _logger.info({
+    'message': 'bazel_command',
+    'text': 'Running: bazel ${args.join(' ')}',
+    'args': args,
+    'workspace': workspace,
+  });
 
-  final process = await Process.start('bazel', args, workingDirectory: workspace);
-  final outSub = process.stdout.transform(utf8.decoder).listen(stderr.write);
-  final errSub = process.stderr.transform(utf8.decoder).listen(stderr.write);
+  final process = await Process.start(
+    'bazel',
+    args,
+    workingDirectory: workspace,
+  );
+  // Both of bazel's streams, each labelled, so a JSON consumer can tell them
+  // apart.
+  final out = SubprocessOutput(source: 'bazel', stream: 'stdout');
+  final err = _TailedOutput(source: 'bazel', stream: 'stderr');
+  final outSub = process.stdout.transform(utf8.decoder).listen(out.write);
+  final errSub = process.stderr.transform(utf8.decoder).listen(err.write);
   final exitCode = await process.exitCode;
   await outSub.cancel();
   await errSub.cancel();
+  out.close();
+  err.close();
 
+  // The tail travels with the result. A caller that turns this into a failure
+  // has to be able to say what bazel said, and the streamed copy above is gone
+  // by then — scrolled past in a terminal, and thousands of records back in a
+  // machine client's log.
   if (exitCode != 0) {
-    return BazelBuildResult(exitCode: exitCode, outputFiles: [], stderr: '');
+    return BazelBuildResult(
+      exitCode: exitCode,
+      outputFiles: [],
+      stderr: err.tail,
+    );
   }
 
   // Query for output files with the same flags used for build.
@@ -75,8 +200,11 @@ Future<BazelBuildResult> bazelBuild(
     cqueryArgs.addAll(['-c', compilationMode]);
   }
   cqueryArgs.addAll(extraArgs);
-  final cqueryResult =
-      await Process.run('bazel', cqueryArgs, workingDirectory: workspace);
+  final cqueryResult = await Process.run(
+    'bazel',
+    cqueryArgs,
+    workingDirectory: workspace,
+  );
   final outputFiles = _absolutizeCqueryPaths(
     cqueryResult.stdout as String,
     workspace,
@@ -97,6 +225,12 @@ Future<BazelBuildResult> bazelBuild(
 /// `_dev_config.json` + dev `package_config.json`). Those live only in
 /// `DefaultInfo`, which the platform wrapper (macOS/iOS/...) consumes via
 /// providers, not files — so building the wrapper alone never produces them.
+///
+/// Throws [BazelInvocationFailure] when the query itself failed. Null is
+/// reserved for the query having run and answered nothing: a `BUILD` file with
+/// a typo in it must not be reported as "No flutter_application found in deps
+/// of $target", which describes a target wired the wrong way and sends the
+/// reader to rewrite a dependency list that is fine.
 Future<String?> bazelCqueryFlutterAppLabel(
   String target, {
   required String workspace,
@@ -113,7 +247,12 @@ Future<String?> bazelCqueryFlutterAppLabel(
   }
   args.addAll(extraArgs);
   final result = await Process.run('bazel', args, workingDirectory: workspace);
-  if (result.exitCode != 0) return null;
+  if (result.exitCode != 0) {
+    throw BazelInvocationFailure(
+      command: args.join(' '),
+      diagnostics: (result.stderr as String).trim(),
+    );
+  }
   for (final line in LineSplitter.split(result.stdout as String)) {
     final t = line.trim();
     if (t.startsWith('//') || t.startsWith('@')) {
@@ -122,6 +261,53 @@ Future<String?> bazelCqueryFlutterAppLabel(
     }
   }
   return null;
+}
+
+/// Every output file of the `flutter_application` inside [target]'s deps, in
+/// [target]'s own configuration, as workspace-relative bazel paths.
+///
+/// The difference from `bazelBuild(<the flutter_application>).outputFiles`:
+/// that call also ends in a cquery, and a cquery of a bare label lists the
+/// target in *every* configuration the Bazel server happens to have analysed —
+/// sometimes the top-level one alone, sometimes that plus the split-transition
+/// one, in an order nothing guarantees. Asking through the launch target
+/// instead makes the transitioned configuration the question rather than a
+/// coincidence.
+///
+/// Returns a candidate *set*, not one path: an Android wrapper reaches the
+/// application in several configurations at once, so which of them the running
+/// app came from is settled by the app's own `BuildInfo.assetsDir`, not by
+/// picking one here.
+///
+/// Paths are left workspace-relative on purpose — that is the form
+/// `BuildInfo.assetsDir` is baked in, and comparing the two is the only reason
+/// this exists.
+Future<List<String>> bazelCqueryFlutterAppFiles(
+  String target, {
+  required String workspace,
+  String? compilationMode,
+  List<String> extraArgs = const [],
+}) async {
+  final args = [
+    'cquery',
+    'kind("flutter_application", deps($target))',
+    '--output=files',
+  ];
+  if (compilationMode != null) {
+    args.addAll(['-c', compilationMode]);
+  }
+  args.addAll(extraArgs);
+  final result = await Process.run('bazel', args, workingDirectory: workspace);
+  if (result.exitCode != 0) {
+    throw DevToolException(
+      'bazel cquery for the flutter_application inside $target failed:\n'
+      '${result.stderr}',
+    );
+  }
+  return [
+    for (final line in LineSplitter.split(result.stdout as String))
+      if (line.trim().isNotEmpty) line.trim(),
+  ];
 }
 
 /// Parse `bazel cquery --output=files` stdout into absolute paths.
@@ -165,7 +351,7 @@ List<String> _absolutizeCqueryPaths(String stdout, String workspace) {
 ///
 /// Throws [StateError] if neither resolves. The dev tool genuinely
 /// cannot proceed without knowing the workspace, and a silent fallback
-/// (the prior `?? '.'`) is exactly what masked the original bug.
+/// such as `?? '.'` would mask the failure.
 Future<String> findWorkspaceRoot() async {
   final fromEnv = Platform.environment['BUILD_WORKSPACE_DIRECTORY'];
   if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;

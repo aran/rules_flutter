@@ -321,6 +321,7 @@ def flutter_ios_app(
         entitlements = None,
         additional_entitlements = [],
         provisioning_profile = None,
+        app_icons = None,
         resources = [],
         **kwargs):
     """Builds a Flutter iOS .app bundle from a flutter_application target.
@@ -386,6 +387,19 @@ def flutter_ios_app(
             `local_provisioning_profile` target) to sign a device build
             with. Required for device builds (`--ios_multi_cpus=arm64`) and
             unused by simulator builds.
+        app_icons: The app icon, as the files of an `.appiconset` or of an
+            Icon Composer `.icon` bundle. Defaults to the conventional
+            `ios/Runner/Assets.xcassets/AppIcon.appiconset` that
+            `flutter create` writes — so an app that has never thought about
+            this ships the icon it already has on disk, which is what
+            `flutter build ios` does with the same tree. Pass a list to name a
+            different one; pass `[]` to ship no icon. rules_apple refuses an
+            `.appiconset` and a `.icon` bundle together, so name exactly one.
+            Discovery is per-platform and its absence is silent: a tree
+            that only ever ran `flutter create --platforms=macos .` has no
+            catalog here, and an app with neither a catalog nor an
+            `app_icons` has said nothing either way, so it ships no icon and
+            there is nothing to report.
         resources: Extra resources. Main.storyboard is wired separately,
             through the runner library, so that ibtool resolves its classes
             against the runner's module. Resources passed here are compiled
@@ -396,8 +410,9 @@ def flutter_ios_app(
             `bundle_id`, `bundle_name`, `entitlements`, `families`,
             `minimum_os_version`, `infoplists`, `version`,
             `launch_storyboard`, `resources`, `provisioning_profile`,
-            `deps` and `tags` itself, so passing any of those here is a
-            duplicate-keyword error — use the named parameter instead.
+            `app_icons`, `deps` and `tags` itself, so passing any of those
+            here is a duplicate-keyword error — use the named parameter
+            instead.
     """
     display_name = app_name or name
     tags = kwargs.pop("tags", ["manual"])
@@ -432,6 +447,21 @@ def flutter_ios_app(
             tags = tags,
         )
         entitlements = "__%s_entitlements" % name
+
+    # The app icon: the conventional catalog `flutter create` writes, unless
+    # the caller named something else. Discovered for the same reason the
+    # entitlements and the launch storyboard are — the scaffold is the app's
+    # answer until it says otherwise — and leaving it undiscovered meant every
+    # Bazel-built Flutter app shipped the generic icon while the sixteen PNGs
+    # `flutter create` left behind were read by nothing.
+    #
+    # `None` means discover, `[]` means ship none: both states are sayable, and
+    # an app with no catalog at all is the second without having to write it.
+    if app_icons == None:
+        app_icons = native.glob(
+            ["ios/Runner/Assets.xcassets/AppIcon.appiconset/**"],
+            allow_empty = True,
+        )
 
     # -- Internal targets (all __{name}_ prefixed) --
 
@@ -597,6 +627,7 @@ def flutter_ios_app(
         version = version,
         launch_storyboard = actual_launch_storyboard,
         provisioning_profile = provisioning_profile,
+        app_icons = app_icons,
         resources = resources + ["__%s_privacy_manifests" % name],
         deps = [
             "__%s_runner" % name,

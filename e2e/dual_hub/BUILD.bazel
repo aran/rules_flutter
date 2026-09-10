@@ -1,0 +1,89 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_format_test", "dart_library")
+
+# Two pub hubs, one library collecting a package from each, and a binary over
+# that library. See MODULE.bazel for how the two locks differ.
+#
+# The binary is the point, not decoration. rules_dart's duplicate-record check
+# runs wherever a package_config gets assembled — `collect_packages`
+# (`dart_binary`, `dart_test`, `package_config`, `dart_web_application`,
+# `dart_analysis_options`, the codegen `library_deps` path) and directly on a
+# library's transitive packages in `dart_analyze` and `dart_fix`. What never
+# reaches it is `dart_library` itself, which accumulates records into depsets
+# and never dedups — so a `build_test` over a bare library proves nothing about
+# the check no matter how badly its hubs disagree. Verified: a
+# `dart_analyze_test` pointed at `:disagreeing` fails with the same error a
+# binary does.
+
+# `path` is 1.9.1 in both hubs, down to the same sha256. Two records for one
+# package name are normal — `merge_package_records` exists to expect them — so
+# this pair is what proves a two-hub workspace builds at all rather than
+# tripping on the duplication itself.
+dart_library(
+    name = "agreeing",
+    package_name = "agreeing",
+    srcs = ["lib/dual_hub.dart"],
+    deps = [
+        "@hub_a//:path",
+        "@hub_b//:path",
+    ],
+)
+
+dart_binary(
+    name = "agreeing_bin",
+    main = "bin/main.dart",
+    deps = [":agreeing"],
+)
+
+build_test(
+    name = "agreeing_test",
+    size = "small",
+    targets = [":agreeing_bin"],
+)
+
+# The same shape over `clock`, which is 1.1.2 in `//hub_a` and 1.1.3 in
+# `//hub_b`.
+dart_library(
+    name = "disagreeing",
+    package_name = "disagreeing",
+    srcs = ["lib/dual_hub.dart"],
+    tags = ["manual"],
+    deps = [
+        "@hub_a//:clock",
+        "@hub_b//:clock",
+    ],
+)
+
+# `manual`, and deliberately not covered by a `build_test`, because what this
+# does today is the defect rather than the contract: `merge_package_records`
+# keeps the first record and discards the second, so this compiles against one
+# version's source tree while the other lock pins the other, and nothing is
+# reported. It builds, quietly and wrongly.
+#
+# rules_dart 0.6.2 can already name that collision — `dart_library` takes a
+# `version` attribute whose only purpose is agreement checking, and two known
+# differing versions fail the build. rules_flutter's pub spokes do not state a
+# version yet, and an unstated version never conflicts, so the guard cannot see
+# this pair. When the spokes do state one, building this must fail and name both
+# hubs; until then it must stay out of `bazel test //...`, which is what
+# `manual` is for.
+#
+# See docs/TESTING.md § "Dual-hub package skew (manual)".
+dart_binary(
+    name = "disagreeing_bin",
+    main = "bin/main.dart",
+    tags = ["manual"],
+    deps = [":disagreeing"],
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = [
+        "bin/main.dart",
+        "lib/dual_hub.dart",
+    ],
+    # Matches the `sdks:` constraint both hub locks state.
+    language_version = "3.12",
+    options = "analysis_options.yaml",
+)

@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_codegen")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_codegen", "dart_format_test")
 load("@rules_flutter//flutter:defs.bzl", "flutter_library")
 
 # Dependency package mixing a hand-written source with a generated `part`.
@@ -21,4 +21,36 @@ flutter_library(
         ":settings_gen",
     ],
     visibility = ["//visibility:public"],
+)
+
+# Analysis handle for the generator script — see the comment on the same
+# pattern in //:BUILD.bazel. `generator` takes a bare `.dart` file label, so
+# `dart_analyze_test` has nothing to point at until a `dart_binary` over the
+# same source gives it one. Not wired into `:settings_gen`.
+dart_binary(
+    name = "settings_generator",
+    main = "tools/settings_generator.dart",
+)
+
+dart_analyze_test(
+    name = "settings_generator_analyze",
+    size = "small",
+    options = "//:options",
+    target = ":settings_generator",
+)
+
+# `settings.g.dart` is a build output, so `glob()` on the source tree never
+# sees it — nothing to exclude the way the analyze `srcs` above have to.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "tools/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:options",
 )

@@ -4,7 +4,10 @@ void main() {
   runApp(const MyApp());
 }
 
+/// Root widget of the cross-compile example, whose bundle is built for Linux
+/// from a non-Linux host.
 class MyApp extends StatelessWidget {
+  /// Creates the cross-compile example's root widget.
   const MyApp({super.key});
 
   @override
@@ -20,9 +23,12 @@ class MyApp extends StatelessWidget {
   }
 }
 
+/// Counter screen shown by the cross-compile example.
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  /// Creates the counter screen, showing [title] in the app bar.
+  const MyHomePage({required this.title, super.key});
 
+  /// Text shown in the app bar.
   final String title;
 
   @override

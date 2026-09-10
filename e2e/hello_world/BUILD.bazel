@@ -1,8 +1,21 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
 load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
-load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_test")
-load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_library", "flutter_test")
+load(
+    "@rules_flutter//flutter:ios.bzl",
+    "IOS_DEFAULT_LAUNCH_STORYBOARD",
+    "IOS_MINIMUM_OS_VERSION",
+    "flutter_ios_app",
+    "flutter_ios_engine",
+    "flutter_ios_framework_gen",
+    "flutter_ios_info_plist_gen",
+    "flutter_ios_native_frameworks_gen",
+    "flutter_ios_registrant_gen",
+    "flutter_ios_runner_lib_gen",
+)
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
@@ -16,6 +29,10 @@ flutter_kernel_target(
     name = "hello_world",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     main = "lib/main.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -29,6 +46,10 @@ flutter_aot_target(
     name = "hello_world_aot",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     main = "lib/main.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -48,10 +69,11 @@ flutter_application(
     name = "hello_world_app",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     main = "lib/main.dart",
-    # Visible to the optional, git-ignored //device package for on-device
-    # (signed) iOS builds. See device.example/.
-    visibility = ["//device:__pkg__"],
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",
@@ -77,6 +99,82 @@ flutter_ios_app(
     app_name = "Hello World",
     application = ":hello_world_app",
     bundle_id = "com.example.helloworld",
+)
+
+# -- iOS app, signed for a physical device ------------------------------------
+#
+# Hand-assembled from the Tier-2 `_gen` rules rather than built by the Tier-1
+# `flutter_ios_app` above. That is deliberate on both counts, and this
+# workspace is the one place both tiers stand side by side for the same
+# `flutter_application`: `:hello_world_ios` shows the convenience macro
+# discovering `ios/Runner/` from `flutter create`, while the targets below show
+# the composable path a user takes when the macro does not fit — a
+# Bazel-generated runner, no `flutter create` output needed.
+#
+# Note the consequence: the device bundle is *not* `:hello_world_ios` plus a
+# credential — it is a different runner. Verifying a device build here does
+# not exercise `ios/Runner/`.
+
+flutter_ios_framework_gen(
+    name = "hello_world_ios_framework",
+    application = ":hello_world_app",
+)
+
+flutter_ios_registrant_gen(
+    name = "hello_world_ios_registrant",
+    application = ":hello_world_app",
+)
+
+flutter_ios_engine(name = "hello_world_ios_engine")
+
+flutter_ios_native_frameworks_gen(
+    name = "hello_world_ios_native_frameworks",
+    application = ":hello_world_app",
+)
+
+flutter_ios_info_plist_gen(
+    name = "hello_world_ios_runner_info_plist",
+    app_name = "Hello World",
+    module_name = "BazelRunner",
+)
+
+flutter_ios_runner_lib_gen(
+    name = "hello_world_ios_runner_lib",
+    application = ":hello_world_app",
+    engine = ":hello_world_ios_engine",
+    module_name = "BazelRunner",
+    registrant = ":hello_world_ios_registrant",
+)
+
+apple_bundle_version(
+    name = "hello_world_ios_version",
+    build_version = "1.0",
+    short_version_string = "1.0",
+    tags = ["manual"],
+)
+
+# `//device` is git-ignored and absent from a fresh clone. That is fine: the
+# target is tagged `manual`, so `bazel build //...` never expands it and
+# therefore never loads the missing package. Create it from device.example/.
+ios_application(
+    name = "hello_world_ios_device",
+    bundle_id = "com.example.helloworld",
+    families = ["iphone"],
+    infoplists = [":hello_world_ios_runner_info_plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
+    provisioning_profile = "//device:profile",
+    tags = ["manual"],
+    version = ":hello_world_ios_version",
+    deps = [
+        ":hello_world_ios_framework",
+        # Native-asset frameworks. Declared above but easy to leave unwired:
+        # the app still builds and renders, then fails every native-asset call
+        # at runtime because dyld cannot resolve the framework-relative path
+        # the manifest records.
+        ":hello_world_ios_native_frameworks",
+        ":hello_world_ios_runner_lib",
+    ],
 )
 
 # -- Android app ---------------------------------------------------------------
@@ -115,6 +213,10 @@ flutter_web_app(
     name = "hello_world_web",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",
@@ -136,6 +238,10 @@ flutter_test(
         "lib/common_widgets.dart",
         "lib/main.dart",
     ],
+    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
+    # entry states the version pub would grant it rather than inheriting the
+    # SDK's current one.
+    language_version = "3.12",
     main = "test/widget_test.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -168,6 +274,28 @@ flutter_test(
 flutter_test(
     name = "hello_test",
     package_name = "hello_world",
+    main = "hello_test.dart",
+    deps = [
+        "@deps//:flutter_test",
+    ],
+)
+
+# Exercises: the coverage path through the runner, which `bazel test` alone
+# never reaches. `bazel coverage` spawns flutter_tester `--start-paused`, so
+# the runner has to resume the root isolate over the VM service before the
+# suite can hand shake. `COVERAGE_OUTPUT_FILE` is the runner's own trigger for
+# that path, so setting it exercises the real code under the canonical
+# `bazel test //...` rather than simulating it.
+#
+# The `moderate` timeout is deliberately *longer* than the runner's own
+# two-minute dial-back bound, so a hang is reported by the runner with a reason
+# rather than killed by Bazel as a bare TIMEOUT. Do not drop it to `short`.
+flutter_test(
+    name = "hello_coverage_test",
+    package_name = "hello_world",
+    size = "small",
+    timeout = "moderate",
+    env = {"COVERAGE_OUTPUT_FILE": "coverage_probe.lcov"},
     main = "hello_test.dart",
     deps = [
         "@deps//:flutter_test",
@@ -269,4 +397,96 @@ dart_test(
     data = [":hello_world_macos"],
     main = "test/verify_macos_entitlements_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The app icon `flutter create` leaves in the tree, which this BUILD file
+# never mentions — `flutter_macos_app` discovers it, and the bundle has to
+# actually carry it. See the test's own docs for why the Info.plist assertion
+# is the load-bearing half.
+dart_test(
+    name = "verify_macos_app_icon_test",
+    data = [":hello_world_macos"],
+    main = "test/verify_macos_app_icon_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The workspace's lint ruleset, bundled with the pub package its `include:`
+# resolves against. Named here rather than in any library's `deps`: a lint
+# ruleset is not a dependency of the code it lints, and listing it there would
+# carry it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "hello_world",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "dart_defines_test",
+    "hello_test",
+    "verify_macos_app_icon_test",
+    "verify_macos_entitlements_test",
+    "verify_pub_assets_test",
+    "widget_test",
+]]
+
+# All of this workspace's Dart, checked against the same `:options` the
+# analyze tests above use. `hello_test.dart` sits at the package root (not
+# under `lib/` or `test/`), hence the flat `*.dart` pattern alongside the two
+# recursive ones.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "*.dart",
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

@@ -1,0 +1,63 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test")
+load("//flutter:web.bzl", "flutter_web_bundle")
+
+# The guard on `flutter_web_bundle`'s `DartAnalyzableInfo`, in the root
+# workspace so `bazel test //...` covers it — `e2e/` is in `.bazelignore`, so
+# the web examples that exercise this in anger are outside the root sweep.
+#
+# Four things have to hold for the analyze targets to pass, and they fail
+# loudly if any stops:
+#
+#   * `flutter_web_bundle` provides `DartAnalyzableInfo` at all;
+#   * the entrypoint is in it, so `main.dart` / `boot.dart` are analyzed;
+#   * the closure names *this* package, so
+#     `package:flutter_web_analyze_fixture/greeting.dart` resolves — the
+#     package-less closure `dart_analyzable_info()` builds would report it
+#     missing;
+#   * `sky_engine` reaches the analyzer without any dep here naming it, so
+#     `dart:ui` resolves.
+#
+# Two targets because the rule splits its sources by where `main` sits:
+# `:fixture_web`'s is inside the package's `lib/` (what `flutter create` writes
+# and every app here uses) and `:root_main_fixture_web`'s is at the package
+# root, which no `package:` URI reaches. Analysis stages both lists
+# identically, so what the pair guards is that each entrypoint is reached at
+# all.
+#
+# `manual` because neither is meant to be built: with no `deps` there is no
+# `package:flutter`, so the bundle would not compile. Only the analysis closure
+# is exercised, and `manual` does not hide it — the analyze targets depend on
+# these, and `dart_analyze_test` needs the provider rather than the bundle
+# output, so the web compile never runs.
+
+flutter_web_bundle(
+    name = "fixture_web",
+    package_name = "flutter_web_analyze_fixture",
+    srcs = ["lib/greeting.dart"],
+    main = "lib/main.dart",
+    tags = ["manual"],
+)
+
+flutter_web_bundle(
+    name = "root_main_fixture_web",
+    package_name = "flutter_web_analyze_fixture",
+    srcs = ["lib/greeting.dart"],
+    main = "boot.dart",
+    tags = ["manual"],
+)
+
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    target = ":%s" % t,
+) for t in [
+    "fixture_web",
+    "root_main_fixture_web",
+]]
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

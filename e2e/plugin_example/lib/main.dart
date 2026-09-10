@@ -3,8 +3,8 @@ import 'dart:developer' as developer;
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
-import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:greeting_plugin/greeting_plugin.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,7 +14,10 @@ void main() {
   runApp(const MyApp());
 }
 
+/// Root widget of the plugin example, which exercises several pub plugins
+/// alongside the workspace's own `greeting_plugin`.
 class MyApp extends StatelessWidget {
+  /// Creates the plugin example's root widget.
   const MyApp({super.key});
 
   @override
@@ -54,7 +57,9 @@ class _HomeState extends State<_Home> {
 
     final documentsPath = kIsWeb
         ? 'web: not supported'
-        : await _safe(() async => (await getApplicationDocumentsDirectory()).path);
+        : await _safe(
+            () async => (await getApplicationDocumentsDirectory()).path,
+          );
 
     final tempPath = kIsWeb
         ? 'web: not supported'
@@ -83,15 +88,16 @@ class _HomeState extends State<_Home> {
     // directly proves the plugin compiled, registered, and responds.
     final recordHasPermission =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-            ? await _safe(() async {
-                const channel = MethodChannel('com.llfbandit.record/messages');
-                await channel
-                    .invokeMethod<void>('create', {'recorderId': 'e2e'});
-                final has = await channel.invokeMethod<bool>(
-                    'hasPermission', {'recorderId': 'e2e', 'request': false});
-                return 'has=$has';
-              })
-            : 'not supported';
+        ? await _safe(() async {
+            const channel = MethodChannel('com.llfbandit.record/messages');
+            await channel.invokeMethod<void>('create', {'recorderId': 'e2e'});
+            final has = await channel.invokeMethod<bool>('hasPermission', {
+              'recorderId': 'e2e',
+              'request': false,
+            });
+            return 'has=$has';
+          })
+        : 'not supported';
 
     final results = _PluginResults(
       appName: appName,
@@ -120,7 +126,12 @@ class _HomeState extends State<_Home> {
   Future<String> _safe(Future<String> Function() body) async {
     try {
       return await body();
-    } catch (e) {
+    } on Exception catch (e) {
+      // Every call routed through here is a platform-channel or plugin call:
+      // PlatformException, MissingPluginException and
+      // MissingPlatformDirectoryException are all Exceptions. An Error is a
+      // bug in this app, so let it reach FutureBuilder's error branch rather
+      // than rendering it as a plugin result.
       return 'error: $e';
     }
   }
@@ -159,11 +170,26 @@ class _HomeState extends State<_Home> {
                   label: 'recordHasPermission',
                   value: r.recordHasPermission,
                 ),
-                // Plain keyed Text for the agent getText e2e (SelectableText
-                // rich spans aren't readable through ext.rules_flutter.getText).
+                // Plain keyed Texts for the agent getText e2e (SelectableText
+                // rich spans aren't readable through
+                // ext.rules_flutter.getText).
                 Text(
                   r.documentsPath,
                   key: const ValueKey('e2e_documents_path'),
+                  style: const TextStyle(fontSize: 8),
+                ),
+                // url_launcher is the platform discriminator: its Dart
+                // registrant class differs between iOS (UrlLauncherIOS) and
+                // macOS (UrlLauncherMacOS), so a restart that re-registers
+                // the wrong platform's set turns this into a
+                // MissingPluginException error string.
+                // The 'v1 ' marker is edited by the restart e2e before it
+                // restarts: seeing the new marker proves the restarted UI is
+                // the dev-tool-compiled dill (not the launch kernel), which
+                // is the dill whose registrant is under test.
+                Text(
+                  'v1 ${r.launchOk}',
+                  key: const ValueKey('e2e_launch_ok'),
                   style: const TextStyle(fontSize: 8),
                 ),
               ],

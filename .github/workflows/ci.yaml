@@ -2,60 +2,107 @@
 #
 # Runs repo-root tests (Starlark unit tests, buildifier lint) and
 # e2e tests across all workspaces on every push/PR.
+#
+# No job checks out rules_dart: every workspace below takes it as a registry
+# `bazel_dep`. Local sibling overrides live in gitignored `.bazelrc.user` files,
+# which never exist on a runner. The one committed sibling override, in
+# e2e/_overlay_tests/native_assets_synthetic, is in no matrix — adding it means
+# adding a checkout step too.
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
-
 jobs:
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      # rules_dart is a local_path_override dependency — clone it next to this repo.
-      # Use git clone instead of actions/checkout which rejects paths outside the workspace.
-      - name: Clone rules_dart
-        run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
-
+      - uses: actions/checkout@v7
       - name: Mount Bazel cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/bazel
           key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: bazel-unit-${{ runner.os }}-
-
       - name: bazel test //...
-        run: bazel test //...
-
+        run: bazel test //... --test_output=errors
   dart-tool-tests:
     name: Dart tool tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
-
       - name: Run dev_tool tests
         working-directory: tools/dev_tool
         # Exclude e2e tests (tagged @Tags(['e2e'])): they need a browser/CDP,
         # iOS simulators, or a running macOS app — none available on this
-        # runner. Real-render coverage lives in the Bazel e2e workspaces and
-        # the Playwright suite.
-        run: dart test -x e2e
-
+        # runner. Real-render coverage lives in the Bazel e2e workspaces and,
+        # for web, in the `web-smoke` job below.
+        #
+        # `runfiles` is excluded for a different reason: those tests read
+        # fixtures declared in a Bazel target's `data` and resolve them through
+        # the runfiles tree, which exists under `bazel test` and not here. They
+        # are covered by their Bazel targets, which this job does not replace.
+        run: dart test -x e2e -x runfiles
+      # `-x runfiles` for the same reason as the dev_tool step above: these
+      # tools are Bazel scripts, and one of them imports a package that arrives
+      # through its `dart_test` deps rather than through this pubspec. Excluded
+      # here, covered by //flutter/private/tools/test:flutter_test_runner_test.
       - name: Run private tool tests
         working-directory: flutter/private/tools
-        run: dart pub get && dart test
-
+        run: dart pub get && dart test -x runfiles
+  # The only web coverage CI has — web_example is in no e2e matrix below — and
+  # the only place CI runs the binary users install rather than `dart run`.
+  # One `-c dbg` Chrome run, asserted down to a VM service that answers
+  # `getVersion` — `app.started` alone does not prove DWDS came up.
+  web-smoke:
+    name: Web smoke (DWDS VM service)
+    runs-on: ubuntu-latest
+    # Cold, this downloads the Flutter SDK, the engine artifacts and the web
+    # SDK, then AOT-compiles the dev tool before the run itself starts.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      # One cache: the root workspace (which builds the dev tool binary) and
+      # e2e/web_example (which builds the app) share this output root.
+      - name: Mount Bazel cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/bazel
+          key: bazel-web-smoke-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'e2e/web_example/MODULE.bazel') }}
+          restore-keys: bazel-web-smoke-${{ runner.os }}-
+      # The test process itself resolves this package's pubspec, and dwds
+      # requires a Dart newer than the runner's default. The tool under test
+      # runs on the hermetic Flutter toolchain either way.
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.0
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      # Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1, which
+      # blocks Chrome's sandbox from creating the user namespace it needs, and
+      # Chrome then never announces a DevTools debugging port. Relax the sysctl
+      # rather than passing --no-sandbox: this job exists to prove a real Chrome
+      # run works, which a weakened browser would not establish.
+      - name: Allow Chrome's sandbox to create user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # google-chrome is preinstalled on this runner and is on PATH, which is
+      # exactly how the dev tool resolves it on Linux (host_tools.dart) — no
+      # CHROME_EXECUTABLE needed. xvfb gives that Chrome a display.
+      #
+      # Run through tool/e2e.dart rather than `dart test` directly: `dart test`
+      # exits 0 when every selected test skipped, so a skip gate would take this
+      # job green having executed nothing. The runner reads the JSON result
+      # stream and fails unless a verdict was reached, nothing failed, and at
+      # least one test ran. It supplies `--tags=e2e` and `--concurrency=1`
+      # itself and resolves tools/dev_tool from its own location.
+      - name: Web smoke
+        run: xvfb-run -a dart run tools/dev_tool/tool/e2e.dart test/e2e/web_smoke_e2e_test.dart
   e2e:
     name: E2E (${{ matrix.workspace }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -64,6 +111,9 @@ jobs:
       matrix:
         workspace:
           - smoke
+          # Two pub hubs over two locks — cheap (no Flutter SDK, no app) and the
+          # only coverage of duplicate package records across hubs.
+          - dual_hub
           - hello_world
           - ffi_example
           - plugin_example
@@ -82,51 +132,37 @@ jobs:
           - workspace: codegen
             os: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      # rules_dart is a local_path_override dependency — clone it next to this repo.
-      # Use git clone instead of actions/checkout which rejects paths outside the workspace.
-      - name: Clone rules_dart
-        run: git clone --depth 1 https://github.com/aran/rules_dart.git ../rules_dart
-
+      - uses: actions/checkout@v7
       # The Xcode build number is part of the cache key so a runner-image Xcode
       # bump invalidates the cache instead of restoring one whose cached Swift
-      # compile actions reference an Xcode that is no longer installed. Without
-      # this, after macos-latest moved from Xcode 16.4 to 26.x, restored caches
-      # asked `xcode-locator 16.4.0.16F6` for a missing Xcode and failed the
-      # iOS build (e.g. plugin_example's audio_session Swift module).
+      # compile actions reference an Xcode that is no longer installed.
       - name: Capture Xcode build for cache key (macOS)
         if: runner.os == 'macOS'
         run: echo "XCODE_BUILD=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "$GITHUB_ENV"
-
       - name: Mount Bazel cache (macOS)
         if: runner.os == 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/bazel
           key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
           restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-
-
       - name: Mount Bazel cache (Linux)
         if: runner.os == 'Linux'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/bazel
           key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
           restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
-
       - name: Mount Bazel cache (Windows)
         if: runner.os == 'Windows'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: C:/_bazel_cache
           key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
           restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
-
       - name: Install GTK3 (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
-
       # GitHub's windows-latest image exports ANDROID_NDK_HOME with backslashes
       # (C:\Android\...), but rules_android_ndk's _create_symlinks() strips the
       # NDK prefix with a forward-slash string match against ctx.path() output,
@@ -139,12 +175,13 @@ jobs:
         run: |
           $ndk = $env:ANDROID_NDK_HOME ?? $env:ANDROID_NDK_ROOT
           "ANDROID_NDK_HOME=$($ndk -replace '\\','/')" >> $env:GITHUB_ENV
-
+      # --test_output=errors so a failure's assertion reaches this log. Without
+      # it the output stays in a test.log on the runner and is discarded with
+      # the machine.
       - name: bazel test //... (e2e/${{ matrix.workspace }})
         if: runner.os != 'Windows'
         working-directory: e2e/${{ matrix.workspace }}
-        run: bazel test //...
-
+        run: bazel test //... --test_output=errors
       # On Windows, Bazel's default output root lives under a long per-user
       # temp path; nested runfiles (e.g. the hermetic Python interpreter's
       # _socket.pyd used by rules_android's aar_embedded_jars_extractor) then
@@ -164,4 +201,4 @@ jobs:
       - name: bazel test //... (e2e/${{ matrix.workspace }})
         if: runner.os == 'Windows'
         working-directory: e2e/${{ matrix.workspace }}
-        run: bazel --output_user_root=C:/b test //... --build_tag_filters=-no-windows-ci --test_tag_filters=-no-windows-ci
+        run: bazel --output_user_root=C:/b test //... --test_output=errors --build_tag_filters=-no-windows-ci --test_tag_filters=-no-windows-ci

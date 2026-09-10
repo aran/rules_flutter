@@ -5,6 +5,13 @@
 /// The bundle is resolved through `package:runfiles`, not `$TEST_SRCDIR`
 /// paths: Windows uses manifest-based runfiles (no symlink tree), so raw
 /// path construction finds nothing there.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 import 'package:runfiles/runfiles.dart';
@@ -34,12 +41,18 @@ void main() {
   }
 
   check('Runner binary', '$bundlePath/ffi_windows.exe', nonEmpty: true);
-  check('flutter_windows.dll', '$bundlePath/flutter_windows.dll',
-      nonEmpty: true);
+  check(
+    'flutter_windows.dll',
+    '$bundlePath/flutter_windows.dll',
+    nonEmpty: true,
+  );
   check('Native-asset lib add.dll', '$bundlePath/add.dll', nonEmpty: true);
   check('native_deps lib mul.dll', '$bundlePath/mul.dll', nonEmpty: true);
-  check('curated code-asset lib sqlite3.dll', '$bundlePath/sqlite3.dll',
-      nonEmpty: true);
+  check(
+    'curated code-asset lib sqlite3.dll',
+    '$bundlePath/sqlite3.dll',
+    nonEmpty: true,
+  );
   check('flutter_assets', '$bundlePath/data/flutter_assets');
   check('icudtl.dat', '$bundlePath/data/icudtl.dat', nonEmpty: true);
 

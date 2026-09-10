@@ -657,7 +657,40 @@ def _format_code_asset_attrs(code_assets, has_unreplaced_hook):
         block += '    has_unreplaced_hook = "{}",\n'.format(has_unreplaced_hook)
     return block
 
-def _make_flutter_library_build_content(
+# The non-Dart remainder of `lib/`, emitted verbatim by both spoke
+# generators below — the same partition rules_dart's
+# `make_dart_library_build_content` uses, so `srcs + resources = lib/**`
+# holds for every spoke whichever generator ran. A published package's
+# `lib/` is addressable as `package:<name>/<path>` whatever the extension;
+# a spoke that keeps only `*.dart` is a package with pieces missing.
+# `resources` is orthogonal to the declared-asset attrs (`pkg_assets` /
+# `pkg_shaders` / `font_files`): those name what is transformed and bundled
+# into flutter_assets, while `resources` names membership in the staged
+# package tree. A shader under `lib/` is legitimately both.
+_RESOURCES_GLOB_BLOCK = """    resources = glob(
+        ["lib/**"],
+        exclude = ["lib/**/*.dart"],
+        allow_empty = True,
+    ),
+"""
+
+def _format_version_attr(version):
+    """The `version` attr line for a spoke, or nothing when it is unknown.
+
+    Omitted rather than written empty, matching
+    `make_dart_library_build_content`. The attribute's only use is agreement
+    checking between two records for one package name, and an unstated version
+    never conflicts — so a spoke with nothing to say says nothing.
+
+    Args:
+        version: The resolved package version, or "".
+
+    Returns:
+        A BUILD attribute line, or "".
+    """
+    return '    version = "{}",\n'.format(version) if version else ""
+
+def make_flutter_library_build_content(
         name,
         deps,
         language_version,
@@ -666,13 +699,35 @@ def _make_flutter_library_build_content(
         fonts_json_str,
         font_files,
         pkg_assets,
-        pkg_shaders):
+        pkg_shaders,
+        version = ""):
     """Generate BUILD content for a non-plugin Flutter spoke shipping fonts/assets/shaders.
 
     Counterpart to `make_dart_library_build_content` — used when the spoke
     declares anything under `flutter:` other than `plugin:` (e.g.
     cupertino_icons declaring `flutter.fonts`). The same shape a user
-    would write by hand: `flutter_library` with the new pub-asset attrs.
+    would write by hand: `flutter_library` with the new pub-asset attrs,
+    plus the non-Dart `lib/` remainder as `resources`.
+
+    Args:
+        name: Target name (also the `package_name`).
+        deps: Fully-qualified Bazel label strings for sibling spokes.
+        language_version: Dart language version string (e.g. `"3.4"`).
+        code_assets: `dart_code_asset` label strings replacing this
+            package's build hook output.
+        has_unreplaced_hook: Path of a build hook nothing replaces, or "".
+        fonts_json_str: JSON-encoded `flutter.fonts` declarations, or "".
+        font_files: Dict of font file label -> package-relative path.
+        pkg_assets: Dict of asset file label -> package-relative path.
+        pkg_shaders: Dict of shader file label -> package-relative path.
+        version: The resolved package version this spoke was fetched at, or
+            empty. Emitted only when known, matching
+            `make_dart_library_build_content`: its sole use is agreement
+            checking when one package name arrives from two hubs, and an
+            unstated version never conflicts with a stated one.
+
+    Returns:
+        BUILD.bazel content as a string.
     """
     deps_block = ""
     if deps:
@@ -687,19 +742,21 @@ load("@rules_flutter//flutter:defs.bzl", "flutter_library")
 flutter_library(
     name = "{name}",
     srcs = glob(["lib/**/*.dart"], allow_empty = True),
-{deps}    package_name = "{name}",
+{resources}{deps}    package_name = "{name}",
     language_version = "{language_version}",
-{asset_attrs}{pub_attrs}    visibility = ["//visibility:public"],
+{version}{asset_attrs}{pub_attrs}    visibility = ["//visibility:public"],
 )
 """.format(
         name = name,
+        resources = _RESOURCES_GLOB_BLOCK,
         deps = deps_block,
         language_version = language_version,
+        version = _format_version_attr(version),
         asset_attrs = _format_code_asset_attrs(code_assets, has_unreplaced_hook),
         pub_attrs = pub_attrs,
     )
 
-def _make_flutter_plugin_build_content(
+def make_flutter_plugin_build_content(
         name,
         deps,
         language_version,
@@ -717,7 +774,8 @@ def _make_flutter_plugin_build_content(
         fonts_json_str = "",
         font_files = {},
         pkg_assets = {},
-        pkg_shaders = {}):
+        pkg_shaders = {},
+        version = ""):
     """Generate BUILD content for a Flutter plugin spoke.
 
     Emits a `flutter_plugin` plus optional per-platform
@@ -730,6 +788,35 @@ def _make_flutter_plugin_build_content(
     sub-package is loaded only when something queries
     `@<spoke>//android:lib` — non-Android workspaces don't pay the
     `@rules_android` / `@rules_kotlin` cost.
+
+    Args:
+        name: Target name (also the `package_name`).
+        deps: Fully-qualified Bazel label strings for sibling spokes.
+        language_version: Dart language version string (e.g. `"3.4"`).
+        code_assets: `dart_code_asset` label strings replacing this
+            package's build hook output.
+        has_unreplaced_hook: Path of a build hook nothing replaces, or "".
+        plugin_platforms_json: JSON-encoded `flutter.plugin.platforms` dict.
+        apple_macos_srcs_dirs: Detected macOS Apple source dirs.
+        apple_ios_srcs_dirs: Detected iOS Apple source dirs.
+        apple_macos_include_dirs: SwiftPM-style public-header dirs (macOS).
+        apple_ios_include_dirs: SwiftPM-style public-header dirs (iOS).
+        apple_macos_privacy_manifests: `PrivacyInfo.xcprivacy` paths (macOS).
+        apple_ios_privacy_manifests: `PrivacyInfo.xcprivacy` paths (iOS).
+        linux_src_dir: Linux C/C++ source dir, or "".
+        windows_src_dir: Windows C/C++ source dir, or "".
+        fonts_json_str: JSON-encoded `flutter.fonts` declarations, or "".
+        font_files: Dict of font file label -> package-relative path.
+        pkg_assets: Dict of asset file label -> package-relative path.
+        pkg_shaders: Dict of shader file label -> package-relative path.
+        version: The resolved package version this spoke was fetched at, or
+            empty. Emitted only when known, matching
+            `make_dart_library_build_content`: its sole use is agreement
+            checking when one package name arrives from two hubs, and an
+            unstated version never conflicts with a stated one.
+
+    Returns:
+        BUILD.bazel content as a string.
     """
     deps_block = ""
     if deps:
@@ -848,9 +935,11 @@ flutter_windows_plugin_library(
     if windows_src_dir:
         windows_libs_arg = '    windows_libs = [":{name}_windows"],\n'.format(name = name)
 
-    # Android sources travel through a sibling `android/` sub-package
-    # rather than `flutter_plugin.android_libs`. See
-    # `make_android_subpackage_build_content`.
+    # Android sources travel through a sibling `android/` sub-package, which
+    # the hub's `all_android_plugin_libs` deps on and the application macro
+    # adds to `binary_deps`. See `make_android_subpackage_build_content`.
+    # Nothing rides a provider: the wiring happens at macro-load time, where
+    # providers cannot be read.
 
     # Apple PrivacyInfo.xcprivacy files: thread through `apple_privacy_files`
     # on the flutter_plugin so they propagate via FlutterInfo to the platform
@@ -885,15 +974,17 @@ load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
 flutter_plugin(
     name = "{name}",
     srcs = glob(["lib/**/*.dart"], allow_empty = True),
-{deps}    package_name = "{name}",
+{resources}{deps}    package_name = "{name}",
     plugin_platforms_json = {plugin_platforms_json_literal},
     language_version = "{language_version}",
-{apple_libs_arg}{linux_libs_arg}{windows_libs_arg}{apple_privacy_files_arg}{asset_attrs}{pub_attrs}    visibility = ["//visibility:public"],
+{version}{apple_libs_arg}{linux_libs_arg}{windows_libs_arg}{apple_privacy_files_arg}{asset_attrs}{pub_attrs}    visibility = ["//visibility:public"],
 )
 {extra_targets}
 """.format(
         name = name,
+        version = _format_version_attr(version),
         asset_attrs = _format_code_asset_attrs(code_assets, has_unreplaced_hook),
+        resources = _RESOURCES_GLOB_BLOCK,
         deps = deps_block,
         language_version = language_version,
         plugin_platforms_json_literal = repr(plugin_platforms_json),
@@ -1143,33 +1234,6 @@ kt_android_library(
         synthesized_manifest = synthesized_manifest,
     )
 
-# A pub package's non-Dart files — JS, wasm, templates — are not
-# `dart_library` srcs, so without this nothing outside the spoke can name
-# them and they cannot be a `data` dep of anything. `package:dwds` is the
-# case that forced this: it serves `lib/src/injected/client.js` to the
-# browser by reading it off disk through `Isolate.resolvePackageUri`, which
-# resolves to null in an AOT binary, so the file has to be a declared
-# runtime input instead of something found at runtime.
-#
-# Appended to every spoke, overlay or not: which files a package needs at
-# runtime is the consumer's business, and an export costs nothing until
-# something depends on it. Assets stay individually addressable
-# (`@<spoke>//:lib/src/injected/client.js`) rather than being lumped into
-# one filegroup, so a `data` dep names the exact file it needs and pulls in
-# nothing else.
-_ASSET_EXPORTS = """
-exports_files(glob(
-    ["**"],
-    exclude = [
-        "BUILD.bazel",
-        "WORKSPACE",
-        "WORKSPACE.bazel",
-        "MODULE.bazel",
-    ],
-    allow_empty = True,
-))
-"""
-
 # The hook entrypoints upstream Dart defines (`package:hooks` — `build` and
 # `link`). A package shipping one produces native libraries by running Dart at
 # build time, which Bazel cannot do hermetically; something must stand in for it.
@@ -1190,14 +1254,139 @@ def _detect_unreplaced_hook(ctx):
             return candidate
     return ""
 
-def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, relpath):
+_LANGUAGE_VERSION_PLACEHOLDER = "{LANGUAGE_VERSION}"
+_DEPS_PLACEHOLDER = "{DEPS}"
+
+# The prefix a spoke label takes in an overlay template before substitution.
+# Finding one means the template names a sibling package by hand.
+_HUB_DEP_PREFIX = "@{HUB_NAME}__"
+
+def find_hardcoded_language_version(content):
+    """Return the literal language version an overlay spells out, or `""`.
+
+    A package's `environment.sdk` is the only place its language version is
+    declared; the spoke derives from it and substitutes
+    `{LANGUAGE_VERSION}`. A template that writes the version out instead is a
+    second declaration of the same fact, and the one that wins — the overlay
+    replaces generated content wholesale. The two then drift silently,
+    because the overlay ladder is version-ranged: `ext/objective_c/9/` serves
+    every 9.x, so a release that raises the SDK floor keeps the old literal.
+
+    Args:
+        content: Raw template text, before substitution.
+
+    Returns:
+        The offending literal (e.g. `"3.3"`), or `""` when the template
+        either uses the placeholder or declares no language version.
+    """
+    marker = "language_version"
+    idx = content.find(marker)
+    for _ in range(len(content)):
+        if idx == -1:
+            return ""
+        rest = content[idx + len(marker):].lstrip(" ")
+        if rest.startswith("="):
+            value = rest[1:].lstrip(" ")
+            if value.startswith('"'):
+                end = value.find('"', 1)
+                if end > 0:
+                    literal = value[1:end]
+                    if literal != _LANGUAGE_VERSION_PLACEHOLDER:
+                        return literal
+        idx = content.find(marker, idx + len(marker))
+    return ""
+
+def find_hardcoded_hub_dep(content):
+    """Return the first hand-written sibling-spoke label an overlay names, or `""`.
+
+    A package's dependencies are declared once, by its own pubspec, and the
+    spoke derives the Bazel labels from it — intersected with the lock, so a
+    generated spoke can never name a repo the hub did not create. An overlay
+    that spells the list out instead declares the same fact twice, and this
+    copy wins, because an overlay replaces generated content wholesale.
+
+    The two then drift on the package's next release, and the drift is not
+    a stale-but-working list: `objective_c` 9.5.0 dropped `native_toolchain_c`
+    from `dependencies` (its build hook stopped using it), so the lock stopped
+    carrying that package, while `ext/objective_c/9/` — one directory for the
+    whole major — kept asking for `@<hub>__native_toolchain_c`. The build died
+    on an unknown repo naming neither `objective_c` nor the overlay.
+
+    Args:
+        content: Raw template text, before substitution.
+
+    Returns:
+        The offending label (e.g. `"@{HUB_NAME}__ffi//:ffi"`), or `""`.
+    """
+    idx = content.find(_HUB_DEP_PREFIX)
+    if idx == -1:
+        return ""
+    end = content.find('"', idx)
+    return content[idx:end] if end > 0 else content[idx:]
+
+def render_overlay_deps(dep_labels):
+    """Render `dep_labels` as the body of an overlay's `deps = [...]`.
+
+    Emits one quoted, comma-terminated label per line at the eight-space
+    indent a template's `deps = [` block sits at, so the substituted BUILD
+    file comes out buildifier-clean.
+
+    Args:
+        dep_labels: Fully-qualified labels, in the order they should appear.
+
+    Returns:
+        The list body, without the enclosing brackets.
+    """
+    return "\n        ".join(['"%s",' % label for label in dep_labels])
+
+def apply_overlay_substitutions(content, hub_name, package_name, version, language_version, deps):
+    """Fill an overlay template's placeholders.
+
+    Args:
+        content: Raw template text.
+        hub_name: Value for `{HUB_NAME}`.
+        package_name: Value for `{PKG}`.
+        version: Value for `{VERSION}`.
+        language_version: Value for `{LANGUAGE_VERSION}`, derived from the
+            package's own pubspec.
+        deps: Rendered list body for `{DEPS}` (see `render_overlay_deps`),
+            derived from the same pubspec-and-lock intersection a generated
+            spoke uses.
+
+    Returns:
+        The substituted content.
+    """
+    return content.replace(
+        "{HUB_NAME}",
+        hub_name,
+    ).replace(
+        "{PKG}",
+        package_name,
+    ).replace(
+        "{VERSION}",
+        version,
+    ).replace(
+        _LANGUAGE_VERSION_PLACEHOLDER,
+        language_version,
+    ).replace(
+        _DEPS_PLACEHOLDER,
+        deps,
+    )
+
+def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, language_version, dep_labels, relpath, guard_hub_deps = False):
     """Look up an overlay template at `<root>/<package>/<version-ladder>/<relpath>`.
 
     Walks the version-specificity ladder
     `<major>.<minor>.<patch>/`, `<major>.<minor>/`, `<major>/`, bare
     `<package>/`, and returns the templated content (with `{HUB_NAME}`,
-    `{PKG}`, `{VERSION}` substitutions applied) on first match. Returns
-    empty string when no template is found.
+    `{PKG}`, `{VERSION}`, `{LANGUAGE_VERSION}` and `{DEPS}` substitutions
+    applied) on first match. Returns empty string when no template is found.
+
+    `dep_labels` are the spoke labels the package's own pubspec resolves to,
+    which `{DEPS}` expands into. `guard_hub_deps` rejects a template that
+    hand-writes those labels instead — see `find_hardcoded_hub_dep`. Only the
+    top-level BUILD sets it: `{DEPS}` is a Dart dependency list, so it is not
+    the right substitute for a sibling label in an `android/` sub-package.
 
     Currently called for two relpaths:
 
@@ -1234,21 +1423,70 @@ def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, re
             tpl = tpl.get_child(part)
         if tpl.exists:
             content = ctx.read(tpl)
-            return content.replace("{HUB_NAME}", ctx.attr.hub_name).replace(
-                "{PKG}",
-                package_name,
-            ).replace("{VERSION}", version)
+            hardcoded_dep = find_hardcoded_hub_dep(content) if guard_hub_deps else ""
+            if hardcoded_dep:
+                fail((
+                    "overlay template {tpl} hand-writes the dependency " +
+                    "`{dep}`.\n" +
+                    "A package's dependencies are declared once, by its own " +
+                    "pubspec; the spoke derives the labels from it — " +
+                    "intersected with the lock, so it can never name a repo " +
+                    "the hub did not create. Listing them here declares the " +
+                    "same fact twice, and this copy wins, because an overlay " +
+                    "replaces generated content wholesale. Because the " +
+                    "overlay ladder is version-ranged, a release that changes " +
+                    "the package's dependencies then fails on an unknown " +
+                    "repo that names neither the package nor this file.\n" +
+                    "Write `deps = [\n        {placeholder}\n    ],` instead."
+                ).format(
+                    tpl = str(tpl),
+                    dep = hardcoded_dep,
+                    placeholder = _DEPS_PLACEHOLDER,
+                ))
+            hardcoded = find_hardcoded_language_version(content)
+            if hardcoded:
+                fail((
+                    "overlay template {tpl} sets language_version = \"{value}\".\n" +
+                    "A package's language version is declared once, by its own " +
+                    "pubspec `environment.sdk`; the spoke derives it and fills in " +
+                    "{placeholder}. Spelling it out here declares the same fact " +
+                    "twice, and this copy wins — an overlay replaces generated " +
+                    "content wholesale. Because the overlay ladder is " +
+                    "version-ranged, the two then drift without a build error.\n" +
+                    "Write `language_version = \"{placeholder}\"` instead."
+                ).format(
+                    tpl = str(tpl),
+                    value = hardcoded,
+                    placeholder = _LANGUAGE_VERSION_PLACEHOLDER,
+                ))
+            return apply_overlay_substitutions(
+                content = content,
+                hub_name = ctx.attr.hub_name,
+                package_name = package_name,
+                version = version,
+                language_version = language_version,
+                deps = render_overlay_deps(dep_labels),
+            )
     return ""
 
-def _resolve_overlay(ctx, overlay_root_label, package_name, version):
-    """Resolve the top-level BUILD.bazel.tpl overlay (back-compat shim).
+def _resolve_overlay(ctx, overlay_root_label, package_name, version, language_version, dep_labels):
+    """Resolve the top-level BUILD.bazel.tpl overlay.
 
     Equivalent to `_resolve_overlay_template(..., "BUILD.bazel.tpl")`.
     Kept as a separate helper because the top-level lookup is the most
     common call shape; consumers wanting the Android sub-package
     template call `_resolve_overlay_template` directly.
     """
-    return _resolve_overlay_template(ctx, overlay_root_label, package_name, version, "BUILD.bazel.tpl")
+    return _resolve_overlay_template(
+        ctx,
+        overlay_root_label,
+        package_name,
+        version,
+        language_version,
+        dep_labels,
+        "BUILD.bazel.tpl",
+        guard_hub_deps = True,
+    )
 
 def _flutter_pub_package_impl(ctx):
     url = "{base}/packages/{name}/versions/{version}.tar.gz".format(
@@ -1339,6 +1577,8 @@ def _flutter_pub_package_impl(ctx):
             overlay_label,
             ctx.attr.package_name,
             ctx.attr.version,
+            language_version,
+            dep_labels,
         )
         if overlay_content:
             # Look up the matching `android/BUILD.bazel.tpl` from the same
@@ -1350,12 +1590,14 @@ def _flutter_pub_package_impl(ctx):
                 overlay_label,
                 ctx.attr.package_name,
                 ctx.attr.version,
+                language_version,
+                dep_labels,
                 "android/BUILD.bazel.tpl",
             )
             break
 
     if overlay_content:
-        ctx.file("BUILD.bazel", overlay_content + _ASSET_EXPORTS)
+        ctx.file("BUILD.bazel", overlay_content)
 
         # When the overlay ships an `android/BUILD.bazel.tpl`, use it
         # verbatim. Otherwise emit an empty stub so the hub's
@@ -1469,10 +1711,11 @@ def _flutter_pub_package_impl(ctx):
                 android_consumer_proguard_specs = _detect_consumer_proguard_specs(ctx)
 
         plugin_platforms_json = json.encode(plugin_block.platforms)
-        build_content = _make_flutter_plugin_build_content(
+        build_content = make_flutter_plugin_build_content(
             name = ctx.attr.package_name,
             deps = dep_labels,
             language_version = language_version,
+            version = ctx.attr.version,
             code_assets = ctx.attr.code_assets,
             has_unreplaced_hook = unreplaced_hook,
             plugin_platforms_json = plugin_platforms_json,
@@ -1494,10 +1737,11 @@ def _flutter_pub_package_impl(ctx):
         # Emit a flutter_library (rather than dart_library) so the metadata
         # propagates via FlutterInfo.pub_fonts/pub_assets/pub_shaders to the
         # consuming app's bundle aggregator.
-        build_content = _make_flutter_library_build_content(
+        build_content = make_flutter_library_build_content(
             name = ctx.attr.package_name,
             deps = dep_labels,
             language_version = language_version,
+            version = ctx.attr.version,
             code_assets = ctx.attr.code_assets,
             has_unreplaced_hook = unreplaced_hook,
             fonts_json_str = fonts_json_str,
@@ -1519,6 +1763,7 @@ def _flutter_pub_package_impl(ctx):
             language_version = language_version,
             code_assets = ctx.attr.code_assets,
             has_unreplaced_hook = unreplaced_hook,
+            version = ctx.attr.version,
         )
         android_src_dir = ""
         android_java_package = ""
@@ -1528,7 +1773,7 @@ def _flutter_pub_package_impl(ctx):
         android_has_resources = False
         android_native_build = False
 
-    ctx.file("BUILD.bazel", build_content + _ASSET_EXPORTS)
+    ctx.file("BUILD.bazel", build_content)
 
     # Always emit `android/BUILD.bazel`. Bazel only loads it when something
     # queries `@<spoke>//android:lib`, so non-Android workspaces don't pay

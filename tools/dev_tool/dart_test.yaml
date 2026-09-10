@@ -1,3 +1,26 @@
+# One e2e suite at a time, whatever invoked it.
+#
+# `dart test` defaults to **8** concurrent suites (measured on 3.12.1), and it
+# runs them as isolates of ONE process. Every e2e workspace is shared by
+# several files — `e2e/macos_example` by six, `e2e/web_example` by five,
+# `e2e/codegen` by two — and most of them edit its sources, so eight at once
+# means several runs regenerating one Bazel output base underneath each other.
+# Measured concurrently, both `e2e/codegen` files failed 3 runs out of 3 with
+# `Initial compile failed`; serially, all their tests passed 3 out of 3.
+#
+# `tool/e2e.dart` already passes `--concurrency=1`, but that only protects the
+# runs that go through it. This is what a bare `dart test test/e2e/` gets, and
+# it is the half `WorkspaceLock` cannot cover: that lock is an `fcntl` lock, so
+# it belongs to the process and two isolates of one process both hold it.
+#
+# The unit tests are Bazel targets and are not run this way, so nothing else
+# pays for this.
+concurrency: 1
+
 tags:
   e2e:
     timeout: 5m
+  # Needs the Bazel runfiles tree to reach a fixture declared in the target's
+  # `data`. Bazel supplies it; a bare `dart test` does not, so CI excludes this
+  # tag there and the coverage comes from the Bazel target instead.
+  runfiles:

@@ -14,6 +14,13 @@
 ///
 /// This test reads `codesign -d --entitlements -` and asserts the
 /// sandbox key is present.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -31,8 +38,9 @@ Future<void> main() async {
     exit(1);
   }
 
-  final tmpDir =
-      Directory.systemTemp.createTempSync('hello_world_macos_entitlements_');
+  final tmpDir = Directory.systemTemp.createTempSync(
+    'hello_world_macos_entitlements_',
+  );
   try {
     final unzip = Process.runSync('unzip', ['-q', zipPath, '-d', tmpDir.path]);
     if (unzip.exitCode != 0) {
@@ -53,8 +61,9 @@ Future<void> main() async {
       stderrEncoding: utf8,
     );
     if (result.exitCode != 0) {
-      stderr.writeln('codesign failed (exit ${result.exitCode}):');
-      stderr.writeln(result.stderr);
+      stderr
+        ..writeln('codesign failed (exit ${result.exitCode}):')
+        ..writeln(result.stderr);
       exit(1);
     }
 
@@ -64,11 +73,12 @@ Future<void> main() async {
     print('--- end ---');
 
     if (!entitlementsBlob.contains('com.apple.security.app-sandbox')) {
-      stderr.writeln('FAIL: expected entitlements blob to declare '
-          'com.apple.security.app-sandbox. Got:');
-      stderr.writeln(entitlementsBlob.isEmpty
-          ? '<empty>'
-          : entitlementsBlob);
+      stderr
+        ..writeln(
+          'FAIL: expected entitlements blob to declare '
+          'com.apple.security.app-sandbox. Got:',
+        )
+        ..writeln(entitlementsBlob.isEmpty ? '<empty>' : entitlementsBlob);
       exit(1);
     }
 

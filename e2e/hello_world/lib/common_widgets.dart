@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 /// A simple themed title widget, demonstrating flutter_library usage.
 class AppTitle extends StatelessWidget {
-  const AppTitle({super.key, required this.text});
+  /// Creates a title widget rendering [text] in the headline style.
+  const AppTitle({required this.text, super.key});
 
+  /// The string this widget renders.
   final String text;
 
   @override

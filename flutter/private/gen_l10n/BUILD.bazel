@@ -1,0 +1,38 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test")
+
+# The `flutter gen-l10n` entrypoint. The generator itself is vendored out of
+# flutter_tools by `flutter_gen_l10n_repo` (see
+# //flutter/private:flutter_gen_l10n_repo.bzl); this package holds only the
+# main() that adapts it to a Bazel action, the pub pins its seven dependencies
+# resolve from, and the patches that carve it out.
+exports_files(
+    ["pubspec.lock"],
+    visibility = ["//visibility:public"],
+)
+
+dart_binary(
+    name = "gen_l10n",
+    compile_mode = "exe",
+    main = "main.dart",
+    visibility = ["//flutter:__subpackages__"],
+    deps = ["@flutter_gen_l10n//:gen_l10n"],
+)
+
+# Unlike the raw scripts in //flutter/private/tools, this is a dart_binary
+# main, so it carries its own DartAnalyzableInfo and can be analyzed directly
+# rather than riding on a test's srcs.
+dart_analyze_test(
+    name = "gen_l10n_analyze",
+    size = "small",
+    target = ":gen_l10n",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = ["main.dart"],
+    # Matches this package's pubspec (`sdk: ^3.10.0-0`), which tracks
+    # flutter_tools' own constraint rather than the repo-wide tools version.
+    language_version = "3.10",
+    options = "//:analysis_options.yaml",
+)

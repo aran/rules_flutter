@@ -12,8 +12,10 @@ fix.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
+load("@rules_dart//dart:providers.bzl", "DartInfo", "DartPackageInfo")
 load("//flutter:native_assets.bzl", "flutter_data_asset", "flutter_native_asset")
 load("//flutter:providers.bzl", "FlutterNativeAssetInfo")
+load("//flutter/private:common.bzl", "check_unreplaced_hooks")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "native_asset_framework_name", "native_assets_target_string", "write_native_assets_manifest")
 
 # -- Pure-function tests for the manifest helpers ----------------------
@@ -108,6 +110,7 @@ def _manifest_probe_impl(ctx):
         native_assets = [dep[FlutterNativeAssetInfo] for dep in ctx.attr.assets],
         target_os = ctx.attr.target_os,
         target_arch = ctx.attr.target_arch,
+        layout = ctx.attr.layout,
     )
     return [DefaultInfo(files = depset([output]))]
 
@@ -115,8 +118,47 @@ _manifest_probe = rule(
     implementation = _manifest_probe_impl,
     attrs = {
         "assets": attr.label_list(providers = [FlutterNativeAssetInfo]),
+        "layout": attr.string(default = "bundle"),
         "target_arch": attr.string(mandatory = True),
         "target_os": attr.string(mandatory = True),
+    },
+)
+
+def _manifest_path_test_impl(ctx):
+    """Assert the path a bundled asset gets under a given layout.
+
+    The two layouts answer different questions — "where in the bundle" versus
+    "where in the runfiles tree" — and only one of them is reachable from an
+    e2e on this host, so the shapes are pinned here where both are cheap.
+    """
+    env = analysistest.begin(ctx)
+    writes = [
+        a
+        for a in analysistest.target_actions(env)
+        if a.mnemonic == "FileWrite" and
+           a.outputs.to_list()[0].basename.endswith(".native_assets.json")
+    ]
+    asserts.equals(env, 1, len(writes), "expected exactly one manifest write")
+    content = writes[0].content
+    for expected in ctx.attr.expected_substrings:
+        asserts.true(
+            env,
+            expected in content,
+            "%r missing from manifest: %s" % (expected, content),
+        )
+    for forbidden in ctx.attr.forbidden_substrings:
+        asserts.false(
+            env,
+            forbidden in content,
+            "%r should not appear in manifest: %s" % (forbidden, content),
+        )
+    return analysistest.end(env)
+
+manifest_path_test = analysistest.make(
+    _manifest_path_test_impl,
+    attrs = {
+        "expected_substrings": attr.string_list(),
+        "forbidden_substrings": attr.string_list(),
     },
 )
 
@@ -202,6 +244,37 @@ def _setup_failure_targets():
         tags = ["manual"],
     )
 
+    # A `flutter_native_asset`-declared bundled library, probed under both
+    # layouts. This is the arm the Native Assets e2e does not reach — that one
+    # goes through `bridge_dart_code_assets` — so without these the runfiles
+    # layout is only ever exercised for bridged assets.
+    flutter_native_asset(
+        name = "_layout_asset",
+        asset_id = "package:layout/layout.dart",
+        library = "//flutter/tests/dart_asset_fixture:asset_fixture_shared",
+        bundle_filename = "liblayout_probe.dylib",
+        link_mode = "dynamic_loading_bundle",
+        tags = ["manual"],
+    )
+
+    _manifest_probe(
+        name = "_layout_bundle",
+        assets = [":_layout_asset"],
+        layout = "bundle",
+        target_arch = "arm64",
+        target_os = "macos",
+        tags = ["manual"],
+    )
+
+    _manifest_probe(
+        name = "_layout_runfiles",
+        assets = [":_layout_asset"],
+        layout = "runfiles",
+        target_arch = "arm64",
+        target_os = "macos",
+        tags = ["manual"],
+    )
+
 def native_assets_test_suite(name):
     """Defines the analysis tests + pure-function tests for Native Assets.
 
@@ -250,6 +323,48 @@ def native_assets_test_suite(name):
         expected_substring = "hook_fixture (hook/build.dart)",
     )
 
+    # Ownership is checked where the asset is declared, not where it is
+    # reached — so a `flutter_library` naming an id namespaced to some other
+    # package fails on its own analysis, with no application involved.
+    _expect_failure_test(
+        name = name + "_misowned_code_asset",
+        target_under_test = "//flutter/tests/dart_asset_fixture:misowned_asset_fixture",
+        expected_substring = "is not namespaced to this package",
+    )
+
+    # The same check from `flutter_test`. `hook_check_probe` above proves the
+    # function's verdict; this proves the rule consults it — a test that
+    # compiled a manifest one entry short would fail at run time with the
+    # unresolved symbol this exists to pre-empt.
+    _expect_failure_test(
+        name = name + "_unreplaced_hook_in_test",
+        target_under_test = "//flutter/tests/dart_asset_fixture:hook_flutter_test",
+        expected_substring = "hook_fixture (hook/build.dart)",
+    )
+
+    # An application resolves a bundled library inside its bundle slot, so the
+    # bare filename is all the engine needs.
+    manifest_path_test(
+        name = name + "_bundle_layout_path",
+        size = "small",
+        target_under_test = ":_layout_bundle",
+        expected_substrings = ["\"liblayout_probe.dylib\""],
+        # The distinguishing part: no directory component at all, so the engine
+        # resolves it inside the bundle slot rather than anywhere else.
+        forbidden_substrings = ["flutter/tests/"],
+    )
+
+    # A test has no bundle, so the same asset must be named by where it sits in
+    # the runfiles tree — a path with separators, which is what makes the
+    # loader resolve it against the test's working directory rather than
+    # searching the system library path.
+    manifest_path_test(
+        name = name + "_runfiles_layout_path",
+        size = "small",
+        target_under_test = ":_layout_runfiles",
+        expected_substrings = ["\"flutter/tests/liblayout_probe.dylib\""],
+    )
+
     unittest.suite(
         name + "_pure",
         _target_string_t0_test,
@@ -267,9 +382,68 @@ def native_assets_test_suite(name):
             ":" + name + "_data_asset_id_format",
             ":" + name + "_duplicate_asset_ids",
             ":" + name + "_unreplaced_hook",
+            ":" + name + "_misowned_code_asset",
+            ":" + name + "_unreplaced_hook_in_test",
+            ":" + name + "_bundle_layout_path",
+            ":" + name + "_runfiles_layout_path",
             ":" + name + "_pure",
         ],
     )
+
+# --- check_unreplaced_hooks tolerance ---
+#
+# The hook check reads a field off `DartPackageInfo`, which is rules_dart's
+# provider and is documented to tolerate a record built before a given field
+# existed. A record from such a producer must read as "no hook" rather than
+# failing analysis — it is not an offender, and it could not have been one.
+
+def _legacy_dart_library_impl(ctx):
+    # The pre-`has_unreplaced_hook` record shape, matching rules_dart's own
+    # `//dart/tests/no_lv_fixture`: `package_name` and `lib_root` and nothing
+    # else. Built by hand on purpose — a fixture asserting that older producers
+    # still work cannot be written through a constructor that makes them
+    # current.
+    pkg = DartPackageInfo(
+        package_name = ctx.attr.package_name,
+        lib_root = ctx.label.package,
+    )
+    return [
+        DefaultInfo(files = depset(ctx.files.srcs)),
+        DartInfo(
+            package_name = ctx.attr.package_name,
+            lib_root = ctx.label.package,
+            transitive_srcs = depset(ctx.files.srcs),
+            transitive_resources = depset(),
+            transitive_packages = depset([pkg]),
+        ),
+    ]
+
+legacy_dart_library = rule(
+    implementation = _legacy_dart_library_impl,
+    attrs = {
+        "package_name": attr.string(mandatory = True),
+        "srcs": attr.label_list(allow_files = [".dart"]),
+    },
+    doc = "Emits a `DartPackageInfo` predating `has_unreplaced_hook`.",
+)
+
+def _hook_check_probe_impl(ctx):
+    err = check_unreplaced_hooks(ctx.label, ctx.attr.deps)
+    if ctx.attr.expect_offender:
+        if err == None:
+            fail("%s: expected check_unreplaced_hooks to report an offender" % ctx.label)
+    elif err != None:
+        fail("%s: expected no offender, got: %s" % (ctx.label, err))
+    return [DefaultInfo(files = depset())]
+
+hook_check_probe = rule(
+    implementation = _hook_check_probe_impl,
+    attrs = {
+        "expect_offender": attr.bool(default = False),
+        "deps": attr.label_list(providers = [DartInfo]),
+    },
+    doc = "Runs `check_unreplaced_hooks` over `deps` and asserts the verdict.",
+)
 
 # --- bridge_dart_code_assets ---
 #

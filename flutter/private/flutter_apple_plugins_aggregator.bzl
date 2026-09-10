@@ -3,7 +3,7 @@ transitive dep graph into a single CcInfo + SwiftInfo target so the
 runner's swift_library can depend on it.
 
 flutter_application transitively merges per-plugin
-`apple_plugin_libraries` entries into FlutterInfo. Each entry holds the
+`apple_plugin_libraries` entries into FlutterApplicationInfo. Each entry holds the
 CcInfo and SwiftInfo from a flutter_apple_plugin_library spoke. This
 rule walks that depset, filters to the target platform, and merges:
   * CcInfo via cc_common.merge_cc_infos — gives the runner the static
@@ -18,10 +18,10 @@ The runner_lib_gen swift_library has the aggregator target in its `deps`.
 
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
-load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter:providers.bzl", "FlutterApplicationInfo")
 
 def _flutter_apple_plugins_aggregator_impl(ctx):
-    flutter_info = ctx.attr.application[FlutterInfo]
+    flutter_info = ctx.attr.application[FlutterApplicationInfo]
     target_platform = ctx.attr.platform
 
     cc_infos = []
@@ -53,9 +53,9 @@ flutter_apple_plugins_aggregator = rule(
     attrs = {
         "application": attr.label(
             doc = "A flutter_application target whose transitive deps carry " +
-                  "Apple plugin libraries via FlutterInfo.apple_plugin_libraries.",
+                  "Apple plugin libraries via FlutterApplicationInfo.apple_plugin_libraries.",
             mandatory = True,
-            providers = [FlutterInfo],
+            providers = [FlutterApplicationInfo],
         ),
         "platform": attr.string(
             doc = "Target platform: 'macos' or 'ios'.",

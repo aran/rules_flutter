@@ -19,7 +19,7 @@ Output bundle structure:
         icudtl.dat
 """
 
-load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
+load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:cc_runner_compile.bzl", "compile_and_link_runner")
 load("//flutter/private:common.bzl", "compute_desktop_bundle_copies")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
@@ -56,14 +56,14 @@ def _flutter_windows_runner_lib_impl(ctx):
     is_debug = ctx.var.get("COMPILATION_MODE", "fastbuild") != "opt"
 
     # Gather Windows plugin source bundles from the application's
-    # transitive FlutterInfo. Same pattern as Linux: compile plugin
+    # transitive plugin libraries. Same pattern as Linux: compile plugin
     # sources alongside runner sources so the registrant's
     # `<Plugin>RegisterWithRegistrar` symbols resolve at link time.
     plugin_srcs = []
     plugin_hdrs = []
     plugin_include_dirs = []
     if ctx.attr.application:
-        for entry in ctx.attr.application[FlutterInfo].windows_plugin_libraries.to_list():
+        for entry in ctx.attr.application[FlutterApplicationInfo].windows_plugin_libraries.to_list():
             plugin_srcs.extend(entry.srcs.to_list())
             plugin_hdrs.extend(entry.hdrs.to_list())
             plugin_include_dirs.extend(entry.include_dirs.to_list())
@@ -105,7 +105,7 @@ def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant
         registrant_hdrs: Generated registrant .h files.
         runner_hdrs: User-provided header files for the runner.
         plugin_srcs: Windows plugin C++ sources (from
-            FlutterInfo.windows_plugin_libraries) compiled into the runner.
+            FlutterApplicationInfo.windows_plugin_libraries) compiled into the runner.
         plugin_hdrs: Windows plugin C++ headers; their parent dirs are
             added to the include path.
         plugin_include_dirs: Plugin-relative include directories,
@@ -249,8 +249,8 @@ flutter_windows_runner_lib = rule(
             doc = "Optional flutter_application target. When set, the runner " +
                   "compiles every transitive plugin's Windows C++ sources " +
                   "alongside its own (collected from " +
-                  "FlutterInfo.windows_plugin_libraries).",
-            providers = [FlutterInfo],
+                  "FlutterApplicationInfo.windows_plugin_libraries).",
+            providers = [FlutterApplicationInfo],
         ),
         "_runner_sources": attr.label(
             default = Label("//flutter/private/runners:windows_runner_srcs"),

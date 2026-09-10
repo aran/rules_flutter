@@ -10,13 +10,11 @@
 /// `DynamicLibrary.open('package:...')` does NOT consult the mapping — the
 /// Dart VM passes the literal string to dlopen, on every platform. For the
 /// classic open-by-path pattern, see `mul_plugin`.
-library add_plugin;
+library;
 
 import 'dart:ffi' as ffi;
 
-typedef _AddNative = ffi.Int32 Function(ffi.Int32 a, ffi.Int32 b);
-
-@ffi.Native<_AddNative>(symbol: 'add')
+@ffi.Native<ffi.Int32 Function(ffi.Int32, ffi.Int32)>(symbol: 'add')
 external int _addViaAsset(int a, int b);
 
 /// Call the native `add` function from the bundled shared library.

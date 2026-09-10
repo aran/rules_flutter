@@ -1,0 +1,22 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//flutter:defs.bzl", "flutter_gen_l10n")
+
+# `es` and `es_419` deliberately both appear: gen-l10n emits one Dart file per
+# *primary language subtag*, so these two collapse into a single
+# app_localizations_es.dart holding AppLocalizationsEs and AppLocalizationsEs419.
+# A rule that declared one output per input arb would promise Bazel a file the
+# generator never writes, and this fixture is what catches that.
+flutter_gen_l10n(
+    name = "l10n",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_es.arb",
+        "lib/l10n/app_es_419.arb",
+    ],
+)
+
+build_test(
+    name = "gen_l10n_build_test",
+    size = "small",
+    targets = [":l10n"],
+)

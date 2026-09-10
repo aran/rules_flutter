@@ -21,12 +21,12 @@ Future<Never> executeTunnelCommand() async {
     exit(1);
   }
 
-  final resolved =
-      resolveRunfileWithManifest('rules_flutter/tools/ios_screenshot/tunneld');
+  final resolved = resolveRunfileWithManifest(
+    'rules_flutter/tools/ios_screenshot/tunneld',
+  );
   if (resolved == null) {
     stderr.writeln('Could not find bundled tunneld binary.');
-    stderr.writeln(
-        'Build first: bazel build //tools/dev_tool:flutter_bazel');
+    stderr.writeln('Build first: bazel build //tools/dev_tool:flutter_bazel');
     exit(1);
   }
 

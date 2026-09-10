@@ -1,0 +1,3 @@
+common --lockfile_mode=off
+
+try-import %workspace%/.bazelrc.user

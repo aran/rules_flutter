@@ -84,7 +84,7 @@ def flutter_asset_bundle_action(
         fonts = [],
         notices = "",
         license_files = [],
-        output_dir_name = "flutter_assets",
+        output_dir = None,
         const_finder = None,
         font_subset = None,
         kernel_dill = None,
@@ -99,7 +99,15 @@ def flutter_asset_bundle_action(
         fonts: list of font declaration dicts (FontManifest.json schema).
         notices: License text string to compress into NOTICES.Z.
         license_files: list of File objects containing license text to include in NOTICES.Z.
-        output_dir_name: Name for the output tree artifact.
+        output_dir: The already-declared directory (tree artifact) File to
+            write the bundle into. Declared by the caller rather than here
+            because an application has to know where its assets will land
+            *before* this action runs — the path is baked into the app as
+            `rules_flutter.build_info.assetsDir`, which the dev tool matches
+            against the tree it watches and rebuilds. Declaring an output and
+            registering the action that fills it are separate steps in
+            Starlark, so hoisting the declaration introduces no cycle even
+            though icon tree shaking makes this action depend on the kernel.
         const_finder: File for const_finder.dart.snapshot (enables icon tree shaking).
         font_subset: File for font-subset binary (enables icon tree shaking).
         kernel_dill: File for the compiled kernel .dill (needed for icon tree shaking).
@@ -107,9 +115,10 @@ def flutter_asset_bundle_action(
             need a specific destination path (e.g. "fonts/MaterialIcons-Regular.otf").
 
     Returns:
-        The declared directory (tree artifact) File.
+        The `output_dir` it was given, so callers can chain.
     """
-    output_dir = ctx.actions.declare_directory(output_dir_name)
+    if output_dir == None:
+        fail("flutter_asset_bundle_action: `output_dir` is required — declare it with ctx.actions.declare_directory().")
     tool = ctx.file._asset_bundle_tool
 
     # Build asset paths and copy map relative to the output directory.
@@ -196,7 +205,7 @@ def _flutter_asset_bundle_impl(ctx):
         assets = all_assets,
         fonts = fonts,
         notices = "",
-        output_dir_name = ctx.label.name,
+        output_dir = ctx.actions.declare_directory(ctx.label.name),
         extra_asset_copies = extra_asset_copies,
     )
 

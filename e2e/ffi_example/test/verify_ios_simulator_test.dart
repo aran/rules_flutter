@@ -23,6 +23,13 @@
 /// calls succeeded via the bundled native libraries. The test reads the file
 /// back through `simctl get_app_container` (a deterministic signal that
 /// doesn't depend on scraping iOS log output).
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -58,10 +65,9 @@ void main() {
     exit(1);
   }
   final payload = Directory('${tmp.path}/Payload');
-  final appDir = payload
-      .listSync()
-      .whereType<Directory>()
-      .firstWhere((d) => d.path.endsWith('.app'));
+  final appDir = payload.listSync().whereType<Directory>().firstWhere(
+    (d) => d.path.endsWith('.app'),
+  );
   print('App: ${appDir.path}');
 
   final udid = _ensureBootedSimulator();
@@ -71,8 +77,12 @@ void main() {
   Process.runSync('xcrun', ['simctl', 'uninstall', udid, _bundleId]);
 
   print('Installing app...');
-  final install =
-      Process.runSync('xcrun', ['simctl', 'install', udid, appDir.path]);
+  final install = Process.runSync('xcrun', [
+    'simctl',
+    'install',
+    udid,
+    appDir.path,
+  ]);
   if (install.exitCode != 0) {
     stderr.writeln('Install failed: ${install.stderr}');
     exit(1);
@@ -93,8 +103,13 @@ void main() {
   final deadline = DateTime.now().add(_timeout);
   String? contents;
   while (DateTime.now().isBefore(deadline)) {
-    final container = Process.runSync(
-        'xcrun', ['simctl', 'get_app_container', udid, _bundleId, 'data']);
+    final container = Process.runSync('xcrun', [
+      'simctl',
+      'get_app_container',
+      udid,
+      _bundleId,
+      'data',
+    ]);
     if (container.exitCode == 0) {
       final path = '${container.stdout.toString().trim()}/$_resultFile';
       final f = File(path);
@@ -109,8 +124,10 @@ void main() {
   Process.runSync('xcrun', ['simctl', 'terminate', udid, _bundleId]);
 
   if (contents == null) {
-    stderr.writeln('FAIL: app never wrote $_resultFile — it likely crashed '
-        'before main() completed (native library failed to load?).');
+    stderr.writeln(
+      'FAIL: app never wrote $_resultFile — it likely crashed '
+      'before main() completed (native library failed to load?).',
+    );
     exit(1);
   }
   print('App recorded: "$contents"');
@@ -118,8 +135,10 @@ void main() {
     stderr.writeln('FAIL: expected "$_marker" but got "$contents".');
     exit(1);
   }
-  print('PASS: @Native asset bind (add), raw framework open (mul) and '
-      'the curated sqlite3 code asset all worked at runtime.');
+  print(
+    'PASS: @Native asset bind (add), raw framework open (mul) and '
+    'the curated sqlite3 code asset all worked at runtime.',
+  );
 }
 
 /// Returns the UDID of a booted simulator, booting an available iPhone if none
@@ -149,8 +168,13 @@ String _ensureBootedSimulator() {
 
 /// UDIDs from `simctl list devices <filter> -j`, iPhones only, in list order.
 List<String> _devices(String filter) {
-  final res =
-      Process.runSync('xcrun', ['simctl', 'list', 'devices', filter, '-j']);
+  final res = Process.runSync('xcrun', [
+    'simctl',
+    'list',
+    'devices',
+    filter,
+    '-j',
+  ]);
   if (res.exitCode != 0) return [];
   final json = jsonDecode(res.stdout.toString()) as Map<String, dynamic>;
   final byRuntime = json['devices'] as Map<String, dynamic>;

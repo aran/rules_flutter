@@ -32,8 +32,10 @@ def flutter_android_plugin_library(
     """Wrap a Flutter plugin's Android Kotlin/Java sources in a kt_android_library.
 
     Args:
-        name: Target name. Pass to `android_binary.deps` either directly or
-            via the `flutter_android_app` Tier-1 macro's auto-aggregation.
+        name: Target name. Add it to the application's `binary_deps`. The
+            Tier-1 macro's auto-aggregation covers pub.dev plugins only —
+            it deps on the hub's `all_android_plugin_libs`, which knows the
+            resolved spokes and nothing about a target in this workspace.
         srcs: Kotlin/Java source files (`.kt`, `.java`).
         java_package: Java package the plugin's classes live in
             (e.g. `io.flutter.plugins.urllauncher`). Used to generate a

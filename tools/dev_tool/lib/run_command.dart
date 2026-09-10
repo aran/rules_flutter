@@ -1,145 +1,264 @@
 /// The `run` command — builds and launches a Flutter app with hot reload.
 ///
-/// Architecture:
-///   1. Build the initial app via `bazel build -c dbg`
-///   2. Launch the app on each target device
-///   3. Connect to VM service per device
-///   4. Start ONE persistent frontend_server for incremental compilation
-///   5. Watch source files for changes (shared across devices)
-///   6. On change: recompile once → hot reload ALL devices
+/// What is left here is the sequence, and only the sequence. Each step is an
+/// object of its own:
+///
+///   [RunPlan]                  what the invocation resolves to, and the build
+///   [SessionHost]              sessions, dispatch, protocol, teardown, HTTP
+///   [ReloadPipeline]           what it takes to get an edit into the app
+///   [WebPipelineAssembler]     the DDC dev loop, before Chrome launches
+///   [SourceWatcher]            edits, from before the first launch
+///   [DeviceLauncher]           one device: launch, DDS, VM client, session
+///   [WasmPipelineAssembler]    the rebuild-and-reload loop, after launch
+///   [NativePipelineAssembler]  the native compiler and orchestrator, after launch
+///   `runInteractiveSession`    the loop that reads them all
+///
+/// The order is the load-bearing part: the watcher must start before the launch
+/// loop, DWDS's connection listener must be attached before Chrome exists,
+/// WASM's handlers must be registered after the generic ones, and the native
+/// pipeline can only be built once there is a VM service to point it at.
+/// `attach` reuses everything from [SessionHost] down.
 import 'dart:async';
 import 'dart:io';
 
 import 'package:args/args.dart';
-import 'package:dds/dds.dart';
-import 'package:path/path.dart' as p;
-import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
-    show ChromeConnection;
 
-import 'agent_command.dart';
-import 'app_log_sink.dart';
-import 'bazel.dart';
-import 'command_runner.dart';
-import 'compiler_config.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
-import 'frontend_server.dart';
-import 'hot_reload/app_instance.dart' as hr;
-import 'hot_reload/applied_versions.dart';
-import 'hot_reload/compiler.dart' as hot_reload;
-import 'hot_reload/package_uri_resolver.dart';
-import 'hot_reload/readiness_gate.dart';
-import 'hot_reload/reload_orchestrator.dart';
-import 'hot_reload/workspace.dart';
-import 'http_control_channel.dart';
+import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
 import 'machine_protocol.dart';
-import 'native_libs_fingerprint.dart';
-import 'reload_strategy.dart';
+import 'device_launcher.dart';
+import 'native_pipeline_assembler.dart';
+import 'reload_pipeline.dart';
+import 'run_plan.dart';
+import 'web_mode.dart';
+import 'web_options.dart';
 import 'session.dart';
-import 'toolchain_info.dart';
-import 'vm_service_client.dart';
-import 'vm_service_logs.dart';
-import 'web_bootstrap.dart';
-import 'web_module_server.dart';
+import 'session_host.dart';
+import 'temp_dir.dart';
+import 'web_pipeline_assembler.dart';
 
 export 'dev_tool_exception.dart' show DevToolException;
 
-/// Refuses a compilation mode no device in [devices] can actually run.
-///
-/// Only one combination qualifies, and it is the one that fails quietly: an
-/// AOT bundle on an iOS simulator. The simulator slice of the Flutter engine
-/// is JIT and looks for `flutter_assets/kernel_blob.bin`, which a `-c opt`
-/// bundle does not contain — but `simctl install` and `simctl launch` both
-/// return 0, the process stays alive, nothing crashes, the screen stays blank
-/// white, and the reason appears only in the simulator's system log. A build
-/// is deliberately not refused: `bazel build -c opt` for the simulator is a
-/// legitimate thing to do, and the default iOS configuration *is* the
-/// simulator, so failing there would break every release build. It is running
-/// it that cannot work.
-void assertModeCanRun(String? compilationMode, List<Device> devices) {
-  if (compilationMode != 'opt') return;
-  for (final simulator in devices.whereType<IOSSimulatorDevice>()) {
-    throw DevToolException(
-        'Cannot run an AOT build on ${simulator.name}: the simulator\'s '
-        'Flutter engine is JIT-only and needs '
-        'flutter_assets/kernel_blob.bin, which a `-c opt` bundle does not '
-        'contain. It would install, launch, stay alive and render blank.\n'
-        'Run it in JIT (drop --profile, or build -c dbg), or use `-d ios` to '
-        'observe a release build on a physical device.');
-  }
-}
-
-/// The http form of a DDS websocket URI.
-///
-/// DDS advertises `ws://host:port/<authCode>/ws`; `VmServiceClient.connect`
-/// wants the http root and appends `ws` itself. Mirrors flutter_tools'
-/// `_httpUriFromWebsocketUri`.
-Uri _httpUriFromWebSocketUri(Uri wsUri) {
-  const wsPath = '/ws';
-  final path =
-      wsUri.path.endsWith(wsPath) ? wsUri.path.substring(0, wsUri.path.length - 2) : wsUri.path;
-  return wsUri.replace(scheme: wsUri.scheme == 'wss' ? 'https' : 'http', path: path);
-}
-
 class RunCommand {
   static final parser = ArgParser()
-    ..addOption('target',
-        abbr: 't', help: 'Bazel target to build and run.', mandatory: true)
+    ..addOption(
+      'target',
+      abbr: 't',
+      help: 'Bazel target to build and run.',
+      mandatory: true,
+    )
     ..addOption('config', abbr: 'c', help: 'Bazel config to use.')
-    ..addMultiOption('build-arg',
-        help: 'Additional arguments to pass to bazel build.')
-    ..addMultiOption('dart-define',
-        splitCommas: false,
-        help: 'Dart environment define (KEY=VALUE) forwarded to the build '
-            'as --@rules_flutter//flutter:extra_dart_defines and replayed '
-            'on hot reload/restart recompiles. Repeat for multiple defines.')
-    ..addMultiOption('device',
-        abbr: 'd',
-        help: 'Device to run on (macos, linux, windows, ios-simulator, '
-            'ios-simulator:<udid>, ios, ios:<udid>, chrome, or Android serial). '
-            'Repeat for multi-device.')
-    ..addFlag('hot',
-        defaultsTo: true, help: 'Enable hot reload (requires debug build).')
-    ..addFlag('profile',
-        defaultsTo: false,
-        help: 'Run in profile mode (AOT, unstripped, profiling enabled).')
+    ..addMultiOption(
+      'build-arg',
+      help: 'Additional arguments to pass to bazel build.',
+    )
+    ..addMultiOption(
+      'dart-define',
+      splitCommas: false,
+      help:
+          'Dart environment define (KEY=VALUE) forwarded to the build '
+          'as --@rules_flutter//flutter:extra_dart_defines and replayed '
+          'on hot reload/restart recompiles. Repeat for multiple defines.',
+    )
+    ..addMultiOption(
+      'device',
+      abbr: 'd',
+      help:
+          'Device to run on (macos, linux, windows, ios-simulator, '
+          'ios-simulator:<udid>, ios, ios:<udid>, chrome, or Android serial). '
+          'Repeat for multi-device.',
+    )
+    ..addFlag(
+      'hot',
+      defaultsTo: true,
+      help: 'Enable hot reload (requires debug build).',
+    )
+    ..addFlag(
+      'profile',
+      defaultsTo: false,
+      help: 'Run in profile mode (AOT, unstripped, profiling enabled).',
+    )
     ..addOption('route', help: 'Initial route to push on app start.')
-    ..addFlag('trace-startup',
-        defaultsTo: false,
-        help: 'Trace application startup, then save to a timeline file.')
-    ..addFlag('machine',
-        defaultsTo: false, help: 'Enable machine-readable JSON protocol.')
-    ..addFlag('watch',
-        defaultsTo: true,
-        help: 'Watch filesystem for changes and auto-reload. '
-            'Defaults to on in terminal mode, off in machine mode.')
-    ..addFlag('devtools',
-        defaultsTo: true, help: 'Launch DevTools for each connected device.')
-    ..addFlag('wasm',
-        defaultsTo: false,
-        help:
-            'Run web app in WASM mode (no hot reload, uses bazel rebuild + page reload).')
-    ..addFlag('verbose',
-        abbr: 'v', defaultsTo: false, help: 'Enable verbose debug logging.')
-    ..addFlag('http-control-channel',
-        defaultsTo: true,
-        help: 'Expose an HTTP control channel for external command dispatch '
-            '(screenshots, app.* driving). On by default; disable with '
-            '--no-http-control-channel. The bound URI and auth token are '
-            'printed at startup.')
-    ..addFlag('allow-no-vm-service',
-        defaultsTo: false,
-        negatable: false,
-        help: 'Keep the session running even when no VM service connection '
-            'could be established. Without this flag that is a fatal error, '
-            'because hot reload, DevTools, and agent control all depend on '
-            'the VM service. On a native device that means no connection to '
-            'the app\'s own VM service; on Chrome it means no DWDS, which is '
-            'what serves the VM service there — the run then falls back to '
-            'serving the last build statically.')
-    ..addFlag('help',
-        abbr: 'h', negatable: false, help: 'Show help for this command.');
+    ..addFlag(
+      'start-paused',
+      defaultsTo: false,
+      negatable: false,
+      help:
+          'Hold the app at the start of main() so a debugger can attach '
+          'before any app code runs. Nothing that needs a running framework '
+          'answers until something resumes it: no first frame, no '
+          'screenshots, and no app.* commands. DevTools (or any VM service '
+          'client) is what resumes it.',
+    )
+    ..addFlag(
+      'trace-startup',
+      defaultsTo: false,
+      help: 'Trace application startup, then save to a timeline file.',
+    )
+    ..addFlag(
+      'machine',
+      defaultsTo: false,
+      help: 'Enable machine-readable JSON protocol.',
+    )
+    ..addFlag(
+      'watch',
+      defaultsTo: true,
+      help:
+          'Watch filesystem for changes and auto-reload. '
+          'Defaults to on in terminal mode, off in machine mode.',
+    )
+    ..addFlag(
+      'devtools',
+      defaultsTo: true,
+      help: 'Launch DevTools for each connected device.',
+    )
+    ..addFlag(
+      'wasm',
+      defaultsTo: false,
+      help:
+          'Run web app in WASM mode (no hot reload, uses bazel rebuild + page reload).',
+    )
+    ..addOption(
+      'web-port',
+      help:
+          'The host port to serve a web app from. Defaults to any free '
+          'port. A port that cannot be bound is an error naming it — '
+          'nothing else is chosen for you.',
+    )
+    ..addOption(
+      'web-hostname',
+      help:
+          'The address the web dev server binds. Defaults to localhost; '
+          '"any" binds every interface, over both IPv4 and IPv6, which puts '
+          'the app and its sources on every network this host is attached '
+          'to.',
+    )
+    ..addOption(
+      'web-tls-cert-path',
+      help:
+          'Certificate chain to serve the web app over HTTPS. Requires '
+          '--web-tls-cert-key-path.',
+    )
+    ..addOption(
+      'web-tls-cert-key-path',
+      help: 'Private key for --web-tls-cert-path.',
+    )
+    ..addMultiOption(
+      'web-header',
+      splitCommas: false,
+      help:
+          'NAME=VALUE header added to every web dev server response. '
+          'Repeat for multiple headers. A header the response itself sets '
+          '(content-type, say) wins over this.',
+    )
+    // No `defaultsTo`: the default really is mode-dependent (on with --wasm,
+    // off elsewhere), and declaring one here would make `--help` print
+    // "(defaults to on)" for every run while the code did something else.
+    // Null is the honest "not asked for".
+    ..addFlag(
+      'cross-origin-isolation',
+      defaultsTo: null,
+      help:
+          'Add the Cross-Origin-Opener-Policy and '
+          'Cross-Origin-Embedder-Policy headers, which make '
+          'SharedArrayBuffer available. On by default only with --wasm, '
+          'whose skwasm renderer needs it for multi-threading; turning it '
+          'off there costs the app its render threads. Off elsewhere '
+          'because an isolated page cannot load a cross-origin subresource '
+          'that carries no CORP header, and cannot be embedded in an '
+          'iframe.',
+    )
+    ..addOption(
+      'web-launch-url',
+      help:
+          'The URL the browser opens. Defaults to the dev server\'s own '
+          'base URL; a path or fragment on that URL selects a starting '
+          'route. It has to address this run\'s server — nothing else is '
+          'proxied.',
+    )
+    ..addMultiOption(
+      'web-browser-flag',
+      splitCommas: false,
+      help:
+          'Additional switch passed to the browser at startup, after the '
+          'ones this tool sets. Repeat for several. Switches this tool owns '
+          '(--user-data-dir, --remote-debugging-port, --headless) are '
+          'refused, because a browser resolves a duplicate switch by '
+          'position rather than by intent.',
+    )
+    ..addOption(
+      'web-viewport',
+      help:
+          'Lay the app out at this viewport, whatever size the browser '
+          'window is: WIDTHxHEIGHT in CSS pixels, optionally @ a device '
+          'pixel ratio — 393x660, or 393x660@3. Applied over the DevTools '
+          'Protocol once the page is up, because a browser window cannot be '
+          'asked for a phone-sized viewport: --window-size is clamped and '
+          'loses the window chrome off the height.',
+    )
+    ..addFlag(
+      'web-run-headless',
+      defaultsTo: false,
+      negatable: false,
+      help:
+          'Run the browser with no visible window. Screenshots and the '
+          'app console still work. The sandbox stays on: pass '
+          '--web-browser-flag=--no-sandbox if your environment really '
+          'needs that.',
+    )
+    ..addOption(
+      'web-browser-debug-port',
+      help:
+          'The Chrome DevTools Protocol port the browser should take. '
+          'Defaults to any free port. Either way the launch waits for the '
+          'browser to announce the port it took, and a browser that '
+          'announces a different one is an error.',
+    )
+    ..addFlag(
+      'web-enable-expression-evaluation',
+      defaultsTo: true,
+      help:
+          'Let the debugger compile and evaluate Dart expressions against '
+          'the running web app — what a watch window or an evaluate box '
+          'needs. Only the DDC dev loop can: it is the only web run with a '
+          'resident compiler holding the running program\'s state.',
+    )
+    ..addFlag(
+      'verbose',
+      abbr: 'v',
+      defaultsTo: false,
+      help: 'Enable verbose debug logging.',
+    )
+    ..addFlag(
+      'http-control-channel',
+      defaultsTo: true,
+      help:
+          'Expose an HTTP control channel for external command dispatch '
+          '(screenshots, app.* driving). On by default; disable with '
+          '--no-http-control-channel. The bound URI and auth token are '
+          'printed at startup.',
+    )
+    ..addFlag(
+      'allow-no-vm-service',
+      defaultsTo: false,
+      negatable: false,
+      help:
+          'Keep the session running even when no VM service connection '
+          'could be established. Without this flag that is a fatal error, '
+          'because hot reload, DevTools, and agent control all depend on '
+          'the VM service. On a native device that means no connection to '
+          'the app\'s own VM service; on Chrome it means no DWDS, which is '
+          'what serves the VM service there — the run then falls back to '
+          'serving the last build statically.',
+    )
+    ..addFlag(
+      'help',
+      abbr: 'h',
+      negatable: false,
+      help: 'Show help for this command.',
+    );
 
   final ArgResults _results;
 
@@ -173,1384 +292,262 @@ class RunCommand {
   }
 
   Future<void> _execute() async {
-    final target = _results['target'] as String;
-    final config = _results['config'] as String?;
-    // --dart-define flags ride along on EVERY bazel invocation this run
-    // makes (initial build, dev-config build, codegen refreshes, cquery) so
-    // they all share one configuration — otherwise outputs would resolve in
-    // a configuration that never got the defines.
-    final defineFlags =
-        dartDefineFlags(_results['dart-define'] as List<String>);
-    final extraArgs = [
-      ...(_results['build-arg'] as List<String>),
-      ...defineFlags,
-    ];
-    final deviceIds = _results['device'] as List<String>;
-    final hotReloadEnabled = _results['hot'] as bool;
-    final profileMode = _results['profile'] as bool;
-    final initialRoute = _results['route'] as String?;
-    final traceStartup = _results['trace-startup'] as bool;
-    final isMachine = _results['machine'] as bool;
-    final watchEnabled = _results.wasParsed('watch')
-        ? _results['watch'] as bool
-        : !isMachine; // terminal: watch by default, machine: don't
-    final wasmMode = _results['wasm'] as bool;
-    final devToolsEnabled = _results['devtools'] as bool;
-    final verbose = _results['verbose'] as bool;
-    final httpChannelEnabled = _results['http-control-channel'] as bool;
-    final allowNoVmService = _results['allow-no-vm-service'] as bool;
+    final logger = Logger('dev_tool.run');
+    if (_results['verbose'] as bool) Logger.root.level = Level.FINE;
 
-    // Resolve the workspace root once. Every callsite below (web module
-    // server setup, native frontend server startup, profile/normal
-    // interactive sessions, machine-protocol hot reload) used to call
-    // findWorkspaceRoot independently and silently fall back to '.'; the
-    // local capture both fixes that and avoids 2-3 redundant `bazel info`
-    // spawns per `flutter_bazel run`.
-    final workspace = await findWorkspaceRoot();
+    // Sessions, dispatch, the machine protocol, teardown and the HTTP channel
+    // — everything that is the same whether the app was launched here or found
+    // already running. `attach` builds the same object.
+    //
+    // Built and listening BEFORE anything can fail. Resolving the plan probes
+    // the host — adb, simctl, devicectl — and refuses devices that cannot share
+    // one build or a mode they cannot run; each of those throws. With the
+    // protocol still unbuilt at that point, `execute`'s catch would fire
+    // `_protocol?.sendEvent` on a null and a `--machine` client would get zero
+    // bytes and a bare exit instead of `daemon.connected` followed by a
+    // `daemon.logMessage` naming the reason.
+    final host = SessionHost(
+      isMachine: _results['machine'] as bool,
+      logger: logger,
+    );
+    _protocol = host.protocol;
+    // Installed here, before the plan is resolved or anything is launched, so
+    // that a run killed during its build or its install releases what it has
+    // already taken. See SessionHost.listenForShutdownSignals.
+    host.listenForShutdownSignals();
+    final sessions = host.sessions;
+    final protocol = host.protocol;
+    final commandRunner = host.commandRunner;
 
-    // Resolved once for the whole run. The native block below needs the
-    // frontend server and dartaotruntime out of it, and DevTools needs the
-    // toolchain's `dart` on every platform — including web, which otherwise
-    // never resolves a toolchain at all.
-    final toolchain = await resolveToolchainPaths(target, workspace: workspace);
-
-    // Shared state for cleanup.
-    final sessions = <DeviceSession>[];
     // The browser's session, once the launch loop has built it. The DWDS
     // `connectedApps` listener is attached before Chrome launches (a broadcast
-    // stream drops what it emits with no listener), so it can fire before this
-    // list has anything in it.
+    // stream drops what it emits with no listener), so it can fire before the
+    // session list has anything in it.
     final webSession = Completer<DeviceSession>();
-    FrontendServer? frontendServer;
-    HttpControlChannel? httpChannel;
-    ReloadStrategy? reloadStrategy;
-    // Cached after frontend server setup; used by machine protocol handlers.
-    String? _resolvedEntrypoint;
-    // For codegen apps: rebuilds generated sources via bazel before a reload.
-    // The native path injects this into the orchestrator; the web path invokes
-    // it in performHotReload before recompiling. Null for non-codegen apps.
-    Future<bool> Function()? refreshGenerated;
-    // For apps bundling loose native libraries (native_deps): rebuilds the
-    // app and, when the rebuilt bundle's native libraries differ from the
-    // running process's, relaunches the process — a hot restart cannot
-    // replace a dlopened library. Returns null when no relaunch was needed
-    // (the normal isolate restart proceeds); otherwise the restart result.
-    // Null for apps with no loose native libraries (instant-restart path).
-    Future<Map<String, dynamic>?> Function()? relaunchIfNativeLibsChanged;
 
-    // Hot-reload state. `appliedVersions` is a per-file record of "what's
-    // currently live in the running app." `workspaceView` is set after the
-    // frontend server starts (entrypoint is known). On native we additionally
-    // construct a `ReloadOrchestrator`; web DDC keeps the legacy
-    // `recompileAndReload` path (still consults `appliedVersions` for change
-    // detection).
-    final appliedVersions = AppliedVersions();
-    Workspace? workspaceView;
-    // Maps live source paths → package: URIs for snapshot keying and the
-    // filesystem watcher. Built from the build-emitted sourcePackages.
-    PackageUriResolver? reloadResolver;
-    ReloadOrchestrator? orchestrator;
-    // Bridges the gap between the `app.started` protocol event (emitted in
-    // the per-device launch loop) and the reload pipeline being wired
-    // (constructed after the loop). `app.hotReload` / `app.restart` await
-    // this so a client firing on `app.started` queues instead of racing the
-    // setup into the orchestrator-null error branch.
-    final hotReloadReady = ReadinessGate();
-
-    // Set up centralized command dispatch.
-    final commandRunner = CommandRunner();
-
-    final protocol = MachineProtocol(
-      enabled: isMachine,
-      commandRunner: commandRunner,
-    );
-    _protocol = protocol;
-
-    /// Look up a session by appId. Returns null if not found.
-    DeviceSession? findSession(String? appId) {
-      if (appId == null) return null;
-      for (final s in sessions) {
-        if (s.appId == appId) return s;
-      }
-      return null;
-    }
-
-    final shutdownRequested = Completer<void>();
-
-    /// Gracefully tear down sessions and the frontend server, then signal
-    /// the session loop to end.
-    ///
-    /// Deliberately does NOT stop the HTTP control channel: this runs inside
-    /// `app.stop` / `daemon.shutdown` command handlers, and when the command
-    /// arrived over HTTP the response has not been written yet. The channel
-    /// is closed on the way out of [execute], after the session loop returns
-    /// — by which point the response has flushed.
-    Future<void> performCleanup() async {
-      for (final session in sessions) {
-        session.devToolsProcess?.kill();
-        protocol.appStop(session.appId);
-        await session.vmClient?.disconnect();
-        await session.dds?.shutdown();
-        await session.device.stop(session.appInstance);
-      }
-      await frontendServer?.shutdown();
-      if (!shutdownRequested.isCompleted) shutdownRequested.complete();
-    }
-
-    /// Get the list of sessions targeted by a command.
-    /// If appId is provided, targets only that session. Otherwise all sessions.
-    List<DeviceSession> targetSessions(Map<String, dynamic> params) {
-      final appId = params['appId'] as String?;
-      if (appId != null) {
-        final session = findSession(appId);
-        if (session == null) return [];
-        return [session];
-      }
-      return sessions;
-    }
-
-    /// Convert a [ReloadOutcome] from the orchestrator to a machine-protocol
-    /// response map. `isEmpty` distinguishes a real reload from one whose
-    /// declared files turned out byte-identical to what was already applied.
-    Map<String, dynamic> _orchOutcomeToMap(ReloadOutcome outcome, String verb) {
-      return switch (outcome) {
-        ReloadApplied(:final filesRecompiled, :final isEmpty) => {
-            'message': '$verb successful',
-            'filesRecompiled': filesRecompiled.toList()..sort(),
-            'isEmpty': isEmpty,
-          },
-        ReloadNoChange() => {
-            'message': '$verb successful (no changes detected)',
-          },
-        ReloadCompileFailed(:final diagnostics) => {
-            'message': 'Compilation failed',
-            if (diagnostics.isNotEmpty) 'error': diagnostics,
-          },
-        ReloadApplyFailed(:final perApp) => {
-            'message': '$verb failed on some devices',
-            'perApp': {
-              for (final entry in perApp.entries)
-                entry.key: switch (entry.value) {
-                  hr.ApplyFailed(:final reason) => reason,
-                  hr.ApplyTimedOut() => 'timed out',
-                  hr.Applied() => 'ok',
-                },
-            },
-            if (perApp.values
-                .whereType<hr.ApplyFailed>()
-                .map((f) => f.reason)
-                .firstOrNull
-                case final String reason)
-              'error': reason,
-          },
-      };
-    }
-
-    /// Block until the reload pipeline has finished wiring (or definitively
-    /// failed). Returns an error map to short-circuit the handler when hot
-    /// reload is unavailable, or null when it's safe to proceed. This is
-    /// what closes the `app.started`-before-orchestrator race.
-    Future<Map<String, dynamic>?> awaitReloadReady() async {
-      await hotReloadReady.whenReady.timeout(
-        const Duration(seconds: 90),
-        onTimeout: () {},
-      );
-      if (!hotReloadReady.isReady) {
-        return {
-          'error': hotReloadReady.unavailableReason ??
-              'Hot reload is still starting up.'
-        };
-      }
-      return null;
-    }
-
-    Future<Map<String, dynamic>> performRestart(
-        Map<String, dynamic> params) async {
-      final notReady = await awaitReloadReady();
-      if (notReady != null) return notReady;
-
-      // Native: orchestrator-based restart.
-      final orch = orchestrator;
-      if (orch != null) {
-        // Native libraries cannot be hot-restarted (the process keeps its
-        // dlopened images) — rebuild first and relaunch if they changed.
-        final relaunch = relaunchIfNativeLibsChanged;
-        if (relaunch != null) {
-          final relaunched = await relaunch();
-          if (relaunched != null) return relaunched;
-        }
-        final outcome = await orch.restart();
-        return _orchOutcomeToMap(outcome, 'Restart');
-      }
-
-      // Web DDC: legacy recompileAndRestart.
-      final fs = frontendServer;
-      final entrypoint = _resolvedEntrypoint;
-      if (fs == null || entrypoint == null) {
-        return {'error': 'No frontend server available'};
-      }
-      // Named, rather than defaulted to the native strategy: that default sent
-      // web restarts looking for a VM service connection the browser does not
-      // have, and reported its absence as the failure.
-      final strategy = reloadStrategy;
-      if (strategy == null) {
-        return {'error': 'No reload strategy for this session.'};
-      }
-      final targets = targetSessions(params);
-      if (targets.isEmpty && params.containsKey('appId')) {
-        return {'error': 'Unknown appId: ${params['appId']}'};
-      }
-      // Codegen apps: regenerate before the restart's full recompile.
-      if (refreshGenerated != null && !(await refreshGenerated())) {
-        return {'error': 'Generated source rebuild (bazel) failed.'};
-      }
-      final result = await recompileAndRestart(
-        frontendServer: fs,
-        entrypoint: entrypoint,
-        sessions: targets,
-        reloadStrategy: strategy,
-      );
-      if (result.success && workspaceView != null) {
-        // After a restart, every disk file is now live.
-        final snap = workspaceView.snapshot();
-        appliedVersions.clear();
-        appliedVersions.markApplied(snap, files: snap.fileUris.toSet());
-      }
-      return reloadResultToMap(result, 'Restart');
-    }
-
-    Future<Map<String, dynamic>> performHotReload(
-        Map<String, dynamic> params) async {
-      final notReady = await awaitReloadReady();
-      if (notReady != null) return notReady;
-
-      final declared = (params['invalidatedFiles'] as List?)
-              ?.cast<String>()
-              .toSet() ??
-          <String>{};
-
-      // Native: orchestrator-based reload (includes per-AppInstance RPC budget).
-      final orch = orchestrator;
-      if (orch != null) {
-        final outcome = await orch.reload(declared: declared);
-        return _orchOutcomeToMap(outcome, 'Hot reload');
-      }
-
-      // Web DDC: legacy recompileAndReload + AppliedVersions for change
-      // detection. We no longer rely on a global `_lastCompileTime`; every
-      // file's last-applied version is tracked individually.
-      final fs = frontendServer;
-      final entrypoint = _resolvedEntrypoint;
-      final ws = workspaceView;
-      if (fs == null || entrypoint == null || ws == null) {
-        return {'error': 'No frontend server available'};
-      }
-      final strategy = reloadStrategy;
-      if (strategy == null) {
-        return {'error': 'No reload strategy for this session.'};
-      }
-      final targets = targetSessions(params);
-      if (targets.isEmpty && params.containsKey('appId')) {
-        return {'error': 'Unknown appId: ${params['appId']}'};
-      }
-
-      // Codegen apps: rebuild generated sources via bazel before snapshotting,
-      // so a regenerated `.g.dart` is detected as changed and recompiled.
-      if (refreshGenerated != null && !(await refreshGenerated())) {
-        return {'error': 'Generated source rebuild (bazel) failed.'};
-      }
-
-      final snap = ws.snapshot();
-      final fsChanged = appliedVersions.findChangedFrom(snap);
-      final invalidated = {...fsChanged, ...declared};
-      if (invalidated.isEmpty) {
-        return {'message': 'Hot reload successful (no changes detected)'};
-      }
-
-      final result = await recompileAndReload(
-        frontendServer: fs,
-        entrypoint: entrypoint,
-        invalidatedFiles: invalidated.toList(),
-        sessions: targets,
-        reloadStrategy: strategy,
-      );
-      if (result.success) {
-        appliedVersions.markApplied(snap, files: invalidated);
-      }
-      return reloadResultToMap(result, 'Hot reload');
-    }
-
-    commandRunner.register('app.restart', (params) async {
-      final fullRestart = params['fullRestart'] as bool? ?? true;
-      if (!fullRestart) {
-        return performHotReload(params);
-      }
-      return performRestart(params);
-    });
-    commandRunner.register('app.stop', (_) async {
-      await performCleanup();
-      return {'message': 'stopped'};
-    });
-    commandRunner.register('daemon.shutdown', (_) async {
-      await performCleanup();
-      return {'message': 'shutdown'};
-    });
-    commandRunner.register('app.hotReload', (params) async {
-      return performHotReload(params);
-    });
-    setUpAgentCommands(commandRunner, findSession);
+    // Everything it takes to get an edit into the running app. Assembled below
+    // — by the web block for a DDC run, by the native assembler after launch —
+    // and handed to the handlers now, which is what lets them be registered
+    // before any of it exists.
+    final pipeline = ReloadPipeline(host: host);
+    host.registerReloadCommands(pipeline);
+    host.registerLifecycleCommands();
 
     protocol.startListening();
 
-    final logger = Logger('dev_tool.run');
-    if (verbose) Logger.root.level = Level.FINE;
-
-    /// A failure that only surfaces once the run is already live, and so
-    /// cannot simply be thrown where it is found.
-    ///
-    /// The DWDS wiring runs in a `connectedApps` listener, long after
-    /// `execute` has moved on to the session loop; a throw there is an
-    /// unhandled async error and the run carries on regardless. Recorded here
-    /// and rethrown at the end of [execute], it becomes the process's exit
-    /// status like any other [DevToolException].
-    DevToolException? deferredFailure;
-
-    /// End the run because of a [deferredFailure]-shaped failure: record it
-    /// and tear the session down so the loop returns. [execute] rethrows it
-    /// afterwards, which is what reports it and sets the exit status.
-    void failRun(DevToolException error) {
-      deferredFailure ??= error;
-      unawaited(() async {
-        try {
-          await performCleanup();
-        } catch (e) {
-          logger.warning({
-            'message': 'cleanup_failed',
-            'text': 'Warning: cleanup after a fatal error failed: $e',
-            'error': '$e',
-          });
-        }
-      }());
-    }
-
-    // Step 1: Resolve devices FIRST — they dictate platform build flags.
-    final devices = resolveDevices(deviceIds);
-    logger.fine({
-      'message': 'resolved_devices',
-      'text': 'Resolved devices: ${devices.map((d) => d.name).toList()}',
-      'devices': devices.map((d) => d.name).toList(),
-    });
-
-    // Validate: all devices must agree on platform build args.
-    final distinctBuildArgs = devices.map((d) => d.buildArgs.join(' ')).toSet();
-    if (distinctBuildArgs.length > 1) {
-      final details = devices
-          .where((d) => d.buildArgs.isNotEmpty)
-          .map((d) => '  ${d.name}: ${d.buildArgs.join(' ')}')
-          .join('\n');
-      throw DevToolException(
-          'Cannot build for multiple platforms in one invocation.\n$details');
-    }
-
-    // Step 1a: Fail on a misconfigured host before spending a build on it.
-    // Each device names the external programs its launch drives, so a missing
-    // `aapt2` or an unattached phone is reported here, by name, instead of
-    // surfacing later as an app that never started and a VM service that never
-    // appeared.
-    for (final device in devices) {
-      try {
-        await device.preflight();
-      } on StateError catch (e) {
-        throw DevToolException('Cannot run on ${device.name}: ${e.message}');
-      }
-    }
-
-    // Step 2: Build with device platform flags.
-    String? compilationMode;
-    if (profileMode) {
-      compilationMode = 'opt';
-    } else if (hotReloadEnabled) {
-      compilationMode = 'dbg';
+    // Everything this invocation resolves to: devices, compilation mode, bazel
+    // flags, workspace, toolchain. The devices come back ready to launch —
+    // `--start-paused` and Android's VM-service preflight are launch-time engine
+    // arguments, so there is no later moment at which they could be applied.
+    final plan = await RunPlan.resolve(_results, logger);
+    // The first things the plan settles that the command surface depends on.
+    // Only a `-c dbg` native build carries the record `app.buildInfo` reads,
+    // and only a run with a VM service can reach the `ext.rules_flutter.*`
+    // extensions the `app.*` agent commands proxy to. See
+    // RunPlan.carriesBuildInfo and RunPlan.hasAgentSurface.
+    if (plan.carriesBuildInfo) host.registerBuildInfo();
+    if (plan.hasAgentSurface) {
+      host.registerAgentCommands();
     } else {
-      compilationMode = config;
+      // Said once, at the top of the run, rather than left to be discovered
+      // one refused command at a time. The absence is structural and known
+      // here; what a client gets otherwise is `Unknown command: app.getText`,
+      // which is true but does not say that no flag on this invocation would
+      // have made it available.
+      final absent = _noAgentSurface(plan);
+      logger.info({
+        'message': 'agent_surface_unavailable',
+        'text':
+            'This run has no VM service, so the app.* agent commands (tap, '
+            'enterText, getText, waitFor, dumpWidgetTree, …) are not offered: '
+            '${absent.because} What still works: the app console '
+            '(GET /sessions/{appId}/logs), a browser screenshot '
+            '(GET /sessions/{appId}/screenshot/native) and app.restart. To '
+            'drive the widget tree, run the DDC dev loop instead — the same '
+            'target with neither --wasm nor --profile.',
+        'reason': absent.reason,
+      });
     }
+    final target = plan.target;
+    final workspace = plan.workspace;
+    final toolchain = plan.toolchain;
+    final devices = plan.devices;
+    final isWebDevice = plan.isWebDevice;
 
-    assertModeCanRun(compilationMode, devices);
+    // Stamped before the build, not after: a source edited while bazel is
+    // reading it may or may not be in the result, and the two ways of being
+    // wrong are not equal. Unseeding costs a recompile of content the app
+    // already has; seeding drops the edit. See [AppliedVersions.seedFromBuild].
+    final builtBefore = DateTime.now();
+    final build = await plan.buildApp();
+    final appFile = build.appFile;
+    final outputFiles = build.outputFiles;
 
-    // Debug (JIT) launches await the app's Dart VM service. On Android that
-    // service can only bind if the APK holds android.permission.INTERNET —
-    // enforcement is kernel-level (AID_INET group) and applies even to
-    // 127.0.0.1 — so tell Android devices to preflight the installed package.
-    // --allow-no-vm-service opts out of requiring a VM service, so it also
-    // skips the preflight (mirroring the post-launch no-VM-service abort).
-    if (compilationMode == 'dbg' && !allowNoVmService) {
-      for (final device in devices.whereType<AndroidDevice>()) {
-        device.expectsVmService = true;
-      }
-    }
-
-    final allExtraArgs = [
-      ...extraArgs,
-      ...devices.first.buildArgs,
-    ];
-
-    final modeName = profileMode ? 'profile' : (compilationMode ?? 'default');
-    logger.fine({
-      'message': 'compilation_config',
-      'text': 'Compilation mode: $compilationMode, extra args: $allExtraArgs',
-      'compilationMode': compilationMode,
-      'extraArgs': allExtraArgs,
-    });
-    logger.info({
-      'message': 'building',
-      'text': 'Building $target ($modeName mode)...',
-      'target': target,
-      'mode': modeName,
-    });
-
-    final result = await bazelBuild(target,
-        workspace: workspace,
-        compilationMode: compilationMode,
-        extraArgs: allExtraArgs);
-    if (!result.success) {
-      throw DevToolException('Build failed with exit code ${result.exitCode}',
-          exitCode: result.exitCode);
-    }
-
-    // Step 3: The built artifact is the primary cquery output for the target.
-    if (result.outputFiles.isEmpty) {
-      throw DevToolException(
-          'Build succeeded but cquery returned no output files for $target.');
-    }
-    final appFile = devices.first.pickArtifact(result.outputFiles);
-    logger.fine({
-      'message': 'build_outputs',
-      'text': 'Launch artifact: $appFile',
-      'outputs': result.outputFiles,
-    });
-
-    // Step 3a: For web dev mode, set up module server + frontend server
-    // BEFORE launching Chrome, so Chrome opens the module server URL.
+    // Start watching before anything launches — including the DDC web assembly
+    // below. Assembly stands up the module server, DWDS and the frontend
+    // server and waits for the first compile, and an edit saved inside that
+    // window fires no watch event at all. Its content still reaches the page —
+    // the initial compile reads it if it lands before the snapshot cut, and the
+    // next reload re-sends it otherwise — so what is lost is only the trigger.
+    // That is the worst shape it could have: you save, nothing happens, nothing
+    // says why, and it comes right on the next save for no visible reason.
     //
-    // DDC mode flow:
-    //   1. Find _dev_config.json + DDC files in build outputs
-    //   2. Generate synthetic web_entrypoint.dart with bootstrapEngine() + plugin registrant
-    //   3. Start WebModuleServer with DWDS integration
-    //   4. Write first-upload bootstrap files to module server
-    //   5. Start frontend_server with --target=dartdevc + filesystem roots
-    //   6. Compile org-dartlang-app:/web_entrypoint.dart → update module server
-    //   7. Launch Chrome → DWDS connects via injected client
+    // A watcher created inside the session loop is later still: that loop runs
+    // after every device has launched and reported `app.started` and — on
+    // native — after the compiler's first full compile, and `DirectoryWatcher`
+    // reports nothing until its own initial scan completes on top of that.
     //
-    // WASM mode flow:
-    //   1. Serve static files from Bazel build output
-    //   2. Launch Chrome → hot restart = re-run bazel build + CDP page reload
-    WebModuleServer? webModuleServer;
-    final isWebDevice = devices.first is WebDevice;
-    if (isWebDevice && !profileMode && hotReloadEnabled && !wasmMode) {
-      try {
-        // Find dev config in build outputs (emitted by flutter_web_bundle in -c dbg).
-        final devConfigPath = findDevConfig(result.outputFiles);
-        if (devConfigPath == null) {
-          throw DevToolException('No _dev_config.json found in build outputs.\n'
-              'Ensure you are building with -c dbg (debug mode).');
-        }
-
-        logger.fine({
-          'message': 'parsing_dev_config',
-          'text': 'Parsing dev config from $devConfigPath...',
-          'path': devConfigPath,
-        });
-        final devConfig = parseDevConfig(devConfigPath);
-
-        // Build web toolchain paths and find web output dir from build outputs.
-        final webToolchain = buildWebToolchainFromOutputs(
-          result.outputFiles,
-          devConfig,
-        );
-        final webOutputDir = findWebOutputDir(result.outputFiles);
-
-        // Find package_config from build outputs.
-        final packageConfig = discoverPackageConfig(result.outputFiles);
-        if (packageConfig == null || packageConfig.isEmpty) {
-          throw DevToolException(
-              'No package_config.json found in build outputs.\n'
-              'Ensure the target produces package_config (build with -c dbg).');
-        }
-
-        // Generate synthetic web_entrypoint.dart with bootstrapEngine() + plugin registrant.
-        final syntheticDir =
-            await Directory.systemTemp.createTemp('flutter_ddc_');
-        final syntheticMain =
-            File(p.join(syntheticDir.path, 'web_entrypoint.dart'));
-
-        // Stage the build's web plugin registrant next to the synthetic
-        // entrypoint and import it relatively — exactly what Flutter's
-        // `resident_web_runner` does (`web_plugin_registrant.dart` written
-        // into the same generated-entrypoint directory). `syntheticDir` is the
-        // first `--filesystem-root`, so `org-dartlang-app:/web_entrypoint.dart`
-        // resolves the sibling import there. The registrant's own
-        // `package:` imports resolve through the frontend server's
-        // package_config like any other library.
-        //
-        // The path is named explicitly by the build in `_dev_config.json`;
-        // nothing here derives or searches for a filename.
-        String? pluginRegistrantImport;
-        if (devConfig.webPluginRegistrant.isNotEmpty) {
-          const stagedName = 'web_plugin_registrant.dart';
-          File(p.join(syntheticDir.path, stagedName)).writeAsStringSync(
-              File(devConfig.webPluginRegistrant).readAsStringSync());
-          pluginRegistrantImport = stagedName;
-        }
-
-        syntheticMain.writeAsStringSync(
-          generateSyntheticMainDart(
-            appEntrypoint: devConfig.appEntrypoint,
-            pluginRegistrantEntrypoint: pluginRegistrantImport,
-          ),
-        );
-
-        _resolvedEntrypoint = 'org-dartlang-app:/web_entrypoint.dart';
-
-        // Create the module server with workspace root and package config
-        // for DWDS source resolution. Held in a non-null local as well: the
-        // browser-connection listener wired below outlives this block, and the
-        // captured field is nulled on the failure path.
-        final moduleServer = WebModuleServer(
-          webToolchain: webToolchain,
-          buildOutputDir: webOutputDir,
-          entrypointFilename: 'web_entrypoint.dart',
-          engineRevision: devConfig.engineRevision,
-          dartExecutable: toolchain.dart,
-          workspaceRoot: workspace,
-          packageConfigPath: packageConfig,
-        );
-        webModuleServer = moduleServer;
-
-        // Write first-upload bootstrap files to in-memory server.
-        moduleServer.writeFile(
-            'manifest.json', '{"info":"manifest not generated in run mode."}');
-        moduleServer.writeFile('flutter_service_worker.js',
-            '// Service worker not loaded in run mode.');
-
-        // Start HTTP server first (without DWDS) to get the server URI.
-        final serverUri = await moduleServer.start();
-
-        // Now init DWDS with the server URI for reloadedSourcesUri.
-        // Chrome hasn't launched yet — the connection callback is lazy.
-        final webDevice = devices.first as WebDevice;
-        await moduleServer.initDwds(
-          chromeConnection: () async {
-            final cdpPort = webDevice.cdpPort;
-            if (cdpPort == null) {
-              throw StateError('Chrome CDP port not yet discovered');
-            }
-            return ChromeConnection('localhost', cdpPort);
-          },
-          serverUri: serverUri,
-        );
-
-        // Set up frontend server with web compiler config + filesystem roots.
-        // For a source-assembled (codegen) app, add the dev multi-root dirs
-        // (live source + generated bazel-out) so package: URIs resolve to live
-        // edits + regenerated parts, and use the dev package_config (scheme
-        // rootUri) instead of the build one (frozen .pkgsrcs). devConfig roots
-        // are empty for non-codegen apps → behavior unchanged.
-        final webPackageConfig = devConfig.devPackageConfig.isNotEmpty
-            ? devConfig.devPackageConfig
-            : packageConfig;
-        final compilerConfig = WebCompilerConfig(
-          webToolchain: webToolchain,
-          fileSystemRoots: [
-            syntheticDir.path,
-            workspace,
-            ...devConfig.filesystemRoots,
-          ],
-          dartDefines: devConfig.dartDefines,
-        );
-        frontendServer = FrontendServer(
-          dartaotruntimePath: devConfig.dartaotruntime,
-          frontendServerPath: devConfig.frontendServer,
-          config: compilerConfig,
-          packageConfig: webPackageConfig,
-        );
-        await frontendServer.start();
-
-        // Compile the synthetic entrypoint.
-        final initialResult =
-            await frontendServer.compile(_resolvedEntrypoint);
-        if (!initialResult.success) {
-          throw DevToolException(
-              'Initial DDC compile failed.\n${initialResult.diagnostics}');
-        }
-        frontendServer.accept();
-        moduleServer.updateModules(initialResult.dillPath);
-        // Seed AppliedVersions so the next reload only sees post-startup
-        // edits as changed (not every file as "newly applied"). The resolver
-        // keys every source file (app + deps) by its `package:` URI — which is
-        // how the frontend_server keys those libraries (the synthetic web
-        // entrypoint imports them via `package:` through the dev
-        // package_config), so an invalidation actually hits them.
-        reloadResolver = PackageUriResolver(
-          workspaceRoot: workspace,
-          sourcePackages: devConfig.sourcePackages,
-        );
-        workspaceView = Workspace(
-          resolver: reloadResolver,
-          generatedFiles: devConfig.generatedFileUris,
-        );
-        final initialSnap = workspaceView.snapshot();
-        appliedVersions.markApplied(initialSnap,
-            files: initialSnap.fileUris.toSet());
-        // Codegen apps: rebuild generated sources via bazel before each web
-        // reload (regenerates `.g.dart`, keeps the execroot forest intact).
-        if (devConfig.generatedSourceUris.isNotEmpty) {
-          refreshGenerated = () async {
-            final r = await bazelBuild(target,
-                workspace: workspace,
-                compilationMode: 'dbg',
-                extraArgs: [...devices.first.buildArgs, ...defineFlags]);
-            return r.success;
-          };
-        }
-        logger.info({
-          'message': 'frontend_server_ready',
-          'text':
-              'DDC frontend server ready. Module server at ${moduleServer.uri}',
-          // Structured as well as prose: this is the base URL every web
-          // asset is served from, so a client driving the tool (or a test)
-          // can address the server without parsing the sentence above.
-          'uri': moduleServer.uri.toString(),
-        });
-
-        // Set module server on WebDevice before launch.
-        webDevice.setModuleServer(moduleServer);
-
-        // Wire the browser connection BEFORE Chrome launches. `connectedApps`
-        // is a broadcast stream, so anything it emits with no listener
-        // attached is dropped on the floor — and a browser that connects fast
-        // used to do exactly that, losing the AppConnection, never sending
-        // `runMain()`, and leaving DWDS holding `main()` back: a blank page
-        // forever with no diagnostics. Nothing here needs Chrome to exist yet.
-        final connectedApps = moduleServer.connectedApps;
-        if (connectedApps == null) {
-          // `initDwds` now either wires DWDS up or throws, so a live module
-          // server always has this stream. Reaching here means that invariant
-          // broke; the old code just skipped the whole block, which is how a run
-          // ended up with no reload strategy, no VM service, no `markDebugReady`
-          // — and not one line of output about any of it.
-          throw StateError(
-              'The web module server is running but DWDS exposes no '
-              'connectedApps stream: DWDS initialization did not complete.');
-        }
-        // Set up the VM service on EVERY browser connection — not just the
-        // first. Hot restart preserves the page, but a genuine navigation (the
-        // user hitting reload, a crash) still tears down the page's isolate and
-        // VM service; re-attaching on each (re)connection lets the next hot
-        // reload use the live connection instead of a dead one. Matches
-        // Flutter's resident_web_runner, which re-attaches per connection.
-        final dwdsReload = DwdsReloadStrategy(moduleServer: moduleServer);
-        reloadStrategy = dwdsReload;
-        VmServiceLogForwarder? webLogForwarder;
-
-        connectedApps.listen((appConnection) async {
-          logger.info({
-            'message': 'dwds_connected',
+    // `await start()` is the other half: it returns once the underlying
+    // watcher is live, and until then events are simply not reported.
+    // Not in profile mode: that session never gets a reload pipeline to hand
+    // the changes to, so the watcher would only be a subscription nobody reads.
+    SourceWatcher? sourceWatcher;
+    if (plan.watchEnabled && plan.hotReloadOff == null) {
+      sourceWatcher = SourceWatcher(
+        root: workspace,
+        // Reads `assetTracker` on each event rather than closing over its
+        // value: the tracker is built later (it needs the build outputs), and
+        // it re-learns which directories feed the bundle after every rebuild,
+        // so a directory that starts holding assets mid-run starts being
+        // watched without restarting anything.
+        accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
+      );
+      await sourceWatcher.start();
+      // A dead watcher does not end the run — an explicit `app.hotReload`
+      // still works — but it silently ends `--watch`, so it has to be said.
+      // package:watcher closes itself permanently on a post-ready end or any
+      // error.
+      unawaited(
+        sourceWatcher.failed.then((failure) {
+          logger.severe({
+            'message': 'watcher_failed',
             'text':
-                'DWDS: Browser connected (app: ${appConnection.request.appId})',
+                '${failure.reason}. Edits on disk will no longer trigger a '
+                'reload; use app.hotReload explicitly, or restart the run to '
+                'resume watching.',
+            'error': failure.error?.toString() ?? '',
           });
-          try {
-            final debugConnection =
-                await moduleServer.debugConnection(appConnection);
-            // Awaited, not searched for: the listener is attached before the
-            // launch loop runs, so on a fast connection the session may not
-            // exist yet and `sessions.firstWhere` would throw.
-            final session = await webSession.future;
+        }),
+      );
+    }
 
-            // DWDS runs the DDS, so `debugConnection.uri` already *is* the DDS
-            // websocket. Everything — our client, DevTools, DWDS's own client —
-            // attaches there, and DDS multiplexes them.
-            final wsUri = Uri.parse(debugConnection.uri);
-            final webClient = VmServiceClient();
-            await webClient.connect(
-              _httpUriFromWebSocketUri(wsUri),
-              createDevFS: false,
-            );
-            session.vmClient = webClient;
-            final webVmService = webClient.service!;
-            await dwdsReload.attachVmService(webVmService);
-
-            // Claim hot reload on the DDS, as flutter_tools does. Without it a
-            // DevTools-initiated reload bypasses us and calls DWDS's raw
-            // `reloadSources` directly — no recompile from our frontend
-            // server, and a second concurrent reload that DWDS does not
-            // serialise. Registering does not capture our own raw call: DDS
-            // resolves only namespaced (`sN.`) names against registrations.
-            await webVmService.registerService(
-              'reloadSources',
-              'rules_flutter dev_tool',
-            );
-
-            // DevTools comes from the DDS that DWDS started, already carrying
-            // the VM service URI — no separate `dart devtools` process, and no
-            // URL for the user to wire up by hand. Setting it before
-            // `markDebugReady` is what tells the session not to launch one.
-            session.devToolsUrl = debugConnection.devToolsUri;
-            session.markDebugReady();
-
-            // A browser page has no process pipes, so the VM service is the
-            // app's log source here. Re-attached on every connection because a
-            // page that navigates replaces the isolate and its VM service;
-            // without this, output stops after the first such reload.
-            await webLogForwarder?.dispose();
-            webLogForwarder = await forwardVmServiceLogs(
-                webVmService, session.appInstance.logs);
-
-            logger.info({
-              'message': 'dwds_vm_service',
-              'text': 'DWDS VM service ready — hot reload enabled.',
-            });
-          } catch (e) {
-            // The same rule as the native abort in the launch loop below,
-            // applied where web can apply it. `!isWebDevice` guards that check
-            // because a browser's VM service arrives asynchronously, so the
-            // decision cannot be made inline at launch — it belongs here, at
-            // the one moment web knows the answer.
-            //
-            // A browser that has not connected *yet* never reaches this: the
-            // listener only fires on a connection that arrived. Upstream makes
-            // the same distinction deliberately — an unconnected client is
-            // `Recompile complete. No client connected.`, not an error —
-            // and so does this. What is fatal is a connection that arrived and
-            // then failed to wire: no VM service, no hot reload, no DevTools,
-            // no app console, and until now a `logger.fine` that was invisible
-            // without --verbose.
-            if (allowNoVmService) {
-              logger.warning({
-                'message': 'dwds_vm_service_error',
-                'text': 'Continuing without a DWDS VM service connection '
-                    '(--allow-no-vm-service): $e',
-                'error': '$e',
-              });
-            } else {
-              failRun(DevToolException(
-                  'No VM service connection for the browser session: $e\n'
-                  'Hot reload, DevTools, and the app console would all be '
-                  'unavailable. Pass --allow-no-vm-service to run anyway.'));
-              return;
-            }
-          }
-          // Tell the browser to run main() — sends RunRequest via SSE. Must
-          // happen after debug setup so DWDS can set breakpoints.
-          appConnection.runMain();
-        });
-
-        // Last statement in the block on purpose. `signalReady` used to fire
-        // above, with six statements still to run: a throw in between left the
-        // gate open while `frontendServer` was reset to null, and the next
-        // reload answered `No frontend server available` — naming the wrong
-        // thing entirely.
-        hotReloadReady.signalReady();
-      } catch (e) {
-        // Cleanup, then out. A debug web run whose DDC/DWDS setup failed has
-        // no VM service, no hot reload, no DevTools and no app console.
-        // Serving the stale bazel bundle statically instead used to hide all
-        // of that behind two `Warning:` lines and a Chrome window that looked
-        // healthy — and it swallowed four DevToolExceptions this block raises
-        // deliberately (no `_dev_config.json`, no `package_config.json`, a
-        // failed initial compile, and DWDS's own).
-        //
-        // --allow-no-vm-service is the one way through, the same flag and the
-        // same shape as the native abort below: say which flag is keeping the
-        // run alive, record why the pipeline is unavailable, carry on. On web
-        // that fallback is the static serving this block used to pick by
-        // itself.
-        await webModuleServer?.stop();
-        webModuleServer = null;
-        await frontendServer?.shutdown();
-        frontendServer = null;
-        if (!allowNoVmService) rethrow;
-        logger.warning({
-          'message': 'web_dev_server_failed',
-          'text': 'Continuing without a DDC dev server on Chrome '
-              '(--allow-no-vm-service): $e\n'
-              'Serving the last build statically — no hot reload, no '
-              'DevTools, no app console.',
-          'error': '$e',
-          // Named as a field as well as in the prose: JSON mode drops `text`,
-          // so this is how a machine consumer learns the run is only still
-          // alive because someone asked for it to be.
-          'flag': '--allow-no-vm-service',
-        });
-        hotReloadReady.signalUnavailable(
-            'DDC dev server failed; hot reload unavailable: $e');
-      }
+    // Step 3a: the DDC dev loop — module server, DWDS, web frontend server —
+    // all before Chrome launches, so Chrome opens the module server's URL and
+    // the browser-connection listener is already attached when it connects.
+    WebPipelineAssembler? web;
+    if (plan.isDdcWeb) {
+      web = WebPipelineAssembler(
+        plan: plan,
+        host: host,
+        pipeline: pipeline,
+        webSession: webSession,
+        fail: host.fail,
+        builtBefore: builtBefore,
+      );
+      await web.assemble(outputFiles);
     }
 
     // Step 3b: Launch on each device and create sessions.
+    final launcher = DeviceLauncher(plan: plan, host: host, appFile: appFile);
     for (final device in devices) {
-      final appId =
-          '${target}_${device.name}'.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-      protocol.appStart(appId, device.name);
-      logger.info({
-        'message': 'launching',
-        'text': 'Launching on ${device.name}...',
-        'device': device.name,
-      });
-
-      // Attached before the launch so startup output — including whatever an
-      // app prints on its way to crashing before it ever binds a VM service —
-      // is visible as it happens rather than after discovery gives up.
-      final logSink = appLogSinkFor(
-        protocol: protocol,
-        appId: appId,
-        deviceName: device.name,
-        multiDevice: devices.length > 1,
-      );
-
-      final AppInstance appInstance;
-      try {
-        appInstance = await device.launch(appFile, onLog: logSink);
-      } on StateError catch (e) {
-        throw DevToolException('Launch failed on ${device.name}: ${e.message}');
-      }
-
-      // Connect to VM service (native devices only; web has no VM service).
-      //
-      // We OWN DDS: start a Dart Development Service on the app's raw VM
-      // service and route both our vmClient and DevTools through it. DDS
-      // multiplexes clients, so DevTools no longer evicts our connection —
-      // the bug that previously forced `--no-devtools` for screenshots.
-      VmServiceClient? vmClient;
-      DartDevelopmentService? dds;
-      String? vmFailureReason;
-      if (appInstance.vmServiceUri != null) {
-        final rawUri = appInstance.vmServiceUri!;
-        try {
-          dds = await DartDevelopmentService.startDartDevelopmentService(
-            rawUri,
-            ipv6: rawUri.host.contains(':'),
-          );
-        } catch (e) {
-          vmFailureReason = 'DDS failed to start on $rawUri: $e';
-          stderr.writeln(
-              'Warning: Could not start DDS on ${device.name}: $e. '
-              'Hot reload, DevTools, and agent control will be unavailable.');
-        }
-
-        if (dds != null) {
-          final serviceUri = dds.uri!;
-          logger.info({
-            'message': 'vm_service',
-            'text': 'VM service (via DDS) at $serviceUri (${device.name})',
-            'uri': serviceUri.toString(),
-            'device': device.name,
-          });
-          protocol.appDebugPort(
-            appId,
-            serviceUri.replace(
-                scheme: serviceUri.scheme == 'https' ? 'wss' : 'ws',
-                path: '${serviceUri.path}ws'),
-            serviceUri,
-          );
-          for (var attempt = 0; attempt < 5; attempt++) {
-            vmClient = VmServiceClient();
-            try {
-              await vmClient.connect(serviceUri);
-              logger.info({
-                'message': 'vm_service_connected',
-                'text': 'Connected to VM service (${device.name}).',
-                'device': device.name,
-              });
-              break;
-            } catch (e) {
-              if (attempt < 4) {
-                logger.fine({
-                  'message': 'vm_service_retry',
-                  'text':
-                      'VM service connect attempt ${attempt + 1} failed: $e',
-                  'attempt': attempt + 1,
-                  'error': '$e',
-                });
-                await Future<void>.delayed(const Duration(seconds: 1));
-              } else {
-                vmFailureReason =
-                    'could not connect to the VM service at $serviceUri '
-                    'after 5 attempts: $e';
-                stderr.writeln(
-                    'Warning: Could not connect to VM service on ${device.name}: $e');
-                vmClient = null;
-              }
-            }
-          }
-        }
-      } else if (!isWebDevice) {
-        vmFailureReason = 'no VM service URI was discovered at launch';
-        stderr.writeln(
-            'Warning: VM service URI not found on ${device.name}. Hot reload will not be available.');
-      }
-
-      // A native session without a vmClient has no hot reload, no DevTools,
-      // and no agent control — it is broken, not merely degraded. Abort by
-      // default; --allow-no-vm-service opts into continuing anyway. Release
-      // and profile builds where no VM service URI was ever discovered are
-      // exempt (there may legitimately be none to connect to); a debug build
-      // must always produce one.
-      if (vmClient == null &&
-          !isWebDevice &&
-          (appInstance.vmServiceUri != null || compilationMode == 'dbg')) {
-        if (allowNoVmService) {
-          stderr.writeln(
-              'Continuing without a VM service connection on ${device.name} '
-              '(--allow-no-vm-service).');
-        } else {
-          try {
-            await device.stop(appInstance);
-          } catch (e) {
-            stderr.writeln(
-                'Warning: failed to stop app on ${device.name} during '
-                'abort: $e');
-          }
-          throw DevToolException(
-              'No VM service connection on ${device.name}: '
-              '${vmFailureReason ?? 'unknown failure'}. '
-              'Hot reload, DevTools, and agent control would all be '
-              'unavailable. Pass --allow-no-vm-service to run anyway.');
-        }
-      }
-
-      // Push initial route if specified.
-      if (initialRoute != null && vmClient != null) {
-        try {
-          await vmClient.callServiceExtension(
-            'ext.flutter.pushRoute',
-            args: {'route': initialRoute},
-          );
-        } catch (e) {
-          stderr.writeln('Warning: Could not push route on ${device.name}: $e');
-        }
-      }
-
-      // Trace startup if requested.
-      if (traceStartup && vmClient != null) {
-        try {
-          await vmClient.callServiceExtension(
-            'ext.flutter.traceAlloc',
-            args: {'enabled': 'true'},
-          );
-        } catch (e) {
-          stderr.writeln(
-              'Warning: Could not enable startup tracing on ${device.name}: $e');
-        }
-      }
-
-      protocol.appStarted(appId);
-      final deviceSession = DeviceSession(
-        device: device,
-        appInstance: appInstance,
-        vmClient: vmClient,
-        appId: appId,
-        dds: dds,
-      );
-      sessions.add(deviceSession);
+      final deviceSession = await launcher.launch(device);
       if (device is WebDevice && !webSession.isCompleted) {
         webSession.complete(deviceSession);
       }
     }
 
-    // For web WASM: set up bazel rebuild + CDP page reload strategy.
-    if (isWebDevice && wasmMode) {
-      final webDevice = devices.first as WebDevice;
-      if (webDevice.cdpPort != null) {
-        reloadStrategy = WasmReloadStrategy(
-          cdpPort: webDevice.cdpPort!,
-          appUrl: webDevice.appUrl,
-          rebuild: () async {
-            logger.info({
-              'message': 'wasm_rebuild',
-              'text': 'Rebuilding $target (WASM)...',
-            });
-            final rebuildResult = await bazelBuild(target,
-                workspace: workspace,
-                compilationMode: compilationMode,
-                extraArgs: allExtraArgs);
-            return rebuildResult.success;
-          },
-        );
-
-        // Register WASM-specific restart handler that bypasses frontend server.
-        commandRunner.register('app.restart', (params) async {
-          stdout.writeln('Performing WASM hot restart...');
-          final stopwatch = Stopwatch()..start();
-          final strategy = reloadStrategy as WasmReloadStrategy;
-          // Dummy CompileResult — WASM doesn't use frontend server.
-          final dummyResult = CompileResult(
-            dillPath: '',
-            success: true,
-          );
-          final outcome = await strategy.applyRestart(dummyResult, sessions);
-          stopwatch.stop();
-          if (outcome.isSuccess) {
-            return {
-              'message':
-                  'Restart successful (${stopwatch.elapsedMilliseconds}ms)'
-            };
-          }
-          return {'error': 'Restart failed: ${outcome.message}'};
-        });
-
-        commandRunner.register('app.hotReload', (params) async {
-          return {
-            'message': 'Hot reload not supported in WASM mode. Use restart (R).'
-          };
-        });
-      }
+    // `app.setViewport` exists only where it can work. It is registered here,
+    // for any web run, rather than always with a handler that refuses on
+    // native: there is no capability list in this protocol (`daemon.connected`
+    // carries a version and a pid, nothing more), so a command that is present
+    // and always fails is not more discoverable than one that is absent — it
+    // is only a worse description of the run. On a native run the dispatcher
+    // answers `Unknown command: app.setViewport`, which is true.
+    //
+    // After the launch loop because the CDP port it needs is discovered by
+    // launching Chrome.
+    if (isWebDevice) {
+      final webDevice = plan.devices.first as WebDevice;
+      host.commandRunner.register('app.setViewport', (params) async {
+        await webDevice.setViewport(parseSetViewportCommand(params));
+        return {'succeeded': true};
+      });
     }
 
+    // WASM's handlers deliberately shadow the pipeline-backed pair registered
+    // above, so this has to come after them — and after the launch loop, since
+    // the CDP port it needs is discovered by launching Chrome.
+    if (plan.webMode is WasmWebMode) {
+      final webDevice = plan.devices.first as WebDevice;
+      WasmPipelineAssembler(
+        cdpPort: webDevice.cdpPort,
+        appUrl: webDevice.appUrl,
+        target: plan.target,
+        workspace: plan.workspace,
+        compilationMode: plan.compilationMode,
+        extraArgs: plan.extraArgs,
+        host: host,
+        pipeline: pipeline,
+        logger: logger,
+      ).assemble();
+    }
+
+    // Started before the pipeline is assembled, because assembly can need the
+    // channel to finish: `--start-paused` holds the app before `main()`, and
+    // the first thing assembly does is ask the app what build it came from.
+    // Brought up afterwards, nothing could deliver the resume — the app waits
+    // for a debugger, the resume waits for the channel, and the channel waits
+    // for the app. Agent commands arriving in this window answer on their own
+    // (`agent_command.dart` knows a paused device has no widget tree), and
+    // reload commands wait on `pipeline.ready` rather than racing the seed.
+    if (plan.httpChannelEnabled) await host.startHttpChannel();
+
     // Step 4: For native devices, start shared frontend_server AFTER launch.
+    //
+    // Assembled by the same object `attach` uses; the only difference is the
+    // launch context, which is what arms the native-libs relauncher and makes
+    // an asset rebuild reproduce the transitioned configuration the running
+    // bundle came from.
     final hasVmClient = sessions.any((s) => s.vmClient != null);
-    if (!isWebDevice && hasVmClient && !profileMode) {
-      try {
-        if (frontendServer == null) {
-          logger.fine({
-            'message': 'resolving_toolchain',
-            'text': 'Resolving toolchain paths for $target...',
-            'target': target,
-          });
-          // Build the flutter_application target directly to materialize its
-          // DefaultInfo — the hot-reload `_dev_config.json` + dev
-          // `package_config.json`. The platform wrapper (`:app_macos`) consumes
-          // the flutter_application via providers, not files, so building it
-          // alone never produces these. Using the app target's own outputs also
-          // keeps the dev config's config-specific paths self-consistent.
-          final devAppLabel = await bazelCqueryFlutterAppLabel(
-            target,
-            workspace: workspace,
-            compilationMode: 'dbg',
-            extraArgs: [...devices.first.buildArgs, ...defineFlags],
-          );
-          if (devAppLabel == null) {
-            throw DevToolException(
-                'No flutter_application found in deps of $target.');
-          }
-          final flutterAppOutputs = (await bazelBuild(
-            devAppLabel,
-            workspace: workspace,
-            compilationMode: 'dbg',
-            extraArgs: [...devices.first.buildArgs, ...defineFlags],
-          ))
-              .outputFiles;
-          // The build tells us the entrypoint + hot-reload layout via
-          // _dev_config.json; we never infer them from package_config rootUri
-          // shapes.
-          final devConfigPath = findDevConfig(flutterAppOutputs);
-          if (devConfigPath == null) {
-            throw DevToolException(
-                'No _dev_config.json in flutter_application outputs '
-                '(build with -c dbg).\nOutputs: $flutterAppOutputs');
-          }
-          final devConfig = parseDevConfig(devConfigPath);
-          // The dev package_config points a source-assembled app package at the
-          // live source + generated roots via filesystemScheme; for non-codegen
-          // apps it equals the build config.
-          final packageConfig = devConfig.devPackageConfig.isNotEmpty
-              ? devConfig.devPackageConfig
-              : discoverPackageConfig(flutterAppOutputs);
-          if (packageConfig == null || packageConfig.isEmpty) {
-            throw DevToolException(
-                'Could not find a package_config.json in flutter_application '
-                'outputs.\nflutter_application outputs: $flutterAppOutputs');
-          }
-
-          final compilerConfig = devices.first.createCompilerConfig(
-            toolchain,
-            fileSystemRoots: devConfig.filesystemRoots,
-            fileSystemScheme: devConfig.filesystemScheme,
-            dartDefines: devConfig.dartDefines,
-            dartPluginRegistrantUri: devConfig.dartPluginRegistrant.isEmpty
-                ? ''
-                : Uri.file(devConfig.dartPluginRegistrant).toString(),
-          );
-
-          if (compilerConfig != null) {
-            frontendServer = FrontendServer(
-              dartaotruntimePath: toolchain.dartaotruntime,
-              frontendServerPath: toolchain.frontendServer,
-              config: compilerConfig,
-              packageConfig: packageConfig,
-            );
-            await frontendServer.start();
-            _resolvedEntrypoint = devConfig.appEntrypoint;
-            final initialResult =
-                await frontendServer.compile(_resolvedEntrypoint);
-            if (initialResult.success) {
-              frontendServer.accept();
-              // Seed the per-file applied state and construct the
-              // orchestrator. Native devices apply via per-AppInstance
-              // VmServiceClient with a bounded RPC budget.
-              reloadResolver = PackageUriResolver(
-                workspaceRoot: workspace,
-                sourcePackages: devConfig.sourcePackages,
-              );
-              workspaceView = Workspace(
-                resolver: reloadResolver,
-                generatedFiles: devConfig.generatedFileUris,
-              );
-              final initialSnap = workspaceView.snapshot();
-              appliedVersions.markApplied(initialSnap,
-                  files: initialSnap.fileUris.toSet());
-
-              // Hot restart (runInView) re-runs main() in a fresh isolate and
-              // must re-specify the asset bundle; give each VM client the app's
-              // flutter_assets dir from the build outputs.
-              final assetsDir = flutterAppOutputs.firstWhere(
-                (f) => f.endsWith('flutter_assets'),
-                orElse: () => '',
-              );
-              if (assetsDir.isNotEmpty) {
-                for (final s in sessions) {
-                  s.vmClient?.assetDirectory = assetsDir;
-                }
-              }
-
-              final apps = <hr.AppInstance>[
-                for (final s in sessions)
-                  if (s.vmClient != null)
-                    hr.VmServiceAppInstance(
-                        id: s.appId,
-                        client: s.vmClient!,
-                        rpcTimeout: s.device.applyTimeout),
-              ];
-              if (apps.isNotEmpty) {
-                // For codegen apps, rebuild the flutter_application via bazel
-                // before each reload/restart so edits to codegen inputs are
-                // regenerated. We rebuild the whole app target (not just the
-                // narrow codegen target) on purpose: a narrow build rebuilds the
-                // execroot symlink forest to ONLY its own inputs, pruning the
-                // flutter SDK that the frontend_server reads via --filesystem-root
-                // — which then breaks the next full compile (hot restart). The
-                // app target's input set keeps everything materialized, and it's
-                // a cache hit when nothing changed. Null for non-codegen apps →
-                // no bazel build on edit (today's instant path).
-                if (devConfig.generatedSourceUris.isNotEmpty) {
-                  refreshGenerated = () async {
-                    final r = await bazelBuild(devAppLabel,
-                        workspace: workspace,
-                        compilationMode: 'dbg',
-                        extraArgs: [
-                          ...devices.first.buildArgs,
-                          ...defineFlags,
-                        ]);
-                    return r.success;
-                  };
-                }
-                orchestrator = ReloadOrchestrator(
-                  workspace: workspaceView,
-                  applied: appliedVersions,
-                  compiler: hot_reload.FrontendServerCompiler(frontendServer),
-                  apps: apps,
-                  entrypoint: _resolvedEntrypoint,
-                  refreshGenerated: refreshGenerated,
-                );
-
-                // A hot restart cannot replace dlopened native libraries.
-                // Record the launched bundle's loose-native-lib fingerprint;
-                // app.restart rebuilds and, when the fingerprint changed,
-                // relaunches the process instead of restarting the isolate.
-                // Apps with no loose native libraries skip all of this and
-                // keep the instant restart path.
-                var liveNativeLibsFp = await nativeLibsFingerprint(appFile);
-                if (liveNativeLibsFp.isNotEmpty) {
-                  relaunchIfNativeLibsChanged = () async {
-                    // Rebuild the launch target (not devAppLabel: the dev
-                    // outputs don't include the bundle the process runs).
-                    final r = await bazelBuild(target,
-                        workspace: workspace,
-                        compilationMode: compilationMode,
-                        extraArgs: allExtraArgs);
-                    if (!r.success) {
-                      return {
-                        'error':
-                            'bazel build failed during restart; see build output.'
-                      };
-                    }
-                    final fp = await nativeLibsFingerprint(appFile);
-                    if (fingerprintsEqual(fp, liveNativeLibsFp)) return null;
-                    final changed = changedLibs(liveNativeLibsFp, fp);
-                    logger.info({
-                      'message': 'native_libs_changed',
-                      'text':
-                          'Native libraries changed (${changed.join(', ')}); relaunching.',
-                      'libs': changed,
-                    });
-                    final relaunched = <DeviceSession>[];
-                    // Every relaunched app reported a first frame, i.e. is
-                    // ready to take `app.*` commands. Reported rather than
-                    // assumed: a caller that gets `ready: false` knows to wait
-                    // instead of reading a `Method not found` as a broken
-                    // agent surface.
-                    var allReady = true;
-                    for (final s in sessions) {
-                      if (s.appInstance.vmServiceUri == null) continue;
-                      // The session owns the swap: between the old process's
-                      // death and the replacement's arrival it must not look
-                      // like the app ended, or the run's transports (the HTTP
-                      // control channel included) would be torn down under a
-                      // driver that is mid-restart.
-                      await s.relaunch(() async {
-                        await s.vmClient?.disconnect();
-                        // Stopping closes the old instance's log stream, so
-                        // the sink attached below is the only live one — the
-                        // relaunched app's output never doubles up with the
-                        // previous instance's.
-                        await s.device.stop(s.appInstance);
-                        return s.device.launch(
-                          appFile,
-                          onLog: appLogSinkFor(
-                            protocol: protocol,
-                            appId: s.appId,
-                            deviceName: s.device.name,
-                            multiDevice: sessions.length > 1,
-                          ),
-                        );
-                      });
-                      relaunched.add(s);
-                      final inst = s.appInstance;
-                      VmServiceClient? client;
-                      if (inst.vmServiceUri != null) {
-                        for (var attempt = 0; attempt < 5; attempt++) {
-                          client = VmServiceClient();
-                          try {
-                            await client.connect(inst.vmServiceUri!);
-                            break;
-                          } catch (_) {
-                            client = null;
-                            if (attempt < 4) {
-                              await Future<void>.delayed(
-                                  const Duration(seconds: 1));
-                            }
-                          }
-                        }
-                      }
-                      s.vmClient = client;
-                      if (client != null && inst.vmServiceUri != null) {
-                        final uri = inst.vmServiceUri!;
-                        protocol.appDebugPort(
-                          s.appId,
-                          uri.replace(
-                              scheme: uri.scheme == 'https' ? 'wss' : 'ws',
-                              path: '${uri.path}ws'),
-                          uri,
-                        );
-                        if (assetsDir.isNotEmpty) {
-                          client.assetDirectory = assetsDir;
-                        }
-                        // Connecting to the VM service only proves the process
-                        // is up. The caller's next move is an `app.*` command,
-                        // which needs the app's service extensions registered
-                        // — so wait for the first rasterized frame, which is
-                        // the observable that says the framework got that far.
-                        // Answering before it turned the driver's first call
-                        // after a relaunch into `-32601 Method not found`.
-                        allReady &= await client.waitForFirstFrame();
-                      } else {
-                        allReady = false;
-                      }
-                      protocol.appStarted(s.appId);
-                    }
-                    orchestrator?.apps
-                      ?..clear()
-                      ..addAll([
-                        for (final s in sessions)
-                          if (s.vmClient != null)
-                            hr.VmServiceAppInstance(
-                                id: s.appId,
-                                client: s.vmClient!,
-                                rpcTimeout: s.device.applyTimeout),
-                      ]);
-                    // The relaunched process runs the freshly built kernel:
-                    // every disk file is now live.
-                    final snap = workspaceView!.snapshot();
-                    appliedVersions.clear();
-                    appliedVersions.markApplied(snap,
-                        files: snap.fileUris.toSet());
-                    liveNativeLibsFp = fp;
-                    return {
-                      'message':
-                          'Restart relaunched the app: native libraries changed (${changed.join(', ')}). '
-                              'The control channel keeps its port and token; '
-                              '/logs cursors do not survive — re-tail.',
-                      'relaunched': true,
-                      'nativeLibsChanged': changed,
-                      // Whether the relaunched app rendered its first frame
-                      // before this response — i.e. whether it can take an
-                      // `app.*` command now.
-                      'ready': allReady,
-                      // Each launch buffers its own output from zero, so a
-                      // cursor only means anything within one launch. A driver
-                      // compares this with the `launch` in its last /logs page
-                      // to know the cursor it holds is stale.
-                      'launch': {
-                        for (final s in relaunched) s.appId: s.launch,
-                      },
-                    };
-                  };
-                }
-                hotReloadReady.signalReady();
-              }
-              logger.info({
-                'message': 'frontend_server_ready',
-                'text': 'Frontend server ready for incremental compilation.',
-              });
-            } else {
-              stderr.writeln(
-                  'Warning: Initial compile failed. Hot reload may not work.');
-              if (initialResult.diagnostics.isNotEmpty) {
-                stderr.write(initialResult.diagnostics);
-              }
-              hotReloadReady.signalUnavailable(
-                  'Initial compile failed; hot reload is unavailable.');
-            }
-
-            reloadStrategy = devices.first.createReloadStrategy();
-          }
-        }
-      } catch (e) {
-        stderr.writeln('Warning: Could not start frontend server: $e');
-        stderr.writeln('Hot reload will not be available.');
-        frontendServer = null;
-        hotReloadReady.signalUnavailable(
-            'Could not start frontend server: $e');
-      }
+    // `plan.hotReloadOff` rather than `!plan.profileMode`: a derivation of "can
+    // this run reload" that forgets `--no-hot` lets `--no-hot -c dbg` build a
+    // full compiler and orchestrator that every transport can drive. The flag
+    // decides whether the machinery exists, which is what makes every
+    // transport's refusal true rather than merely stated.
+    if (!isWebDevice && hasVmClient && plan.hotReloadOff == null) {
+      await NativePipelineAssembler(
+        workspace: workspace,
+        toolchain: toolchain,
+        target: target,
+        configDevice: devices.first,
+        userBuildArgs: plan.userBuildArgs,
+        host: host,
+        pipeline: pipeline,
+        logger: logger,
+        builtBefore: builtBefore,
+        launch: NativeLaunch(appFile: appFile),
+      ).assemble();
     }
 
     // Any setup path that neither wired the pipeline nor recorded a specific
     // failure (profile mode, WASM, no VM client, compiler config absent)
     // settles the gate here so `app.hotReload` / `app.restart` return a
     // clear error instead of waiting on a signal that will never come.
-    if (!hotReloadReady.isSettled) {
-      hotReloadReady
-          .signalUnavailable('Hot reload is not available for this run.');
-    }
-
-    // Start HTTP control channel if enabled.
-    if (httpChannelEnabled) {
-      httpChannel = HttpControlChannel(
-        commandRunner: commandRunner,
-        findSession: findSession,
+    //
+    // A run told not to reload gets the flag's own words instead of the
+    // generic line. The two are different questions — "you asked me not to"
+    // is not "it was meant to work and did not" — and this is the single
+    // place the first one is answered, for the keyboard, the HTTP channel and
+    // the machine protocol alike.
+    //
+    // The reason is handed over bare — no leading subject and no trailing
+    // period. Every renderer composes a sentence around it
+    // (`reportReloadCommand` writes '$action failed: $error. …'), so a reason
+    // that brought its own would double them.
+    if (!pipeline.ready.isSettled) {
+      pipeline.ready.signalUnavailable(
+        plan.hotReloadOff ?? 'Hot reload is not available for this run.',
       );
-      await httpChannel.start();
-      final base = httpChannel.uri;
-      final t = httpChannel.token;
-      logger.info({
-        'message': 'http_control_channel',
-        'text': 'HTTP control channel:\n'
-            '  POST $base/command?token=$t  — execute a machine protocol command\n'
-            '  GET  $base/sessions/{appId}/screenshot/flutter?token=$t  — Flutter widget tree screenshot (PNG)\n'
-            '  GET  $base/sessions/{appId}/screenshot/native?token=$t  — native OS screenshot (PNG)\n'
-            '  GET  $base/sessions/{appId}/logs?token=$t  — app console output (tails by default; &since=<cursor> to poll)',
-        'uri': base.toString(),
-        'token': t,
-      });
     }
 
     // The channel must outlive the session loop: an `app.stop` arriving over
@@ -1560,46 +557,53 @@ class RunCommand {
     try {
       // Profile mode enters an interactive session (without hot reload).
       // This allows DevTools connection, performance overlay, and key handlers.
-      if (profileMode) {
+      // Not a `return`: leaving `_execute` from inside the try would skip the
+      // `deferredFailure` check at the end, so a profile run that recorded a
+      // post-launch failure would still exit 0. The failure is found the same
+      // way and means the same thing whatever the mode, so the arms are one
+      // chain and every one of them reaches the check.
+      if (plan.profileMode) {
         if (sessions.isNotEmpty) {
           await runInteractiveSession(
             sessions: sessions,
-            frontendServer: frontendServer,
-            // Profile mode has no hot reload, so the entrypoint is unused.
-            entrypoint: _resolvedEntrypoint ?? '',
-            workspace: workspace,
+            frontendServer: pipeline.frontendServer,
             protocol: protocol,
             commandRunner: commandRunner,
-            devToolsEnabled: devToolsEnabled,
+            devToolsEnabled: plan.devToolsEnabled,
             dartExecutable: toolchain.dart,
-            hotReloadEnabled: false,
-            watchEnabled: false,
-            shutdownSignal: shutdownRequested.future,
+            hotReloadUnavailable: plan.hotReloadOff,
+            shutdownSignal: host.shutdownRequested.future,
           );
         }
-        return;
       }
-
       // Step 5-6: Watch files and handle keyboard input via shared session
-      // loop. _resolvedEntrypoint is set by the native frontend-server block
-      // (from the dev config) or the web block; the fallback below covers the
-      // no-hot-reload case where the entrypoint is unused.
-      _resolvedEntrypoint ??= '';
-
-      if (frontendServer != null || isWebDevice) {
+      // loop. What it takes to compile and apply an edit lives in the pipeline
+      // the `app.*` commands were registered against; the loop only dispatches.
+      //
+      // Keyed on what the keyboard can actually drive, not on whether this
+      // run can reload. Gating assembly above means `--no-hot -c dbg` has no
+      // reload path, and keying on `hasReloadPath` would drop such a run out of
+      // the interactive session altogether — losing 'q', the perf overlay, the
+      // inspector and DevTools, none of which are about hot reload. A VM
+      // service is what those need; 'r' answers from the gate.
+      else if (hasVmClient || isWebDevice) {
         await runInteractiveSession(
           sessions: sessions,
-          frontendServer: frontendServer,
-          entrypoint: _resolvedEntrypoint,
-          workspace: workspace,
+          frontendServer: pipeline.frontendServer,
           protocol: protocol,
           commandRunner: commandRunner,
-          devToolsEnabled: devToolsEnabled && !profileMode,
+          devToolsEnabled: plan.devToolsEnabled,
           dartExecutable: toolchain.dart,
-          watchEnabled: watchEnabled,
-          reloadStrategy: reloadStrategy,
-          resolver: reloadResolver,
-          shutdownSignal: shutdownRequested.future,
+          hotReloadUnavailable: plan.hotReloadOff,
+          watcher: sourceWatcher,
+          // Read per event, never captured: a pipeline whose build failed
+          // assembles on a later reload, and a resolver captured here would
+          // stay null past the recovery — leaving the watcher awake and
+          // silently mapping every save to nothing.
+          resolver: () => pipeline.resolver,
+          awaitingAssembly: () => pipeline.awaitingAssembly,
+          isAsset: (path) => pipeline.watchesAsset(path),
+          shutdownSignal: host.shutdownRequested.future,
         );
       } else {
         // No hot reload possible — wait for the first device's app to end
@@ -1609,18 +613,51 @@ class RunCommand {
         }
       }
     } finally {
-      await httpChannel?.stop();
-      await protocol.stopListening();
+      await sourceWatcher?.stop();
+      // Whatever route the loop ended by — 'q', an app.stop, the app exiting —
+      // everything the run owns goes here. Nothing is shut down by hand: there
+      // is a compiler per app, and they are registered here as they are built.
+      await host.teardown.run();
+      await host.closeTransports();
+      if (web?.syntheticDirectory case final dir?) await deleteTempDir(dir);
     }
 
-    // A failure found after the run went live (see [failRun]) ended the
-    // session loop above; this is where it becomes the exit status. Thrown
+    // A failure found after the run went live (see [SessionHost.fail]) ended
+    // the session loop above; this is where it becomes the exit status. Thrown
     // after the transports are closed so the client that asked for the
     // teardown still got its response.
-    if (deferredFailure case final failure?) throw failure;
+    if (host.deferredFailure case final failure?) throw failure;
   }
-
 }
+
+/// Why a run cannot offer the `app.*` agent surface: [reason] for a machine,
+/// [because] as a sentence finishing "…are not offered: ".
+///
+/// One switch for both, so the tag a client matches on and the sentence a
+/// person reads cannot come to describe different runs.
+///
+/// Only ever asked of a web run — [RunPlan.hasAgentSurface] is true for every
+/// native one — and the switch is exhaustive over [WebMode] so a fourth shape
+/// cannot be added without answering here.
+({String reason, String because}) _noAgentSurface(RunPlan plan) =>
+    switch (plan.webMode) {
+      WasmWebMode() => (
+        reason: 'wasm',
+        because:
+            'dart2wasm compiles the app to a bundle with no VM service '
+            'behind it, and no flag changes that.',
+      ),
+      StaticWebMode() => (
+        reason: 'static_bundle',
+        because:
+            'this run serves a built bundle (--profile or --no-hot), which '
+            'has no VM service.',
+      ),
+      DdcWebMode() || null => throw StateError(
+        'A DDC or native run has the agent surface; nothing should be asking '
+        'this of it.',
+      ),
+    };
 
 /// Categorize build output files by type.
 ///
@@ -1644,4 +681,3 @@ String _categorize(String path) {
   if (path.endsWith('.so') || path.endsWith('.dylib')) return 'native';
   return 'other';
 }
-

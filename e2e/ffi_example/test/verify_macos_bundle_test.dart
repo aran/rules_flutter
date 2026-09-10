@@ -2,6 +2,13 @@
 /// including the native dylib with the correct filename.
 ///
 /// rules_apple outputs a .zip — we extract it to a temp dir and verify.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 void main() {

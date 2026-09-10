@@ -4,6 +4,9 @@ buildifier(
     name = "buildifier.check",
     exclude_patterns = [
         "./.git/*",
+        # Gitignored scratch checkouts. Linting them means a half-written
+        # .bzl in one fails the pre-commit hook of another.
+        "./.claude/*",
         "./references/*",
     ],
     lint_mode = "warn",

@@ -7,9 +7,13 @@ void main() {
   runApp(MyApp(result: result));
 }
 
+/// Root widget of the FFI plugin example, which displays a product computed
+/// by the bundled `multiply_plugin` native library.
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, required this.result});
+  /// Creates the example's root widget showing [result].
+  const MyApp({required this.result, super.key});
 
+  /// The product returned by the plugin's native `multiply`.
   final int result;
 
   @override

@@ -1,0 +1,15 @@
+{
+  "@@locale": "en",
+  "greeting": "Hello, {name}!",
+  "@greeting": {
+    "placeholders": { "name": { "type": "String" } }
+  },
+  "bookCount": "{count, plural, =0{No books} =1{1 book} other{{count} books}}",
+  "@bookCount": {
+    "placeholders": { "count": { "type": "num" } }
+  },
+  "pronoun": "{gender, select, male{He reads} female{She reads} other{They read}}",
+  "@pronoun": {
+    "placeholders": { "gender": { "type": "String" } }
+  }
+}

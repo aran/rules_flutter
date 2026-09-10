@@ -4,7 +4,10 @@ void main() {
   runApp(const MyApp());
 }
 
+/// Root widget of the Windows example: one screen, rendered by the Win32
+/// runner that `flutter_windows_app` builds.
 class MyApp extends StatelessWidget {
+  /// Creates the Windows example's root widget.
   const MyApp({super.key});
 
   @override

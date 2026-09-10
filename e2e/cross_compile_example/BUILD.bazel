@@ -1,4 +1,5 @@
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 
 exports_files(["pubspec.lock"])
@@ -21,4 +22,76 @@ flutter_application(
 flutter_linux_app(
     name = "cross_linux",
     application = ":cross_app",
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "hello_world",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "@deps//:flutter",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+# Run this one with an explicit host platform:
+#
+#     bazel test :app_analyze_test --platforms=@platforms//host
+#
+# `bazel test //...` fails in this workspace by construction. `.bazelrc` pins
+# `--platforms=linux_x64` for every command, because cross-compiling from a
+# macOS host is what this example demonstrates. Bazel resolves a test toolchain
+# whose *execution* platform must satisfy the *target* platform's constraints,
+# and on a macOS host nothing does:
+#
+#     No matching toolchains found for types:
+#       @@bazel_tools//tools/test:default_test_toolchain_type
+#
+# That is an analysis failure, so it aborts the build rather than skipping the
+# test. `target_compatible_with` cannot skip it either: the constraint is
+# evaluated against the target platform, which the pin holds at Linux, so it is
+# always satisfied. The analysis itself is host-side and needs no Linux at all.
+#
+# There is no per-target fix short of a platform transition. A workspace-wide
+# `test --platforms=@platforms//host` is not one: it breaks `:cross_linux`,
+# which fails loudly on a non-Linux platform ("No libflutter_linux_gtk.so in
+# the resolved Flutter engine"). The two targets here need two different target
+# platforms, and Bazel has no way to say that per target without a transition.
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Same construction, same fix as `app_analyze_test` above: every test target
+# in this package is a `default_test_toolchain_type` consumer, so the
+# workspace-wide `--platforms=linux_x64` pin blocks this one's test-toolchain
+# resolution on a macOS host exactly as it does that one's. Run it the same way:
+#
+#     bazel test :format_test --platforms=@platforms//host
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["lib/**/*.dart"]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

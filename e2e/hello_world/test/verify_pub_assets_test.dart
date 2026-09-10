@@ -7,6 +7,7 @@
 /// intentionally hermetic: no `bazel build` from inside the test, no host
 /// flutter SDK, no real macOS bundle. The bundle structure alone is what
 /// proves the pub-asset pipeline works.
+library;
 
 import 'dart:convert';
 import 'dart:io';
@@ -23,8 +24,9 @@ void main() {
     // Resolve it via the runfiles library rather than guessing paths: that
     // works under both the Unix symlink tree and the Windows manifest
     // (windows-latest runs with --noenable_runfiles, so no directory exists).
-    final path =
-        Runfiles.create().rlocation('_main/hello_world_app_flutter_assets');
+    final path = Runfiles.create().rlocation(
+      '_main/hello_world_app_flutter_assets',
+    );
     bundleDir = Directory(path);
     if (!bundleDir.existsSync()) {
       throw StateError(
@@ -46,46 +48,50 @@ void main() {
     expect(fontFile.lengthSync(), greaterThan(0));
   });
 
-  test('FontManifest.json contains packages/cupertino_icons/CupertinoIcons', () {
-    final manifest =
-        File('${bundleDir.path}/FontManifest.json').readAsStringSync();
-    final entries = jsonDecode(manifest) as List<dynamic>;
-    final cupertino = entries.firstWhere(
-      (e) =>
-          (e as Map<String, dynamic>)['family'] ==
-          'packages/cupertino_icons/CupertinoIcons',
-      orElse: () => null,
-    );
-    expect(
-      cupertino,
-      isNotNull,
-      reason:
-          'FontManifest.json missing packages/cupertino_icons/CupertinoIcons '
-          'family entry. Full manifest: $manifest',
-    );
-    final fonts = (cupertino as Map<String, dynamic>)['fonts']
-        as List<dynamic>;
-    expect(fonts, hasLength(1));
-    expect(
-      (fonts[0] as Map<String, dynamic>)['asset'],
-      equals('packages/cupertino_icons/assets/CupertinoIcons.ttf'),
-    );
-  });
+  test(
+    'FontManifest.json contains packages/cupertino_icons/CupertinoIcons',
+    () {
+      final manifest = File(
+        '${bundleDir.path}/FontManifest.json',
+      ).readAsStringSync();
+      final entries = jsonDecode(manifest) as List<dynamic>;
+      final cupertino = entries.firstWhere(
+        (e) =>
+            (e as Map<String, dynamic>)['family'] ==
+            'packages/cupertino_icons/CupertinoIcons',
+        orElse: () => null,
+      );
+      expect(
+        cupertino,
+        isNotNull,
+        reason:
+            'FontManifest.json missing packages/cupertino_icons/CupertinoIcons '
+            'family entry. Full manifest: $manifest',
+      );
+      final fonts =
+          (cupertino as Map<String, dynamic>)['fonts'] as List<dynamic>;
+      expect(fonts, hasLength(1));
+      expect(
+        (fonts[0] as Map<String, dynamic>)['asset'],
+        equals('packages/cupertino_icons/assets/CupertinoIcons.ttf'),
+      );
+    },
+  );
 
   test('FontManifest.json contains bare MaterialIcons family', () {
     // material_icons target uses package_name = "" sentinel, so the family
     // is bare "MaterialIcons" (not packages/material_icons/...). Matches
     // const_finder's expectations for IconData with no fontPackage.
-    final manifest =
-        File('${bundleDir.path}/FontManifest.json').readAsStringSync();
+    final manifest = File(
+      '${bundleDir.path}/FontManifest.json',
+    ).readAsStringSync();
     final entries = jsonDecode(manifest) as List<dynamic>;
     final material = entries.firstWhere(
       (e) => (e as Map<String, dynamic>)['family'] == 'MaterialIcons',
       orElse: () => null,
     );
     expect(material, isNotNull);
-    final fonts = (material as Map<String, dynamic>)['fonts']
-        as List<dynamic>;
+    final fonts = (material as Map<String, dynamic>)['fonts'] as List<dynamic>;
     expect(
       (fonts[0] as Map<String, dynamic>)['asset'],
       equals('fonts/MaterialIcons-Regular.otf'),
@@ -116,9 +122,13 @@ void main() {
     // contain the prefixed asset path verbatim (StandardMessageCodec
     // serializes string keys as UTF-8 bytes inline in the binary, so
     // base64-decoding the wrapper and searching for the path matches).
-    final wrapped = jsonDecode(
-      File('${bundleDir.path}/AssetManifest.bin.json').readAsStringSync(),
-    ) as String;
+    final wrapped =
+        jsonDecode(
+              File(
+                '${bundleDir.path}/AssetManifest.bin.json',
+              ).readAsStringSync(),
+            )
+            as String;
     final raw = base64Decode(wrapped);
     final asString = utf8.decode(raw, allowMalformed: true);
     expect(

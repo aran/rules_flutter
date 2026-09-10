@@ -16,6 +16,13 @@
 /// `-c dbg`, so the bundle this test reads carries the **release**
 /// entitlements: finding the network keys in it proves the additions
 /// survived into the release arm.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -63,8 +70,9 @@ void main() {
       stderrEncoding: utf8,
     );
     if (result.exitCode != 0) {
-      stderr.writeln('codesign failed (exit ${result.exitCode}):');
-      stderr.writeln(result.stderr);
+      stderr
+        ..writeln('codesign failed (exit ${result.exitCode}):')
+        ..writeln(result.stderr);
       exit(1);
     }
 
@@ -84,11 +92,13 @@ void main() {
     }
 
     if (failed) {
-      stderr.writeln('\nA sandboxed release bundle that has lost a network '
-          'entitlement its debug build had is invisible — no build error, no '
-          'runtime exception, just an app with no peers. Declare the '
-          'capability via flutter_macos_app(additional_entitlements = [...]), '
-          'which applies in every compilation mode.');
+      stderr.writeln(
+        '\nA sandboxed release bundle that has lost a network '
+        'entitlement its debug build had is invisible — no build error, no '
+        'runtime exception, just an app with no peers. Declare the '
+        'capability via flutter_macos_app(additional_entitlements = [...]), '
+        'which applies in every compilation mode.',
+      );
       exit(1);
     }
 

@@ -18,40 +18,57 @@ import 'app_log.dart';
 /// Choose the WebSocket debugger URL for the app's page from a CDP
 /// `/json` target listing.
 ///
-/// Prefers the page serving [appUrl], falls back to the first `page` target,
-/// and only then to any target at all — a browser window always has several
-/// (extensions, service workers), and picking the wrong one yields a console
-/// that never says anything.
+/// Only a `page` target on the same **origin** as [appUrl] qualifies — a
+/// browser window always lists several targets (extension pages, service
+/// workers, a fresh tab still on `about:blank`), and every CDP consumer here
+/// drives *the app*: a console forwarded from the wrong target never says
+/// anything, and a screenshot of it shows the wrong page while looking like a
+/// healthy capture. There is no fallback: the app's page, or nothing.
 ///
-/// Returns null when nothing usable is listed.
-String? pickCdpPageTarget(List<dynamic> targets, {String? appUrl}) {
-  if (targets.isEmpty) return null;
+/// The origin, not the whole URL, because these lookups are re-run for the
+/// life of the session while the page's URL moves under them: a `--web-launch-url`
+/// with a route on it, or a Flutter app that rewrites the URL as it navigates,
+/// would stop matching mid-run and every later screenshot and reload would
+/// fail. Nothing else this tool launches shares the dev server's origin.
+///
+/// Parsed rather than compared as a string prefix: `http://localhost:5234` is a
+/// string prefix of `http://localhost:52341`, so a stale browser on a
+/// neighbouring port could be picked.
+///
+/// Returns null when the page is not listed (yet) — at launch that means the
+/// tab has not navigated and the caller should poll, see
+/// [ChromeSession.resolveAppPage].
+String? pickCdpPageTarget(List<dynamic> targets, {required String appUrl}) {
+  final wanted = originOf(appUrl);
+  if (wanted == null) return null;
+  final page = targets.whereType<Map>().firstWhere(
+    (t) => t['type'] == 'page' && originOf(t['url'] as String? ?? '') == wanted,
+    orElse: () => const {},
+  );
+  return page['webSocketDebuggerUrl'] as String?;
+}
 
-  final pages = targets
-      .whereType<Map>()
-      .where((t) => t['type'] == 'page')
-      .toList();
-
-  Map? chosen;
-  if (appUrl != null) {
-    chosen = pages.cast<Map?>().firstWhere(
-          (t) => (t?['url'] as String? ?? '').startsWith(appUrl),
-          orElse: () => null,
-        );
-  }
-  chosen ??= pages.isNotEmpty
-      ? pages.first
-      : targets.whereType<Map>().firstOrNull;
-
-  return chosen?['webSocketDebuggerUrl'] as String?;
+/// The `scheme://host:port` of [url], or null when it has none.
+///
+/// `about:blank`, `chrome://…` and `devtools://…` all appear in a CDP target
+/// listing and none of them has an origin; `Uri.origin` throws on each. Null
+/// is the answer for "not a page on any origin", which is exactly what those
+/// are.
+String? originOf(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return null;
+  if (uri.scheme != 'http' && uri.scheme != 'https') return null;
+  if (uri.host.isEmpty) return null;
+  return uri.origin;
 }
 
 /// Fetch the CDP target listing from a browser's debugging port.
 Future<List<dynamic>> fetchCdpTargets(int cdpPort) async {
   final client = HttpClient();
   try {
-    final req =
-        await client.getUrl(Uri.parse('http://127.0.0.1:$cdpPort/json'));
+    final req = await client.getUrl(
+      Uri.parse('http://127.0.0.1:$cdpPort/json'),
+    );
     final resp = await req.close();
     final body = await resp.transform(utf8.decoder).join();
     return json.decode(body) as List<dynamic>;
@@ -60,17 +77,72 @@ Future<List<dynamic>> fetchCdpTargets(int cdpPort) async {
   }
 }
 
+/// Ceiling on [resolveCdpPageTarget]'s backoff: the window it waits out is a
+/// page target that is listed but not yet showing its URL, which is over in
+/// well under a second, so the interval must not grow past the length of the
+/// thing being waited for.
+const maxCdpPollInterval = Duration(milliseconds: 500);
+
 /// Resolve the app page's CDP WebSocket URL, or throw with a usable message.
-Future<String> resolveCdpPageTarget(int cdpPort, {String? appUrl}) async {
-  final targets = await fetchCdpTargets(cdpPort);
-  final ws = pickCdpPageTarget(targets, appUrl: appUrl);
-  if (ws == null) {
-    throw StateError(
-        'No CDP page target with a WebSocket debugger URL on port $cdpPort'
-        '${appUrl == null ? '' : ' for $appUrl'}.');
+///
+/// Polled rather than sampled once, and this is the only place that poll
+/// exists — every CDP consumer here (the console forwarder, the WASM page
+/// reload, screenshots, and the launch's own readiness check via
+/// [ChromeSession.resolveAppPage]) asks the same question and needs the same
+/// patience for it.
+///
+/// The listing is not a settled fact at any instant. A page target exists from
+/// launch, but its URL is not continuously the app's: cross-origin isolation
+/// forces a browsing-context-group swap, and for a moment the app's own page
+/// is listed with an empty URL. One sample lands inside that window often
+/// enough to fail a run, and no amount of machine quiet closes the window — it
+/// only narrows it.
+///
+/// Only "the page is not listed yet" is retried. A failure to reach the
+/// listing at all propagates on the first attempt: a browser that has exited
+/// refuses the connection, and that is a different fact from a page that has
+/// not appeared yet — retrying it would spend the whole timeout dialling a
+/// port nothing is listening to and then report the wrong cause.
+///
+/// [appUrl] is typed nullable only because callers hold it in nullable
+/// fields populated at launch; passing null is a caller bug and throws
+/// immediately rather than degrading into driving an arbitrary page.
+Future<String> resolveCdpPageTarget(
+  int cdpPort, {
+  String? appUrl,
+  Duration timeout = const Duration(seconds: 15),
+  Duration pollInterval = const Duration(milliseconds: 50),
+}) async {
+  if (appUrl == null) {
+    throw ArgumentError.notNull('appUrl');
   }
-  return ws;
+  final stopwatch = Stopwatch()..start();
+  var delay = pollInterval;
+  while (true) {
+    final targets = await fetchCdpTargets(cdpPort);
+    final ws = pickCdpPageTarget(targets, appUrl: appUrl);
+    if (ws != null) return ws;
+    if (stopwatch.elapsed >= timeout) {
+      throw StateError(
+        'No debuggable CDP page target for $appUrl on port $cdpPort within '
+        '${timeout.inMilliseconds}ms. '
+        'Targets listed: ${describeCdpTargets(targets)}.',
+      );
+    }
+    await Future<void>.delayed(delay);
+    final doubled = delay * 2;
+    delay = doubled > maxCdpPollInterval ? maxCdpPollInterval : doubled;
+  }
 }
+
+/// One-line summary of a `/json` listing, for error messages: what was there
+/// when the app's page was not is the fact someone will debug from.
+String describeCdpTargets(List<dynamic> targets) => targets.isEmpty
+    ? 'none'
+    : targets
+          .whereType<Map>()
+          .map((t) => '${t['type']}:${t['url']}')
+          .join(', ');
 
 /// Render one CDP `RemoteObject` argument the way a console would show it.
 String _renderArg(Map arg) {
@@ -107,8 +179,7 @@ void handleCdpConsoleMessage(Map<String, dynamic> message, AppLogStream logs) {
         final args = params?['args'];
         if (args is! List || args.isEmpty) return;
         final type = params?['type'] as String? ?? 'log';
-        final text =
-            args.whereType<Map>().map(_renderArg).join(' ');
+        final text = args.whereType<Map>().map(_renderArg).join(' ');
         addLines(text, isError: _errorConsoleTypes.contains(type));
 
       case 'Runtime.exceptionThrown':
@@ -117,8 +188,10 @@ void handleCdpConsoleMessage(Map<String, dynamic> message, AppLogStream logs) {
         if (details == null) return;
         final description =
             (details['exception'] as Map?)?['description'] as String?;
-        addLines(description ?? details['text'] as String? ?? '',
-            isError: true);
+        addLines(
+          description ?? details['text'] as String? ?? '',
+          isError: true,
+        );
     }
   } catch (_) {
     // A console line is never worth failing a run over.
@@ -126,8 +199,21 @@ void handleCdpConsoleMessage(Map<String, dynamic> message, AppLogStream logs) {
 }
 
 /// Open the socket for the app page's CDP endpoint.
-Future<WebSocket> _openPageSocket(int cdpPort, String? appUrl) async =>
-    WebSocket.connect(await resolveCdpPageTarget(cdpPort, appUrl: appUrl));
+///
+/// [resolveTimeout] is how long one attempt waits for the page to be listed.
+/// It is deliberately far shorter than [resolveCdpPageTarget]'s own default:
+/// this caller is [CdpConsoleClient], which already retries on its own
+/// schedule and counts its give-up budget in scheduled delay alone. An attempt
+/// that could itself wait the full default would push the real give-up out to
+/// several times the budget the warning names. Waiting out a context-group swap
+/// is all one attempt here has to do; the rest is the reconnect loop's job.
+Future<WebSocket> _openPageSocket(
+  int cdpPort,
+  String? appUrl, {
+  required Duration resolveTimeout,
+}) async => WebSocket.connect(
+  await resolveCdpPageTarget(cdpPort, appUrl: appUrl, timeout: resolveTimeout),
+);
 
 /// Streams a page's console output into an [AppLogStream] over CDP.
 ///
@@ -152,6 +238,10 @@ class CdpConsoleClient {
 
   /// How much waiting one outage gets before the client stops trying.
   final Duration reconnectBudget;
+
+  /// How long a single attach waits for the app's page to be listed, before
+  /// the outage's own backoff takes over again — see [_openPageSocket].
+  final Duration resolveTimeout;
 
   /// Opens the CDP socket. Injectable so tests can drive the reconnect loop
   /// without a browser.
@@ -182,13 +272,17 @@ class CdpConsoleClient {
     this.reconnectDelay = const Duration(milliseconds: 500),
     this.maxReconnectDelay = const Duration(seconds: 2),
     this.reconnectBudget = const Duration(seconds: 15),
+    this.resolveTimeout = const Duration(seconds: 1),
     Future<WebSocket> Function(int cdpPort, String? appUrl)? openSocket,
     Timer Function(Duration delay, void Function() callback)? scheduleTimer,
     void Function(String message)? warn,
-  })  : _nextDelay = reconnectDelay,
-        _open = openSocket ?? _openPageSocket,
-        _schedule = scheduleTimer ?? Timer.new,
-        _warn = warn ?? ((String message) => stderr.writeln(message));
+  }) : _nextDelay = reconnectDelay,
+       _open =
+           openSocket ??
+           ((int port, String? url) =>
+               _openPageSocket(port, url, resolveTimeout: resolveTimeout)),
+       _schedule = scheduleTimer ?? Timer.new,
+       _warn = warn ?? ((String message) => stderr.writeln(message));
 
   /// Connect and begin forwarding. Returns once the first connection is
   /// established; later reconnections happen in the background.
@@ -213,7 +307,9 @@ class CdpConsoleClient {
         if (data is! String) return;
         try {
           handleCdpConsoleMessage(
-              json.decode(data) as Map<String, dynamic>, logs);
+            json.decode(data) as Map<String, dynamic>,
+            logs,
+          );
         } on FormatException {
           // Not JSON; nothing to forward.
         }
@@ -257,11 +353,13 @@ class CdpConsoleClient {
   /// indistinguishable from an app that stopped printing.
   void _giveUp() {
     _reconnect = null;
-    _warn('Warning: browser console forwarding stopped — no CDP page target '
-        'came back on port $cdpPort within ${reconnectBudget.inSeconds}s'
-        '${_lastError == null ? '' : ' ($_lastError)'}. The browser has '
-        'probably exited; app output will not appear for the rest of this '
-        'run.');
+    _warn(
+      'Warning: browser console forwarding stopped — no CDP page target '
+      'came back on port $cdpPort within ${reconnectBudget.inSeconds}s'
+      '${_lastError == null ? '' : ' ($_lastError)'}. The browser has '
+      'probably exited; app output will not appear for the rest of this '
+      'run.',
+    );
   }
 
   /// Stop forwarding and close the socket. Idempotent.
@@ -273,8 +371,4 @@ class CdpConsoleClient {
     _socket = null;
     await socket?.close();
   }
-}
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

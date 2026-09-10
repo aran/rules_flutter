@@ -9,10 +9,33 @@ import 'package_uri_resolver.dart';
 
 /// A point-in-time identity for a file's content.
 ///
-/// We track `(mtime, size)` rather than mtime alone: identical mtime with
-/// changed size catches the rare case where a write completes within the
-/// FS's mtime resolution. We don't hash — that would defeat the speed
-/// reason we use mtime in the first place.
+/// `(mtime, size)` rather than mtime alone: identical mtime with changed size
+/// catches a write that completes within the FS's mtime resolution.
+///
+/// Not a content digest, and not because hashing is too slow — digesting a
+/// first-party `lib/` costs a fraction of a millisecond against a reload that
+/// costs seconds ([resolver] enumerates first-party packages only, never the
+/// pub cache). The asset tracker digests for exactly that reason — see
+/// `AssetTracker._scanDirs`.
+///
+/// What separates them is reachability. `FileStat.modified` is truncated to
+/// whole milliseconds, so a same-length write can hide behind an identical
+/// stamp — which is the asset tracker's case, where a rebuild rewrites the tree
+/// programmatically. Hiding from *this* snapshot additionally requires the
+/// snapshot to be cut between the two writes, and every path that cuts one is
+/// spaced far wider than a millisecond:
+///
+///   - the watcher batches everything within a 200 ms debounce into one
+///     `SourceChange` and only then reloads, so two writes a snapshot can land
+///     between are ≥200 ms apart, and writes closer than that are one event
+///     whose snapshot reads the later content;
+///   - a reload asked for over HTTP or the machine protocol has a round trip
+///     between the write and the scan;
+///   - `generatedFiles` are rewritten by a multi-second bazel build, which
+///     stamps a fresh mtime on a same-length content change.
+///
+/// A reload trigger that can fire within a millisecond of a write would
+/// reopen this, and digesting is affordable if one ever does.
 class Version {
   final DateTime mtime;
   final int size;
@@ -27,8 +50,7 @@ class Version {
   int get hashCode => Object.hash(mtime, size);
 
   @override
-  String toString() =>
-      'Version(mtime=${mtime.toIso8601String()}, size=$size)';
+  String toString() => 'Version(mtime=${mtime.toIso8601String()}, size=$size)';
 }
 
 /// Immutable snapshot of every tracked source file's `Version`.

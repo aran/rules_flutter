@@ -153,6 +153,62 @@ def validate_web_compiler_renderer(compiler, renderer):
     if not is_valid_web_compiler_renderer(compiler, renderer):
         fail("Invalid web compiler+renderer combination: %s+%s. skwasm requires dart2wasm." % (compiler, renderer))
 
+def validate_web_wasm_only_attrs(compiler, set_attrs, what):
+    """Refuse wasm-only settings on a target that runs no wasm compile.
+
+    `compiler = "dart2wasm"` runs both compilers — dart2wasm for the app and
+    dart2js for the browsers without WASM — so a dart2js-only setting is live
+    in both compiler modes. The reverse is not true: `compiler = "dart2js"`
+    runs no wasm compile at all, and a wasm-only setting there would be
+    accepted and reach nothing.
+
+    Args:
+        compiler: The target's `compiler` attr value.
+        set_attrs: Names of wasm-only attrs the target set away from their
+            defaults. Determined by the caller, which is where the values are.
+        what: Label named in the failure message.
+    """
+    if compiler != "dart2js" or not set_attrs:
+        return
+    fail(
+        "%s: %s only affect%s the WASM compile, and `compiler = \"dart2js\"` " % (
+            what,
+            ", ".join(sorted(set_attrs)),
+            "" if len(set_attrs) > 1 else "s",
+        ) +
+        "runs none. Drop the setting, or switch to `compiler = \"dart2wasm\"` " +
+        "— which also builds a dart2js fallback, so the JS settings still apply.",
+    )
+
+def validate_base_href(base_href, what):
+    """Validate a web `<base href>` value.
+
+    Same rule `flutter build web --base-href` enforces: relative URLs on the
+    page resolve against everything up to the last `/`, so a value missing
+    either slash silently resolves assets somewhere other than the deploy root
+    — a page that works when served from `/` and breaks on a deep link.
+
+    Args:
+        base_href: The value to check.
+        what: Label or attr named in the failure message.
+    """
+    if not base_href.startswith("/") or not base_href.endswith("/"):
+        fail("%s: base_href must start and end with '/', got %r" % (what, base_href))
+
+def validate_static_assets_url(static_assets_url, what):
+    """Validate a web `$FLUTTER_STATIC_ASSETS_URL` value.
+
+    Same rule `flutter build web --static-assets-url` enforces: only a trailing
+    slash, because the value is a URL prefix that may legitimately name another
+    origin.
+
+    Args:
+        static_assets_url: The value to check.
+        what: Label or attr named in the failure message.
+    """
+    if not static_assets_url.endswith("/"):
+        fail("%s: static_assets_url must end with '/', got %r" % (what, static_assets_url))
+
 def is_valid_web_compiler_renderer(compiler, renderer):
     """Check if a web compiler+renderer combination is supported.
 

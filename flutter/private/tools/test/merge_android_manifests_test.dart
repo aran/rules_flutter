@@ -27,11 +27,11 @@ const _base = '''
 ''';
 
 String merge(String base, String overlay) => mergeManifests(
-      baseXml: base,
-      overlayXml: overlay,
-      basePath: 'out/base/AndroidManifest.xml',
-      overlayPath: 'android/app/src/debug/AndroidManifest.xml',
-    );
+  baseXml: base,
+  overlayXml: overlay,
+  basePath: 'out/base/AndroidManifest.xml',
+  overlayPath: 'android/app/src/debug/AndroidManifest.xml',
+);
 
 void main() {
   group('mergeManifests', () {
@@ -39,8 +39,10 @@ void main() {
       final merged = merge(_base, _pristineOverlay);
       expect(
         merged,
-        contains('<uses-permission '
-            'android:name="android.permission.INTERNET"/>'),
+        contains(
+          '<uses-permission '
+          'android:name="android.permission.INTERNET"/>',
+        ),
       );
       // Inserted between the root open tag and <application>.
       final open = merged.indexOf('>');
@@ -110,8 +112,10 @@ void main() {
       final merged = merge(_base, overlay);
       expect(
         merged,
-        contains('<uses-permission-sdk-23 '
-            'android:name="android.permission.VIBRATE"/>'),
+        contains(
+          '<uses-permission-sdk-23 '
+          'android:name="android.permission.VIBRATE"/>',
+        ),
       );
     });
 
@@ -152,8 +156,11 @@ void main() {
         } on FormatException catch (e) {
           caught = e;
         }
-        expect(caught, isA<FormatException>(),
-            reason: 'overlay must be rejected:\n$overlay');
+        expect(
+          caught,
+          isA<FormatException>(),
+          reason: 'overlay must be rejected:\n$overlay',
+        );
         final message = caught.toString();
         for (final part in messageParts) {
           expect(message, contains(part));

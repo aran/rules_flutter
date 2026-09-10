@@ -2,14 +2,12 @@
 ///
 /// Demonstrates a flutter_plugin with both dart_plugin_class and native_deps.
 /// The generated registrant calls MultiplyPlugin.registerWith(null) at startup,
-/// and the native shared library is bundled via FlutterInfo.transitive_native_libs.
-library multiply_plugin;
+/// and the native shared library is bundled via
+/// FlutterInfo.transitive_native_libs.
+library;
 
 import 'dart:ffi' as ffi;
 import 'dart:io' show Platform;
-
-typedef _MultiplyNative = ffi.Int32 Function(ffi.Int32 a, ffi.Int32 b);
-typedef _MultiplyDart = int Function(int a, int b);
 
 ffi.DynamicLibrary _openNativeLib(String baseName) {
   // On iOS, native code is statically linked into the app binary,
@@ -22,13 +20,15 @@ ffi.DynamicLibrary _openNativeLib(String baseName) {
   throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
 }
 
+/// Plugin exposing a native `multiply` through `dart:ffi`.
 class MultiplyPlugin {
   static bool _initialized = false;
 
   /// Called by the generated plugin registrant at app startup.
   ///
   /// Dart-plugin (`dartPluginClass`) registration is no-arg by Flutter
-  /// convention — the generated registrant calls `MultiplyPlugin.registerWith()`.
+  /// convention — the generated registrant calls
+  /// `MultiplyPlugin.registerWith()`.
   static void registerWith() {
     _initialized = true;
   }
@@ -39,6 +39,9 @@ class MultiplyPlugin {
   /// Call the native `multiply` function from the bundled shared library.
   static int multiply(int a, int b) => _multiplyFn(a, b);
 
-  static final _multiplyFn = _openNativeLib('multiply')
-      .lookupFunction<_MultiplyNative, _MultiplyDart>('multiply');
+  static final int Function(int, int) _multiplyFn = _openNativeLib('multiply')
+      .lookupFunction<
+        ffi.Int32 Function(ffi.Int32, ffi.Int32),
+        int Function(int, int)
+      >('multiply');
 }

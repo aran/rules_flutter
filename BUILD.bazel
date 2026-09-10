@@ -2,6 +2,27 @@ load("@package_metadata//licenses/rules:license.bzl", "license")
 load("@package_metadata//purl:purl.bzl", "purl")
 load("@package_metadata//rules:package_metadata.bzl", "package_metadata")
 
+# `//tools/pip_lock_guard:pip_facts_test` reads both as data: the lock for the
+# pip facts it checks, MODULE.bazel to confirm it still knows every pip hub
+# those facts come from.
+exports_files(
+    [
+        "MODULE.bazel",
+        "MODULE.bazel.lock",
+    ],
+    visibility = ["//tools/pip_lock_guard:__pkg__"],
+)
+
+# The one `formatter:` section every `dart_format_test` in this workspace
+# checks against. Scoped to the whole tree rather than per-consumer: unlike
+# the pip facts above, nothing here is specific to one package, and a
+# `dart_format_test` two levels down needs to see the same file a `dart
+# format` run from the repo root would discover by its own directory walk.
+exports_files(
+    ["analysis_options.yaml"],
+    visibility = ["//:__subpackages__"],
+)
+
 package_metadata(
     name = "package_metadata",
     purl = purl.bazel(

@@ -4,7 +4,10 @@ void main() {
   runApp(const MyApp());
 }
 
+/// Root widget of the Linux example: one screen, rendered by the GTK runner
+/// that `flutter_linux_app` builds.
 class MyApp extends StatelessWidget {
+  /// Creates the Linux example's root widget.
   const MyApp({super.key});
 
   @override

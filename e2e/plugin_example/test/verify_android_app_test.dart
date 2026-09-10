@@ -9,6 +9,13 @@
 /// This test requires a running Android emulator and is tagged "manual"
 /// to skip during normal `bazel test //...` runs.
 /// Run explicitly: `bazel test :verify_android_app_test --test_tag_filters=`
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 const _packageName = 'com.example.plugin_example';
@@ -71,8 +78,10 @@ Future<void> main() async {
   ]);
   final grantOutput = '${grant.stdout}${grant.stderr}'.trim();
   if (grant.exitCode != 0 || grantOutput.isNotEmpty) {
-    stderr.writeln('FAIL: pm grant RECORD_AUDIO failed — record_android\'s '
-        'manifest did not merge into the APK: $grantOutput');
+    stderr.writeln(
+      "FAIL: pm grant RECORD_AUDIO failed — record_android's "
+      'manifest did not merge into the APK: $grantOutput',
+    );
     exit(1);
   }
   print('RECORD_AUDIO granted');
@@ -101,8 +110,10 @@ Future<void> main() async {
       .where((l) => l.startsWith('$_packageName/'))
       .toList();
   if (resolve.exitCode != 0 || component.isEmpty) {
-    stderr.writeln('Failed to resolve launcher activity for $_packageName: '
-        '${resolve.stdout}${resolve.stderr}');
+    stderr.writeln(
+      'Failed to resolve launcher activity for $_packageName: '
+      '${resolve.stdout}${resolve.stderr}',
+    );
     exit(1);
   }
 
@@ -129,14 +140,20 @@ Future<void> main() async {
       _cleanup();
       exit(1);
     }
-    final dumpsys = Process.runSync(
-        'adb', ['shell', 'dumpsys', 'activity', 'activities']);
+    final dumpsys = Process.runSync('adb', [
+      'shell',
+      'dumpsys',
+      'activity',
+      'activities',
+    ]);
     final output = dumpsys.stdout.toString();
     // Matches both `mResumedActivity`/`ResumedActivity:` (older releases)
     // and `topResumedActivity=` (API 29+).
     if (output
         .split('\n')
-        .any((l) => l.contains('ResumedActivity') && l.contains(_packageName))) {
+        .any(
+          (l) => l.contains('ResumedActivity') && l.contains(_packageName),
+        )) {
       resumed = true;
       break;
     }
@@ -154,8 +171,10 @@ Future<void> main() async {
   // the dispositive plugin check: it only appears after every plugin call in
   // lib/main.dart resolved. UnsatisfiedLinkError on libdartjni.so aborts
   // plugin registration before any of them can respond.
-  print('Waiting for plugin_example_results (up to '
-      '${_resultsTimeout.inSeconds}s)...');
+  print(
+    'Waiting for plugin_example_results (up to '
+    '${_resultsTimeout.inSeconds}s)...',
+  );
   String? resultsLine;
   final resultsDeadline = DateTime.now().add(_resultsTimeout);
   while (DateTime.now().isBefore(resultsDeadline)) {
@@ -176,8 +195,10 @@ Future<void> main() async {
   }
 
   if (resultsLine == null) {
-    stderr.writeln('FAIL: plugin_example_results line never appeared in '
-        'logcat — plugins did not resolve');
+    stderr.writeln(
+      'FAIL: plugin_example_results line never appeared in '
+      'logcat — plugins did not resolve',
+    );
     _dumpRegistrationErrors();
     _cleanup();
     exit(1);
@@ -185,7 +206,7 @@ Future<void> main() async {
   print('Results: $resultsLine');
 
   var resultsOk = true;
-  void expectResult(String description, bool condition) {
+  void expectResult(String description, {required bool condition}) {
     if (condition) {
       print('OK: $description');
     } else {
@@ -195,29 +216,50 @@ Future<void> main() async {
   }
 
   // path_provider (jnigen: package:jni + libdartjni.so end to end).
-  expectResult('documentsPath is a real Android app-data path',
-      resultsLine.contains('documentsPath=/data/user/0/$_packageName/'));
-  expectResult('tempPath is a real Android cache path',
-      resultsLine.contains('tempPath=/data/user/0/$_packageName/cache'));
-  // package_info_plus and the hand-written greeting plugin registered too.
-  expectResult('greeting resolved',
-      resultsLine.contains('greeting=Hello from GreetingPlugin!'));
   expectResult(
-      'appName resolved', resultsLine.contains('appName=plugin_example'));
+    'documentsPath is a real Android app-data path',
+    condition: resultsLine.contains(
+      'documentsPath=/data/user/0/$_packageName/',
+    ),
+  );
+  expectResult(
+    'tempPath is a real Android cache path',
+    condition: resultsLine.contains(
+      'tempPath=/data/user/0/$_packageName/cache',
+    ),
+  );
+  // package_info_plus and the hand-written greeting plugin registered too.
+  expectResult(
+    'greeting resolved',
+    condition: resultsLine.contains('greeting=Hello from GreetingPlugin!'),
+  );
+  expectResult(
+    'appName resolved',
+    condition: resultsLine.contains('appName=plugin_example'),
+  );
   // url_launcher registered and its MethodChannel responded. `denied` is
   // the correct Android answer here: canLaunchUrl is subject to package
   // visibility, and the app declares no <queries> for https VIEW intents
   // (flutter create output, which plugin_example ships untouched, doesn't
   // include one).
-  expectResult('url_launcher channel responded (package visibility denies)',
-      resultsLine.contains('launchOk=launch denied'));
-  expectResult('audio_session resolved',
-      resultsLine.contains('audioSession=audio ok'));
+  expectResult(
+    'url_launcher channel responded (package visibility denies)',
+    condition: resultsLine.contains('launchOk=launch denied'),
+  );
+  expectResult(
+    'audio_session resolved',
+    condition: resultsLine.contains('audioSession=audio ok'),
+  );
   // record_android registered, its resources compiled, and its
   // MethodChannel responded with the permission granted above.
-  expectResult('record_android channel responded with granted permission',
-      resultsLine.contains('recordHasPermission=has=true'));
-  expectResult('no plugin returned an error', !resultsLine.contains('error:'));
+  expectResult(
+    'record_android channel responded with granted permission',
+    condition: resultsLine.contains('recordHasPermission=has=true'),
+  );
+  expectResult(
+    'no plugin returned an error',
+    condition: !resultsLine.contains('error:'),
+  );
 
   if (!resultsOk) {
     _cleanup();
@@ -235,8 +277,12 @@ Future<void> main() async {
       _cleanup();
       exit(1);
     }
-    final dumpsys = Process.runSync(
-        'adb', ['shell', 'dumpsys', 'activity', 'activities']);
+    final dumpsys = Process.runSync('adb', [
+      'shell',
+      'dumpsys',
+      'activity',
+      'activities',
+    ]);
     stillResumed = dumpsys.stdout
         .toString()
         .split('\n')
@@ -246,10 +292,15 @@ Future<void> main() async {
 
   // Capture a screenshot for visual verification.
   print('Capturing screenshot...');
-  Process.runSync(
-      'adb', ['shell', 'screencap', '-p', '/sdcard/plugin_test.png']);
-  final screenshotDir =
-      Directory.systemTemp.createTempSync('plugin_android_screenshot');
+  Process.runSync('adb', [
+    'shell',
+    'screencap',
+    '-p',
+    '/sdcard/plugin_test.png',
+  ]);
+  final screenshotDir = Directory.systemTemp.createTempSync(
+    'plugin_android_screenshot',
+  );
   final localScreenshot = '${screenshotDir.path}/screenshot.png';
   Process.runSync('adb', ['pull', '/sdcard/plugin_test.png', localScreenshot]);
   Process.runSync('adb', ['shell', 'rm', '/sdcard/plugin_test.png']);
@@ -276,8 +327,12 @@ Future<void> main() async {
 /// Returns true (after printing the log) if the crash buffer contains an
 /// entry for the app.
 bool _failOnCrash() {
-  final crashLog =
-      Process.runSync('adb', ['logcat', '-b', 'crash', '-d']).stdout.toString();
+  final crashLog = Process.runSync('adb', [
+    'logcat',
+    '-b',
+    'crash',
+    '-d',
+  ]).stdout.toString();
   if (crashLog.contains(_packageName)) {
     stderr.writeln('FAIL: app crashed:\n$crashLog');
     return true;
@@ -291,10 +346,12 @@ void _dumpRegistrationErrors() {
   final log = Process.runSync('adb', ['logcat', '-d']).stdout.toString();
   final interesting = log
       .split('\n')
-      .where((l) =>
-          l.contains('GeneratedPluginsRegister') ||
-          l.contains('UnsatisfiedLinkError') ||
-          l.contains('flutter'))
+      .where(
+        (l) =>
+            l.contains('GeneratedPluginsRegister') ||
+            l.contains('UnsatisfiedLinkError') ||
+            l.contains('flutter'),
+      )
       .take(200)
       .join('\n');
   stderr.writeln('--- relevant logcat ---\n$interesting');

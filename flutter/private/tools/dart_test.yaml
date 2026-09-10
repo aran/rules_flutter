@@ -1,0 +1,10 @@
+# Tag declarations for the tools' own tests.
+#
+# Every file here has a Bazel `dart_test` in `test/BUILD.bazel`, which is the
+# canonical runner. CI additionally runs a bare `dart test` over this package,
+# and that path resolves only the pubspec — so a tool importing a
+# Bazel-supplied package cannot be loaded there.
+tags:
+  # Needs a dependency that arrives through Bazel rather than pub, so the bare
+  # `dart test` run excludes it. Its Bazel target still runs it.
+  runfiles:

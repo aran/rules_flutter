@@ -14,6 +14,23 @@ abstract interface class CompilerConfig {
 
   /// Additional flags beyond target, sdk-root, incremental, packages, output-dill.
   List<String> get extraFlags;
+
+  /// Language experiments the app was built with, as bare names — the shape
+  /// the build emits them in. [experimentFlags] is the spelling.
+  List<String> get enableExperiments;
+}
+
+/// `--enable-experiment=<name>` for each of [CompilerConfig.enableExperiments].
+///
+/// One definition for both targets: an experiment the build enabled and the
+/// dev loop did not is a parse error in the frontend server pointing at the
+/// user's syntax, and native and web have no reason to disagree about it.
+/// These land on the resident compiler's argv, so they hold for the initial
+/// compile and every recompile.
+extension ExperimentFlags on CompilerConfig {
+  List<String> get experimentFlags => [
+    for (final e in enableExperiments) '--enable-experiment=$e',
+  ];
 }
 
 /// Compiler config for native platforms (macOS, Linux, Windows, iOS, Android).
@@ -47,7 +64,16 @@ class NativeCompilerConfig implements CompilerConfig {
   /// pre-main hook re-registers plugins and agent extensions on every
   /// root-isolate launch of the dills this compiler produces — which is
   /// what keeps them alive across hot restart.
+  ///
+  /// `file://` and not the `org-dartlang-root:///` the build's kernel compile
+  /// uses, including when [fileSystemRoots] mounts a multi-root file system
+  /// around it. The URI has one construction site — the
+  /// `dartPluginRegistrantUri:` argument in `native_pipeline_assembler.dart` —
+  /// and the comment there records why the two need not agree.
   final String dartPluginRegistrantUri;
+
+  @override
+  final List<String> enableExperiments;
 
   NativeCompilerConfig({
     required this.patchedSdkRoot,
@@ -55,6 +81,7 @@ class NativeCompilerConfig implements CompilerConfig {
     this.fileSystemScheme = '',
     this.dartDefines = const [],
     this.dartPluginRegistrantUri = '',
+    this.enableExperiments = const [],
   });
 
   @override
@@ -65,19 +92,20 @@ class NativeCompilerConfig implements CompilerConfig {
 
   @override
   List<String> get extraFlags => [
-        '--enable-asserts',
-        for (final define in dartDefines) '-D$define',
-        if (dartPluginRegistrantUri.isNotEmpty) ...[
-          '--source',
-          dartPluginRegistrantUri,
-          '--source',
-          'package:flutter/src/dart_plugin_registrant.dart',
-          '-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri',
-        ],
-        for (final root in fileSystemRoots) ...['--filesystem-root', root],
-        if (fileSystemRoots.isNotEmpty && fileSystemScheme.isNotEmpty)
-          '--filesystem-scheme=$fileSystemScheme',
-      ];
+    '--enable-asserts',
+    ...experimentFlags,
+    for (final define in dartDefines) '-D$define',
+    if (dartPluginRegistrantUri.isNotEmpty) ...[
+      '--source',
+      dartPluginRegistrantUri,
+      '--source',
+      'package:flutter/src/dart_plugin_registrant.dart',
+      '-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri',
+    ],
+    for (final root in fileSystemRoots) ...['--filesystem-root', root],
+    if (fileSystemRoots.isNotEmpty && fileSystemScheme.isNotEmpty)
+      '--filesystem-scheme=$fileSystemScheme',
+  ];
 }
 
 /// Compiler config for web (DDC) compilation.
@@ -97,10 +125,14 @@ class WebCompilerConfig implements CompilerConfig {
   /// Same replay semantics as [NativeCompilerConfig.dartDefines].
   final List<String> dartDefines;
 
+  @override
+  final List<String> enableExperiments;
+
   WebCompilerConfig({
     required this.webToolchain,
     this.fileSystemRoots = const [],
     this.dartDefines = const [],
+    this.enableExperiments = const [],
   });
 
   @override
@@ -111,13 +143,14 @@ class WebCompilerConfig implements CompilerConfig {
 
   @override
   List<String> get extraFlags => [
-        '--libraries-spec=${webToolchain.librariesSpec}',
-        '--platform=${webToolchain.ddcOutlineDill}',
-        '--dartdevc-module-format=ddc',
-        '--dartdevc-canary',
-        '--experimental-emit-debug-metadata',
-        for (final define in dartDefines) '-D$define',
-        for (final root in fileSystemRoots) ...['--filesystem-root', root],
-        if (fileSystemRoots.isNotEmpty) '--filesystem-scheme=org-dartlang-app',
-      ];
+    '--libraries-spec=${webToolchain.librariesSpec}',
+    '--platform=${webToolchain.ddcOutlineDill}',
+    '--dartdevc-module-format=ddc',
+    '--dartdevc-canary',
+    '--experimental-emit-debug-metadata',
+    ...experimentFlags,
+    for (final define in dartDefines) '-D$define',
+    for (final root in fileSystemRoots) ...['--filesystem-root', root],
+    if (fileSystemRoots.isNotEmpty) '--filesystem-scheme=org-dartlang-app',
+  ];
 }

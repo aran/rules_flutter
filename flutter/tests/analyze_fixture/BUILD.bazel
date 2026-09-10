@@ -1,0 +1,31 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test")
+load("//flutter:defs.bzl", "flutter_library")
+
+# The first analyze target in rules_flutter over code that imports `dart:ui`.
+#
+# Two things have to hold for this to pass, and it fails loudly if either
+# stops. `sky_engine` has to reach the analyzer's staged project carrying
+# `lib/_embedder.yaml`, which is what the analyzer resolves
+# `package:sky_engine/_embedder.yaml` to and builds its SDK from. And
+# `flutter_library` has to forward `DartInfo.transitive_resources`, since
+# `dart_analyze_test` reads that field off every dep and a provider field that
+# was never set has no default.
+flutter_library(
+    name = "analyze_fixture",
+    package_name = "analyze_fixture",
+    srcs = ["lib/geometry.dart"],
+    deps = ["@flutter_sky_engine//:sky_engine"],
+)
+
+dart_analyze_test(
+    name = "analyze_fixture_test",
+    size = "small",
+    lib = ":analyze_fixture",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

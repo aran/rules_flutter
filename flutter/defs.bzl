@@ -41,6 +41,7 @@ artifacts:
 load("//flutter/private:flutter_aot_target.bzl", _flutter_aot_target = "flutter_aot_target")
 load("//flutter/private:flutter_application.bzl", _flutter_application = "flutter_application")
 load("//flutter/private:flutter_asset_bundle.bzl", _flutter_asset_bundle = "flutter_asset_bundle")
+load("//flutter/private:flutter_gen_l10n.bzl", _flutter_gen_l10n = "flutter_gen_l10n")
 load("//flutter/private:flutter_kernel_target.bzl", _flutter_kernel_target = "flutter_kernel_target")
 load("//flutter/private:flutter_library.bzl", _flutter_library = "flutter_library")
 load("//flutter/private:flutter_plugin.bzl", _flutter_plugin = "flutter_plugin")
@@ -68,6 +69,7 @@ def flutter_application(name, package_name = "", **kwargs):
     )
 
 flutter_asset_bundle = _flutter_asset_bundle
+flutter_gen_l10n = _flutter_gen_l10n
 flutter_kernel_target = _flutter_kernel_target
 flutter_library = _flutter_library
 flutter_plugin = _flutter_plugin

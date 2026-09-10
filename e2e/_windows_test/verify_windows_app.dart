@@ -20,7 +20,8 @@ import 'dart:io';
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
     stderr.writeln(
-        'Usage: dart run verify_windows_app.dart <bundle_dir> [expected_title]');
+      'Usage: dart run verify_windows_app.dart <bundle_dir> [expected_title]',
+    );
     exit(1);
   }
 
@@ -54,16 +55,16 @@ Future<void> main(List<String> args) async {
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stdoutLines.add(line);
-    print('[stdout] $line');
-  });
+        stdoutLines.add(line);
+        print('[stdout] $line');
+      });
   appProcess.stderr
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .listen((line) {
-    stderrLines.add(line);
-    print('[stderr] $line');
-  });
+        stderrLines.add(line);
+        print('[stderr] $line');
+      });
 
   // Poll for window to appear.
   print('Waiting for window (up to 30s) ...');
@@ -99,8 +100,9 @@ Future<void> main(List<String> args) async {
   bool? titleMatch;
   final windowTitle = windowInfo['title'] as String?;
   if (expectedTitle != null && windowTitle != null) {
-    titleMatch =
-        windowTitle.toLowerCase().contains(expectedTitle.toLowerCase());
+    titleMatch = windowTitle.toLowerCase().contains(
+      expectedTitle.toLowerCase(),
+    );
   }
 
   // Kill the app.
@@ -120,10 +122,12 @@ Future<void> main(List<String> args) async {
   print('Window appeared: yes');
   print('Window title: $windowTitle');
   print(
-      'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL - FAIL"})');
+    'Window size: ${width}x$height (${hasNonZeroSize ? "OK" : "TOO SMALL - FAIL"})',
+  );
   if (expectedTitle != null) {
     print(
-        'Window title contains "$expectedTitle": ${titleMatch == true ? "yes" : "no"}');
+      'Window title contains "$expectedTitle": ${titleMatch == true ? "yes" : "no"}',
+    );
   }
 
   _printResult(
@@ -139,8 +143,7 @@ Future<void> main(List<String> args) async {
 }
 
 /// Polls for a visible window owned by the given process.
-Future<Map<String, dynamic>?> _pollForWindow(
-    Duration timeout, int pid) async {
+Future<Map<String, dynamic>?> _pollForWindow(Duration timeout, int pid) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
     final result = await Process.run('powershell', [

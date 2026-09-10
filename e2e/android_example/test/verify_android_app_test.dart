@@ -12,6 +12,13 @@
 ///   androidx.profileinstaller's startup-initializer write, which runs a few
 ///   seconds after launch and exercises the profileinstaller dependency
 ///   chain (concurrent-futures, listenablefuture) at runtime
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 const _packageName = 'com.example.flutterapp';
@@ -86,8 +93,10 @@ Future<void> main() async {
       .where((l) => l.startsWith('$_packageName/'))
       .toList();
   if (resolve.exitCode != 0 || component.isEmpty) {
-    stderr.writeln('Failed to resolve launcher activity for $_packageName: '
-        '${resolve.stdout}${resolve.stderr}');
+    stderr.writeln(
+      'Failed to resolve launcher activity for $_packageName: '
+      '${resolve.stdout}${resolve.stderr}',
+    );
     exit(1);
   }
 
@@ -110,13 +119,20 @@ Future<void> main() async {
   final deadline = DateTime.now().add(_timeout);
   var resumed = false;
   while (DateTime.now().isBefore(deadline)) {
-    final dumpsys = Process.runSync(
-        'adb', ['shell', 'dumpsys', 'activity', 'activities']);
+    final dumpsys = Process.runSync('adb', [
+      'shell',
+      'dumpsys',
+      'activity',
+      'activities',
+    ]);
     final output = dumpsys.stdout.toString();
     // Matches both `mResumedActivity`/`ResumedActivity:` (older releases)
     // and `topResumedActivity=` (API 29+).
-    if (output.split('\n').any((l) =>
-        l.contains('ResumedActivity') && l.contains(_packageName))) {
+    if (output
+        .split('\n')
+        .any(
+          (l) => l.contains('ResumedActivity') && l.contains(_packageName),
+        )) {
       resumed = true;
       break;
     }
@@ -137,25 +153,39 @@ Future<void> main() async {
   var stillResumed = true;
   while (DateTime.now().isBefore(stabilityDeadline)) {
     await Future<void>.delayed(const Duration(seconds: 1));
-    final crashLog =
-        Process.runSync('adb', ['logcat', '-b', 'crash', '-d']).stdout.toString();
+    final crashLog = Process.runSync(
+      'adb',
+      ['logcat', '-b', 'crash', '-d'],
+    ).stdout.toString();
     if (crashLog.contains(_packageName)) {
       stderr.writeln('FAIL: app crashed during stability window:\n$crashLog');
       _cleanup();
       exit(1);
     }
-    final dumpsys = Process.runSync(
-        'adb', ['shell', 'dumpsys', 'activity', 'activities']);
-    stillResumed = dumpsys.stdout.toString().split('\n').any((l) =>
-        l.contains('ResumedActivity') && l.contains(_packageName));
+    final dumpsys = Process.runSync('adb', [
+      'shell',
+      'dumpsys',
+      'activity',
+      'activities',
+    ]);
+    stillResumed = dumpsys.stdout
+        .toString()
+        .split('\n')
+        .any((l) => l.contains('ResumedActivity') && l.contains(_packageName));
     if (!stillResumed) break;
   }
 
   // Capture a screenshot for visual verification.
   print('Capturing screenshot...');
-  Process.runSync(
-      'adb', ['shell', 'screencap', '-p', '/sdcard/flutter_test.png']);
-  final screenshotDir = Directory.systemTemp.createTempSync('android_screenshot');
+  Process.runSync('adb', [
+    'shell',
+    'screencap',
+    '-p',
+    '/sdcard/flutter_test.png',
+  ]);
+  final screenshotDir = Directory.systemTemp.createTempSync(
+    'android_screenshot',
+  );
   final localScreenshot = '${screenshotDir.path}/screenshot.png';
   Process.runSync('adb', ['pull', '/sdcard/flutter_test.png', localScreenshot]);
   Process.runSync('adb', ['shell', 'rm', '/sdcard/flutter_test.png']);

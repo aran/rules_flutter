@@ -2,8 +2,8 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
-load("@rules_dart//dart:defs.bzl", "dart_test")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -25,10 +25,6 @@ load(
 load("@rules_swift//swift:swift.bzl", "swift_library")
 
 exports_files(["pubspec.lock"])
-
-# iOS building blocks below are exposed to the optional, git-ignored //device
-# package for on-device (signed) builds. See device.example/.
-_DEVICE_VISIBILITY = ["//device:__pkg__"]
 
 # =============================================================================
 # Shared: Flutter application (both entry points in single compilation)
@@ -52,7 +48,6 @@ apple_bundle_version(
     build_version = "1.0",
     short_version_string = "1.0",
     tags = ["manual"],
-    visibility = _DEVICE_VISIBILITY,
 )
 
 # =============================================================================
@@ -118,17 +113,9 @@ macos_application(
 # iOS: Multi-scene custom runner with FlutterEngineGroup
 # =============================================================================
 
-# Custom multi-scene Info.plist (FlutterEngineGroup + PlannerSceneDelegate),
-# reused by the signed //device:app build.
-exports_files(
-    ["ios/Info.plist"],
-    visibility = _DEVICE_VISIBILITY,
-)
-
 flutter_ios_framework_gen(
     name = "ios_framework",
     application = ":app_flutter",
-    visibility = _DEVICE_VISIBILITY,
 )
 
 flutter_ios_registrant_gen(
@@ -143,7 +130,6 @@ flutter_ios_engine(
 flutter_ios_native_frameworks_gen(
     name = "ios_native_frameworks",
     application = ":app_flutter",
-    visibility = _DEVICE_VISIBILITY,
 )
 
 swift_library(
@@ -155,26 +141,49 @@ swift_library(
     ],
     module_name = "PlannerRunner",
     tags = ["manual"],
-    visibility = _DEVICE_VISIBILITY,
     deps = [":ios_engine"],
 )
+
+_IOS_DEPS = [
+    ":ios_framework",
+    ":ios_native_frameworks",
+    ":ios_runner_lib",
+]
+
+_IOS_FAMILIES = [
+    "iphone",
+    "ipad",
+]
 
 ios_application(
     name = "app_ios",
     bundle_id = "com.example.planner",
-    families = [
-        "iphone",
-        "ipad",
-    ],
+    families = _IOS_FAMILIES,
     infoplists = ["ios/Info.plist"],
     launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
     minimum_os_version = "13.0",
     version = ":app_version",
-    deps = [
-        ":ios_framework",
-        ":ios_native_frameworks",
-        ":ios_runner_lib",
-    ],
+    deps = _IOS_DEPS,
+)
+
+# The same app, signed for a physical device: `provisioning_profile` is the
+# only difference, so the device bundle shares the custom multi-scene runner,
+# `ios/Info.plist` and every `_gen` target with `:app_ios` above.
+#
+# `//device` is git-ignored and absent from a fresh clone. That is fine: the
+# target is tagged `manual`, so `bazel build //...` never expands it and
+# therefore never loads the missing package. Create it from device.example/.
+ios_application(
+    name = "app_ios_device",
+    bundle_id = "com.example.planner",
+    families = _IOS_FAMILIES,
+    infoplists = ["ios/Info.plist"],
+    launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
+    minimum_os_version = "13.0",
+    provisioning_profile = "//device:profile",
+    tags = ["manual"],
+    version = ":app_version",
+    deps = _IOS_DEPS,
 )
 
 # =============================================================================
@@ -198,4 +207,75 @@ dart_test(
     data = [":app_macos"],
     main = "test/verify_macos_bundle_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The workspace's lint ruleset, bundled with the pub package whose YAML its
+# `include:` resolves against. Named here rather than in a library's `deps`: a
+# lint ruleset is not a dependency of the code it lints, and listing it there
+# carries it into the `DartInfo` of every binary and test downstream.
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+    deps = ["@deps//:very_good_analysis"],
+)
+
+# Static analysis over this example's Dart. The app rule is a bundle and
+# carries no DartInfo, so the sources are declared once more as a library for
+# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
+# `dart:ui` resolves.
+flutter_library(
+    name = "app_lib",
+    package_name = "multi_window_example",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = [
+        "@deps//:flutter",
+        "@flutter_sky_engine//:sky_engine",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+dart_analyze_test(
+    name = "app_analyze_test",
+    size = "small",
+    lib = ":app_lib",
+    options = ":options",
+)
+
+# Static analysis of the test sources beside the app's Dart.
+# `app_analyze_test` above covers `:app_lib` and its whole
+# first-party closure — dependency packages included — but a test's `main`
+# belongs to no package's `lib/`, so nothing in that closure can name it.
+#
+# Compiling a test's `main` to a kernel rejects broken code but is indifferent
+# to everything `dart analyze --fatal-infos` reports.
+#
+# `options`: these hold to the same very_good_analysis bar as the app code,
+# rather than the SDK default. The one rule that does not fit a diagnostic
+# script is `avoid_print` — writing what it found to the test log is the
+# script's product, not a stray debug statement — and the scripts that print
+# disable exactly that rule per-file, with the reason above the
+# `ignore_for_file` (which `document_ignores` requires).
+[dart_analyze_test(
+    name = "%s_analyze" % t,
+    size = "small",
+    options = ":options",
+    target = ":%s" % t,
+) for t in [
+    "verify_macos_bundle_test",
+]]
+
+# All of this workspace's Dart, checked against the same `:options` the
+# analyze tests above use.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "lib/**/*.dart",
+        "test/**/*.dart",
+    ]),
+    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = ":options",
 )

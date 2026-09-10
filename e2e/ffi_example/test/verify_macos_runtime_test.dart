@@ -22,6 +22,13 @@
 ///
 /// Pass criteria: the app writes
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO` to `$TMPDIR/ffi_result.txt`.
+library;
+
+// This script's diagnostics are its product: it reports what it found in
+// the built artifact to the bazel test log, so `print` is its output
+// channel rather than a stray debugging statement.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 
 const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO';
@@ -73,8 +80,10 @@ Future<void> main() async {
     }
 
     if (contents == null) {
-      stderr.writeln('FAIL: app never wrote ${markerFile.path} — it likely '
-          'crashed before main() completed (native library failed to load?).');
+      stderr.writeln(
+        'FAIL: app never wrote ${markerFile.path} — it likely '
+        'crashed before main() completed (native library failed to load?).',
+      );
       exit(1);
     }
     print('App recorded: "$contents"');
@@ -82,8 +91,10 @@ Future<void> main() async {
       stderr.writeln('FAIL: expected "$_marker" but got "$contents".');
       exit(1);
     }
-    print('PASS: @Native asset bind (add), raw filename open (mul) and '
-        'the curated sqlite3 code asset all worked at runtime.');
+    print(
+      'PASS: @Native asset bind (add), raw filename open (mul) and '
+      'the curated sqlite3 code asset all worked at runtime.',
+    );
   } finally {
     app?.kill();
     tmpDir.deleteSync(recursive: true);

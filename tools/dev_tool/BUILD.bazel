@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test", "dart_library", "dart_test")
 load(":source_repo.bzl", "SOURCE_REPO")
 
 exports_files(["pubspec.lock"])
@@ -7,6 +7,7 @@ _LIB_DEPS = [
     "@dev_tool_deps//:args",
     "@dev_tool_deps//:dds",
     "@dev_tool_deps//:dwds",
+    "@dev_tool_deps//:http_multi_server",
     "@dev_tool_deps//:logging",
     "@dev_tool_deps//:multicast_dns",
     "@dev_tool_deps//:package_config",
@@ -35,11 +36,6 @@ dart_binary(
     data = [
         "//tools/ios_screenshot:screenshot",
         "//tools/ios_screenshot:tunneld",
-        # DWDS injects this into the page and then serves it by reading its
-        # own package source off disk via `Isolate.resolvePackageUri`, which
-        # returns null in an AOT binary with no `.dart_tool/package_config.json`
-        # above it — so DWDS threw and the browser got a `text/plain` 500.
-        # Declared as a runtime input and served from runfiles instead.
     ] + select({
         "@platforms//os:macos": [
             "//tools/macos_screenshot:screenshot",
@@ -55,6 +51,23 @@ dart_binary(
     deps = _LIB_DEPS,
 )
 
+# Static analysis, as a test — `bazel test //...` fails on an analysis
+# regression rather than leaving it to whoever next runs `dart analyze` by hand.
+# Plain Dart, so it needs nothing beyond the pinned rules_dart: the dev tool
+# never imports `dart:ui`, and the analyzer resolves everything it does import
+# from the ordinary package config.
+#
+# Pointed at the binary rather than at `:lib`, because `bin/flutter_bazel.dart`
+# is a `main` that belongs to no package's `lib/` and so appears in no
+# `DartInfo`. Analyzing `:lib` left the entrypoint uncovered; the binary's
+# `DartAnalyzableInfo` carries it *and* the whole `:lib` closure, so this is one
+# action for both.
+dart_analyze_test(
+    name = "flutter_bazel_analyze_test",
+    size = "small",
+    target = ":flutter_bazel",
+)
+
 # Every unit test under test/. Adding an entry here is the whole cost of a new
 # test file, and the list is the reason a file cannot quietly go unrun: the
 # `/logs` endpoint's tests shipped without a target and so were never covered
@@ -62,6 +75,18 @@ dart_binary(
 #
 #   fakes — the test includes test/fakes.dart, which imports multicast_dns and
 #           vm_service whatever the test itself imports.
+#   tls   — the test includes test/tls_fixture.dart, the self-signed
+#           certificate the TLS serving cases need.
+#   loopbacks — the test includes test/loopbacks.dart, which measures the
+#           loopback families this host can assign. Any test asserting what a
+#           server bound for `localhost` needs it: the answer differs per host.
+#   lifetime — the test includes test/test_lifetime.dart, which binds a spawned
+#           process to the test that started it. The e2e harness is the only
+#           other user; it lives here so `bazel test //...` covers it.
+#   harness — the test includes test/e2e/dev_tool_e2e_harness.dart, for the
+#           same reason: the e2e files it serves are not Bazel targets (they
+#           invoke `bazel` themselves), so its own behaviour would otherwise be
+#           covered by nothing. Implies `lifetime`, which it imports.
 #   deps  — packages the test imports directly, beyond :lib and test.
 _TEST_DEPS = [
     ":lib",
@@ -76,28 +101,54 @@ _FAKES_DEPS = [
 _PATH_DEP = ["@dev_tool_deps//:path"]
 
 _UNIT_TESTS = {
-    "agent_command_test": {},
+    "agent_command_test": {"fakes": True},
     "app_instance_test": {"fakes": True},
     "app_log_sink_test": {"fakes": True},
     "app_log_test": {"fakes": True},
     "applied_versions_test": {"deps": _PATH_DEP},
+    "asset_bundle_test": {"deps": _PATH_DEP},
     "attach_command_test": {},
     "bazel_test": {},
     "build_command_test": {},
+    "build_info_test": {"fakes": True},
+    "fake_process_stdin_test": {"fakes": True},
     "cdp_console_test": {},
     "command_runner_test": {},
+    "compiler_config_test": {},
     "compiler_test": {"fakes": True},
+    "dependency_compiler_fake_test": {"fakes": True},
+    "dev_tool_e2e_harness_test": {
+        "fakes": True,
+        "harness": True,
+        "lifetime": True,
+        "deps": _PATH_DEP,
+    },
     "device_integration_test": {"fakes": True},
     "device_test": {"fakes": True},
+    "flutter_error_report_test": {"deps": _PATH_DEP},
     "frontend_server_integration_test": {"fakes": True},
-    "frontend_server_test": {"fakes": True},
+    "frontend_server_test": {
+        "fakes": True,
+        "deps": ["@dev_tool_deps//:logging"],
+    },
     "host_tools_test": {"deps": _PATH_DEP},
-    "http_control_channel_test": {},
+    "http_control_channel_test": {"loopbacks": True},
+    "logging_test": {},
     "machine_protocol_test": {"fakes": True},
     "mdns_vm_service_discovery_test": {"fakes": True},
     "native_libs_fingerprint_test": {},
+    "native_libs_relauncher_test": {
+        "fakes": True,
+        "deps": _PATH_DEP,
+    },
+    "native_pipeline_assembler_test": {"fakes": True},
+    "outcome_renderer_test": {"fakes": True},
     "package_uri_resolver_test": {"deps": _PATH_DEP},
     "readiness_gate_test": {},
+    "reload_pipeline_test": {
+        "fakes": True,
+        "deps": _PATH_DEP,
+    },
     "reload_orchestrator_test": {
         "fakes": True,
         "deps": _PATH_DEP,
@@ -107,20 +158,201 @@ _UNIT_TESTS = {
         "deps": _PATH_DEP,
     },
     "run_command_test": {},
+    "run_plan_test": {"deps": ["@dev_tool_deps//:args"]},
     "reload_strategy_test": {"fakes": True},
-    "session_test": {"fakes": True},
+    "session_host_test": {
+        "fakes": True,
+        "loopbacks": True,
+    },
+    "session_reloader_test": {
+        "fakes": True,
+        "deps": _PATH_DEP,
+    },
+    "session_test": {
+        "fakes": True,
+        "deps": ["@dev_tool_deps//:logging"],
+    },
     "source_watcher_test": {"deps": ["@dev_tool_deps//:watcher"]},
+    "teardown_test": {},
+    "temp_dir_test": {},
+    "test_lifetime_test": {"lifetime": True},
     "toolchain_info_test": {"deps": _PATH_DEP},
-    "vm_service_client_test": {"fakes": True},
+    "vm_service_client_test": {
+        "fakes": True,
+        "deps": _PATH_DEP,
+    },
+    "vm_service_conformance_test": {"fakes": True},
     "vm_service_logs_test": {"fakes": True},
-    "web_module_server_test": {},
+    "web_bootstrap_test": {},
+    "web_expression_compiler_test": {
+        "fakes": True,
+        "deps": ["@dev_tool_deps//:dwds"],
+    },
+    "web_mode_test": {"deps": ["@dev_tool_deps//:args"]},
+    "web_module_server_test": {
+        "tls": True,
+        "loopbacks": True,
+    },
+    "package_roots_test": {},
+    "shutdown_signals_test": {},
+    "screenshot_blankness_test": {
+        "harness": True,
+        "lifetime": True,
+        "deps": _PATH_DEP,
+        # The one capture that has to be a real file: a PNG this repo encoded
+        # itself could not prove the decoder reads what devices actually emit.
+        "data": ["test/fixtures/blank_android_emulator_capture.png"],
+    },
+    "web_options_test": {"deps": ["@dev_tool_deps//:args"]},
+    "wasm_pipeline_assembler_test": {},
 }
 
 [dart_test(
     name = name,
-    srcs = ["test/fakes.dart"] if cfg.get("fakes") else [],
+    srcs = (["test/fakes.dart"] if cfg.get("fakes") else []) +
+           (["test/tls_fixture.dart"] if cfg.get("tls") else []) +
+           (["test/loopbacks.dart"] if cfg.get("loopbacks") else []) +
+           (["test/test_lifetime.dart"] if cfg.get("lifetime") else []) +
+           (["test/e2e/dev_tool_e2e_harness.dart"] if cfg.get("harness") else []),
+    data = cfg.get("data", []),
     main = "test/%s.dart" % name,
     deps = _TEST_DEPS +
            (_FAKES_DEPS if cfg.get("fakes") else []) +
            cfg.get("deps", []),
 ) for name, cfg in _UNIT_TESTS.items()]
+
+# Outside `_UNIT_TESTS` because its `srcs` come from `tool/`, which the
+# comprehension above cannot express — every flag there names a file under
+# `test/`.
+#
+# `tool/e2e.dart` is the e2e suite's own runner: the thing that decides whether
+# a run counts. It is not under `lib/`, so neither `:lib` nor the analyze test
+# reaches it, and until this target existed the only check on its verdict was
+# reading the sentence it printed. That is how it came to answer "nothing was
+# selected to run" for a run whose one test had just failed.
+dart_test(
+    name = "e2e_runner_test",
+    srcs = ["tool/e2e.dart"],
+    main = "test/e2e_runner_test.dart",
+    deps = _TEST_DEPS,
+)
+
+# Every test target on this package, however it was declared. The analysis
+# targets below are generated from this rather than from `_UNIT_TESTS`, so a
+# test declared outside the map cannot be run without being analyzed.
+_ALL_TESTS = _UNIT_TESTS.keys() + ["e2e_runner_test"]
+
+# The same static-analysis bar the production sources are held to, applied to
+# the tests. Test sources were never analyzed at all until this existed: a
+# `dart_test` compiles its `main` to a kernel, which rejects broken code but is
+# indifferent to everything `dart analyze --fatal-infos` reports — two dead
+# imports sat in committed test files with every target green.
+#
+# A test's `main` and its `srcs` helpers belong to no package's `lib/`, so they
+# cannot be collected into a `dart_library` (rules_dart rejects `srcs` outside
+# `lib/`, since a `package:` URI could never reach them). They reach the
+# analyzer through the `dart_test`'s own `DartAnalyzableInfo` instead, which is
+# why this is one target per test rather than one for the whole directory.
+#
+# Generated from `_ALL_TESTS` rather than written out, so a new entry is
+# analyzed the day it is added and no test file can be covered by a run target
+# but missed by an analysis one.
+[dart_analyze_test(
+    name = "%s_analyze" % name,
+    size = "small",
+    target = ":%s" % name,
+) for name in _ALL_TESTS]
+
+# The Dart in this package that belongs to no package's `lib/` and to no test
+# target: every file under `test/e2e/`, and every script under `tool/` that is
+# not already carried by a test's `srcs`. Nothing analyzed any of it. Closing
+# the agent-surface work meant running `dart analyze` over
+# `test/e2e/agent_e2e_test.dart` by hand, because there was nothing to run
+# instead, and an analyzer error had already been found sitting in a test file.
+#
+# These files are not test targets because they invoke `bazel` themselves — the
+# harness shells out to `bazel info`, `bazel build` and a whole `flutter_bazel
+# run` — so a `dart_test` over one would nest a Bazel invocation inside a Bazel
+# test action. That is a reason they cannot be *run* by Bazel. It is not a
+# reason they cannot be *analyzed*: `dart_analyze_test` reads
+# `DartAnalyzableInfo` and stages sources, and never asks for its operand's
+# compiled output, so a handle that is never run still carries them to the
+# analyzer. `e2e/codegen` already does this for its generator scripts —
+# existing only to be analyzed is the point.
+#
+# `main` is `tool/e2e.dart` because a `dart_binary` needs one, and the suite's
+# own runner is the non-arbitrary root of everything here. Everything else
+# rides in `srcs`: `DartAnalyzableInfo` carries `[main] + srcs`, and the
+# analyzer reports on every file staged into the project whether or not `main`
+# imports it. One staging, not nineteen. `test_lifetime.dart` and
+# `tls_fixture.dart` come along because files under `test/e2e/` reach them by
+# relative import (`../test_lifetime.dart`); both are already analyzed through
+# their own tests, and staging a file twice costs nothing.
+#
+# `glob`, where every other list in this file is written out by hand. The
+# hand-list is load-bearing for the unit tests: a file there does not *run*
+# until someone adds it, so the list cannot fall behind what runs. These files
+# are discovered by `dart test` instead, so nothing would ever force a new one
+# into a list — a list here would rebuild the exact defect this target closes.
+# The glob tracks the discovery mechanism, so the analyzed set follows the run
+# set by construction — recursively, because that is what it is tracking:
+# `dart test test/e2e/` descends into subdirectories, so a flat `test/e2e/*`
+# would leave a test in one of them running with nothing analyzing it.
+#
+# `compile_mode = "kernel"`: the compile is a byproduct nobody consumes, and
+# only `tool/e2e.dart`'s own closure is compiled — the globbed files are
+# unimported — so this is the cheapest way to satisfy the rule. A script that
+# imports a package missing from `deps` fails this target loudly, as an
+# unresolved import, which is the intended way to learn it needs one.
+#
+# Not a target to run: `bazel run` on it would start the real e2e suite from a
+# runfiles directory. Run the suite the documented way, with
+# `dart run tools/dev_tool/tool/e2e.dart`.
+dart_binary(
+    name = "loose_sources",
+    srcs = glob(["test/e2e/**/*.dart"]) + glob(
+        ["tool/**/*.dart"],
+        exclude = ["tool/e2e.dart"],
+    ) + [
+        "test/test_lifetime.dart",
+        "test/tls_fixture.dart",
+    ],
+    compile_mode = "kernel",
+    main = "tool/e2e.dart",
+    visibility = ["//visibility:private"],
+    deps = _TEST_DEPS + _PATH_DEP + ["@dev_tool_deps//:vm_service"],
+)
+
+dart_analyze_test(
+    name = "loose_sources_analyze",
+    size = "small",
+    target = ":loose_sources",
+)
+
+# Every `.dart` file in this package, in one target rather than split the way
+# the analyze tests above are. `dart_format_test` does have a `target=`
+# attribute, but handed files directly it needs no `DartAnalyzableInfo` — so it
+# carries none of the reason `:loose_sources` and the per-test analyze loop
+# exist: format checking was never blocked on a library or test owning the file.
+#
+# Four patterns, not `**/*.dart`: `.probes/` sits beside `bin/`, `lib/`,
+# `test/`, and `tool/` in this package and is gitignored scratch space (see
+# `.gitignore`), never reviewed or committed. A blanket recursive glob would
+# pull it under enforcement anyway, since `glob()` does not consult
+# `.gitignore` — these four are exactly the trees `:lib`, `:flutter_bazel`,
+# the `_UNIT_TESTS` loop, and `:loose_sources` already draw `srcs` from above.
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob([
+        "bin/**/*.dart",
+        "lib/**/*.dart",
+        "test/**/*.dart",
+        "tool/**/*.dart",
+    ]),
+    # Matches this package's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
+    # `latest` default would enforce a style `dart format` here cannot
+    # produce. See docs/TESTING.md.
+    language_version = "3.12",
+    options = "//:analysis_options.yaml",
+)

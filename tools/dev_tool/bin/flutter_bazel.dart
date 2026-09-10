@@ -93,20 +93,41 @@ void _printUsage(ArgParser parser) {
   stdout.writeln('  build       Build a Flutter target with Bazel');
   stdout.writeln('  run         Build, run, and hot reload a Flutter target');
   stdout.writeln('  attach      Connect to an already-running Flutter app');
-  stdout.writeln('  ios-tunnel  Start iOS device tunnel daemon (requires sudo)');
+  stdout.writeln(
+    '  ios-tunnel  Start iOS device tunnel daemon (requires sudo)',
+  );
   stdout.writeln();
   stdout.writeln('Run options:');
-  stdout.writeln('  -d, --device    Device to run on (repeatable for multi-device)');
-  stdout.writeln('                  macos, linux, windows, ios-simulator, ios, chrome,');
-  stdout.writeln('                  ios-simulator:<udid>, ios:<udid>, or Android serial');
-  stdout.writeln('  --hot           Enable hot reload (default: on, requires -c dbg)');
-  stdout.writeln('  --no-hot        Disable hot reload (just build and launch)');
+  stdout.writeln(
+    '  -d, --device    Device to run on (repeatable for multi-device)',
+  );
+  stdout.writeln(
+    '                  macos, linux, windows, ios-simulator, ios, chrome,',
+  );
+  stdout.writeln(
+    '                  ios-simulator:<udid>, ios:<udid>, or Android serial',
+  );
+  stdout.writeln(
+    '  --hot           Enable hot reload (default: on, requires -c dbg)',
+  );
+  stdout.writeln(
+    '  --no-hot        Disable hot reload (just build and launch)',
+  );
   stdout.writeln('  --devtools      Launch DevTools (default: on)');
   stdout.writeln('  --no-devtools   Disable DevTools auto-launch');
-  stdout.writeln('  --machine       Enable machine-readable JSON protocol for IDE');
-  stdout.writeln('  --dart-define   Dart define KEY=VALUE (repeatable; also on');
-  stdout.writeln('                  build/attach). Forwarded to the build and kept');
-  stdout.writeln('                  across hot reload/restart');
+  stdout.writeln(
+    '  --machine       Enable machine-readable JSON protocol for IDE',
+  );
+  stdout.writeln(
+    '  --dart-define   Dart define KEY=VALUE (repeatable; also on',
+  );
+  stdout.writeln(
+    '                  build). Forwarded to the build and kept across',
+  );
+  stdout.writeln(
+    '                  hot reload/restart. `attach` needs none: the',
+  );
+  stdout.writeln('                  running app reports its own defines');
   stdout.writeln();
   stdout.writeln('Keyboard shortcuts (during run/attach):');
   stdout.writeln('  r    Hot reload');

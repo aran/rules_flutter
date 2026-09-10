@@ -1,8 +1,9 @@
 """Implementation of the flutter_library rule."""
 
-load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartPackageInfo")
-load("@rules_dart//dart:utils.bzl", "derive_lib_root", "derive_package_name")
+load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
+load("@rules_dart//dart:utils.bzl", "dart_info", "derive_lib_root", "derive_package_name")
 load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter/private:flutter_info.bzl", "flutter_info")
 
 def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict):
     """Build pub_fonts/pub_assets/pub_shaders contribution structs from rule attrs.
@@ -112,10 +113,8 @@ def aggregate_pub_contributions(deps):
         if FlutterInfo not in dep:
             continue
         info = dep[FlutterInfo]
-        if hasattr(info, "pub_fonts") and info.pub_fonts != None:
-            pub_fonts.extend(info.pub_fonts.to_list())
-        if hasattr(info, "pub_assets") and info.pub_assets != None:
-            pub_assets.extend(info.pub_assets.to_list())
+        pub_fonts.extend(info.pub_fonts.to_list())
+        pub_assets.extend(info.pub_assets.to_list())
 
     fonts = []
     extra_asset_copies = {}
@@ -141,285 +140,6 @@ def aggregate_pub_contributions(deps):
 
     return (fonts, extra_asset_copies)
 
-def dedup_plugins(all_plugins):
-    """Deduplicate plugins by name (first occurrence wins).
-
-    Args:
-        all_plugins: List of plugin structs.
-
-    Returns:
-        List of unique plugin structs.
-    """
-    seen = {}
-    unique = []
-    for p in all_plugins:
-        if p.name not in seen:
-            seen[p.name] = True
-            unique.append(p)
-    return unique
-
-def build_flutter_providers(ctx, package_name, lib_root, extra_plugins = [], extra_native_libs = [], extra_apple_plugin_libraries = [], extra_linux_plugin_libraries = [], extra_windows_plugin_libraries = [], extra_android_plugin_libraries = [], extra_apple_privacy_manifests = [], extra_native_assets = [], extra_data_assets = [], extra_pub_fonts = [], extra_pub_assets = [], extra_pub_shaders = [], language_version = ""):
-    """Build DartInfo + FlutterInfo from the common flutter library/plugin pattern.
-
-    Collects transitive sources, packages, assets, plugins, and native libs
-    from ctx.attr.deps.
-
-    Args:
-        ctx: Rule context (must have srcs, deps, assets attrs).
-        package_name: The Dart package name.
-        lib_root: The library root path.
-        extra_plugins: Additional plugin structs to prepend (e.g. this plugin's own struct).
-        extra_native_libs: Additional native lib depsets to merge (e.g. from native_deps).
-        extra_apple_plugin_libraries: Additional Apple plugin library
-            structs (each with `platform`, `label`, `cc_info`,
-            `swift_info`, `package`) emitted by the current target —
-            typically populated by flutter_plugin from its
-            `apple_libs` attr. Merged transitively through
-            `FlutterInfo.apple_plugin_libraries`.
-        extra_linux_plugin_libraries: Additional Linux plugin source
-            bundles (each with `label`, `srcs`, `hdrs`, `include_dirs`,
-            `package`) — typically populated by flutter_plugin from
-            `linux_libs`. Merged transitively through
-            `FlutterInfo.linux_plugin_libraries`.
-        extra_windows_plugin_libraries: Additional Windows plugin
-            source bundles, same shape as the Linux ones. Merged
-            transitively through `FlutterInfo.windows_plugin_libraries`.
-        extra_android_plugin_libraries: Additional Android plugin
-            library structs (each with `label`, `package`) emitted by
-            the current target — typically populated by flutter_plugin
-            from `android_libs`. Merged transitively through
-            `FlutterInfo.android_plugin_libraries`.
-        extra_apple_privacy_manifests: Additional Apple
-            `PrivacyInfo.xcprivacy` files contributed directly by the
-            current target — typically populated by `flutter_plugin`
-            from its `apple_privacy_files` attr. Merged transitively
-            through `FlutterInfo.apple_privacy_manifests` and
-            ultimately bundled by the platform application rule.
-        extra_native_assets: Additional `FlutterNativeAssetInfo`
-            providers contributed directly by the current target —
-            typically populated by `flutter_plugin` from its
-            `native_assets` attr. Merged transitively through
-            `FlutterInfo.native_assets`.
-        extra_data_assets: Additional `FlutterDataAssetInfo` providers
-            contributed directly by the current target — typically
-            populated by `flutter_plugin` from its `data_assets` attr.
-            Merged transitively through `FlutterInfo.data_assets`.
-        extra_pub_fonts: Additional pub-package font contribution
-            structs (`package_name`, `family`, `fonts`, `files`)
-            emitted by the current target — populated by
-            `flutter_pub_library` from its parsed `flutter.fonts`
-            block. Merged transitively through `FlutterInfo.pub_fonts`.
-        extra_pub_assets: Additional pub-package asset contribution
-            structs (`package_name`, `asset_path`, `file`) emitted by
-            the current target — populated by `flutter_pub_library`
-            from its parsed `flutter.assets` block. Merged transitively
-            through `FlutterInfo.pub_assets`.
-        extra_pub_shaders: Additional pub-package shader contribution
-            structs (same shape as `extra_pub_assets`) emitted by the
-            current target. Merged transitively through
-            `FlutterInfo.pub_shaders`.
-        language_version: Dart language version (`<major>.<minor>`) for this
-            package, propagated through DartPackageInfo so the generated
-            `package_config.json` entry carries `languageVersion`. Empty
-            string means "let the toolchain default apply" — same semantics
-            as `dart_library`'s attribute.
-
-    Returns:
-        Tuple of (DartInfo, FlutterInfo).
-    """
-    transitive_srcs = depset(
-        direct = ctx.files.srcs,
-        transitive = [dep[DartInfo].transitive_srcs for dep in ctx.attr.deps],
-    )
-
-    # Code assets ride on the package record, which is what makes them
-    # propagate the way pub does: depending on a package that owns one is
-    # enough, and no consumer has to name it. rules_dart owns the declaration
-    # (`DartCodeAssetInfo`); everything Flutter adds — bundle filename, the
-    # per-platform bundle slot — is applied later by the application rule.
-    own_code_assets = [dep[DartCodeAssetInfo] for dep in ctx.attr.code_assets]
-    this_pkg = DartPackageInfo(
-        package_name = package_name,
-        lib_root = lib_root,
-        language_version = language_version,
-        code_assets = tuple(own_code_assets),
-        has_unreplaced_hook = ctx.attr.has_unreplaced_hook,
-    )
-    transitive_packages = depset(
-        direct = [this_pkg],
-        transitive = [dep[DartInfo].transitive_packages for dep in ctx.attr.deps],
-    )
-    transitive_code_asset_files = depset(
-        direct = [
-            a.dynamic_library
-            for a in own_code_assets
-            if a.dynamic_library != None
-        ],
-        transitive = [
-            dep[DartInfo].transitive_code_asset_files
-            for dep in ctx.attr.deps
-        ],
-    )
-
-    transitive_asset_dirs = depset(
-        direct = ctx.files.assets,
-        transitive = [
-            dep[FlutterInfo].asset_dirs
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Collect shader sources from this target and transitively from deps.
-    direct_shaders = ctx.files.shaders if hasattr(ctx.attr, "shaders") else []
-    transitive_shader_srcs = depset(
-        direct = direct_shaders,
-        transitive = [
-            dep[FlutterInfo].shader_srcs
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Merge plugins transitively from deps, dedup by name.
-    dep_plugins = []
-    for dep in ctx.attr.deps:
-        if FlutterInfo in dep:
-            dep_plugins.extend(dep[FlutterInfo].plugins)
-    all_plugins = dedup_plugins(extra_plugins + dep_plugins)
-
-    # Merge transitive native libs.
-    transitive_native_libs = depset(
-        transitive = extra_native_libs + [
-            dep[FlutterInfo].transitive_native_libs
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Merge transitive apple plugin libraries.
-    apple_plugin_libraries = depset(
-        direct = extra_apple_plugin_libraries,
-        transitive = [
-            dep[FlutterInfo].apple_plugin_libraries
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Merge transitive linux + windows plugin libraries (source bundles).
-    linux_plugin_libraries = depset(
-        direct = extra_linux_plugin_libraries,
-        transitive = [
-            dep[FlutterInfo].linux_plugin_libraries
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-    windows_plugin_libraries = depset(
-        direct = extra_windows_plugin_libraries,
-        transitive = [
-            dep[FlutterInfo].windows_plugin_libraries
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Merge transitive android plugin libraries.
-    android_plugin_libraries = depset(
-        direct = extra_android_plugin_libraries,
-        transitive = [
-            dep[FlutterInfo].android_plugin_libraries
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep
-        ],
-    )
-
-    # Merge transitive Apple privacy manifests (PrivacyInfo.xcprivacy
-    # files). Apple's App Store submission walks the bundle for these
-    # files; we collect them here and bundle via the platform application
-    # rules' `additional_contents`.
-    apple_privacy_manifests = depset(
-        direct = extra_apple_privacy_manifests,
-        transitive = [
-            dep[FlutterInfo].apple_privacy_manifests
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "apple_privacy_manifests") and dep[FlutterInfo].apple_privacy_manifests != None
-        ],
-    )
-
-    # Merge transitive Native Assets code + data declarations.
-    native_assets = depset(
-        direct = extra_native_assets,
-        transitive = [
-            dep[FlutterInfo].native_assets
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "native_assets") and dep[FlutterInfo].native_assets != None
-        ],
-    )
-    data_assets = depset(
-        direct = extra_data_assets,
-        transitive = [
-            dep[FlutterInfo].data_assets
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "data_assets") and dep[FlutterInfo].data_assets != None
-        ],
-    )
-
-    # Merge transitive pub-package contributions (fonts/assets/shaders from
-    # flutter:-block parsing). Each entry carries package_name as the empty
-    # string for non-package contributions (e.g. the toolchain MaterialIcons
-    # target), or the real pub package name otherwise.
-    pub_fonts = depset(
-        direct = extra_pub_fonts,
-        transitive = [
-            dep[FlutterInfo].pub_fonts
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "pub_fonts") and dep[FlutterInfo].pub_fonts != None
-        ],
-    )
-    pub_assets = depset(
-        direct = extra_pub_assets,
-        transitive = [
-            dep[FlutterInfo].pub_assets
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "pub_assets") and dep[FlutterInfo].pub_assets != None
-        ],
-    )
-    pub_shaders = depset(
-        direct = extra_pub_shaders,
-        transitive = [
-            dep[FlutterInfo].pub_shaders
-            for dep in ctx.attr.deps
-            if FlutterInfo in dep and hasattr(dep[FlutterInfo], "pub_shaders") and dep[FlutterInfo].pub_shaders != None
-        ],
-    )
-
-    dart_info = DartInfo(
-        package_name = package_name,
-        lib_root = lib_root,
-        transitive_srcs = transitive_srcs,
-        transitive_packages = transitive_packages,
-        transitive_code_asset_files = transitive_code_asset_files,
-    )
-    flutter_info = FlutterInfo(
-        asset_dirs = transitive_asset_dirs,
-        shader_srcs = transitive_shader_srcs,
-        plugins = all_plugins,
-        transitive_native_libs = transitive_native_libs,
-        apple_plugin_libraries = apple_plugin_libraries,
-        linux_plugin_libraries = linux_plugin_libraries,
-        windows_plugin_libraries = windows_plugin_libraries,
-        android_plugin_libraries = android_plugin_libraries,
-        apple_privacy_manifests = apple_privacy_manifests,
-        native_assets = native_assets,
-        data_assets = data_assets,
-        pub_fonts = pub_fonts,
-        pub_assets = pub_assets,
-        pub_shaders = pub_shaders,
-    )
-    return (dart_info, flutter_info)
-
 def _flutter_library_impl(ctx):
     package_name = derive_package_name(
         ctx.attr.package_name,
@@ -442,23 +162,62 @@ def _flutter_library_impl(ctx):
         ctx.attr.pkg_shaders,
     )
 
-    dart_info, flutter_info = build_flutter_providers(
-        ctx,
-        package_name,
-        lib_root,
-        extra_pub_fonts = extra_pub_fonts,
-        extra_pub_assets = extra_pub_assets,
-        extra_pub_shaders = extra_pub_shaders,
-        language_version = ctx.attr.language_version,
-    )
+    # `resources` names the non-Dart remainder of `lib/`; a Dart source there
+    # is a mis-filed `srcs` entry, and identical paths with identical
+    # extensions would otherwise collide silently. Mirrors `dart_library`.
+    for f in ctx.files.resources:
+        if f.extension == "dart":
+            fail(
+                ("%s: `%s` is a Dart source in `resources`. `resources` names " +
+                 "the non-Dart remainder of `lib/`; Dart sources belong in " +
+                 "`srcs`.") % (ctx.label, f.short_path),
+            )
 
+    # Both providers are built by their own constructor, and each merges its
+    # dependencies' closures itself. This rule states only what a
+    # `flutter_library` contributes, which is what keeps a field added to
+    # either provider from becoming a change here.
+    #
+    # `resources` and the pub-asset attrs are orthogonal channels. `resources`
+    # says a file is part of the package's `lib/` tree — addressable as
+    # `package:<name>/<path>`, staged wherever the whole package is staged
+    # (the analyzer's project tree, `dart_test`/`dart_binary` runfiles).
+    # `pkg_assets`/`pkg_shaders`/`font_files` say a file is transformed and
+    # bundled into flutter_assets. A shader under `lib/` is legitimately both.
+    #
+    # Code assets go on the package record, which is what makes them propagate
+    # the way pub does: depending on a package that owns one is enough, and no
+    # consumer has to name it. rules_dart owns the declaration
+    # (`DartCodeAssetInfo`) and enforces that each asset id is namespaced to the
+    # package declaring it; everything Flutter adds — bundle filename, the
+    # per-platform bundle slot — is applied later by the application rule.
     return [
         DefaultInfo(
-            files = depset(ctx.files.srcs),
-            runfiles = ctx.runfiles(files = ctx.files.srcs + ctx.files.assets),
+            files = depset(ctx.files.srcs + ctx.files.resources),
+            runfiles = ctx.runfiles(
+                files = ctx.files.srcs + ctx.files.resources + ctx.files.assets,
+            ),
         ),
-        dart_info,
-        flutter_info,
+        dart_info(
+            label = ctx.label,
+            package_name = package_name,
+            lib_root = lib_root,
+            deps = ctx.attr.deps,
+            srcs = ctx.files.srcs,
+            resources = ctx.files.resources,
+            code_assets = ctx.attr.code_assets,
+            language_version = ctx.attr.language_version,
+            version = ctx.attr.version,
+            has_unreplaced_hook = ctx.attr.has_unreplaced_hook,
+        ),
+        flutter_info(
+            deps = ctx.attr.deps,
+            asset_dirs = ctx.files.assets,
+            shader_srcs = ctx.files.shaders,
+            pub_fonts = extra_pub_fonts,
+            pub_assets = extra_pub_assets,
+            pub_shaders = extra_pub_shaders,
+        ),
     ]
 
 flutter_library = rule(
@@ -472,6 +231,10 @@ flutter_library = rule(
         "deps": attr.label_list(
             doc = "Other `dart_library` or `flutter_library` targets this library depends on.",
             providers = [DartInfo],
+        ),
+        "resources": attr.label_list(
+            doc = "Non-Dart files this package ships inside `lib/` — part of its published surface, but never compiled. Anything under `lib/` is addressable as `package:<name>/<path>` whatever its extension, so these are members of the package: they ride `DartInfo.transitive_resources` and are staged wherever the whole package is staged (the analyzer's project tree, `dart_test`/`dart_binary` runfiles), mirroring `dart_library`. Orthogonal to `pkg_assets`/`pkg_shaders`/`font_files`, which name flutter_assets bundle contributions — a `lib/` shader is legitimately both. `.dart` files belong in `srcs`.",
+            allow_files = True,
         ),
         "assets": attr.label_list(
             doc = "Flutter asset files (images, fonts, etc.) declared in pubspec.yaml.",
@@ -495,6 +258,16 @@ flutter_library = rule(
             doc = "Path of a build hook this package ships that nothing " +
                   "replaces, or empty. Recorded at repo generation; the " +
                   "application that depends on the package fails on it.",
+        ),
+        "version": attr.string(
+            doc = "The package's own version, as resolved by pub (e.g. `2.2.0`). " +
+                  "Set automatically by the generated pub spokes; leave it empty on " +
+                  "hand-written targets, which have no resolved version to state. " +
+                  "Mirrors `dart_library`'s attribute, and has its one use: when a " +
+                  "single package name arrives from two hubs, two records stating " +
+                  "different versions fail the build instead of the first one " +
+                  "silently standing in for the second. An empty version never " +
+                  "conflicts.",
         ),
         "language_version": attr.string(
             doc = "Dart language version (`<major>.<minor>`) for this package's `package_config.json` entry. Mirrors `dart_library`'s attribute. Empty string means defer to the toolchain default.",

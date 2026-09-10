@@ -3,12 +3,18 @@ description: Dev tool for Bazel-built Flutter projects.
 version: 0.1.0
 
 environment:
-  sdk: ^3.0.0
+  # The real floor, not a nominal one. dwds pulls the resolved constraint to
+  # >=3.12 (see pubspec.lock's `sdks:` stanza), so a lower bound here only
+  # misreports what the package needs — and pub derives the package's language
+  # version from it, so `^3.0.0` silently disabled field promotion for every
+  # `final T? _x` in this package.
+  sdk: ^3.12.0
 
 dependencies:
   args: ^2.4.0
   dds: ^5.4.0
   dwds: ^27.1.1
+  http_multi_server: ^3.2.1
   logging: ^1.2.0
   multicast_dns: ^0.3.2
   package_config: ^2.1.0
