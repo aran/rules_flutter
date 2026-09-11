@@ -80,6 +80,14 @@ flutter_application(
         ":user_json",
     ],
     main = "lib/main.dart",
+    # A loose native library (the `native_deps` contract), bundled but never
+    # called. It makes this the one workspace that is a codegen app *and*
+    # carries a `dlopen`ed library, which is the combination the dev tool's
+    # native-libs check exists for: a hot reload rebuilds this target to
+    # regenerate sources, that rebuild recompiles the library, and the running
+    # process cannot take it. `native_libs_reload_e2e_test.dart` edits
+    # `native_add/native/native_add.c` to drive exactly that.
+    native_deps = ["//native_add:native_add_shared"],
     deps = [
         "//dep_lib",
         "//dep_part",

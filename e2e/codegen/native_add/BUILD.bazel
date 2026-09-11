@@ -28,6 +28,10 @@ cc_shared_library(
         "@platforms//os:windows": "native_add.dll",
         "//conditions:default": "libnative_add.so",
     }),
+    # Visible to the app as well as to this package's code asset: `//:app`
+    # bundles it through `native_deps` so the workspace covers a codegen app
+    # with a `dlopen`ed library. See the comment there.
+    visibility = ["//:__pkg__"],
     deps = [":native_add_cc"],
 )
 

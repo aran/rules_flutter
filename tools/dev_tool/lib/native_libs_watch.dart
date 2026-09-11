@@ -59,8 +59,26 @@ class NativeLibsWatch {
 
   /// A watch over [libs], baselined at what they are on disk now.
   ///
-  /// Called at assembly, which is after the launch and after the dev build, so
-  /// "now" is what the process launched with.
+  /// Called at assembly, which is after the launch and after the assembler's own
+  /// build of the app target — and that build is where this baseline has a
+  /// window. It reads the working tree, so a native source saved between the
+  /// launch build and it is compiled into these files, and the baseline then
+  /// describes code the running process never loaded. The reload after that sees
+  /// nothing changed and injects, which is the failure this whole class exists
+  /// to prevent, in the one window where it cannot see it.
+  ///
+  /// Left as a window rather than closed, because closing it costs what the
+  /// design is built to avoid. The assembler's build cannot run before the app
+  /// launches — its flags come out of the `dart_defines` the *running* app
+  /// reports — and the only baseline that is exact without it is the launched
+  /// bundle's own copy of the libraries, which lives in the app's launch
+  /// configuration: comparing against it on a reload means rebuilding that
+  /// configuration on every `r`, a bundle build on the instant path.
+  ///
+  /// It is also self-healing, which is what makes the trade bearable: a restart
+  /// rebuilds the launch target and `Relauncher` compares the launched bundle
+  /// itself, which is exact by construction, so the first `R` after the window
+  /// relaunches the process and re-baselines this watch through [markLive].
   static Future<NativeLibsWatch> of(List<String> libs) async =>
       NativeLibsWatch._(libs, await _read(libs));
 
