@@ -1507,13 +1507,25 @@ What stays inside `result` is an outcome that carries its own verdict: a hot
 reload answers `{"succeeded":false, "error":…}`, because it ran and reported a
 failure rather than refusing to run.
 
-**Restarts that relaunch.** A hot restart swaps Dart code into the running process, which cannot replace a native library it has already `dlopen`ed. So `app.restart` first rebuilds the app and, when the bundle's loose native libraries (`native_deps`) changed, relaunches the process instead of restarting the isolate:
+**Restarts that relaunch.** A hot restart swaps Dart code into the running process, which cannot replace a native library it has already `dlopen`ed. So `app.restart` first rebuilds the app and, when the bundle's loose native libraries (`native_deps`, and Native Assets code assets) changed, relaunches the process instead of restarting the isolate:
 
 ```json
-{"message":"Restart relaunched the app: native libraries changed (…). …",
- "relaunched":true,"nativeLibsChanged":["…/libmul.dylib"],
- "launch":{"<appId>":2},"ready":true}
+{"succeeded":true,"runningCode":"updated","relaunched":true,
+ "nativeLibsChanged":["…/libmul.dylib"],"launch":{"<appId>":2},"ready":true,
+ "message":"Restart successful — the app was relaunched because its native libraries changed (…). …"}
 ```
+
+**Reloads that refuse.** A hot reload cannot relaunch anything — replacing the process is how the app's state is lost, which is what a reload exists to keep — so it answers a moved native library by delivering nothing:
+
+```json
+{"succeeded":false,"runningCode":"unchanged",
+ "nativeLibsStale":["…/libbridge.dylib"],
+ "message":"Hot reload withheld: …/libbridge.dylib changed, and a process cannot replace a native library it has already loaded …"}
+```
+
+Withheld, not injected: the increment was compiled against the rebuilt library, and a process holding the old one would run it against the old machine code — a skew that surfaces later as a malformed request or a call landing on the wrong function, with nothing left pointing at the library. Nothing is compiled and nothing is sent, so the app is left whole on the code *and* the library it launched with, and `app.restart` is what picks the new library up.
+
+This only arises for an app whose reload rebuilds through bazel — a source-assembled (codegen) app, where regenerating sources recompiles the libraries too. The check reads the libraries that build declared (`_dev_config.json`), so it costs no bazel of its own and a Dart-only edit stays on the instant path.
 
 The channel is a property of the *run*, not of the app process: the port, the token and the `appId` are unchanged, and there is no second banner because none is needed — keep using the ones you started with. The machine protocol re-emits `app.debugPort` and `app.started` for the replacement process. `ready` says the relaunched app rendered a first frame before the response returned, so its service extensions are registered and the next `app.*` call will land; a `false` means that wait timed out, not that the app is broken. The one thing that does not carry over is `/logs`: the new process buffers its output from zero, so compare `launch` and re-tail. Only `app.stop` and `daemon.shutdown` end a session.
 

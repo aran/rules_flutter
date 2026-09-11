@@ -716,6 +716,7 @@ void main() {
           'filesystemRoots': ['', 'bazel-out/cfg/bin'],
           'generatedSourcePaths': ['bazel-out/cfg/bin/lib/user.g.dart'],
           'generatedSourceUris': ['package:codegen_e2e/user.g.dart'],
+          'nativeLibs': ['bazel-out/cfg/bin/libbridge.dylib'],
         }),
       );
 
@@ -745,6 +746,13 @@ void main() {
         p.split(config.generatedSourcePaths.single),
         p.split('$execRoot/bazel-out/cfg/bin/lib/user.g.dart'),
       );
+      // The libraries the app bundles, absolutized the same way: the reload's
+      // native-libs check stats and hashes these paths, so a list left
+      // exec-relative would read every one of them as missing.
+      expect(
+        p.split(config.nativeLibs.single),
+        p.split('$execRoot/bazel-out/cfg/bin/libbridge.dylib'),
+      );
       // URIs are NOT paths — left untouched.
       expect(
         config.generatedSourceUris.single,
@@ -757,6 +765,41 @@ void main() {
       );
 
       tmpDir.deleteSync(recursive: true);
+    });
+  });
+
+  group('requireDeclaredFilesExist', () {
+    test('names a native library the build declared and did not write', () {
+      final tmp = Directory.systemTemp.createTempSync('test_declared_libs_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final present = File('${tmp.path}/libthere.dylib')
+        ..writeAsStringSync('x');
+
+      // Loud, and named. The reload's native-libs check stats and hashes these
+      // paths on every command; one the build did not materialize would
+      // otherwise surface as a bare filesystem error from inside a reload, far
+      // from the build that declared it.
+      expect(
+        () => requireDeclaredFilesExist(
+          DevConfig(
+            engineRevision: 'abc',
+            flutterVersion: '3.47.2',
+            dartSdkRoot: '',
+            dartaotruntime: '',
+            frontendServer: '',
+            patchedSdkRoot: '',
+            appEntrypoint: 'package:app/main.dart',
+            nativeLibs: [present.path, '${tmp.path}/libmissing.dylib'],
+          ),
+        ),
+        throwsA(
+          isA<DevToolException>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(contains('libmissing.dylib'), contains('nativeLibs')),
+          ),
+        ),
+      );
     });
   });
 
