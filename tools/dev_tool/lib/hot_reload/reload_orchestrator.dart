@@ -1,8 +1,12 @@
 /// The composer of the reload pipeline.
 ///
 /// `ReloadOrchestrator` is the only place that knows the full sequence:
-/// regenerate → snapshot disk → ask each target what it lacks → compile per
-/// target → apply per target → settle that target's baseline. It does not own
+/// snapshot disk → ask each target what it lacks → compile per target → apply
+/// per target → settle that target's baseline. The rebuilds that have to happen
+/// before any of it — a codegen app's generated sources, and the native-library
+/// check that rebuild owes — belong to `ReloadPipeline`, which is where the
+/// verbs differ: only a restart can answer a moved native library by replacing
+/// the process. It does not own
 /// concurrency discipline of its own — `CommandRunner.Pool(1)` ensures at most
 /// one reload runs at a time. The pipeline itself is bounded because every
 /// step (compile, applyKernel) is bounded by construction.
@@ -11,9 +15,10 @@
 /// [workspace] and **one snapshot per command**, handed to every target: two
 /// targets of the same reload must agree on what disk said, or a file written
 /// mid-command lands in one app and not the other with nothing to show for it.
-/// One [refreshGenerated] per command for the same reason — it rewrites the
-/// tree, so it must finish before the snapshot and must not run once per
-/// target. Everything downstream of that is per-target, in a [SessionReloader]:
+/// The pipeline's one regeneration per command is the same rule seen from
+/// outside: it rewrites the tree, so it finishes before this class takes its
+/// snapshot and never runs per target. Everything downstream is per-target, in a
+/// [SessionReloader]:
 /// its own compiler, its own record, its own commit. See that class for why a
 /// shared compiler cannot serve independently-targeted apps.
 import 'dart:async';
@@ -56,6 +61,25 @@ class ReloadNoChange extends ReloadOutcome {
   const ReloadNoChange();
 }
 
+/// The rebuild this command ran moved a native library the app has already
+/// `dlopen`ed, so nothing was compiled and nothing was sent.
+///
+/// Not a failure of the compiler or of a device: both were left alone on
+/// purpose. A process cannot replace a mapped image, so an increment built
+/// against the new library would run against the old machine code — the kind of
+/// skew that surfaces later as a malformed request or a call landing on the
+/// wrong function, with nothing left to point at the library. Withholding it
+/// leaves the app self-consistent on the code *and* the library it launched
+/// with, which is the only other honest state available.
+///
+/// [libs] are the libraries whose bytes moved, so the reply can name them. The
+/// way out is a new process: a restart relaunches one when the run launched the
+/// app, and says so.
+class ReloadNativeLibsStale extends ReloadOutcome {
+  final List<String> libs;
+  const ReloadNativeLibsStale(this.libs);
+}
+
 /// Compile failed. Every target's pending compile was rolled back; no applied
 /// versions are advanced.
 class ReloadCompileFailed extends ReloadOutcome {
@@ -83,18 +107,10 @@ class ReloadOrchestrator {
 
   final String entrypoint;
 
-  /// Optional pre-reload step that rebuilds the app's bazel-generated sources
-  /// (codegen) so the compilers see fresh outputs. Returns false on build
-  /// failure. Null for apps with no generated sources — then the pipeline runs
-  /// no bazel build (today's instant path). Runs once per command, before the
-  /// snapshot, so a refreshed generated file is picked up by the normal diff.
-  final Future<bool> Function()? refreshGenerated;
-
   ReloadOrchestrator({
     required this.workspace,
     required this.units,
     required this.entrypoint,
-    this.refreshGenerated,
   });
 
   /// Every app this orchestrator can drive right now.
@@ -181,18 +197,6 @@ class ReloadOrchestrator {
     // Resolved before any work, so an unknown target fails loudly rather than
     // after a compile has already run.
     final targetUnits = [for (final t in targets) unitFor(t)];
-
-    // Refresh bazel-generated sources (codegen) BEFORE snapshotting, so a
-    // regenerated file's new version is captured by the diff below and its
-    // library is invalidated. Once per command, never once per target.
-    if (refreshGenerated != null) {
-      final ok = await refreshGenerated!();
-      if (!ok) {
-        return const ReloadCompileFailed(
-          'Generated source rebuild (bazel) failed; see build output above.',
-        );
-      }
-    }
 
     // One snapshot, shared by every target: what disk said at this instant.
     final snap = workspace.snapshot();

@@ -22,6 +22,7 @@ import 'dart:async';
 
 import 'bazel.dart';
 import 'build_info.dart';
+import 'bundle_rebuild.dart';
 import 'compiler_config.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
@@ -37,6 +38,7 @@ import 'hot_reload/workspace.dart';
 import 'logging.dart';
 import 'native_libs_fingerprint.dart';
 import 'native_libs_relauncher.dart';
+import 'native_libs_watch.dart';
 import 'package_roots.dart';
 import 'reload_pipeline.dart';
 import 'session.dart';
@@ -565,6 +567,20 @@ class NativePipelineAssembler {
       )).success;
     }
 
+    // What the app has `dlopen`ed, so a rebuild that moves one of these is
+    // caught before an increment is compiled against it. Armed off the build's
+    // own declaration rather than off `native_deps` being set anywhere: an app
+    // with no loose native libraries has nothing to watch, and the list is the
+    // one the app bundles.
+    //
+    // Baselined here, which is after the launch and after the dev build above:
+    // these bytes are the ones the running process mapped. Attach arms it too —
+    // it has no process of ours to relaunch, which makes knowing the libraries
+    // went stale the only thing it *can* do about them.
+    final nativeLibs = devConfig.nativeLibs.isEmpty
+        ? null
+        : await NativeLibsWatch.of(devConfig.nativeLibs);
+
     // Never empty: a session with no VM client is exactly the case the top of
     // this method already returned on, and nothing between the two adds or
     // clears one.
@@ -572,10 +588,10 @@ class NativePipelineAssembler {
       workspace: workspaceView,
       units: [for (final u in units) u!],
       entrypoint: pipeline.entrypoint,
-      refreshGenerated: pipeline.refreshGenerated,
     );
+    pipeline.nativeLibsMoved = nativeLibs?.movedSinceLaunch;
 
-    await _wireRelauncher(orchestrator, assetsDir);
+    await _wireRelauncher(orchestrator, assetsDir, nativeLibs);
 
     pipeline.strategy = configDevice.createReloadStrategy();
     // What is true, not what was hoped for. A unit whose first compile failed
@@ -727,7 +743,7 @@ class NativePipelineAssembler {
       AssetBundle(directory: assetsDir, workspaceRoot: workspace),
       builtBefore: builtBefore,
     );
-    pipeline.rebuildAssets = _rebuildBundle;
+    pipeline.rebuildAssets = _bundleRebuild.run;
     return assetsDir;
   }
 
@@ -741,6 +757,15 @@ class NativePipelineAssembler {
   /// changed, and the edit is silently dropped. With no launch of our own there
   /// is no transitioned configuration to reproduce, so the dev one is the only
   /// one there is.
+  /// [_rebuildBundle], deduplicated within one command: an `app.restart` whose
+  /// asset sources moved asks for this build twice — once to refresh the bundle
+  /// it diffs, once before the native-libs comparison — and the second is a
+  /// bazel invocation that can only confirm the first.
+  late final BundleRebuild _bundleRebuild = BundleRebuild(
+    _rebuildBundle,
+    () => pipeline.command,
+  );
+
   Future<bool> _rebuildBundle() async {
     final r = await bazelBuild(
       target,
@@ -756,6 +781,7 @@ class NativePipelineAssembler {
   Future<void> _wireRelauncher(
     ReloadOrchestrator orchestrator,
     String assetsDir,
+    NativeLibsWatch? nativeLibs,
   ) async {
     final launched = launch;
     // Nothing to relaunch that is ours: attach never started the process, and
@@ -769,13 +795,14 @@ class NativePipelineAssembler {
     if (fingerprint.isEmpty) return;
     final relauncher = Relauncher(
       appFile: launched.appFile,
-      rebuild: _rebuildBundle,
+      rebuild: _bundleRebuild.run,
       sessions: host.sessions,
       protocol: host.protocol,
       orchestrator: orchestrator,
       assetsDir: assetsDir,
       logger: logger,
       liveFingerprint: fingerprint,
+      nativeLibs: nativeLibs,
     );
     pipeline.relaunchIfNativeLibsChanged = relauncher.relaunchIfNeeded;
   }

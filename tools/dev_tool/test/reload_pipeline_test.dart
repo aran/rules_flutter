@@ -79,6 +79,12 @@ class _Harness {
 
   final bool _withOrchestrator;
 
+  /// What the orchestrator's native-libs gate answers, and how often it was
+  /// asked. Null leaves the gate unwired, which is every app that bundles no
+  /// loose native libraries.
+  List<String>? nativeLibsMoved;
+  int nativeLibsGateCalls = 0;
+
   _Harness._(
     this.tmp,
     this.host,
@@ -126,6 +132,12 @@ class _Harness {
   }
 
   void _wireOrchestrator() {
+    pipeline.nativeLibsMoved = nativeLibsMoved == null
+        ? null
+        : () async {
+            nativeLibsGateCalls++;
+            return nativeLibsMoved!;
+          };
     pipeline.orchestrator = ReloadOrchestrator(
       workspace: workspace,
       // One unit per app, each with its own compiler — except that these tests
@@ -1138,6 +1150,63 @@ void main() {
   });
 
   group('codegen', () {
+    test('the rebuild runs once, before any compile', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.seedApplied();
+      var refreshCalls = 0;
+      var compilesAtRefresh = -1;
+      h.pipeline.refreshGenerated = () async {
+        refreshCalls++;
+        compilesAtRefresh = h.compiler.recompileCalls.length;
+        // What bazel does: rewrite the generated source this reload is for.
+        h.writeSource('main.dart', 'void main() { print(1); }');
+        return true;
+      };
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+
+      expect(
+        refreshCalls,
+        1,
+        reason: 'once per command, never once per target',
+      );
+      expect(
+        compilesAtRefresh,
+        0,
+        reason:
+            'the rebuild rewrites the tree the compiler reads, so it has to '
+            'finish first — and the native-libs check it owes has to be asked '
+            'before a compile too',
+      );
+      expect(result['succeeded'], isTrue);
+      expect(h.compiler.recompileCalls, hasLength(1));
+    });
+
+    test('a failed rebuild aborts a native reload and restart', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.seedApplied();
+      h.pipeline.refreshGenerated = () async => false;
+      h.pipeline.ready.signalReady();
+
+      for (final command in [h.hotReload, h.restart]) {
+        final result = await command();
+        expect(result['succeeded'], isFalse);
+        expect(result['error'], 'Generated source rebuild (bazel) failed.');
+        // `unchanged`, and earned: the rebuild runs before the compiler and
+        // before any device is touched. Reported the same way the web arm
+        // reports it, from the same helper — a broken generator is not a
+        // compile failure of the app's own source.
+        expect(result['runningCode'], 'unchanged');
+      }
+      expect(h.compiler.recompileCalls, isEmpty);
+      expect(h.compiler.fullCompileCalls, isEmpty);
+    });
+
     test('a failed generated-source rebuild aborts the reload', () async {
       final h = await _Harness.create(withOrchestrator: false);
       addTearDown(h.dispose);
@@ -1179,6 +1248,81 @@ void main() {
   });
 
   group('native libs', () {
+    // The reported bug: a hot reload rebuilds a codegen app through bazel, that
+    // rebuild recompiles the native library the running process has already
+    // loaded, and the increment goes in over the old machine code. These pin
+    // the reply the dev tool owes instead.
+    test('a hot reload withholds the increment when a library moved', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(1); }');
+      h.nativeLibsMoved = ['bazel-out/bin/libbridge.dylib'];
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(2); }');
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+
+      expect(h.nativeLibsGateCalls, 1);
+      expect(result['succeeded'], isFalse);
+      expect(result['nativeLibsStale'], ['bazel-out/bin/libbridge.dylib']);
+      // The one fact a driver needs before it decides anything: the app was
+      // left alone, so there is no half-applied edit to recover from.
+      expect(result['runningCode'], 'unchanged');
+      expect(result['message'], contains('withheld'));
+      expect(
+        h.compiler.recompileCalls,
+        isEmpty,
+        reason:
+            'an increment compiled against the new library must never be '
+            'injected into a process holding the old one',
+      );
+      expect(h.app.calls, isEmpty, reason: 'nothing may reach the app');
+    });
+
+    test('a library-only change is not reported as "no changes"', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      // The silent shape. A body-only edit to the native source leaves the
+      // generated Dart byte-identical, so the diff finds nothing and the reply
+      // would be "Hot reload successful (no changes detected)" — having just
+      // rebuilt a library the app cannot take. Nothing anywhere would say the
+      // app is running code from before the edit.
+      h.writeSource('main.dart', 'void main() {}');
+      h.seedApplied();
+      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.seedApplied();
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+      expect(result['message'], isNot(contains('no changes')));
+      expect(result['succeeded'], isFalse);
+      expect(result['nativeLibsStale'], ['libbridge.dylib']);
+    });
+
+    test('an unmoved library keeps the reload on its fast path', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibsMoved = const [];
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(1); }');
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+      // A Dart-only edit in an app that bundles native libraries: the gate is
+      // asked — it costs a few file hashes, no bazel — and the reload applies
+      // exactly as it does for an app with no native libraries at all. Nothing
+      // is rebuilt in the app's launch configuration and nothing is relaunched.
+      expect(h.nativeLibsGateCalls, 1);
+      expect(result['succeeded'], isTrue);
+      expect(result.containsKey('nativeLibsStale'), isFalse);
+      expect(h.compiler.recompileCalls, hasLength(1));
+      expect(h.app.calls, hasLength(1));
+    });
+
     // A hot restart cannot replace a dlopened image, so the relauncher's answer
     // — when it gives one — IS the restart result and must short-circuit.
     test('a relaunch answers instead of the isolate restart', () async {
@@ -1207,6 +1351,46 @@ void main() {
         isEmpty,
         reason: 'the process was replaced; there is no isolate to restart',
       );
+    });
+
+    test('a relaunch answers a restart before the gate can', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.seedApplied();
+      h.pipeline.relaunchIfNativeLibsChanged = () async => const Relaunched(
+        changedLibs: ['libbridge.dylib'],
+        ready: true,
+        launches: {'app-a': 2},
+      );
+      h.pipeline.ready.signalReady();
+
+      final result = await h.restart();
+      // The process was replaced, so the library is no longer stale and the
+      // restart succeeded. A gate that ran first would have refused the one
+      // command that can actually deliver the edit.
+      expect(result['relaunched'], isTrue);
+      expect(result['succeeded'], isTrue);
+      expect(result.containsKey('nativeLibsStale'), isFalse);
+    });
+
+    test('a restart with nothing to relaunch is withheld too', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.seedApplied();
+      // No relauncher: an `attach` run never launched the app, so nothing may
+      // replace the process. A hot restart re-runs `main()` over the same mapped
+      // images, so it cannot deliver the library either.
+      h.pipeline.ready.signalReady();
+
+      final result = await h.restart();
+      expect(result['succeeded'], isFalse);
+      expect(result['nativeLibsStale'], ['libbridge.dylib']);
+      expect(result['message'], startsWith('Restart withheld'));
+      expect(h.compiler.fullCompileCalls, isEmpty);
     });
 
     test('a failed relaunch rebuild reports a source rebuild failure', () async {

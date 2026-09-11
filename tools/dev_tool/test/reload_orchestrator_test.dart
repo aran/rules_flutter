@@ -189,7 +189,7 @@ void main() {
     );
 
     test(
-      'reload() refreshes generated sources before compile, invalidates them',
+      'reload() invalidates a generated file regenerated before it ran',
       () async {
         writeFile('main.dart', 'void main() {}');
         // A generated file OUTSIDE lib/ (mirrors a bazel-out codegen output).
@@ -205,35 +205,22 @@ void main() {
           ),
           generatedFiles: {genUri: genFile.path},
         );
-        var refreshCalls = 0;
-        var compilesAtRefresh = -1;
         final snap0 = ws.snapshot();
         applied.markApplied(snap0, files: snap0.fileUris.toSet());
         final orch = ReloadOrchestrator(
           workspace: ws,
           units: [unitFor(app)],
           entrypoint: 'package:app/main.dart',
-          refreshGenerated: () async {
-            refreshCalls++;
-            compilesAtRefresh = compiler.recompileCalls.length;
-            // Simulate bazel regenerating the file with new content.
-            genFile.writeAsStringSync('// v2 regenerated (longer)');
-            return true;
-          },
         );
+
+        // What `ReloadPipeline` does before it calls in: bazel rewrote the
+        // generated file. Ordering the two is the pipeline's job and is asserted
+        // there; what this pins is that a file regenerated outside `lib/` is
+        // still picked up, which only the snapshot diff can do.
+        genFile.writeAsStringSync('// v2 regenerated (longer)');
 
         final outcome = await orch.reload(targets: [app]);
 
-        expect(
-          refreshCalls,
-          1,
-          reason: 'refreshGenerated runs once per reload',
-        );
-        expect(
-          compilesAtRefresh,
-          0,
-          reason: 'refreshGenerated runs BEFORE any compile',
-        );
         expect(outcome, isA<ReloadApplied>());
         expect(
           (outcome as ReloadApplied).filesRecompiled,
@@ -242,25 +229,6 @@ void main() {
         );
       },
     );
-
-    test('reload() fails when refreshGenerated (bazel) fails', () async {
-      writeFile('main.dart', 'void main() {}');
-      seedApplied();
-      final orch = ReloadOrchestrator(
-        workspace: workspace,
-        units: [unitFor(app)],
-        entrypoint: 'package:app/main.dart',
-        refreshGenerated: () async => false,
-      );
-
-      final outcome = await orch.reload(targets: [app]);
-      expect(outcome, isA<ReloadCompileFailed>());
-      expect(
-        compiler.recompileCalls,
-        isEmpty,
-        reason: 'a failed generated rebuild must not proceed to compile',
-      );
-    });
 
     test(
       'reload() with one FS-changed file applies it and advances applied versions',

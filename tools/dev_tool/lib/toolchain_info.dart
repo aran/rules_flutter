@@ -289,6 +289,16 @@ class DevConfig {
   /// without inferring a URI from a path).
   final List<String> generatedSourceUris;
 
+  /// Absolute paths of the loose native libraries (`native_deps`) this build
+  /// wrote, declared by the build rather than found by searching the outputs.
+  ///
+  /// These are the files a running app has `dlopen`ed, which no reload can
+  /// replace — see `NativeLibsWatch`, which re-stats them after a rebuild to
+  /// catch an increment about to be injected over stale machine code. Empty for
+  /// an app with no `native_deps`, and always empty on web, whose rules have no
+  /// such attribute.
+  final List<String> nativeLibs;
+
   /// First-party source packages (app + local deps) as `{name, libRoot}`, where
   /// `libRoot` is workspace-relative. Drives the [PackageUriResolver] so a live
   /// edit in any of these packages maps to its `package:` URI. Empty for web
@@ -390,6 +400,7 @@ class DevConfig {
     this.filesystemScheme = '',
     this.generatedSourcePaths = const [],
     this.generatedSourceUris = const [],
+    this.nativeLibs = const [],
     this.sourcePackages = const [],
     this.dartDefines = const [],
     this.dartPluginRegistrants = const {},
@@ -452,6 +463,7 @@ class DevConfig {
       filesystemScheme: (json['filesystemScheme'] as String?) ?? '',
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
+      nativeLibs: strList('nativeLibs'),
       dartDefines: strList('dartDefines'),
       dartPluginRegistrants:
           ((json['dartPluginRegistrants'] as Map?) ?? const {})
@@ -553,10 +565,15 @@ DevConfig parseDevConfig(String path) {
               : abs(e.value as String),
       };
     }
-    // Absolutize the exec-relative path LISTS (roots incl. "" → execroot, and
-    // generated output paths). `generatedSourcesTarget` holds bazel labels, not
-    // paths — leave it untouched.
-    for (final key in ['filesystemRoots', 'generatedSourcePaths']) {
+    // Absolutize the exec-relative path LISTS (roots incl. "" → execroot,
+    // generated output paths, and the built native libraries).
+    // `generatedSourcesTarget` holds bazel labels, not paths — leave it
+    // untouched.
+    for (final key in [
+      'filesystemRoots',
+      'generatedSourcePaths',
+      'nativeLibs',
+    ]) {
       final list = json[key] as List?;
       if (list != null) {
         json[key] = [for (final v in list.cast<String>()) abs(v)];
@@ -592,6 +609,10 @@ void requireDeclaredFilesExist(DevConfig config) {
 
   for (final path in config.generatedSourcePaths) {
     if (!File(path).existsSync()) missing.add('generatedSourcePaths: $path');
+  }
+
+  for (final path in config.nativeLibs) {
+    if (!File(path).existsSync()) missing.add('nativeLibs: $path');
   }
 
   if (missing.isEmpty) return;

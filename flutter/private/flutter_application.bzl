@@ -223,7 +223,23 @@ def _flutter_application_impl(ctx):
     windows_plugin_libraries = depset(transitive = windows_plugin_lib_depsets)
     apple_privacy_manifests = depset(transitive = apple_privacy_manifest_depsets)
 
-    default_files = [flutter_assets, package_config, native_assets_manifest_file] + native_libs
+    # Every loose native library this app carries, by both routes in: the
+    # `native_deps` set above, and the Native Assets `CodeAsset` libraries
+    # `native_assets.json` already points at. Deduplicated by path because
+    # nothing stops one library arriving twice.
+    bundled_native_libs = {}
+    for lib in native_libs + bundled_code_assets.to_list():
+        bundled_native_libs[lib.path] = lib
+
+    # The code-asset libraries join `default_files` with the manifest that names
+    # them. Declaring an output is what makes its path true: the manifest is
+    # built here and the dev tool reads these files back off this target, and a
+    # path named by a build that did not write it fails far from its cause.
+    default_files = [
+        flutter_assets,
+        package_config,
+        native_assets_manifest_file,
+    ] + bundled_native_libs.values()
     if aot_output:
         default_files.append(aot_output)
     if is_debug:
@@ -274,6 +290,17 @@ def _flutter_application_impl(ctx):
                 "filesystemScheme": compilation.dev_filesystem_scheme,
                 "generatedSourcePaths": compilation.dev_generated_source_paths,
                 "generatedSourceUris": compilation.dev_generated_source_uris,
+                # The loose native libraries this build writes, from the
+                # same list `default_files` carries so the two cannot drift —
+                # `native_deps` and Native Assets code assets alike, because a
+                # process maps both and can replace neither. A `dlopen`ing app has these mapped for the life
+                # of its process, and a hot reload that rebuilds this target to
+                # regenerate codegen sources rebuilds them too — so comparing
+                # them across those rebuilds is how the dev tool learns that an
+                # increment would be injected over stale machine code, without
+                # paying a second build in the app's launch configuration.
+                # Empty unless the app bundles `native_deps`.
+                "nativeLibs": bundled_native_libs.keys(),
                 # First-party source packages (app + local deps) the dev tool
                 # maps live edits back to via its PackageUriResolver. libRoot is
                 # workspace-relative.

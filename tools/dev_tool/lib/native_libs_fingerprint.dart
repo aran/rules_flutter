@@ -1,12 +1,13 @@
-/// Fingerprinting of an app bundle's loose native libraries, used by the
-/// restart path to decide between an in-process hot restart and a full
-/// process relaunch.
+/// Fingerprinting of an app's loose native libraries, which is how both apply
+/// paths find out that the running process can no longer be trusted.
 ///
-/// A hot restart replaces Dart code but cannot replace native libraries:
-/// the process keeps its originally-dlopened images, and in-process dylib
-/// reload is unsound (library threads keep running in the old mapping). So
-/// when a restart finds the rebuilt bundle's native libraries changed, the
-/// dev tool must relaunch the process instead.
+/// A reload or a restart replaces Dart code but cannot replace native
+/// libraries: the process keeps its originally-dlopened images, and in-process
+/// dylib reload is unsound (library threads keep running in the old mapping).
+/// So a restart that finds the rebuilt bundle's native libraries changed
+/// relaunches the process instead, and a hot reload — which cannot relaunch
+/// anything without throwing away the state it exists to preserve — withholds
+/// the increment and says why.
 ///
 /// "Native libraries" means the loose `.dylib`/`.so`/`.dll` files bundled
 /// into the app (macOS: `Contents/Frameworks/`) — the `native_deps`
@@ -36,6 +37,31 @@ Future<Map<String, String>> nativeLibsFingerprint(String artifactPath) async {
   final dir = Directory(artifactPath);
   if (dir.existsSync()) return _fromExtractedBundle(dir);
   return const {};
+}
+
+/// Per-file content fingerprint of [paths] — the native libraries a build
+/// *declared*, keyed by the path it declared them at.
+///
+/// The companion to [nativeLibsFingerprint], which reads a launch artifact and
+/// has to recognise a native library by its name. These paths come from
+/// `_dev_config.json`, where the build wrote the same list it bundles, so
+/// nothing here guesses which files are native libraries or where they live.
+/// That is what makes this answer cheap enough to ask on every reload: the app
+/// target a codegen reload already rebuilds writes these files, so the question
+/// costs a hash per library and no bazel at all.
+///
+/// A declared path that does not exist throws. A build that reported success
+/// without writing an output it declared is broken, and answering "nothing
+/// moved" for it would let an increment be injected over stale machine code —
+/// the exact failure this fingerprint exists to prevent.
+Future<Map<String, String>> nativeLibsFingerprintOfFiles(
+  Iterable<String> paths,
+) async {
+  final out = <String, String>{};
+  for (final path in paths) {
+    out[path] = 'fnv:${await _fnv1a64(File(path))}';
+  }
+  return out;
 }
 
 bool fingerprintsEqual(Map<String, String> a, Map<String, String> b) {

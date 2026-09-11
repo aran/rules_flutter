@@ -65,6 +65,13 @@ Map<String, dynamic> toWire(CommandReport report) {
       map['isEmpty'] = isEmpty;
     case ReloadNoChange():
       map['message'] = '${report.verb} successful (no changes detected)';
+    case ReloadNativeLibsStale(:final libs):
+      map['message'] = _staleLibsSentence(report, libs);
+      map['error'] = _staleLibsReason(libs);
+      // Its own field, the way `nativeLibsChanged` is on a relaunch: a driver
+      // deciding what to do next — restart, or stop and tell the user — should
+      // not have to read the sentence to find out which library went stale.
+      map['nativeLibsStale'] = libs;
     case ReloadCompileFailed(:final diagnostics):
       map['message'] = 'Compilation failed';
       map['error'] = diagnostics.isNotEmpty
@@ -166,6 +173,26 @@ String _withCursorCaveat(CommandReport report, String sentence) =>
     : '$sentence. The control channel keeps its port and token; '
           '/logs cursors do not survive — re-tail.';
 
+/// Why a command that found a rebuilt native library did nothing.
+///
+/// Says what moved, what that means, and what is left to try — in that order,
+/// because the reader's first question is which of their native deps this is
+/// about. "Nothing was compiled and nothing was sent" is the part that keeps
+/// them from hunting for a half-applied edit: the app is self-consistent, on
+/// the code and the library it launched with.
+String _staleLibsReason(List<String> libs) =>
+    '${libs.join(', ')} changed, and a process cannot replace a native library '
+    'it has already loaded — so the increment was withheld rather than '
+    'injected over the old machine code. Nothing was compiled and nothing was '
+    'sent: the app is still running the Dart code and the library it launched '
+    'with. Only a new process picks the library up, which a restart (R, or '
+    '`app.restart`) relaunches when this run launched the app.';
+
+/// The one-line form, which leads with the verb so the terminal line reads as
+/// an answer to the key that was pressed.
+String _staleLibsSentence(CommandReport report, List<String> libs) =>
+    '${report.verb} withheld: ${_staleLibsReason(libs)}';
+
 /// The failing web apply's own sentence, or null when the apply did not fail.
 ///
 /// Its own helper because both [toWire] and [_headline] need it:
@@ -216,6 +243,10 @@ String _headline(CommandReport report) =>
         : switch (report.outcome) {
             ReloadCompileFailed() => 'Compilation failed',
             ReloadApplyFailed() => '${report.verb} failed on some devices',
+            ReloadNativeLibsStale(:final libs) => _staleLibsSentence(
+              report,
+              libs,
+            ),
             _ => '${report.verb} successful',
           });
 

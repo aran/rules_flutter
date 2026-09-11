@@ -114,4 +114,55 @@ void main() {
     ).writeAsBytesSync([1]);
     expect(await nativeLibsFingerprint(app.path), isEmpty);
   });
+
+  group('declared build outputs', () {
+    test(
+      'fingerprints the files a build declared, content-sensitive',
+      () async {
+        final a = File('${tmp.path}/libone.dylib')..writeAsBytesSync([1, 2, 3]);
+        final b = File('${tmp.path}/libtwo.dylib')..writeAsBytesSync([4, 5]);
+
+        final fp = await nativeLibsFingerprintOfFiles([a.path, b.path]);
+        expect(fp.keys, unorderedEquals([a.path, b.path]));
+        expect(
+          fingerprintsEqual(
+            fp,
+            await nativeLibsFingerprintOfFiles([a.path, b.path]),
+          ),
+          isTrue,
+          reason: 'a rebuild that changed nothing must compare equal',
+        );
+
+        // Same length, different bytes: a body-only native edit is exactly this
+        // shape, and size alone would miss it.
+        b.writeAsBytesSync([4, 6]);
+        final after = await nativeLibsFingerprintOfFiles([a.path, b.path]);
+        expect(fingerprintsEqual(fp, after), isFalse);
+        expect(changedLibs(fp, after), [b.path]);
+      },
+    );
+
+    test('takes the paths as given, with no filtering by extension', () async {
+      // The build declares these, so they are native libraries by construction
+      // — a `.so` cross-built on a mac, or a name a suffix test would reject,
+      // is still the file the process loaded. Filtering here would silently
+      // drop it and report the app as current.
+      final odd = File('${tmp.path}/libplugin.jnilib')..writeAsBytesSync([7]);
+      expect(await nativeLibsFingerprintOfFiles([odd.path]), hasLength(1));
+      expect(await nativeLibsFingerprintOfFiles(const []), isEmpty);
+    });
+
+    test(
+      'a declared file the build never wrote is an error, not empty',
+      () async {
+        // Silence here would read as "nothing moved" and let an increment land on
+        // stale machine code. The build declared this path; its absence is a
+        // broken build, not a state to carry on from.
+        await expectLater(
+          nativeLibsFingerprintOfFiles(['${tmp.path}/missing.dylib']),
+          throwsA(isA<FileSystemException>()),
+        );
+      },
+    );
+  });
 }

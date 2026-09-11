@@ -21,6 +21,7 @@ import 'hot_reload/reload_orchestrator.dart';
 import 'logging.dart';
 import 'machine_protocol.dart';
 import 'native_libs_fingerprint.dart';
+import 'native_libs_watch.dart';
 import 'relaunch_outcome.dart';
 import 'session.dart';
 import 'vm_service_client.dart';
@@ -60,6 +61,16 @@ class Relauncher {
   /// the next restart still knowing it has stale libraries.
   Map<String, String> _live;
 
+  /// The reload path's view of the same libraries, re-baselined here.
+  ///
+  /// It tracks the files the *dev* build writes and this class tracks the
+  /// launched bundle, but both describe one thing — the images the running
+  /// process has mapped — and a relaunch is the single event that moves it. A
+  /// watch left on the old baseline would go on withholding every reload of a
+  /// process that is already running the new library. Null for a run with no
+  /// loose native libraries, which never constructs one of these either.
+  final NativeLibsWatch? nativeLibs;
+
   Relauncher({
     required this.appFile,
     required this.rebuild,
@@ -69,6 +80,7 @@ class Relauncher {
     required this.assetsDir,
     required this.logger,
     required Map<String, String> liveFingerprint,
+    this.nativeLibs,
   }) : _live = liveFingerprint;
 
   /// Rebuild, and relaunch if the native libraries moved.
@@ -129,6 +141,7 @@ class Relauncher {
     // told why instead of failing to apply a kernel to a closed socket.
     orchestrator.syncLiveApps(_appInstances());
     _live = fingerprint;
+    await nativeLibs?.markLive();
 
     return Relaunched(
       changedLibs: changed,

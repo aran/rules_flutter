@@ -36,6 +36,41 @@ void main() {
       expect(toWire(report)['error'], isNotNull);
     });
 
+    test('a withheld increment names the library that went stale', () {
+      final report = reload(
+        outcome: const ReloadNativeLibsStale([
+          'bazel-out/bin/libbridge.dylib',
+        ]),
+      );
+      expect(report.succeeded, isFalse);
+      final wire = toWire(report);
+      // The library, as a field: a driver must not have to parse English to
+      // find out what went stale, any more than it does for a relaunch.
+      expect(wire['nativeLibsStale'], ['bazel-out/bin/libbridge.dylib']);
+      expect(wire['error'], contains('libbridge.dylib'));
+      // Nothing was compiled and nothing was sent — the one promise that keeps
+      // a reader from hunting for a half-applied edit.
+      expect(wire['runningCode'], 'unchanged');
+      expect(wire['message'], startsWith('Hot reload withheld'));
+      // And the way out is in the sentence, because the app cannot pick the
+      // library up without a new process.
+      expect(wire['error'], contains('restart'));
+    });
+
+    test('a withheld increment is not hidden by an asset clause', () {
+      // An asset-only edit headlines "successful" and lets the asset clause
+      // finish the sentence. A stale library must not: the refusal is the
+      // news, and `assetsChanged` rewrites `message` last.
+      final report = reload(
+        outcome: const ReloadNativeLibsStale(['libbridge.dylib']),
+        assets: const AssetOutcome(changed: {'assets/logo.png'}),
+      );
+      final wire = toWire(report);
+      expect(wire['message'], contains('withheld'));
+      expect(wire['message'], contains('libbridge.dylib'));
+      expect(wire['succeeded'], isFalse);
+    });
+
     test('an apply failure names every failing app, not just the first', () {
       final report = reload(
         outcome: const ReloadApplyFailed({

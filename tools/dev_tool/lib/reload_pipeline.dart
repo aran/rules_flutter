@@ -93,6 +93,24 @@ class ReloadPipeline {
   /// sources on disk have actually moved.
   Future<bool> Function()? rebuildAssets;
 
+  /// The native libraries the running app has `dlopen`ed and [refreshGenerated]
+  /// has just rebuilt — empty when the process still matches what was built.
+  /// Null for an app with no loose native libraries, which cannot have the
+  /// problem.
+  ///
+  /// Asked after that rebuild and before anything is compiled, because the
+  /// rebuild is what creates the condition and a compile is what must not reach
+  /// it: an increment built against the new library would be injected over the
+  /// machine code the process has, and the skew surfaces later as a malformed
+  /// request or a call landing on the wrong function, with nothing left pointing
+  /// at the library.
+  ///
+  /// Costs no bazel — see `NativeLibsWatch`, which reads the files the rebuild
+  /// above just declared. That is what keeps this off the instant path: a
+  /// reload that asked the authoritative question would have to rebuild the
+  /// app's launch configuration, which is a bundle build on every `r`.
+  Future<List<String>> Function()? nativeLibsMoved;
+
   /// For apps bundling loose native libraries: rebuilds and, when the rebuilt
   /// bundle's libraries differ from the running process's, relaunches the
   /// process — a hot restart cannot replace a dlopened image. Null for apps
@@ -146,6 +164,15 @@ class ReloadPipeline {
   /// watcher would drop exactly that edit, the attempt would finish with the
   /// broken tree it read, and nothing would ever ask again.
   bool get awaitingAssembly => reassemble != null || _attemptInFlight;
+
+  /// Which command is running, counted up by [hotReload] and [restart].
+  ///
+  /// Exists for `BundleRebuild`, which has two callers inside one command and
+  /// must build for them once. A number rather than a flag the callers set,
+  /// because neither of them knows about the other — and commands are
+  /// serialized (`CommandRunner`'s `Pool(1)`), so one number is never shared by
+  /// two commands in flight.
+  int command = 0;
 
   /// Serializes assembly attempts, so two requests arriving together produce
   /// two builds one after another rather than two at once.
@@ -326,6 +353,56 @@ class ReloadPipeline {
     return AssetOutcome(changed: changed, delivery: outcome);
   }
 
+  /// Regenerate a codegen app's sources, and report a rebuild that failed.
+  ///
+  /// Null when the rebuild succeeded or there was nothing to rebuild; a report
+  /// to answer the command with otherwise. Through [CommandReport] rather than a
+  /// bool so the caller cannot forget which of the two failure fields this is —
+  /// it is [CommandReport.sourceRebuildFailed], whose doc says why: the build
+  /// was attempted and broke, and a client reading `unavailable` would retire
+  /// the session over an error in a generator that the next save can fix.
+  Future<Map<String, dynamic>?> _refreshGenerated(
+    String verb,
+    List<String> addressed,
+  ) async {
+    final refresh = refreshGenerated;
+    if (refresh == null || await refresh()) return null;
+    return toWire(
+      CommandReport(
+        verb: verb,
+        appIds: addressed,
+        sourceRebuildFailed: 'Generated source rebuild (bazel) failed.',
+      ),
+    );
+  }
+
+  /// The libraries a rebuild has moved out from under the running process, as
+  /// the answer to the command that rebuilt them — or null when the app is still
+  /// running what it loaded.
+  ///
+  /// Reached only where nothing can replace the process: [restart] asks
+  /// [relaunchIfNativeLibsChanged] first and is answered by the relaunch, so a
+  /// restart that gets here is one with no process of ours to replace (an
+  /// `attach`). A hot reload always gets here, because replacing the process is
+  /// the one thing it may not do — it exists to keep the app's state, and a
+  /// relaunch is how that state is lost.
+  Future<Map<String, dynamic>?> _withholdIfNativeLibsMoved(
+    String verb,
+    List<String> addressed,
+    AssetOutcome assets,
+  ) async {
+    final moved = await nativeLibsMoved?.call() ?? const [];
+    if (moved.isEmpty) return null;
+    return toWire(
+      CommandReport(
+        verb: verb,
+        appIds: addressed,
+        outcome: ReloadNativeLibsStale(moved),
+        assets: assets,
+      ),
+    );
+  }
+
   /// The orchestrator apps a request addresses: all of them when it names no
   /// appId, exactly the named one otherwise.
   ///
@@ -381,6 +458,7 @@ class ReloadPipeline {
 
   /// Restart the app: a full recompile and a fresh `main()`.
   Future<Map<String, dynamic>> restart(Map<String, dynamic> params) async {
+    command++;
     final notReady = await _awaitReady('Restart');
     if (notReady != null) return notReady;
 
@@ -417,6 +495,14 @@ class ReloadPipeline {
           CommandReport(verb: 'Restart', appIds: addressed, assets: assets),
         );
       }
+      // Regenerate a codegen app's sources before either of the two steps
+      // below reads the tree: the relaunch check compares libraries this build
+      // writes, and the compile reads the sources it writes. Once per command,
+      // here rather than inside the orchestrator, because what a moved native
+      // library *means* differs by verb and only this level knows the verb.
+      final rebuildFailed = await _refreshGenerated('Restart', addressed);
+      if (rebuildFailed != null) return rebuildFailed;
+
       // Native libraries cannot be hot-restarted (the process keeps its
       // dlopened images) — rebuild first and relaunch if they changed. The
       // relauncher replaces every process that dlopened the stale libraries,
@@ -456,6 +542,17 @@ class ReloadPipeline {
             break;
         }
       }
+      // Nothing replaced the process, so a library that moved is still beyond
+      // reach — an `attach` run, which never launched the app and so has no
+      // relauncher. A restart re-runs `main()` in the same process over the same
+      // mapped images, so it can no more deliver the new library than a reload
+      // can, and saying so is all this run can do about it.
+      final withheld = await _withholdIfNativeLibsMoved(
+        'Restart',
+        addressed,
+        assets,
+      );
+      if (withheld != null) return withheld;
       return toWire(
         CommandReport(
           verb: 'Restart',
@@ -491,15 +588,8 @@ class ReloadPipeline {
     // See the native arm: reported from what was resolved, not from params.
     final addressed = [for (final s in targets) s.appId];
     // Codegen apps: regenerate before the restart's full recompile.
-    if (refreshGenerated != null && !(await refreshGenerated!())) {
-      return toWire(
-        CommandReport(
-          verb: 'Restart',
-          appIds: addressed,
-          sourceRebuildFailed: 'Generated source rebuild (bazel) failed.',
-        ),
-      );
-    }
+    final webRebuildFailed = await _refreshGenerated('Restart', addressed);
+    if (webRebuildFailed != null) return webRebuildFailed;
     // Same as native: rebuild the bundle, let the restart re-fetch it.
     final assets = await _refreshAssets(targets, deliver: false);
     if (assets.rebuildFailed != null) {
@@ -568,6 +658,7 @@ class ReloadPipeline {
 
   /// Hot reload: recompile what changed and inject it into the live isolate.
   Future<Map<String, dynamic>> hotReload(Map<String, dynamic> params) async {
+    command++;
     final notReady = await _awaitReady('Hot reload');
     if (notReady != null) return notReady;
 
@@ -594,6 +685,20 @@ class ReloadPipeline {
           CommandReport(verb: 'Hot reload', appIds: addressed, assets: assets),
         );
       }
+      // Codegen apps: regenerate before the compiler reads the tree, so a
+      // regenerated file is detected as changed and recompiled.
+      final rebuildFailed = await _refreshGenerated('Hot reload', addressed);
+      if (rebuildFailed != null) return rebuildFailed;
+      // And then the question that rebuild owes: a reload cannot replace a
+      // library the process has mapped, and it may not replace the process
+      // either — so when the rebuild moved one, the increment is withheld
+      // instead of injected over the old machine code.
+      final withheld = await _withholdIfNativeLibsMoved(
+        'Hot reload',
+        addressed,
+        assets,
+      );
+      if (withheld != null) return withheld;
       final outcome = await orch.reload(declared: declared, targets: targets);
       return toWire(
         CommandReport(
@@ -653,15 +758,8 @@ class ReloadPipeline {
 
     // Codegen apps: rebuild generated sources via bazel before snapshotting, so
     // a regenerated `.g.dart` is detected as changed and recompiled.
-    if (refreshGenerated != null && !(await refreshGenerated!())) {
-      return toWire(
-        CommandReport(
-          verb: 'Hot reload',
-          appIds: addressed,
-          sourceRebuildFailed: 'Generated source rebuild (bazel) failed.',
-        ),
-      );
-    }
+    final webRebuildFailed = await _refreshGenerated('Hot reload', addressed);
+    if (webRebuildFailed != null) return webRebuildFailed;
 
     final assets = await _refreshAssets(targets, deliver: true);
     if (assets.rebuildFailed != null) {

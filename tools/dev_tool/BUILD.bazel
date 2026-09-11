@@ -111,6 +111,7 @@ _UNIT_TESTS = {
     "bazel_test": {},
     "build_command_test": {},
     "build_info_test": {"fakes": True},
+    "bundle_rebuild_test": {},
     "fake_process_stdin_test": {"fakes": True},
     "cdp_console_test": {},
     "command_runner_test": {},
@@ -137,6 +138,7 @@ _UNIT_TESTS = {
     "machine_protocol_test": {"fakes": True},
     "mdns_vm_service_discovery_test": {"fakes": True},
     "native_libs_fingerprint_test": {},
+    "native_libs_watch_test": {},
     "native_libs_relauncher_test": {
         "fakes": True,
         "deps": _PATH_DEP,
