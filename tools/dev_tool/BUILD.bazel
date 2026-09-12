@@ -114,6 +114,7 @@ _UNIT_TESTS = {
     "bundle_rebuild_test": {},
     "fake_process_stdin_test": {"fakes": True},
     "cdp_console_test": {},
+    "cli_args_test": {},
     "command_runner_test": {},
     "compiler_config_test": {},
     "compiler_test": {"fakes": True},

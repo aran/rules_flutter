@@ -14,6 +14,7 @@ import 'package:args/args.dart';
 
 import '../lib/attach_command.dart';
 import '../lib/build_command.dart';
+import '../lib/cli_args.dart';
 import '../lib/logging.dart';
 import '../lib/run_command.dart' show RunCommand, DevToolException;
 import '../lib/tunnel_command.dart';
@@ -45,6 +46,7 @@ void main(List<String> args) async {
       _printCommandHelp(command.name!, parser);
       exit(0);
     }
+    requireNoPositionalArgs(command.name!, command.rest);
 
     switch (command.name) {
       case 'build':

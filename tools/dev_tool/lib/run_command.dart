@@ -67,7 +67,8 @@ class RunCommand {
       abbr: 'd',
       help:
           'Device to run on (macos, linux, windows, ios-simulator, '
-          'ios-simulator:<udid>, ios, ios:<udid>, chrome, or Android serial). '
+          'ios-simulator:<udid>, ios, ios:<udid>, chrome, android, '
+          'android:<serial>, or a bare Android serial). '
           'Repeat for multi-device.',
     )
     ..addFlag(
