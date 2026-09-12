@@ -8,7 +8,7 @@ flutter_application, flutter_android_bundle, and flutter_ios_application.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs", "derive_lib_root", "generate_dev_package_config")
-load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load("//flutter/private:app_entrypoint.bzl", "app_main_package_uri", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
@@ -152,6 +152,35 @@ def collect_native_libs(native_deps):
             if f.extension in ("so", "dylib", "dll"):
                 libs.append(f)
     return libs
+
+def collect_binding_contracts(native_deps):
+    """Pair each `native_deps` entry's libraries with its declared binding contract.
+
+    Only a `flutter_native_library` wrapper declares one. A bare shared library
+    contributes a pair with an empty contract rather than being left out: "this
+    library has nothing describing its bindings" is the state the dev tool has to
+    be able to name, and a library missing from the map would read as a library
+    that is not bundled.
+
+    Args:
+        native_deps: The `native_deps` targets, wrapped or bare.
+
+    Returns:
+        List of `struct(library = File, contract = tuple[File])`, one per shared
+        library.
+    """
+    pairs = []
+    for dep in native_deps:
+        if FlutterNativeLibraryInfo in dep:
+            info = dep[FlutterNativeLibraryInfo]
+            contract = tuple(info.binding_contract.to_list())
+            for lib in info.libraries.to_list():
+                pairs.append(struct(library = lib, contract = contract))
+        else:
+            for f in dep[DefaultInfo].files.to_list():
+                if f.extension in ("so", "dylib", "dll"):
+                    pairs.append(struct(library = f, contract = ()))
+    return pairs
 
 def collect_assets(deps, direct_assets):
     """Collect asset files from direct attrs and transitive FlutterInfo deps.

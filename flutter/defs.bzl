@@ -44,6 +44,7 @@ load("//flutter/private:flutter_asset_bundle.bzl", _flutter_asset_bundle = "flut
 load("//flutter/private:flutter_gen_l10n.bzl", _flutter_gen_l10n = "flutter_gen_l10n")
 load("//flutter/private:flutter_kernel_target.bzl", _flutter_kernel_target = "flutter_kernel_target")
 load("//flutter/private:flutter_library.bzl", _flutter_library = "flutter_library")
+load("//flutter/private:flutter_native_library.bzl", _flutter_native_library = "flutter_native_library")
 load("//flutter/private:flutter_plugin.bzl", _flutter_plugin = "flutter_plugin")
 load("//flutter/private:flutter_test.bzl", _flutter_test = "flutter_test")
 
@@ -72,5 +73,6 @@ flutter_asset_bundle = _flutter_asset_bundle
 flutter_gen_l10n = _flutter_gen_l10n
 flutter_kernel_target = _flutter_kernel_target
 flutter_library = _flutter_library
+flutter_native_library = _flutter_native_library
 flutter_plugin = _flutter_plugin
 flutter_test = _flutter_test

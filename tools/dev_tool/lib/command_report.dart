@@ -8,10 +8,12 @@ library;
 
 import 'hot_reload/app_instance.dart';
 import 'hot_reload/reload_orchestrator.dart';
+import 'native_libs_verdict.dart';
 import 'relaunch_outcome.dart';
 import 'reload_strategy.dart';
 import 'running_code.dart';
 
+export 'native_libs_verdict.dart';
 export 'relaunch_outcome.dart';
 export 'running_code.dart';
 
@@ -118,6 +120,16 @@ class CommandReport {
   /// not mentioned in the reply.
   final String? sourceRebuildFailed;
 
+  /// What the native-library check decided, or null for a run whose app bundles
+  /// none.
+  ///
+  /// Carried as the verdict rather than flattened into a flag plus a list,
+  /// because the four states do not collapse: one of them delivers the increment
+  /// and still has something to report, two refuse for different reasons, and
+  /// the fourth is silence. [succeeded] and [runningCode] read it, and the
+  /// renderer composes every sentence from it — see `NativeLibsVerdict`.
+  final NativeLibsVerdict? nativeLibs;
+
   /// Set when the command replaced the app's process instead of restarting its
   /// isolate, because the rebuilt bundle's native libraries differ from the
   /// ones the running process had already `dlopen`ed.
@@ -156,6 +168,7 @@ class CommandReport {
     this.strategy,
     this.unavailable,
     this.sourceRebuildFailed,
+    this.nativeLibs,
     this.relaunch,
     this.elapsed,
   });
@@ -167,16 +180,18 @@ class CommandReport {
   bool get succeeded {
     if (unavailable != null) return false;
     if (sourceRebuildFailed != null) return false;
+    // The edit is not running: it was never compiled. Reporting success here
+    // would be the silence the whole check exists to break.
+    if (nativeLibs is NativeBindingsMoved ||
+        nativeLibs is NativeLibsUnverifiable) {
+      return false;
+    }
     if (assets.rebuildFailed != null) return false;
     if (assets.delivery case final d? when !d.isSuccess) return false;
     if (strategy case final s? when !s.isSuccess) return false;
     return switch (outcome) {
       null || ReloadApplied() || ReloadNoChange() => true,
-      ReloadCompileFailed() ||
-      ReloadApplyFailed() ||
-      // The edit is not running: it was never compiled. A reload that reported
-      // success here would be the silence this outcome exists to break.
-      ReloadNativeLibsStale() => false,
+      ReloadCompileFailed() || ReloadApplyFailed() => false,
     };
   }
 
@@ -188,6 +203,12 @@ class CommandReport {
   RunningCode get runningCode {
     // Refused before anything ran, so there was nothing to deliver.
     if (unavailable != null) return RunningCode.unchanged;
+    // Withheld before the snapshot, so no compiler and no device was touched —
+    // the strongest form of `unchanged` this type has.
+    if (nativeLibs is NativeBindingsMoved ||
+        nativeLibs is NativeLibsUnverifiable) {
+      return RunningCode.unchanged;
+    }
     return _leastCertain([
       // A new process running a freshly built bundle. Certain in a way no
       // apply is: there is no delivery to have half-landed.
@@ -216,12 +237,8 @@ class CommandReport {
   }
 
   static RunningCode _outcomeCode(ReloadOutcome outcome) => switch (outcome) {
-    // The compiler never handed back a delta, so nothing was sent. The stale
-    // native library is the strongest of the three: the gate runs before the
-    // snapshot, so no compiler and no device was touched at all.
-    ReloadNoChange() ||
-    ReloadCompileFailed() ||
-    ReloadNativeLibsStale() => RunningCode.unchanged,
+    // The compiler never handed back a delta, so nothing was sent.
+    ReloadNoChange() || ReloadCompileFailed() => RunningCode.unchanged,
     // An empty delta changed no code, however much it changed the app: the
     // apply ran, and a restart's apply re-ran `main()` and wiped the state
     // on the way. Which is why this reads no `ApplyMode` and needs none —

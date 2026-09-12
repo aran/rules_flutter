@@ -45,6 +45,7 @@ def flutter_info(
         shader_srcs = [],
         plugins = [],
         native_libs = [],
+        binding_contracts = [],
         apple_plugin_libraries = [],
         linux_plugin_libraries = [],
         windows_plugin_libraries = [],
@@ -73,6 +74,8 @@ def flutter_info(
         name against the dependencies' plugins, this target's first.
       native_libs: Shared libraries this target contributes, typically from a
         plugin's `native_deps`.
+      binding_contracts: `struct(library, contract)` pairs this target
+        contributes, one per `flutter_native_library` in its `native_deps`.
       apple_plugin_libraries: Apple plugin library structs this target
         declares (`platform`, `label`, `cc_info`, `swift_info`, `package`).
       linux_plugin_libraries: Linux plugin source bundles this target declares
@@ -110,6 +113,10 @@ def flutter_info(
         transitive_native_libs = depset(
             direct = native_libs,
             transitive = [info.transitive_native_libs for info in dep_infos],
+        ),
+        binding_contracts = depset(
+            direct = binding_contracts,
+            transitive = [info.binding_contracts for info in dep_infos],
         ),
         # Four per-platform channels rather than one tagged union, because the
         # integration mechanisms genuinely differ: Apple carries compiled

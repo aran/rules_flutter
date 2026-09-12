@@ -93,23 +93,28 @@ class ReloadPipeline {
   /// sources on disk have actually moved.
   Future<bool> Function()? rebuildAssets;
 
-  /// The native libraries the running app has `dlopen`ed and [refreshGenerated]
-  /// has just rebuilt — empty when the process still matches what was built.
-  /// Null for an app with no loose native libraries, which cannot have the
-  /// problem.
+  /// What the native libraries the running app has `dlopen`ed allow this command
+  /// to do, after [refreshGenerated] has rebuilt them. Null for an app with no
+  /// loose native libraries, which cannot have the problem.
   ///
   /// Asked after that rebuild and before anything is compiled, because the
   /// rebuild is what creates the condition and a compile is what must not reach
-  /// it: an increment built against the new library would be injected over the
-  /// machine code the process has, and the skew surfaces later as a malformed
-  /// request or a call landing on the wrong function, with nothing left pointing
-  /// at the library.
+  /// it: an increment built against a *changed* library interface would be
+  /// injected over the machine code the process has, and the skew surfaces later
+  /// as a malformed request or a call landing on the wrong function, with nothing
+  /// left pointing at the library.
+  ///
+  /// A verdict rather than a list of libraries, because a rebuilt library is not
+  /// on its own a reason to refuse — see `NativeLibsVerdict`. The case that
+  /// matters most is the one in between: a library whose code moved and whose
+  /// declared bindings did not, where the increment is safe and the app is still
+  /// running old machine code.
   ///
   /// Costs no bazel — see `NativeLibsWatch`, which reads the files the rebuild
-  /// above just declared. That is what keeps this off the instant path: a
-  /// reload that asked the authoritative question would have to rebuild the
-  /// app's launch configuration, which is a bundle build on every `r`.
-  Future<List<String>> Function()? nativeLibsMoved;
+  /// above just declared. That is what keeps this off the instant path: a reload
+  /// that asked the authoritative question would have to rebuild the app's launch
+  /// configuration, which is a bundle build on every `r`.
+  Future<NativeLibsVerdict> Function()? nativeLibsVerdict;
 
   /// For apps bundling loose native libraries: rebuilds and, when the rebuilt
   /// bundle's libraries differ from the running process's, relaunches the
@@ -376,9 +381,12 @@ class ReloadPipeline {
     );
   }
 
-  /// The libraries a rebuild has moved out from under the running process, as
-  /// the answer to the command that rebuilt them — or null when the app is still
-  /// running what it loaded.
+  /// What the native libraries allow, and the reply when the answer is "nothing".
+  ///
+  /// [refusal] is non-null when the command must stop — the increment would be
+  /// injected over a library that cannot serve it, or nothing declares whether it
+  /// can. [verdict] travels onto the command's own report either way, because the
+  /// middle case is delivered *and* has something to report.
   ///
   /// Reached only where nothing can replace the process: [restart] asks
   /// [relaunchIfNativeLibsChanged] first and is answered by the relaunch, so a
@@ -386,21 +394,28 @@ class ReloadPipeline {
   /// `attach`). A hot reload always gets here, because replacing the process is
   /// the one thing it may not do — it exists to keep the app's state, and a
   /// relaunch is how that state is lost.
-  Future<Map<String, dynamic>?> _withholdIfNativeLibsMoved(
+  Future<({Map<String, dynamic>? refusal, NativeLibsVerdict? verdict})>
+  _checkNativeLibs(
     String verb,
     List<String> addressed,
     AssetOutcome assets,
   ) async {
-    final moved = await nativeLibsMoved?.call() ?? const [];
-    if (moved.isEmpty) return null;
-    return toWire(
-      CommandReport(
-        verb: verb,
-        appIds: addressed,
-        outcome: ReloadNativeLibsStale(moved),
-        assets: assets,
+    final verdict = await nativeLibsVerdict?.call();
+    return switch (verdict) {
+      null || NativeLibsCurrent() => (refusal: null, verdict: verdict),
+      NativeCodeStale() => (refusal: null, verdict: verdict),
+      NativeBindingsMoved() || NativeLibsUnverifiable() => (
+        refusal: toWire(
+          CommandReport(
+            verb: verb,
+            appIds: addressed,
+            nativeLibs: verdict,
+            assets: assets,
+          ),
+        ),
+        verdict: verdict,
       ),
-    );
+    };
   }
 
   /// The orchestrator apps a request addresses: all of them when it names no
@@ -547,18 +562,15 @@ class ReloadPipeline {
       // relauncher. A restart re-runs `main()` in the same process over the same
       // mapped images, so it can no more deliver the new library than a reload
       // can, and saying so is all this run can do about it.
-      final withheld = await _withholdIfNativeLibsMoved(
-        'Restart',
-        addressed,
-        assets,
-      );
-      if (withheld != null) return withheld;
+      final native = await _checkNativeLibs('Restart', addressed, assets);
+      if (native.refusal case final refusal?) return refusal;
       return toWire(
         CommandReport(
           verb: 'Restart',
           appIds: addressed,
           outcome: await orch.restart(targets: targets),
           assets: assets,
+          nativeLibs: native.verdict,
         ),
       );
     }
@@ -689,16 +701,14 @@ class ReloadPipeline {
       // regenerated file is detected as changed and recompiled.
       final rebuildFailed = await _refreshGenerated('Hot reload', addressed);
       if (rebuildFailed != null) return rebuildFailed;
-      // And then the question that rebuild owes: a reload cannot replace a
+      // And then the question that rebuild owes: a reload can never replace a
       // library the process has mapped, and it may not replace the process
-      // either — so when the rebuild moved one, the increment is withheld
-      // instead of injected over the old machine code.
-      final withheld = await _withholdIfNativeLibsMoved(
-        'Hot reload',
-        addressed,
-        assets,
-      );
-      if (withheld != null) return withheld;
+      // either — so what is left to decide is whether the increment is one that
+      // library can still serve. When it is, the reload goes through and the
+      // stale machine code is reported; when nothing says it is, the increment
+      // is withheld rather than injected over code that cannot serve it.
+      final native = await _checkNativeLibs('Hot reload', addressed, assets);
+      if (native.refusal case final refusal?) return refusal;
       final outcome = await orch.reload(declared: declared, targets: targets);
       return toWire(
         CommandReport(
@@ -706,6 +716,7 @@ class ReloadPipeline {
           appIds: addressed,
           outcome: outcome,
           assets: assets,
+          nativeLibs: native.verdict,
         ),
       );
     }

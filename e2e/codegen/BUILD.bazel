@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_analysis_options", "dart_analyze_test", "dart_binary", "dart_codegen", "dart_format_test", "dart_library")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_gen_l10n", "flutter_library", "flutter_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_gen_l10n", "flutter_library", "flutter_native_library", "flutter_test")
 load(
     "@rules_flutter//flutter:macos.bzl",
     "MACOS_MINIMUM_OS_VERSION",
@@ -85,9 +85,9 @@ flutter_application(
     # carries a `dlopen`ed library, which is the combination the dev tool's
     # native-libs check exists for: a hot reload rebuilds this target to
     # regenerate sources, that rebuild recompiles the library, and the running
-    # process cannot take it. `native_libs_reload_e2e_test.dart` edits
-    # `native_add/native/native_add.c` to drive exactly that.
-    native_deps = ["//native_add:native_add_shared"],
+    # process cannot take it. `native_libs_reload_e2e_test.dart` drives both
+    # directions off it.
+    native_deps = [":native_add_lib"],
     deps = [
         "//dep_lib",
         "//dep_part",
@@ -109,6 +109,17 @@ flutter_application(
 # so this target is the only e2e coverage of hot reload over an assembled
 # package. Uses the Bazel-generated runner so no `macos/` scaffold is needed.
 # =============================================================================
+
+# The native library the app bundles, plus what its bindings are generated from.
+# A C library's contract is its header: editing `native_add.c` changes the code
+# and not the contract, editing `native_add.h` changes both. That is what lets
+# `native_libs_reload_e2e_test.dart` drive a reload that is delivered and one
+# that is withheld from one fixture.
+flutter_native_library(
+    name = "native_add_lib",
+    binding_contract = ["//native_add:native/native_add.h"],
+    library = "//native_add:native_add_shared",
+)
 
 flutter_macos_framework_gen(
     name = "app_framework",

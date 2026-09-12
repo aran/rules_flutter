@@ -16,11 +16,13 @@ void main() {
     ReloadOutcome? outcome,
     AssetOutcome assets = AssetOutcome.none,
     String? unavailable,
+    NativeLibsVerdict? nativeLibs,
   }) => CommandReport(
     verb: 'Hot reload',
     outcome: outcome,
     assets: assets,
     unavailable: unavailable,
+    nativeLibs: nativeLibs,
   );
 
   group('every failure carries an error', () {
@@ -36,39 +38,88 @@ void main() {
       expect(toWire(report)['error'], isNotNull);
     });
 
-    test('a withheld increment names the library that went stale', () {
+    test('a withheld increment names the library and the contract', () {
       final report = reload(
-        outcome: const ReloadNativeLibsStale([
-          'bazel-out/bin/libbridge.dylib',
-        ]),
+        nativeLibs: const NativeBindingsMoved(
+          libs: ['bazel-out/bin/libbridge.dylib'],
+          contracts: ['bazel-out/bin/codegen.ir'],
+        ),
       );
       expect(report.succeeded, isFalse);
       final wire = toWire(report);
-      // The library, as a field: a driver must not have to parse English to
-      // find out what went stale, any more than it does for a relaunch.
+      // The library, as a field: a driver must not have to parse English to find
+      // out what went stale, any more than it does for a relaunch.
       expect(wire['nativeLibsStale'], ['bazel-out/bin/libbridge.dylib']);
       expect(wire['error'], contains('libbridge.dylib'));
-      // Nothing was compiled and nothing was sent — the one promise that keeps
-      // a reader from hunting for a half-applied edit.
+      // And the contract in the sentence, because that is what the reader diffs
+      // to see what about their interface changed.
+      expect(wire['error'], contains('codegen.ir'));
+      // Nothing was compiled and nothing was sent — the one promise that keeps a
+      // reader from hunting for a half-applied edit.
       expect(wire['runningCode'], 'unchanged');
       expect(wire['message'], startsWith('Hot reload withheld'));
-      // And the way out is in the sentence, because the app cannot pick the
-      // library up without a new process.
       expect(wire['error'], contains('restart'));
+    });
+
+    test('an undeclared library says how to make it knowable', () {
+      final report = reload(
+        nativeLibs: const NativeLibsUnverifiable(['libsqlite3.dylib']),
+      );
+      final wire = toWire(report);
+      expect(wire['succeeded'], isFalse);
+      expect(wire['runningCode'], 'unchanged');
+      expect(wire['nativeLibsStale'], ['libsqlite3.dylib']);
+      // The advice is the whole difference between the two refusals: this one is
+      // a fact about their build, and nobody learns that a contract buys a
+      // working reload unless the refusal says so.
+      expect(wire['error'], contains('flutter_native_library'));
     });
 
     test('a withheld increment is not hidden by an asset clause', () {
       // An asset-only edit headlines "successful" and lets the asset clause
-      // finish the sentence. A stale library must not: the refusal is the
+      // finish the sentence. A withheld increment must not: the refusal is the
       // news, and `assetsChanged` rewrites `message` last.
       final report = reload(
-        outcome: const ReloadNativeLibsStale(['libbridge.dylib']),
+        nativeLibs: const NativeBindingsMoved(
+          libs: ['libbridge.dylib'],
+          contracts: ['codegen.ir'],
+        ),
         assets: const AssetOutcome(changed: {'assets/logo.png'}),
       );
       final wire = toWire(report);
       expect(wire['message'], contains('withheld'));
       expect(wire['message'], contains('libbridge.dylib'));
       expect(wire['succeeded'], isFalse);
+    });
+
+    test('a delivered increment still reports the stale native code', () {
+      // The case that is *not* a failure: the bindings held, so the edit is live
+      // — and the machine code behind it is not. `succeeded` is what tells a
+      // driver this apart from the refusals, which carry the same field.
+      final report = reload(
+        outcome: const ReloadApplied(
+          filesRecompiled: {'package:app/main.dart'},
+          isEmpty: false,
+          apps: [],
+        ),
+        nativeLibs: const NativeCodeStale(['libbridge.dylib']),
+      );
+      final wire = toWire(report);
+      expect(wire['succeeded'], isTrue);
+      expect(wire['runningCode'], 'updated');
+      expect(wire['nativeLibsStale'], ['libbridge.dylib']);
+      expect(wire['message'], startsWith('Hot reload successful'));
+      expect(wire['message'], contains('libbridge.dylib'));
+      expect(
+        wire['message'],
+        contains('not running'),
+        reason:
+            'an edit that is live in every sense except the one that matters '
+            'has to say which sense that is',
+      );
+      // Not an error: nothing failed, and a driver that retired the session over
+      // this would be retiring it over a successful reload.
+      expect(wire.containsKey('error'), isFalse);
     });
 
     test('an apply failure names every failing app, not just the first', () {

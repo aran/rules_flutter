@@ -15,7 +15,7 @@ load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
@@ -231,6 +231,24 @@ def _flutter_application_impl(ctx):
     for lib in native_libs + bundled_code_assets.to_list():
         bundled_native_libs[lib.path] = lib
 
+    # What each of those libraries' bindings were generated from, when its build
+    # said so — see `flutter_native_library`. Keyed by the same paths, so a
+    # library with no contract is an empty list rather than a missing key: the dev
+    # tool has to tell "nothing describes this one" from "this one is not
+    # bundled", and they mean opposite things for a reload.
+    binding_contracts = {path: [] for path in bundled_native_libs}
+    for pair in collect_binding_contracts(ctx.attr.native_deps) + [
+        p
+        for dep in ctx.attr.deps
+        if FlutterInfo in dep
+        for p in dep[FlutterInfo].binding_contracts.to_list()
+    ]:
+        if pair.library.path in binding_contracts:
+            binding_contracts[pair.library.path] = [
+                f.path
+                for f in pair.contract
+            ]
+
     # The code-asset libraries join `default_files` with the manifest that names
     # them. Declaring an output is what makes its path true: the manifest is
     # built here and the dev tool reads these files back off this target, and a
@@ -301,6 +319,12 @@ def _flutter_application_impl(ctx):
                 # paying a second build in the app's launch configuration.
                 # Empty unless the app bundles `native_deps`.
                 "nativeLibs": bundled_native_libs.keys(),
+                # Per library, the files its bindings were generated from. A
+                # reload compares these bytes to decide whether an increment is
+                # one the library the running process already has can serve —
+                # see `NativeLibsWatch` in the dev tool. Empty list: nothing
+                # declared, so the reload cannot know and will not guess.
+                "nativeLibContracts": binding_contracts,
                 # First-party source packages (app + local deps) the dev tool
                 # maps live edits back to via its PackageUriResolver. libRoot is
                 # workspace-relative.

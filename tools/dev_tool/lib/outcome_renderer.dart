@@ -25,6 +25,19 @@ Map<String, dynamic> toWire(CommandReport report) {
     return {..._verdict(report), 'error': reason};
   }
 
+  // Before the outcome switch and returning outright on a refusal: the command
+  // stopped before the snapshot, so there is no outcome and no asset diff to
+  // fold in — and falling through would reach the `null` outcome arm and call a
+  // withheld increment a success.
+  if (_refusedForNativeLibs(report.nativeLibs)) {
+    return {
+      ..._verdict(report),
+      'error': _nativeLibsReason(report)!,
+      'message': _nativeLibsSentence(report)!,
+      'nativeLibsStale': _staleLibs(report.nativeLibs)!,
+    };
+  }
+
   // Before everything below, and returning outright: the command stopped
   // here, so there is no outcome, no strategy and no asset diff to fold in —
   // and falling through would reach the `null` outcome arm and call a broken
@@ -65,13 +78,6 @@ Map<String, dynamic> toWire(CommandReport report) {
       map['isEmpty'] = isEmpty;
     case ReloadNoChange():
       map['message'] = '${report.verb} successful (no changes detected)';
-    case ReloadNativeLibsStale(:final libs):
-      map['message'] = _staleLibsSentence(report, libs);
-      map['error'] = _staleLibsReason(libs);
-      // Its own field, the way `nativeLibsChanged` is on a relaunch: a driver
-      // deciding what to do next — restart, or stop and tell the user — should
-      // not have to read the sentence to find out which library went stale.
-      map['nativeLibsStale'] = libs;
     case ReloadCompileFailed(:final diagnostics):
       map['message'] = 'Compilation failed';
       map['error'] = diagnostics.isNotEmpty
@@ -110,6 +116,15 @@ Map<String, dynamic> toWire(CommandReport report) {
     map['message'] =
         '${_headline(report)} — the asset rebuild produced a '
         'bundle identical to the one the app already has';
+  }
+
+  // Delivered, and still something to say: the increment is live and the machine
+  // code behind it is not. Named on a *successful* command, so `succeeded` is
+  // what a driver reads to tell the two cases apart.
+  if (report.nativeLibs case NativeCodeStale(:final libs)) {
+    map['nativeLibsStale'] = libs;
+    map['message'] =
+        '${map['message'] ?? _headline(report)}. ${_staleCodeClause(libs)}';
   }
 
   if (report.relaunch case final relaunched?) {
@@ -173,25 +188,68 @@ String _withCursorCaveat(CommandReport report, String sentence) =>
     : '$sentence. The control channel keeps its port and token; '
           '/logs cursors do not survive — re-tail.';
 
+/// Whether this verdict stopped the command before it compiled anything.
+bool _refusedForNativeLibs(NativeLibsVerdict? verdict) =>
+    verdict is NativeBindingsMoved || verdict is NativeLibsUnverifiable;
+
+/// The libraries a verdict has something to say about, or null when it has not.
+List<String>? _staleLibs(NativeLibsVerdict? verdict) => switch (verdict) {
+  NativeCodeStale(:final libs) => libs,
+  NativeBindingsMoved(:final libs) => libs,
+  NativeLibsUnverifiable(:final libs) => libs,
+  _ => null,
+};
+
 /// Why a command that found a rebuilt native library did nothing.
 ///
 /// Says what moved, what that means, and what is left to try — in that order,
 /// because the reader's first question is which of their native deps this is
 /// about. "Nothing was compiled and nothing was sent" is the part that keeps
-/// them from hunting for a half-applied edit: the app is self-consistent, on
-/// the code and the library it launched with.
-String _staleLibsReason(List<String> libs) =>
-    '${libs.join(', ')} changed, and a process cannot replace a native library '
-    'it has already loaded — so the increment was withheld rather than '
-    'injected over the old machine code. Nothing was compiled and nothing was '
-    'sent: the app is still running the Dart code and the library it launched '
-    'with. Only a new process picks the library up, which a restart (R, or '
-    '`app.restart`) relaunches when this run launched the app.';
+/// them from hunting for a half-applied edit: the app is self-consistent, on the
+/// code and the library it launched with.
+///
+/// The two refusals differ in what the reader can do next, which is why they are
+/// different sentences rather than one with a list. A moved contract is a fact
+/// about their edit; a missing contract is a fact about their build, and saying
+/// so is the only way anyone learns that declaring one buys a working reload.
+String? _nativeLibsReason(CommandReport report) => switch (report.nativeLibs) {
+  NativeBindingsMoved(:final libs, :final contracts) =>
+    '${libs.join(', ')} changed, and so did what its bindings are generated '
+        'from (${contracts.join(', ')}) — so the increment would be injected '
+        'over a library that cannot serve it, and a process cannot replace a '
+        'library it has already loaded. Nothing was compiled and nothing was '
+        'sent: the app is still running the Dart code and the library it '
+        'launched with. Only a new process picks both up, which a restart (R, '
+        'or `app.restart`) relaunches when this run launched the app.',
+  NativeLibsUnverifiable(:final libs) =>
+    '${libs.join(', ')} changed, and nothing declares what its bindings are '
+        'generated from — so whether the increment still matches it is not '
+        'knowable here, and a process cannot replace a library it has already '
+        'loaded. Nothing was compiled and nothing was sent: the app is still '
+        'running the Dart code and the library it launched with. A restart (R, '
+        'or `app.restart`) relaunches it; declaring the library through '
+        '`flutter_native_library(binding_contract = …)` is what lets a reload '
+        'through when only its code changed.',
+  _ => null,
+};
 
-/// The one-line form, which leads with the verb so the terminal line reads as
-/// an answer to the key that was pressed.
-String _staleLibsSentence(CommandReport report, List<String> libs) =>
-    '${report.verb} withheld: ${_staleLibsReason(libs)}';
+/// The one-line form, which leads with the verb so the terminal line reads as an
+/// answer to the key that was pressed.
+String? _nativeLibsSentence(CommandReport report) =>
+    _nativeLibsReason(report) == null
+    ? null
+    : '${report.verb} withheld: ${_nativeLibsReason(report)}';
+
+/// What a delivered increment still owes the reader: the code behind it is not
+/// the code it was compiled against.
+///
+/// Its own clause appended to a success sentence rather than a verdict of its
+/// own, because the command did work — the edit is live — and the one thing it
+/// could not do is the thing no command but a relaunch can.
+String _staleCodeClause(List<String> libs) =>
+    '${libs.join(', ')} was rebuilt and its bindings did not change, so the '
+    'increment is live over the library the app already loaded — the new '
+    'native code is not running. A restart (R) relaunches the app on it.';
 
 /// The failing web apply's own sentence, or null when the apply did not fail.
 ///
@@ -243,10 +301,6 @@ String _headline(CommandReport report) =>
         : switch (report.outcome) {
             ReloadCompileFailed() => 'Compilation failed',
             ReloadApplyFailed() => '${report.verb} failed on some devices',
-            ReloadNativeLibsStale(:final libs) => _staleLibsSentence(
-              report,
-              libs,
-            ),
             _ => '${report.verb} successful',
           });
 

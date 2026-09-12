@@ -48,6 +48,7 @@ silently discards every dependency's contribution.""",
         "shader_srcs": "depset[File]: Raw shader source files (.frag/.glsl) to compile per-platform.",
         "plugins": "list[struct]: Plugin metadata. Each struct has: name (str), platforms (dict of platform -> {pluginClass, dartPluginClass, package}).",
         "transitive_native_libs": "depset[File]: Shared libs from plugin native_deps, merged transitively.",
+        "binding_contracts": "depset[struct]: Per-library binding contracts contributed by transitive `flutter_native_library` wrappers in a plugin's `native_deps`. Each struct has: library (File), contract (tuple[File]). Paired rather than flattened because the dev tool's question is per library — a rebuilt library whose contract is unchanged may still take an increment, and one with no contract may not.",
         "apple_plugin_libraries": "depset[struct]: Apple plugin swift_libraries. Each struct has: platform (str: 'macos' | 'ios'), label (Label), cc_info (CcInfo or None), swift_info (SwiftInfo or None), package (str: pub package name). Used by the runner aggregator to merge per-platform link/compile inputs.",
         "linux_plugin_libraries": "depset[struct]: Linux plugin source bundles. Each struct has: label (Label), srcs (depset[File]), hdrs (depset[File]), include_dirs (depset[str]), package (str). The Linux runner folds these into its compile.",
         "windows_plugin_libraries": "depset[struct]: Windows plugin source bundles. Each struct has: label (Label), srcs (depset[File]), hdrs (depset[File]), include_dirs (depset[str]), package (str). The Windows runner folds these into its compile.",
@@ -68,6 +69,20 @@ FlutterNativeAssetInfo = provider(
         "file": "File or None: The shared library to bundle into the application. None for non-bundled link modes.",
         "bundle_filename": "str: Filename inside the platform bundle slot (e.g. `objective_c.dylib`). Empty for non-bundled link modes.",
         "system_uri": "str: System library URI for `dynamic_loading_system`. Empty otherwise.",
+    },
+)
+
+FlutterNativeLibraryInfo = provider(
+    doc = """A native library in `native_deps` together with the contract its bindings were built against.
+
+Produced by `flutter_native_library` and read where the dev config is written. A
+`native_deps` entry without one is an ordinary shared library: the app bundles it
+and nothing says what calling into it is supposed to look like, which is what
+makes a rebuilt copy of it stop a hot reload rather than merely be reported.
+""",
+    fields = {
+        "libraries": "depset[File]: The shared libraries (.so/.dylib/.dll) this entry contributes.",
+        "binding_contract": "depset[File]: Files whose bytes decide what the generated bindings may call and how they encode a call. The dev tool compares these bytes and never parses them.",
     },
 )
 

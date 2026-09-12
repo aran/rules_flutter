@@ -79,10 +79,10 @@ class _Harness {
 
   final bool _withOrchestrator;
 
-  /// What the orchestrator's native-libs gate answers, and how often it was
-  /// asked. Null leaves the gate unwired, which is every app that bundles no
-  /// loose native libraries.
-  List<String>? nativeLibsMoved;
+  /// What the pipeline's native-library check answers, and how often it was
+  /// asked. Null leaves it unwired, which is every app that bundles no loose
+  /// native libraries.
+  NativeLibsVerdict? nativeLibs;
   int nativeLibsGateCalls = 0;
 
   _Harness._(
@@ -132,11 +132,11 @@ class _Harness {
   }
 
   void _wireOrchestrator() {
-    pipeline.nativeLibsMoved = nativeLibsMoved == null
+    pipeline.nativeLibsVerdict = nativeLibs == null
         ? null
         : () async {
             nativeLibsGateCalls++;
-            return nativeLibsMoved!;
+            return nativeLibs!;
           };
     pipeline.orchestrator = ReloadOrchestrator(
       workspace: workspace,
@@ -1258,7 +1258,10 @@ void main() {
       h.writeSource('main.dart', 'void main() {}');
       h.seedApplied();
       h.writeSource('main.dart', 'void main() { print(1); }');
-      h.nativeLibsMoved = ['bazel-out/bin/libbridge.dylib'];
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['bazel-out/bin/libbridge.dylib'],
+        contracts: ['bazel-out/bin/codegen.ir'],
+      );
       h.seedApplied();
       h.writeSource('main.dart', 'void main() { print(2); }');
       h.pipeline.ready.signalReady();
@@ -1292,7 +1295,10 @@ void main() {
       // app is running code from before the edit.
       h.writeSource('main.dart', 'void main() {}');
       h.seedApplied();
-      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['libbridge.dylib'],
+        contracts: ['codegen.ir'],
+      );
       h.seedApplied();
       h.pipeline.ready.signalReady();
 
@@ -1302,11 +1308,75 @@ void main() {
       expect(result['nativeLibsStale'], ['libbridge.dylib']);
     });
 
+    test('a reload whose bindings held is delivered, and says so', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibs = const NativeCodeStale(['libbridge.dylib']);
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(1); }');
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+
+      // The case the whole contract mechanism exists for: a pending native edit
+      // must not block the Dart loop. Refusing here would make the fix worse
+      // than the bug for anyone iterating on Dart with a rebuilt library on disk.
+      expect(result['succeeded'], isTrue);
+      expect(h.compiler.recompileCalls, hasLength(1));
+      expect(h.app.calls, hasLength(1));
+      // And the app is running old machine code, which the reply says on a
+      // *successful* command rather than leaving to be discovered.
+      expect(result['nativeLibsStale'], ['libbridge.dylib']);
+      expect(result['runningCode'], 'updated');
+      expect(result['message'], contains('libbridge.dylib'));
+    });
+
+    test('a restart whose bindings held restarts, and says so', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibs = const NativeCodeStale(['libbridge.dylib']);
+      h.seedApplied();
+      h.pipeline.ready.signalReady();
+
+      // No relauncher here: an `attach` run cannot replace the process, and a
+      // hot restart re-runs `main()` over the same mapped images. That is still
+      // worth doing — the Dart half is delivered — so long as the reply does not
+      // leave the reader thinking the new native code came with it.
+      final result = await h.restart();
+      expect(result['succeeded'], isTrue);
+      expect(result['nativeLibsStale'], ['libbridge.dylib']);
+      expect(h.compiler.fullCompileCalls, hasLength(1));
+    });
+
+    test('an undeclared library withholds with the advice', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibs = const NativeLibsUnverifiable(['libsqlite3.dylib']);
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(1); }');
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+      expect(result['succeeded'], isFalse);
+      expect(result['nativeLibsStale'], ['libsqlite3.dylib']);
+      expect(result['error'], contains('flutter_native_library'));
+      expect(
+        h.compiler.recompileCalls,
+        isEmpty,
+        reason:
+            'unknown is not safe: nothing says whether the increment still '
+            'matches the library the process has',
+      );
+    });
+
     test('an unmoved library keeps the reload on its fast path', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);
       h.writeSource('main.dart', 'void main() {}');
-      h.nativeLibsMoved = const [];
+      h.nativeLibs = const NativeLibsCurrent();
       h.seedApplied();
       h.writeSource('main.dart', 'void main() { print(1); }');
       h.pipeline.ready.signalReady();
@@ -1357,7 +1427,10 @@ void main() {
       final h = await _Harness.create();
       addTearDown(h.dispose);
       h.writeSource('main.dart', 'void main() {}');
-      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['libbridge.dylib'],
+        contracts: ['codegen.ir'],
+      );
       h.seedApplied();
       h.pipeline.relaunchIfNativeLibsChanged = () async => const Relaunched(
         changedLibs: ['libbridge.dylib'],
@@ -1379,7 +1452,10 @@ void main() {
       final h = await _Harness.create();
       addTearDown(h.dispose);
       h.writeSource('main.dart', 'void main() {}');
-      h.nativeLibsMoved = ['libbridge.dylib'];
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['libbridge.dylib'],
+        contracts: ['codegen.ir'],
+      );
       h.seedApplied();
       // No relauncher: an `attach` run never launched the app, so nothing may
       // replace the process. A hot restart re-runs `main()` over the same mapped

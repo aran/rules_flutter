@@ -61,25 +61,6 @@ class ReloadNoChange extends ReloadOutcome {
   const ReloadNoChange();
 }
 
-/// The rebuild this command ran moved a native library the app has already
-/// `dlopen`ed, so nothing was compiled and nothing was sent.
-///
-/// Not a failure of the compiler or of a device: both were left alone on
-/// purpose. A process cannot replace a mapped image, so an increment built
-/// against the new library would run against the old machine code — the kind of
-/// skew that surfaces later as a malformed request or a call landing on the
-/// wrong function, with nothing left to point at the library. Withholding it
-/// leaves the app self-consistent on the code *and* the library it launched
-/// with, which is the only other honest state available.
-///
-/// [libs] are the libraries whose bytes moved, so the reply can name them. The
-/// way out is a new process: a restart relaunches one when the run launched the
-/// app, and says so.
-class ReloadNativeLibsStale extends ReloadOutcome {
-  final List<String> libs;
-  const ReloadNativeLibsStale(this.libs);
-}
-
 /// Compile failed. Every target's pending compile was rolled back; no applied
 /// versions are advanced.
 class ReloadCompileFailed extends ReloadOutcome {

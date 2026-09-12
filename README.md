@@ -1147,6 +1147,36 @@ flutter_application(
 
 Works with `rules_cc`, `rules_rust`, and any ruleset that produces shared libraries.
 
+### Keeping hot reload working across a native rebuild
+
+A running process can never pick up a rebuilt native library — it keeps the image it `dlopen`ed — so a reload that rebuilds one has to decide whether the Dart it is about to inject still matches. Left to guess, it withholds the edit, which is correct and means a pending native change blocks your Dart loop until you restart.
+
+Declaring what the bindings were generated from is what lets a reload through:
+
+```starlark
+flutter_native_library(
+    name = "bridge",
+    library = "@my_bridge//bridge:bridge_shared",
+    binding_contract = ["@my_bridge//bridge:codegen.ir"],
+)
+
+flutter_application(
+    name = "my_app",
+    native_deps = [":bridge"],
+    # ...
+)
+```
+
+`binding_contract` is whatever file decides what may be called and how a call is encoded — a binding generator's interface description, or the C header a hand-written FFI binding is written against. The dev tool compares those bytes and never parses them, so what matters is that every wire-affecting change reaches them and that changes which do not affect the wire do not. Both labels must be visible to the rule, like any other dependency.
+
+With that declared, a hot reload has three answers instead of one:
+
+| what moved | the reload |
+| --- | --- |
+| nothing | ordinary reload |
+| the library's code, not its contract | **delivered**, and the stale native code is reported |
+| the contract too | withheld — the increment would be injected over a library that cannot serve it |
+
 ## Providers
 
 ### `FlutterSdkInfo`
@@ -1515,17 +1545,29 @@ failure rather than refusing to run.
  "message":"Restart successful — the app was relaunched because its native libraries changed (…). …"}
 ```
 
-**Reloads that refuse.** A hot reload cannot relaunch anything — replacing the process is how the app's state is lost, which is what a reload exists to keep — so it answers a moved native library by delivering nothing:
+**Reloads that refuse, and reloads that warn.** A hot reload cannot relaunch anything — replacing the process is how the app's state is lost, which is what a reload exists to keep — so when a rebuild moves a native library, what it can do depends on whether the bindings moved with it (see [Native Interop](#keeping-hot-reload-working-across-a-native-rebuild) for declaring that).
+
+Bindings unchanged: the edit is delivered, and the machine code behind it is not:
+
+```json
+{"succeeded":true,"runningCode":"updated",
+ "nativeLibsStale":["…/libbridge.dylib"],
+ "message":"Hot reload successful. …/libbridge.dylib was rebuilt and its bindings did not change, so the increment is live over the library the app already loaded — the new native code is not running. A restart (R) relaunches the app on it."}
+```
+
+Bindings changed, or nothing declaring them:
 
 ```json
 {"succeeded":false,"runningCode":"unchanged",
  "nativeLibsStale":["…/libbridge.dylib"],
- "message":"Hot reload withheld: …/libbridge.dylib changed, and a process cannot replace a native library it has already loaded …"}
+ "message":"Hot reload withheld: …/libbridge.dylib changed, and so did what its bindings are generated from …"}
 ```
 
-Withheld, not injected: the increment was compiled against the rebuilt library, and a process holding the old one would run it against the old machine code — a skew that surfaces later as a malformed request or a call landing on the wrong function, with nothing left pointing at the library. Nothing is compiled and nothing is sent, so the app is left whole on the code *and* the library it launched with, and `app.restart` is what picks the new library up.
+Withheld, not injected: the increment was compiled against the rebuilt interface, and a process holding the old library would run it against machine code that cannot serve it — a skew that surfaces later as a malformed request or a call landing on the wrong function, with nothing left pointing at the library. Nothing is compiled and nothing is sent, so the app is left whole on the code *and* the library it launched with, and `app.restart` is what picks the new library up.
 
-This only arises for an app whose reload rebuilds through bazel — a source-assembled (codegen) app, where regenerating sources recompiles the libraries too. The check reads the libraries that build declared (`_dev_config.json`), so it costs no bazel of its own and a Dart-only edit stays on the instant path.
+`nativeLibsStale` carries the same meaning in both replies — these libraries' code is not what the process is running — and `succeeded` is what says whether the increment landed.
+
+This only arises for an app whose reload rebuilds through bazel — a source-assembled (codegen) app, where regenerating sources recompiles the libraries too. The check reads the libraries and contracts that build declared (`_dev_config.json`), so it costs no bazel of its own: a `stat` per file, and a content hash only for one the build actually rewrote. A Dart-only edit stays on the instant path.
 
 The channel is a property of the *run*, not of the app process: the port, the token and the `appId` are unchanged, and there is no second banner because none is needed — keep using the ones you started with. The machine protocol re-emits `app.debugPort` and `app.started` for the replacement process. `ready` says the relaunched app rendered a first frame before the response returned, so its service extensions are registered and the next `app.*` call will land; a `false` means that wait timed out, not that the app is broken. The one thing that does not carry over is `/logs`: the new process buffers its output from zero, so compare `launch` and re-tail. Only `app.stop` and `daemon.shutdown` end a session.
 

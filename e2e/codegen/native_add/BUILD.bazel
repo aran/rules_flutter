@@ -15,6 +15,12 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_format_test", "dart_library")
 
+# The header is this library's binding contract: the signatures live there, so a
+# change to it is a change to what a caller may call, and a change to the `.c`
+# alone is not. `//:native_add_lib` declares it as such for the dev tool — see
+# the comment there.
+exports_files(["native/native_add.h"])
+
 cc_library(
     name = "native_add_cc",
     srcs = ["native/native_add.c"],

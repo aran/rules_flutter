@@ -299,6 +299,15 @@ class DevConfig {
   /// such attribute.
   final List<String> nativeLibs;
 
+  /// Per library in [nativeLibs], the files its bindings were generated from —
+  /// whatever its build declared through `flutter_native_library`.
+  ///
+  /// Every entry of [nativeLibs] is a key, so an empty list means "nothing
+  /// describes this library's bindings" rather than "this library is not
+  /// bundled". The dev tool needs to tell those apart: the first makes a rebuilt
+  /// library withhold a reload, the second would mean there is nothing to check.
+  final Map<String, List<String>> nativeLibContracts;
+
   /// First-party source packages (app + local deps) as `{name, libRoot}`, where
   /// `libRoot` is workspace-relative. Drives the [PackageUriResolver] so a live
   /// edit in any of these packages maps to its `package:` URI. Empty for web
@@ -401,6 +410,7 @@ class DevConfig {
     this.generatedSourcePaths = const [],
     this.generatedSourceUris = const [],
     this.nativeLibs = const [],
+    this.nativeLibContracts = const {},
     this.sourcePackages = const [],
     this.dartDefines = const [],
     this.dartPluginRegistrants = const {},
@@ -464,6 +474,12 @@ class DevConfig {
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
       nativeLibs: strList('nativeLibs'),
+      nativeLibContracts: {
+        for (final entry
+            in ((json['nativeLibContracts'] as Map?) ?? const {}).entries)
+          entry.key as String: ((entry.value as List?) ?? const [])
+              .cast<String>(),
+      },
       dartDefines: strList('dartDefines'),
       dartPluginRegistrants:
           ((json['dartPluginRegistrants'] as Map?) ?? const {})
@@ -579,6 +595,20 @@ DevConfig parseDevConfig(String path) {
         json[key] = [for (final v in list.cast<String>()) abs(v)];
       }
     }
+    // Keys *and* values: the keys are the same library paths `nativeLibs`
+    // carries and are matched against them, and the values are paths the watch
+    // stats. A contract that is a source file rather than a build output is
+    // exec-relative the same way — the execroot symlinks it, so the same join
+    // reaches it.
+    final contracts = json['nativeLibContracts'] as Map?;
+    if (contracts != null) {
+      json['nativeLibContracts'] = {
+        for (final entry in contracts.entries)
+          abs(entry.key as String): [
+            for (final v in (entry.value as List).cast<String>()) abs(v),
+          ],
+      };
+    }
   }
 
   return DevConfig.fromJson(json);
@@ -613,6 +643,12 @@ void requireDeclaredFilesExist(DevConfig config) {
 
   for (final path in config.nativeLibs) {
     if (!File(path).existsSync()) missing.add('nativeLibs: $path');
+  }
+
+  for (final entry in config.nativeLibContracts.entries) {
+    for (final path in entry.value) {
+      if (!File(path).existsSync()) missing.add('nativeLibContracts: $path');
+    }
   }
 
   if (missing.isEmpty) return;

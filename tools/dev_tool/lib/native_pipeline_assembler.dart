@@ -579,7 +579,7 @@ class NativePipelineAssembler {
     // went stale the only thing it *can* do about them.
     final nativeLibs = devConfig.nativeLibs.isEmpty
         ? null
-        : await NativeLibsWatch.of(devConfig.nativeLibs);
+        : await NativeLibsWatch.of(devConfig.nativeLibContracts);
 
     // Never empty: a session with no VM client is exactly the case the top of
     // this method already returned on, and nothing between the two adds or
@@ -589,7 +589,7 @@ class NativePipelineAssembler {
       units: [for (final u in units) u!],
       entrypoint: pipeline.entrypoint,
     );
-    pipeline.nativeLibsMoved = nativeLibs?.movedSinceLaunch;
+    pipeline.nativeLibsVerdict = nativeLibs?.verdict;
 
     await _wireRelauncher(orchestrator, assetsDir, nativeLibs);
 
