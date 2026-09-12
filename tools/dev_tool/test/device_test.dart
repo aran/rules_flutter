@@ -130,6 +130,22 @@ void main() {
       expect(devices.single, isA<AndroidDevice>());
     });
 
+    test('resolves android to the device adb itself picks', () {
+      final devices = resolveDevices(['android']);
+      expect((devices.single as AndroidDevice).deviceId, isNull);
+    });
+
+    test('resolves android:SERIAL to the bare serial', () {
+      // The prefix must not survive into `adb -s`. A colon there means a network
+      // device, so the server reads the serial as `android` and the rest as a
+      // service name and answers `unknown host service '<serial>:features'` —
+      // an error naming neither the device id nor the flag that produced it,
+      // for a device the same `adb` installs to by hand. Reproduced directly
+      // with `adb -s android:<serial> features` on a Pixel 9a.
+      final device = resolveDevices(['android:58051JEBF01271']).single;
+      expect((device as AndroidDevice).deviceId, '58051JEBF01271');
+    });
+
     test('resolves multiple device IDs', () {
       final devices = resolveDevices(['macos', 'chrome']);
       expect(devices, hasLength(2));

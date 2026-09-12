@@ -1798,7 +1798,8 @@ Device detectDevice() {
 ///
 /// If [ids] is empty, auto-detects one device for the current platform.
 /// Accepted IDs: `macos`, `linux`, `windows`, `ios-simulator`,
-/// `ios-simulator:<udid>`, `ios`, `ios:<udid>`, `chrome`, or an Android serial.
+/// `ios-simulator:<udid>`, `ios`, `ios:<udid>`, `chrome`, `android`,
+/// `android:<serial>`, or a bare Android serial.
 ///
 /// Unknown IDs are treated as Android serial numbers with a warning.
 List<Device> resolveDevices(List<String> ids) {
@@ -1820,12 +1821,26 @@ Device _resolveDevice(String id) {
       return IOSSimulatorDevice.booted();
     case 'ios':
       return IOSDevice();
+    // Whichever device `adb` itself picks, which is the one attached when there
+    // is one and a named refusal from adb when there are several.
+    case 'android':
+      return AndroidDevice();
     default:
       if (id.startsWith('ios-simulator:')) {
         return IOSSimulatorDevice(udid: id.substring('ios-simulator:'.length));
       }
       if (id.startsWith('ios:')) {
         return IOSDevice(udid: id.substring('ios:'.length));
+      }
+      // `android:<serial>`, for symmetry with the two above — and because
+      // without it the prefix reaches `adb -s` intact, where a colon means a
+      // network device: the server then reads the serial as `android` and the
+      // rest as a service name, and answers
+      // `unknown host service '<serial>:features'`. Nothing in that sentence
+      // names the device id that caused it, and the install fails on a device
+      // the same `adb` can see.
+      if (id.startsWith('android:')) {
+        return AndroidDevice(deviceId: id.substring('android:'.length));
       }
       // Warn if it looks like a typo of a known device name.
       const knownIds = [
@@ -1835,13 +1850,16 @@ Device _resolveDevice(String id) {
         'chrome',
         'ios-simulator',
         'ios',
+        'android',
       ];
       _logger.warning({
         'message': 'unknown_device_id',
         'text':
             "Unknown device ID '$id' — treating it as an Android serial "
             'number, so a typo here surfaces as adb not finding the device. '
-            'Known device IDs: ${knownIds.join(', ')}.',
+            'Known device IDs: ${knownIds.join(', ')}; a serial can also be '
+            'written `android:<serial>`, and a platform prefix spelled wrong '
+            'lands here rather than being corrected.',
         'device': id,
         'knownIds': knownIds,
       });

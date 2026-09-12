@@ -1254,6 +1254,20 @@ Propagated by `flutter_application`. Contains the outputs of the compilation pip
 
 The `tools/dev_tool/` directory contains `flutter_bazel`, a Dart program that handles the iterative development workflow: device management, app installation, hot reload, and hot restart. It speaks the `--machine` JSON-RPC protocol for IDE compatibility with existing Flutter IDE plugins (VS Code, IntelliJ).
 
+### Choosing a device
+
+`-d` / `--device` takes:
+
+| id | reaches |
+| --- | --- |
+| `macos`, `linux`, `windows` | the host desktop |
+| `chrome` | a browser, through the dev module server |
+| `ios-simulator`, `ios-simulator:<udid>` | the booted simulator, or the one named |
+| `ios`, `ios:<udid>` | the attached device, or the one named |
+| `android`, `android:<serial>` | whichever device `adb` picks, or the one named |
+
+A bare Android serial works too (`-d emulator-5554`), which is what any unrecognised id is treated as — with a warning, since a misspelled platform prefix lands there rather than being corrected.
+
 ### App output
 
 A running app's console output — `print`, `debugPrint`, `NSLog`, Java stack traces, uncaught errors — is forwarded for the whole life of the run, starting before the VM service comes up so that startup failures are visible.
