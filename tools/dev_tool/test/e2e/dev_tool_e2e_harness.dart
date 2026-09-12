@@ -980,6 +980,12 @@ class DevToolProcess {
   /// to call twice or after the run already ended.
   Future<void> dispose() async {
     final endedOnItsOwn = await _requestStop();
+    // Before the kill, because the kill is what removes the evidence. This guard
+    // has gone red four times; the three that were diagnosed were diagnosed by
+    // sampling the live process, and the fourth — intermittent, browser runs
+    // only — is still open precisely because every occurrence so far was killed
+    // before anyone could look at it.
+    final wedgeEvidence = endedOnItsOwn ? null : await _captureWedgeEvidence();
     await _stdoutSub.cancel();
     await _stderrSub.cancel();
     await _eventController.close();
@@ -1008,9 +1014,61 @@ class DevToolProcess {
         'it held, so what is keeping the process alive is the tool itself — '
         'an uncancelled subscription or a pending timer. A run that cannot '
         'end on its own is one an IDE or an agent cannot end either; see '
-        '`SessionHost.closeTransports`.',
+        '`SessionHost.closeTransports`.\n'
+        'What was holding it, captured before the kill:\n  $wedgeEvidence',
       );
     }
+  }
+
+  /// What is keeping the tool alive, written down while it still is.
+  ///
+  /// `sample` is the tool that answers this: it attaches to the live process for
+  /// a few seconds and reports every thread's stacks, which is how each of the
+  /// three diagnosed instances of this failure was found — a signal watch, a
+  /// DWDS socket, a VM-service re-dial. `lsof` answers the other half, naming a
+  /// socket or file the process still holds. Neither can be run after the kill,
+  /// and a failure message without them leaves the next occurrence exactly as
+  /// undiagnosable as the last.
+  ///
+  /// Never throws and never replaces the failure it decorates: a capture that
+  /// could not run says so and the timeout is still reported. Paths rather than
+  /// contents, because a sample of a Dart VM runs to thousands of lines and the
+  /// point is to have it, not to print it.
+  Future<String> _captureWedgeEvidence() async {
+    if (!Platform.isMacOS) {
+      return 'no capture: `sample` is macOS-only, and this ran on '
+          '${Platform.operatingSystem}. Attach to pid ${process.pid} with '
+          'whatever this platform offers before it is killed.';
+    }
+    final dir = Directory.systemTemp.createTempSync('devtool_wedged_');
+    final notes = <String>['pid ${process.pid}'];
+    Future<void> capture(String what, String tool, List<String> args) async {
+      final out = p.join(dir.path, '$what.txt');
+      try {
+        final result = await Process.run(tool, [...args, out]);
+        notes.add(
+          result.exitCode == 0
+              ? '$what: $out'
+              : '$what: `$tool` exited ${result.exitCode}: ${result.stderr}',
+        );
+      } on ProcessException catch (e) {
+        notes.add('$what: `$tool` could not run: ${e.message}');
+      }
+    }
+
+    // Three seconds of stacks: long enough to show a thread that is waiting
+    // rather than working, short enough not to stretch a teardown that has
+    // already failed.
+    await capture('stacks', 'sample', ['${process.pid}', '3', '-file']);
+    try {
+      final lsof = await Process.run('lsof', ['-p', '${process.pid}']);
+      final out = p.join(dir.path, 'lsof.txt');
+      File(out).writeAsStringSync('${lsof.stdout}');
+      notes.add('open handles: $out');
+    } on ProcessException catch (e) {
+      notes.add('open handles: `lsof` could not run: ${e.message}');
+    }
+    return notes.join('\n  ');
   }
 
   /// How long the tool gets to end itself after `daemon.shutdown`.
