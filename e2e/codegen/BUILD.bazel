@@ -253,6 +253,20 @@ flutter_test(
 # dart2js/dart2wasm compile and the icon-tree-shaking kernel compile. Both
 # must reach `main.dart` through the same colocated package so its relative
 # `import 'user.dart'` finds the assembled sibling.
+# A native module the page would instantiate, declared so the dev tool can tell
+# an edit the instantiated module can still serve from one it cannot. Eight bytes
+# of wasm header and a text file naming its exports: the tool compares bytes and
+# never parses either, so what a fixture needs is a module that moves when its
+# code does and a contract that moves when its callable surface does.
+#
+# Declared, not detected — the same bundle directory holds Flutter's own
+# `main.dart.wasm`, which changes on every Dart edit.
+flutter_native_library(
+    name = "demo_module",
+    binding_contract = ["web/demo_module.api"],
+    library = "web/demo_module.wasm",
+)
+
 flutter_web_bundle(
     name = "web_app",
     package_name = "codegen_e2e",
@@ -262,6 +276,7 @@ flutter_web_bundle(
     ],
     compiler = "dart2js",
     main = "lib/main.dart",
+    native_modules = [":demo_module"],
     renderer = "canvaskit",
     deps = [
         "//dep_lib",

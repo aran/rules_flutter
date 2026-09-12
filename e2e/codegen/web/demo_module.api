@@ -1,0 +1,8 @@
+# What the demo module exports, which is what a caller may call.
+#
+# Stands in for a binding generator's interface description: the dev tool
+# compares these bytes and never parses them, so a fixture needs only a file
+# that moves when the callable surface moves and holds still when only the
+# module's code does. `native_libs_reload_e2e_test.dart`'s web case edits the
+# module alone for one verdict and this file for the other.
+demo_add(i32, i32) -> i32

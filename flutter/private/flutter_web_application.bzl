@@ -21,7 +21,7 @@ so we skip the frontend_server kernel compilation step used by desktop/mobile.
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config")
-load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
     "app_main_package_uri",
@@ -787,8 +787,20 @@ def _flutter_web_bundle_impl(ctx):
 
     # Copy user-provided web assets (favicon.png, icons/, etc.) to output root.
     # Strip the leading "web/" prefix if present (matching `flutter build web` behavior).
+    #
+    # Declared native modules ride the same list, so the served path of a module
+    # is derived by the one piece of code that owns that mapping rather than
+    # restated anywhere. That is also what keeps the declaration to a single
+    # spelling: a module named in `native_modules` is served *because* it was
+    # declared, and naming it in `web_assets` as well would reserve the same
+    # destination twice.
     web_asset_files = []
-    for f in ctx.files.web_assets:
+    native_module_files = [
+        f
+        for dep in ctx.attr.native_modules
+        for f in dep[FlutterNativeLibraryInfo].libraries.to_list()
+    ]
+    for f in ctx.files.web_assets + native_module_files:
         rel = f.short_path
 
         # Strip package prefix to get workspace-relative path.
@@ -801,6 +813,15 @@ def _flutter_web_bundle_impl(ctx):
         _check_web_asset_dst(ctx, reserved, rel, f.short_path)
         copies.append({"src": f.path, "dst": rel})
         web_asset_files.append(f)
+
+    # What each declared module's bindings were generated from. Keyed by File so
+    # the dev config can key by the same path the module list carries.
+    native_module_contracts = {}
+    for dep in ctx.attr.native_modules:
+        info = dep[FlutterNativeLibraryInfo]
+        contracts = info.binding_contract.to_list()
+        for f in info.libraries.to_list():
+            native_module_contracts[f] = contracts
 
     # dart2js outputs are directories (tree artifacts) to support deferred
     # loading — dart2js may produce main.dart.js + *.part.js files.
@@ -1066,6 +1087,21 @@ def _flutter_web_bundle_impl(ctx):
             "filesystemScheme": dev_filesystem_scheme,
             "generatedSourcePaths": dev_generated_source_paths,
             "generatedSourceUris": dev_generated_source_uris,
+            # The native modules the page instantiates, and per module the files
+            # its bindings were generated from. A reload cannot replace an
+            # instantiated module any more than a process can replace a `dlopen`ed
+            # image, so the dev tool compares these the same way — see
+            # `NativeLibsWatch`. The built file rather than its served copy: the
+            # copy derives from it, and this is the path the rebuild rewrites.
+            #
+            # Declared, never inferred. This directory also holds Flutter's own
+            # `main.dart.wasm`, which changes on every Dart edit, so a watch that
+            # recognised a module by extension would flag every reload.
+            "nativeLibs": [f.path for f in native_module_files],
+            "nativeLibContracts": {
+                f.path: [c.path for c in contracts]
+                for f, contracts in native_module_contracts.items()
+            },
             # First-party source packages (app + local deps) the dev tool maps
             # live edits back to via its PackageUriResolver. libRoot is
             # workspace-relative.
@@ -1302,6 +1338,20 @@ flutter_web_bundle = rule(
                   "names a frame reports are readable. It is not a debug build: none of the " +
                   "dev-loop side files are produced, so `flutter_bazel run` cannot serve it.",
             default = False,
+        ),
+        "native_modules": attr.label_list(
+            doc = """Native modules the page instantiates, each declaring what its bindings were generated from.
+
+Each entry is a `flutter_native_library` wrapping a `.wasm` module. The module is
+served from the bundle exactly as a `web_assets` entry is — same destination
+derivation, so do not list it in both — and its contract is what lets a hot
+reload tell an edit the instantiated module can still serve from one it cannot.
+
+Declared rather than detected, and that is the point: the bundle also holds
+Flutter's own `main.dart.wasm`, which changes on every Dart edit. Nothing but the
+build knows which served file is a native module.
+""",
+            providers = [FlutterNativeLibraryInfo],
         ),
         "web_assets": attr.label_list(
             doc = "Static web files (favicon.png, icons/, etc.) copied to the output root. " +

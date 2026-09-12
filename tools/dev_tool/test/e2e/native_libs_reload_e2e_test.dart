@@ -39,6 +39,13 @@
 ///     Dart half of the same edit is what makes that checkable: `runningCode:
 ///     unchanged` is a claim about the whole command, and an app showing the new
 ///     string would prove the increment went in after all.
+///
+/// The web case covers the same two verdicts over Chrome, where the same physics
+/// hold for a different reason: `initBridge()`-style code instantiates a module
+/// once, a hot reload does not re-run `main()`, and the instance outlives the
+/// increment. `codegen`'s web bundle declares an eight-byte module and a text
+/// contract through `native_modules` — the tool compares bytes and parses
+/// neither, so a fixture needs only files that move when the right thing moves.
 library;
 
 import 'dart:async';
@@ -198,6 +205,106 @@ void main() {
       expect(withheld['runningCode'], 'unchanged');
       // The promise `unchanged` makes, against the screen: the Dart half of the
       // same edit was not delivered either.
+      await _expectRendered(dt, appId, 'RELOADED:name');
+    }, timeout: const Timeout(Duration(minutes: 15)));
+  });
+
+  group('native module rebuilt under a web hot reload', () {
+    test('delivered when the contract holds, withheld when it moves', () async {
+      final ws = await editableWorkspace('codegen');
+      final appMain = ws.file('lib/main.dart');
+      final module = ws.file('web/demo_module.wasm');
+      final contract = ws.file('web/demo_module.api');
+      final mainOriginal = appMain.readAsStringSync();
+      final moduleOriginal = module.readAsBytesSync();
+      final contractOriginal = contract.readAsStringSync();
+      const dartAnchor = "'fields:";
+      expect(
+        mainOriginal.contains(dartAnchor),
+        isTrue,
+        reason: 'fixture marker present in codegen lib/main.dart',
+      );
+
+      final dt = await startDevTool(
+        workspace: ws.root,
+        target: ':web_app',
+        device: 'chrome',
+        extraArgs: ['--web-run-headless'],
+      );
+      try {
+        await dt.waitForEvent(
+          'app.started',
+          timeout: const Duration(minutes: 6),
+        );
+      } on TimeoutException {
+        fail(
+          'no app.started within 6m.\nstderr:\n${dt.stderrLines.join('\n')}\n'
+          'stdout (non-protocol):\n${dt.nonProtocolStdoutLines.join('\n')}',
+        );
+      }
+      final appId = dt.appId!;
+      await dt.waitForHttpControl(timeout: const Duration(seconds: 120));
+      await _expectRendered(dt, appId, 'fields:name');
+
+      // Module rebuilt, contract unchanged: the increment is one the
+      // instantiated module can still serve, so it lands — and the page is
+      // running the old module, which the reply has to say.
+      appMain.writeAsStringSync(
+        mainOriginal.replaceFirst(dartAnchor, "'DELIVERED:"),
+      );
+      module.writeAsBytesSync([...moduleOriginal, 0]);
+
+      final delivered = await _command(dt, 'app.hotReload', appId);
+      expect(
+        delivered['succeeded'],
+        isTrue,
+        reason: 'the contract held: ${delivered['error']}',
+      );
+      expect(
+        delivered['nativeLibsStale'],
+        contains(contains('demo_module.wasm')),
+      );
+      await _expectRendered(dt, appId, 'DELIVERED:name');
+
+      // Contract moved: new bindings over an instantiated module, which on web
+      // traps rather than returning a wrong answer. Nothing may be injected.
+      appMain.writeAsStringSync(
+        mainOriginal.replaceFirst(dartAnchor, "'BLOCKED:"),
+      );
+      contract.writeAsStringSync('$contractOriginal\ndemo_sub(i32) -> i32\n');
+
+      final withheld = await _command(dt, 'app.hotReload', appId);
+      expect(withheld['succeeded'], isFalse);
+      expect(
+        withheld['nativeLibsStale'],
+        contains(contains('demo_module.wasm')),
+      );
+      expect(withheld['runningCode'], 'unchanged');
+      await _expectRendered(dt, appId, 'DELIVERED:name');
+
+      // And the restart that recovers it: the page re-runs `main()`, re-fetches
+      // what the bundle now serves, and the watch is re-baselined — so the
+      // reload after it is ordinary again, with nothing reported stale.
+      final restarted = await _command(dt, 'app.restart', appId);
+      expect(restarted['succeeded'], isTrue, reason: '${restarted['error']}');
+      await _expectRendered(dt, appId, 'BLOCKED:name');
+
+      appMain.writeAsStringSync(
+        mainOriginal.replaceFirst(dartAnchor, "'RELOADED:"),
+      );
+      final ordinary = await _command(dt, 'app.hotReload', appId);
+      expect(
+        ordinary['succeeded'],
+        isTrue,
+        reason: 'nothing is stale after the restart: ${ordinary['error']}',
+      );
+      expect(
+        ordinary.containsKey('nativeLibsStale'),
+        isFalse,
+        reason:
+            'a restart that was not re-baselined would report the module stale '
+            'for the rest of the run',
+      );
       await _expectRendered(dt, appId, 'RELOADED:name');
     }, timeout: const Timeout(Duration(minutes: 15)));
   });

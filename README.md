@@ -1169,6 +1169,24 @@ flutter_application(
 
 `binding_contract` is whatever file decides what may be called and how a call is encoded — a binding generator's interface description, or the C header a hand-written FFI binding is written against. The dev tool compares those bytes and never parses them, so what matters is that every wire-affecting change reaches them and that changes which do not affect the wire do not. Both labels must be visible to the rule, like any other dependency.
 
+On web the same wrapper goes in a bundle's `native_modules`, which serves the module *and* declares it:
+
+```starlark
+flutter_native_library(
+    name = "bridge_wasm",
+    library = "@my_bridge//bridge:bridge.wasm",
+    binding_contract = ["@my_bridge//bridge:codegen.ir"],
+)
+
+flutter_web_bundle(
+    name = "app_web",
+    native_modules = [":bridge_wasm"],   # not also in `web_assets` — it is served from here
+    # ...
+)
+```
+
+The physics are the same with a different cause: the page instantiates the module once, a hot reload does not re-run `main()`, and the instance outlives the increment. Declaring is the only way — the bundle directory also holds Flutter's own `main.dart.wasm`, which changes on every Dart edit, so nothing can recognise a native module by its name. What differs from native is the remedy: a web **restart** re-runs `main()` in the live page, so the module is re-fetched and re-instantiated with no relaunch at all.
+
 With that declared, a hot reload has three answers instead of one:
 
 | what moved | the reload |
@@ -1566,6 +1584,8 @@ Bindings changed, or nothing declaring them:
 Withheld, not injected: the increment was compiled against the rebuilt interface, and a process holding the old library would run it against machine code that cannot serve it — a skew that surfaces later as a malformed request or a call landing on the wrong function, with nothing left pointing at the library. Nothing is compiled and nothing is sent, so the app is left whole on the code *and* the library it launched with, and `app.restart` is what picks the new library up.
 
 `nativeLibsStale` carries the same meaning in both replies — these libraries' code is not what the process is running — and `succeeded` is what says whether the increment landed.
+
+Both apply on web, where a declared `native_modules` entry is checked the same way — and where a plain restart is enough to pick the new module up, since the page re-runs `main()` and re-fetches it.
 
 This only arises for an app whose reload rebuilds through bazel — a source-assembled (codegen) app, where regenerating sources recompiles the libraries too. The check reads the libraries and contracts that build declared (`_dev_config.json`), so it costs no bazel of its own: a `stat` per file, and a content hash only for one the build actually rewrote. A Dart-only edit stays on the instant path.
 

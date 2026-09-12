@@ -16,6 +16,12 @@ bytes mean the bindings are unchanged, so the library the running process
 already has can still serve them: the reload goes through and reports the
 library's *code* as stale rather than refusing the edit.
 
+On web the same wrapper goes in a web bundle's `native_modules` instead, where
+declaring it does a second job: the bundle directory also holds Flutter's own
+`main.dart.wasm`, which changes on every Dart edit, so a watch that recognised a
+module by its extension would flag every reload. Nothing can infer which served
+file is a native module — only the build knows.
+
 Deliberately a wrapper the app author composes rather than a provider the
 library's own rule must produce. A bridge generator has no reason to depend on a
 Flutter ruleset — most are usable from plain Dart — and an app that wants the
@@ -26,20 +32,25 @@ behaviour exactly.
 
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
 
-_SHARED_LIB_EXTENSIONS = ("so", "dylib", "dll")
+# A wasm module belongs here for the same reason a dylib does: the page
+# instantiates it once and a hot reload cannot replace the instance, so the
+# bindings about to be injected have to be ones that instance can serve. What
+# differs is only how it reaches the app — served by URL rather than bundled and
+# `dlopen`ed — and that difference is the web rule's, not this one's.
+_NATIVE_LIBRARY_EXTENSIONS = ("so", "dylib", "dll", "wasm")
 
 def _flutter_native_library_impl(ctx):
     default = ctx.attr.library[DefaultInfo]
     libraries = [
         f
         for f in default.files.to_list()
-        if f.extension in _SHARED_LIB_EXTENSIONS
+        if f.extension in _NATIVE_LIBRARY_EXTENSIONS
     ]
     if not libraries:
         fail((
-            "%s names `library = %s`, which produces no shared library " +
-            "(.so/.dylib/.dll). `native_deps` bundles shared libraries, so " +
-            "there would be nothing for this wrapper to carry a contract for."
+            "%s names `library = %s`, which produces no native library " +
+            "(.so/.dylib/.dll/.wasm), so there would be nothing for this " +
+            "wrapper to carry a contract for."
         ) % (ctx.label, ctx.attr.library.label))
     if not ctx.files.binding_contract:
         fail((
@@ -94,9 +105,13 @@ module needs that package's `visibility` to include it, like any other label.
 """,
     attrs = {
         "library": attr.label(
-            doc = "The shared library target, as it would appear in `native_deps`.",
+            doc = """The native library target, as it would appear in `native_deps` (or in a web bundle's `native_modules`).
+
+A shared library on a native platform; a `.wasm` module on web. Usually a rule's
+output, and a checked-in prebuilt file works too.
+""",
+            allow_files = True,
             mandatory = True,
-            providers = [DefaultInfo],
         ),
         "binding_contract": attr.label_list(
             doc = """Files whose bytes decide what the generated bindings may call.

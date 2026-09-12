@@ -34,6 +34,7 @@ import 'hot_reload/asset_bundle.dart';
 import 'hot_reload/package_uri_resolver.dart';
 import 'hot_reload/workspace.dart';
 import 'logging.dart';
+import 'native_libs_watch.dart';
 import 'outcome_renderer.dart';
 import 'package_roots.dart';
 import 'reload_pipeline.dart';
@@ -468,6 +469,29 @@ class WebPipelineAssembler {
           extraArgs: plan.extraArgs,
         );
         return r.success;
+      }
+
+      // The native modules the page instantiates, if the build declared any.
+      // Same physics as a `dlopen`ed library: `initBridge()` instantiates the
+      // module once, a hot reload does not re-run `main()`, so the instance
+      // outlives the increment — and new bindings over an instantiated module
+      // are worse here than on native, because a wasm trap poisons the instance
+      // rather than failing one call.
+      //
+      // Declared rather than found: this directory also holds the app's own
+      // `main.dart.wasm`, which moves on every Dart edit.
+      if (devConfig.nativeLibs.isNotEmpty) {
+        final nativeLibs = await NativeLibsWatch.of(
+          devConfig.nativeLibContracts,
+        );
+        pipeline.nativeLibsVerdict = nativeLibs.verdict;
+        // What a restart settles on web, and what no restart can settle on
+        // native. A hot restart re-runs `main()` in the live page and Dart
+        // statics reset with it, so `initBridge()` fetches the module URL again
+        // and instantiates what the rebuilt bundle now serves. A native process
+        // keeps every image it mapped, which is why there the same re-baseline
+        // belongs to the relauncher that replaced the process.
+        pipeline.markNativeLibsLive = nativeLibs.markLive;
       }
 
       // Codegen apps: rebuild generated sources via bazel before each web

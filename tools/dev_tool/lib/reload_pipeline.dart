@@ -116,6 +116,19 @@ class ReloadPipeline {
   /// configuration, which is a bundle build on every `r`.
   Future<NativeLibsVerdict> Function()? nativeLibsVerdict;
 
+  /// Record that the app has picked up the native modules on disk. Web only, and
+  /// called by [restart].
+  ///
+  /// A web restart re-runs `main()` in the live page and resets Dart statics with
+  /// it, so whatever fetched and instantiated a module does it again against what
+  /// the rebuilt bundle now serves. That makes the restart itself the event that
+  /// settles the question, with no process to replace — where on native the same
+  /// re-baseline belongs to the relauncher, because nothing short of a new process
+  /// can change what a `dlopen`ed image is.
+  ///
+  /// Null for native, and for a web app with no declared modules.
+  Future<void> Function()? markNativeLibsLive;
+
   /// For apps bundling loose native libraries: rebuilds and, when the rebuilt
   /// bundle's libraries differ from the running process's, relaunches the
   /// process — a hot restart cannot replace a dlopened image. Null for apps
@@ -651,6 +664,11 @@ class ReloadPipeline {
       // compile that nothing could load leaves the page exactly as empty as it
       // was, and the next reload still has no increment to make.
       webBaselineFailure = null;
+      // The page re-ran `main()` against what the bundle now serves, so whatever
+      // it fetched and instantiated is current. Nothing else in a run settles
+      // this on web — and on native nothing but a new process can, which is why
+      // only this arm has it to call.
+      await markNativeLibsLive?.call();
     }
     // The same rendering as every other reload response, and as web's own hot
     // reload below.
@@ -771,6 +789,20 @@ class ReloadPipeline {
     // a regenerated `.g.dart` is detected as changed and recompiled.
     final webRebuildFailed = await _refreshGenerated('Hot reload', addressed);
     if (webRebuildFailed != null) return webRebuildFailed;
+    // And the question that rebuild owes, on the same terms as native: the page
+    // instantiated its native modules once and a reload does not re-run `main()`,
+    // so an increment generated against a rebuilt module would run against the
+    // instance the page already has.
+    // Ahead of the asset refresh, which is where web's order differs from
+    // native's: nothing below has run yet, so a withheld reload here has touched
+    // the page in no way at all. `AssetOutcome.none` for the same reason — there
+    // is no diff to fold into a refusal that precedes it.
+    final native = await _checkNativeLibs(
+      'Hot reload',
+      addressed,
+      AssetOutcome.none,
+    );
+    if (native.refusal case final refusal?) return refusal;
 
     final assets = await _refreshAssets(targets, deliver: true);
     if (assets.rebuildFailed != null) {
@@ -784,13 +816,17 @@ class ReloadPipeline {
     final invalidated = {...fsChanged, ...declared};
     if (invalidated.isEmpty) {
       // Not "nothing happened": an asset-only edit lands here with the new
-      // bundle already delivered, and reporting no changes would be wrong.
+      // bundle already delivered, and reporting no changes would be wrong. So
+      // does a native module whose code moved and whose bindings did not — the
+      // generated Dart is byte-identical, which is exactly the shape that used
+      // to report success while the page ran code from before the edit.
       return toWire(
         CommandReport(
           verb: 'Hot reload',
           appIds: addressed,
           outcome: const ReloadNoChange(),
           assets: assets,
+          nativeLibs: native.verdict,
         ),
       );
     }
@@ -814,6 +850,7 @@ class ReloadPipeline {
             : ReloadCompileFailed(result.diagnostics),
         strategy: result.outcome,
         assets: assets,
+        nativeLibs: native.verdict,
         elapsed: Duration(milliseconds: result.elapsedMs),
       ),
     );

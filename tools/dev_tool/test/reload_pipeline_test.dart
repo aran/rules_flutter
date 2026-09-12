@@ -1350,6 +1350,83 @@ void main() {
       expect(h.compiler.fullCompileCalls, hasLength(1));
     });
 
+    /// A web pipeline that can complete a command: a compiler that answers, and
+    /// a strategy to apply what it produces.
+    Future<_Harness> webPipeline({NativeLibsVerdict? verdict}) async {
+      final h = await _Harness.create(withOrchestrator: false);
+      final (:server, :process) = startedServer();
+      await server.start();
+      addTearDown(() async {
+        process.complete(0);
+        await server.shutdown();
+        await h.dispose();
+      });
+      process.onLine = (line) {
+        if (line.startsWith('compile ') || line.startsWith('recompile ')) {
+          emitCleanCompile(process);
+        }
+      };
+      h.pipeline
+        ..frontendServer = server
+        ..strategy = _RecordingStrategy();
+      if (verdict != null) {
+        h.pipeline.nativeLibsVerdict = () async {
+          h.nativeLibsGateCalls++;
+          return verdict;
+        };
+      }
+      h.pipeline.ready.signalReady();
+      return h;
+    }
+
+    test('the web arm checks too, before it touches the page', () async {
+      // Web's own gap: the page instantiates a module once and a reload does not
+      // re-run `main()`, so the physics are identical — but nothing wired the
+      // check there, so a `-d chrome` run said nothing at all.
+      final h = await webPipeline(
+        verdict: const NativeBindingsMoved(
+          libs: ['demo_module.wasm'],
+          contracts: ['demo_module.api'],
+        ),
+      );
+      h.pipeline.assetTracker = await seedBundle(h.tmp, 'v1');
+      h.pipeline.rebuildAssets = () async => true;
+
+      final result = await h.hotReload();
+      expect(h.nativeLibsGateCalls, 1);
+      expect(result['succeeded'], isFalse);
+      expect(result['nativeLibsStale'], ['demo_module.wasm']);
+      // Ahead of the asset refresh on this arm, so a withheld web reload has
+      // touched the page in no way at all.
+      expect(result.containsKey('assetsChanged'), isFalse);
+    });
+
+    test('a web reload whose bindings held is delivered', () async {
+      final h = await webPipeline(
+        verdict: const NativeCodeStale(['demo_module.wasm']),
+      );
+      h.writeSource('main.dart', 'void main() { print(1); }');
+
+      final result = await h.hotReload();
+      expect(result['succeeded'], isTrue, reason: '${result['error']}');
+      expect(result['nativeLibsStale'], ['demo_module.wasm']);
+    });
+
+    test('a web restart re-baselines what the page fetched', () async {
+      // The difference that makes web cheaper than native: a restart re-runs
+      // `main()` in the live page, Dart statics reset, and whatever fetched the
+      // module does it again against what the bundle now serves. Nothing else in
+      // a run settles it — and on native nothing but a new process can, which is
+      // why only this arm calls it.
+      final h = await webPipeline();
+      var marked = 0;
+      h.pipeline.markNativeLibsLive = () async => marked++;
+
+      final result = await h.restart();
+      expect(result['succeeded'], isTrue, reason: '${result['error']}');
+      expect(marked, 1);
+    });
+
     test('an undeclared library withholds with the advice', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);
