@@ -1043,6 +1043,22 @@ class AndroidDevice extends Device {
     return args;
   }
 
+  /// What adb said, plus which device this asked it about.
+  ///
+  /// adb's own errors name neither the serial nor the flag that carried it, and
+  /// some of them are *about* the serial — `unknown host service
+  /// '<tail>:features'` is what it answers when the `-s` value has a colon in it
+  /// and the server splits on that colon. A reader who cannot see the serial the
+  /// tool used has nothing to compare against the one they would have typed, and
+  /// the earlier `unknown_device_id` warning is several screens back in a
+  /// `--machine` run's output.
+  ///
+  /// Omitted entirely when no device was named, because there is then no serial
+  /// to doubt: adb chose, and its message says so.
+  String _adbFailure(String what, Object? stderr) => deviceId == null
+      ? 'adb $what failed: $stderr'
+      : 'adb $what failed (adb -s $deviceId): $stderr';
+
   @override
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     final packageName = _packageName ?? await _readPackageName(appPath);
@@ -1059,7 +1075,7 @@ class AndroidDevice extends Device {
           await _insufficientStorageMessage(appPath, packageName, stderr),
         );
       }
-      throw StateError('adb install failed: $stderr');
+      throw StateError(_adbFailure('install', stderr));
     }
 
     // Step 1a: Debug launches await the VM service, which can never come up
@@ -1104,7 +1120,7 @@ class AndroidDevice extends Device {
       ]),
     );
     if (startResult.exitCode != 0) {
-      throw StateError('adb am start failed: ${startResult.stderr}');
+      throw StateError(_adbFailure('am start', startResult.stderr));
     }
 
     // Step 4: Discover VM service URI from logcat.
@@ -1476,11 +1492,11 @@ class AndroidDevice extends Device {
       remotePath,
     ], 'adb screencap');
     if (capResult.exitCode != 0) {
-      throw StateError('adb screencap failed: ${capResult.stderr}');
+      throw StateError(_adbFailure('screencap', capResult.stderr));
     }
     final pullResult = await step(['pull', remotePath, outputPath], 'adb pull');
     if (pullResult.exitCode != 0) {
-      throw StateError('adb pull failed: ${pullResult.stderr}');
+      throw StateError(_adbFailure('pull', pullResult.stderr));
     }
     await step(['shell', 'rm', remotePath], 'adb rm of the captured file');
   }

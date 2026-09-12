@@ -1035,6 +1035,64 @@ void main() {
     /// [INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation
     /// location]` — names neither size, so it reads as a bug in the tool
     /// rather than as a device that is out of room.
+    test('a failed adb command names the device it addressed', () async {
+      // adb's own errors name neither the serial nor the flag that carried it,
+      // and some of them are *about* the serial: `unknown host service
+      // '<tail>:features'` is what it answers when the `-s` value has a colon.
+      // A reader who cannot see the serial the tool used has nothing to compare
+      // against the one they would have typed.
+      final device = AndroidDevice(
+        deviceId: '58051JEBF01271',
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async => args.contains('install')
+            ? ProcessResult(0, 1, '', "adb: unknown host service 'x:features'")
+            : ProcessResult(0, 0, '', ''),
+        startProcess: (exe, args) async => FakeProcess(),
+      );
+
+      await expectLater(
+        device.launch('/tmp/app.apk'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('adb -s 58051JEBF01271'),
+              contains('unknown host service'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('a launch that named no device does not invent one', () async {
+      // `-d android` lets adb choose, and its message says which it chose or
+      // why it would not. Quoting a serial we never passed would be a fiction.
+      final device = AndroidDevice(
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async => args.contains('install')
+            ? ProcessResult(0, 1, '', 'adb: more than one device/emulator')
+            : ProcessResult(0, 0, '', ''),
+        startProcess: (exe, args) async => FakeProcess(),
+      );
+
+      await expectLater(
+        device.launch('/tmp/app.apk'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('more than one device'),
+              isNot(contains('adb -s')),
+            ),
+          ),
+        ),
+      );
+    });
+
     group('insufficient storage', () {
       late Directory sandbox;
       late String apkPath;
