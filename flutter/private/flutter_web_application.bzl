@@ -40,6 +40,7 @@ load(
     "flutter_compile_shaders",
     "make_web_wrapper_main_content",
     "merge_dart_defines",
+    "resolve_dev_generated_sources",
 )
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -336,6 +337,7 @@ def _flutter_web_bundle_impl(ctx):
     dev_filesystem_scheme = ""
     dev_generated_source_paths = []
     dev_generated_source_uris = []
+    dev_generated_source_files = []
     dev_source_packages = []
     if is_debug:
         dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
@@ -346,6 +348,18 @@ def _flutter_web_bundle_impl(ctx):
         dev_generated_source_paths = dev_pc.generated_source_paths
         dev_generated_source_uris = dev_pc.generated_source_uris
         dev_source_packages = dev_pc.source_packages
+
+        # The same declaration the native rule makes, for the same reason and
+        # against the same failure: the dev config sends the frontend_server to
+        # read these paths, and a cache hit runs no action, so a file that is only
+        # an action *input* is never written to this machine. Without this the web
+        # dev loop fails at assembly with "the build declared files it did not
+        # write" — and only once a disk or remote cache holds those actions, which
+        # is why it took a second full-suite run to see it.
+        dev_generated_source_files = resolve_dev_generated_sources(
+            dev_generated_source_paths,
+            all_srcs + [ctx.file.main],
+        )
 
     pc = compile_package_config(ctx, packages, all_srcs + [ctx.file.main])
     config_file = pc.config_file
@@ -1113,6 +1127,7 @@ def _flutter_web_bundle_impl(ctx):
         dev_config = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
         ctx.actions.write(dev_config, dev_config_content)
         ddc_files.append(dev_config)
+        ddc_files.extend(dev_generated_source_files)
         if dev_package_config:
             ddc_files.append(dev_package_config)
 

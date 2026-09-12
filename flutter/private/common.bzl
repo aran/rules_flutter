@@ -153,6 +153,33 @@ def collect_native_libs(native_deps):
                 libs.append(f)
     return libs
 
+def resolve_dev_generated_sources(paths, candidates):
+    """The Files behind `_dev_config.json`'s `generatedSourcePaths`.
+
+    `_dev_config.json` sends the frontend_server to read these paths. Nothing
+    asks for them by label, and being an action's *input* is not what makes bazel
+    write a file to this machine — a cache hit (disk or remote) runs no action, so
+    an input-only file is never materialized and the dev tool reports "the build
+    declared files it did not write". Declaring them is what makes the paths true.
+
+    Args:
+        paths: The `generatedSourcePaths` going into the dev config.
+        candidates: The Files the paths were derived from.
+
+    Returns:
+        The Files, in the order [paths] names them.
+    """
+    by_path = {f.path: f for f in candidates}
+    missing = [p for p in paths if p not in by_path]
+    if missing:
+        fail(
+            "dev config names generated sources with no File to declare: " +
+            ", ".join(missing) +
+            "\nThey would be written into _dev_config.json for the " +
+            "frontend_server to read and never materialized by the build.",
+        )
+    return [by_path[p] for p in paths]
+
 def collect_binding_contracts(native_deps):
     """Pair each `native_deps` entry's libraries with its declared binding contract.
 
@@ -300,24 +327,13 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         dev_generated_source_uris = dev_pc.generated_source_uris
         dev_source_packages = dev_pc.source_packages
 
-        # The files behind `dev_generated_source_paths`, resolved from that
-        # same list so the two cannot drift. `_dev_config.json` sends the
-        # frontend_server to read these paths; nothing asks for them by label,
-        # and being an action's input is not what makes bazel write a file to
-        # this machine.
-        _by_path = {f.path: f for f in colocate_inputs}
-        missing = [p for p in dev_generated_source_paths if p not in _by_path]
-        if missing:
-            fail(
-                "dev config names generated sources with no File to declare: " +
-                ", ".join(missing) +
-                "\nThey would be written into _dev_config.json for the " +
-                "frontend_server to read and never materialized by the build.",
-            )
-        dev_generated_source_files = [
-            _by_path[p]
-            for p in dev_generated_source_paths
-        ]
+        # Resolved from the same list the paths came from, so the two cannot
+        # drift — see [resolve_dev_generated_sources] for why declaring them is
+        # what makes the config's paths true.
+        dev_generated_source_files = resolve_dev_generated_sources(
+            dev_generated_source_paths,
+            colocate_inputs,
+        )
 
     pc = compile_package_config(ctx, packages, colocate_inputs)
     config_file = pc.config_file
