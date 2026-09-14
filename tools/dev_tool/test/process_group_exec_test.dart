@@ -47,6 +47,54 @@ Future<_Finished> _finish(Process process) async {
   );
 }
 
+/// A process's stdout as lines, kept, so that a wait for one can neither miss
+/// a line that has already arrived nor outlast the stream it is waiting on.
+class _Lines {
+  final List<String> seen = [];
+  final _arrived = StreamController<void>.broadcast();
+  final _ended = Completer<void>();
+  late final StreamSubscription<String> _subscription;
+
+  _Lines(Stream<List<int>> stdout) {
+    _subscription = stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(
+          (line) {
+            seen.add(line);
+            _arrived.add(null);
+          },
+          onDone: () {
+            _ended.complete();
+            _arrived.add(null);
+          },
+        );
+  }
+
+  /// Completes once every process holding the pipe has closed it.
+  Future<void> get ended => _ended.future;
+
+  /// The first line, once it arrives.
+  Future<String> next() async {
+    await _until(() => seen.isNotEmpty, 'any line');
+    return seen.first;
+  }
+
+  /// Returns once [line] has arrived.
+  Future<void> waitFor(String line) => _until(() => seen.contains(line), line);
+
+  Future<void> _until(bool Function() arrived, String what) async {
+    while (!arrived()) {
+      if (_ended.isCompleted) {
+        throw StateError('stdout ended before $what; it said: $seen');
+      }
+      await _arrived.stream.first;
+    }
+  }
+
+  Future<void> cancel() => _subscription.cancel();
+}
+
 Future<String> _pgidOf(int pid) async {
   final ps = await Process.run('ps', ['-o', 'pgid=', '-p', '$pid']);
   return (ps.stdout as String).trim();
@@ -62,10 +110,9 @@ void main() {
         // Blocks on stdin, so the group can be read while the program is alive.
         r'echo $$; read _',
       ]);
-      final lines = process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter());
-      final reportedPid = await lines.first;
+      final stdout = _Lines(process.stdout);
+      addTearDown(stdout.cancel);
+      final reportedPid = await stdout.next();
 
       final groupOfProgram = await _pgidOf(process.pid);
       final groupOfTest = await _pgidOf(pid);
@@ -87,6 +134,13 @@ void main() {
   // The bazelisk shape: a parent that catches SIGTERM and does nothing with
   // it, and the child doing the actual work. Signalling the parent's pid alone
   // leaves the child running; signalling the group reaches it.
+  //
+  // The child works in `sleep 1` rounds rather than one long sleep started
+  // after it says `ready`. A long sleep that was not yet forked when the group
+  // signal landed missed it, outlived the test holding the stdout pipe, and so
+  // held the test VM open until the test timed out — 6 runs in 60 under load.
+  // A round that misses the signal ends on its own within a second, and the
+  // trap runs before the next one starts.
   test('one signal to the group reaches a child its parent does not '
       'forward to', () async {
     final dir = await Directory.systemTemp.createTemp('process_group_exec');
@@ -94,34 +148,25 @@ void main() {
     final parent = File('${dir.path}/parent.sh')
       ..writeAsStringSync(r'''
 trap 'echo parent got TERM' TERM
-sh -c 'trap "echo child got TERM; exit 3" TERM; echo ready; sleep 1000 & wait' &
+sh -c 'trap "echo child got TERM; exit 3" TERM; echo ready; while :; do sleep 1; done' &
 child=$!
-wait "$child"
-status=$?
-# A caught signal interrupts `wait`; the child's own status comes after.
-while kill -0 "$child" 2>/dev/null; do wait "$child"; status=$?; done
-exit "$status"
+# A caught signal interrupts `wait`, so wait again while the child lives.
+while kill -0 "$child" 2>/dev/null; do wait "$child"; done
 ''');
     final process = await Process.start(_helper(), ['/bin/sh', parent.path]);
-    final stdoutLines = StreamController<String>.broadcast();
-    final collected = <String>[];
-    process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-          collected.add(line);
-          stdoutLines.add(line);
-        });
-    await stdoutLines.stream.firstWhere((line) => line == 'ready');
+    final stdout = _Lines(process.stdout);
+    addTearDown(stdout.cancel);
+    unawaited(process.stderr.drain<void>());
+    await stdout.waitFor('ready');
 
     // First the parent alone, which is all a `Process.kill` reaches. Waiting
     // for the parent to say it took the signal is what makes the check below
     // mean something: the child was never sent one, so there is nothing still
     // in flight that could stop it later.
     Process.killPid(process.pid, ProcessSignal.sigterm);
-    await stdoutLines.stream.firstWhere((line) => line == 'parent got TERM');
+    await stdout.waitFor('parent got TERM');
     expect(
-      collected,
+      stdout.seen,
       isNot(contains('child got TERM')),
       reason:
           'the fixture has to ignore a signal the way bazelisk does, or '
@@ -130,8 +175,12 @@ exit "$status"
 
     expect(Process.killPid(-process.pid, ProcessSignal.sigterm), isTrue);
 
-    expect(await process.exitCode, 3);
-    expect(collected, contains('child got TERM'));
+    // The end of stdout, not the exit status: the pipe closes only once every
+    // process in the group has let go of it, and the child's own line can
+    // arrive after the parent's exit is reported.
+    await stdout.ended;
+    await process.exitCode;
+    expect(stdout.seen, contains('child got TERM'));
   });
 
   test("the program's exit status is the caller's", () async {
