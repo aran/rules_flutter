@@ -138,7 +138,10 @@ _UNIT_TESTS = {
     "applied_versions_test": {"deps": _PATH_DEP},
     "asset_bundle_test": {"deps": _PATH_DEP},
     "attach_command_test": {},
-    "bazel_test": {},
+    "bazel_test": {
+        "fakes": True,
+        "deps": ["@dev_tool_deps//:logging"],
+    },
     "build_command_test": {},
     "build_info_test": {"fakes": True},
     "bundle_rebuild_test": {},

@@ -97,6 +97,10 @@ class RunPlan {
 
   final Logger logger;
 
+  /// The run's bazel, which [buildApp] builds through so the launch build is
+  /// one a stopped run can stop. See [Bazel].
+  final Bazel bazel;
+
   RunPlan._({
     required this.target,
     required this.extraArgs,
@@ -119,6 +123,7 @@ class RunPlan {
     required this.webMode,
     required this.webOptions,
     required this.logger,
+    required this.bazel,
   });
 
   /// Whether this run targets a browser.
@@ -291,7 +296,11 @@ class RunPlan {
   /// Throws [DevToolException] for anything that makes the run impossible: a
   /// misconfigured host, devices that cannot share one build, a mode a device
   /// cannot run. All of it before a build is spent on it.
-  static Future<RunPlan> resolve(ArgResults results, Logger logger) async {
+  static Future<RunPlan> resolve(
+    ArgResults results,
+    Logger logger, {
+    required Bazel bazel,
+  }) async {
     final target = results['target'] as String;
     final defineFlags = dartDefineFlags(results['dart-define'] as List<String>);
     final isMachine = results['machine'] as bool;
@@ -309,11 +318,15 @@ class RunPlan {
 
     // Resolve the workspace root once rather than per callsite: it avoids
     // redundant `bazel info` spawns and gives every consumer the same answer.
-    final workspace = await findWorkspaceRoot();
+    final workspace = await bazel.findWorkspaceRoot();
     // The native pipeline needs the frontend server and dartaotruntime out of
     // this, and DevTools needs the toolchain's `dart` on every platform —
     // including web, which otherwise never resolves a toolchain at all.
-    final toolchain = await resolveToolchainPaths(target, workspace: workspace);
+    final toolchain = await resolveToolchainPaths(
+      target,
+      workspace: workspace,
+      runBazel: bazel.run,
+    );
 
     // Devices FIRST — they dictate the platform build flags.
     final devices = resolveDevices(results['device'] as List<String>);
@@ -430,6 +443,7 @@ class RunPlan {
       webMode: webMode,
       webOptions: webOptions,
       logger: logger,
+      bazel: bazel,
     );
   }
 
@@ -448,7 +462,7 @@ class RunPlan {
       'mode': modeName,
     });
 
-    final result = await bazelBuild(
+    final result = await bazel.build(
       target,
       workspace: workspace,
       compilationMode: compilationMode,

@@ -24,7 +24,6 @@ import 'package:path/path.dart' as p;
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
     show ChromeConnection;
 
-import 'bazel.dart';
 import 'command_report.dart';
 import 'compiler_config.dart';
 import 'dev_tool_exception.dart';
@@ -462,7 +461,7 @@ class WebPipelineAssembler {
       // edit. The native `_rebuildBundle` comment describes the same family of
       // mistake.
       Future<bool> rebuildWebBundle() async {
-        final r = await bazelBuild(
+        final r = await host.bazel.build(
           plan.target,
           workspace: plan.workspace,
           compilationMode: 'dbg',
@@ -846,7 +845,7 @@ class WasmPipelineAssembler {
           'message': 'wasm_rebuild',
           'text': 'Rebuilding $target (WASM)...',
         });
-        final result = await bazelBuild(
+        final result = await host.bazel.build(
           target,
           workspace: workspace,
           compilationMode: compilationMode,

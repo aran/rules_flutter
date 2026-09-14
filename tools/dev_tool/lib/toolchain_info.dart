@@ -36,26 +36,18 @@ class ToolchainPaths {
 
 /// How [resolveToolchainPaths] reaches bazel.
 ///
-/// Injected because a test target here runs inside a Bazel sandbox, where
-/// nesting a `bazel` invocation is not possible (see the comment on the
-/// analysis targets in this package's BUILD file), so the failures below cannot
-/// be provoked without a seam.
+/// Required, with no default that spawns `bazel` itself: in the dev tool this
+/// is `Bazel.run`, so a `bazel fetch` of the toolchain — minutes, on a fresh
+/// output base — is one a stopped run can stop. A default would be a way to
+/// run bazel that nothing stops. It is also the seam a test here needs: a test
+/// target runs inside a Bazel sandbox, where nesting a `bazel` invocation is
+/// not possible (see the comment on the analysis targets in this package's
+/// BUILD file), so the failures below cannot be provoked without one.
 typedef BazelRunner =
     Future<ProcessResult> Function(
       List<String> args, {
       required String workingDirectory,
     });
-
-Future<ProcessResult> _runBazel(
-  List<String> args, {
-  required String workingDirectory,
-}) => Process.run(
-  'bazel',
-  args,
-  workingDirectory: workingDirectory,
-  stdoutEncoding: utf8,
-  stderrEncoding: utf8,
-);
 
 /// What the Flutter host toolchain repo for [platform] is called inside an
 /// output base, in each of the two positions `rules_flutter` can occupy.
@@ -87,7 +79,7 @@ List<String> flutterToolchainRepoNames(String platform) => [
 Future<ToolchainPaths> resolveToolchainPaths(
   String target, {
   required String workspace,
-  BazelRunner runBazel = _runBazel,
+  required BazelRunner runBazel,
 }) async {
   final info = await runBazel([
     'info',

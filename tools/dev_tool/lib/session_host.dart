@@ -16,6 +16,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'agent_command.dart';
+import 'bazel.dart';
 import 'command_failure.dart';
 import 'command_runner.dart';
 import 'dev_tool_exception.dart';
@@ -64,6 +65,11 @@ class SessionHost {
   /// Owns everything created after `app.started`. See [Teardown].
   final Teardown teardown = Teardown();
 
+  /// Every bazel command this run starts, from the first `bazel info` to a
+  /// rebuild on reload. Closed by [teardown], so however the run is stopped,
+  /// a bazel command it started does not go on without it. See [Bazel].
+  final Bazel bazel;
+
   /// Completed by [performCleanup]; what ends the interactive session loop.
   final Completer<void> shutdownRequested = Completer<void>();
 
@@ -90,9 +96,16 @@ class SessionHost {
   final bool _isMachine;
   final Logger _logger;
 
-  SessionHost({required bool isMachine, required Logger logger})
+  SessionHost({required bool isMachine, required Logger logger, Bazel? bazel})
     : _isMachine = isMachine,
-      _logger = logger;
+      _logger = logger,
+      bazel = bazel ?? Bazel() {
+    // The first thing registered, so the last thing disposed: everything else
+    // a run owns was built on what bazel produced, and none of it waits on
+    // bazel to come down. Registered here rather than by whoever first runs
+    // bazel, because that is `RunPlan.resolve`, before any of the run exists.
+    unawaited(teardown.add(this.bazel.close));
+  }
 
   /// Look up a session by appId. Returns null if not found.
   DeviceSession? findSession(String? appId) {

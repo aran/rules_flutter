@@ -15,6 +15,7 @@ library;
 
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/bazel.dart';
 import 'package:flutter_bazel_dev_tool/build_info.dart';
 import 'package:flutter_bazel_dev_tool/device.dart';
 import 'package:flutter_bazel_dev_tool/logging.dart';
@@ -64,7 +65,18 @@ void main() {
     bool extensionRegistered = true,
   }) async {
     final logger = Logger('test.native_pipeline_assembler');
-    final host = SessionHost(isMachine: false, logger: logger);
+    final host = SessionHost(
+      isMachine: false,
+      logger: logger,
+      // `bazel` started straight from `PATH`, without the process-group helper
+      // a test has no runfiles to find: what [_noWorkspace] relies on is the
+      // spawn itself refusing the directory.
+      bazel: Bazel.uninterruptible(
+        spawn: (args, {required workingDirectory}) =>
+            Process.start('bazel', args, workingDirectory: workingDirectory),
+        because: 'this test starts it straight from PATH',
+      ),
+    );
 
     VmServiceClient? client;
     if (withVmService) {

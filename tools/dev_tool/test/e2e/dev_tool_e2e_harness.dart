@@ -1243,7 +1243,14 @@ Future<String> hermeticDart({
 }) async {
   final cached = _hermeticDartByWorkspace[workspace];
   if (cached != null) return cached;
-  final toolchain = await resolveToolchainPaths(target, workspace: workspace);
+  final toolchain = await resolveToolchainPaths(
+    target,
+    workspace: workspace,
+    // Straight to bazel: this is the test harness resolving a `dart` to run
+    // the tool with, not a run that anything stops part-way.
+    runBazel: (args, {required workingDirectory}) =>
+        Process.run('bazel', args, workingDirectory: workingDirectory),
+  );
   if (!File(toolchain.dart).existsSync()) {
     throw StateError(
       'Flutter toolchain dart not found at ${toolchain.dart} (resolved from '

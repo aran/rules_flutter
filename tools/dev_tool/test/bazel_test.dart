@@ -1,5 +1,11 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_bazel_dev_tool/bazel.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
+
+import 'fakes.dart';
 
 void main() {
   group('BazelBuildResult', () {
@@ -141,10 +147,319 @@ void main() {
     });
   });
 
-  // findWorkspaceRoot() reads BUILD_WORKSPACE_DIRECTORY (set by
-  // `bazel run`) and falls back to spawning `bazel info workspace`.
-  // Both paths are end-to-end signals that don't unit-test cleanly
-  // without dependency injection, and the function is small enough that
-  // the gain from injecting a fake env / process runner doesn't pay for
-  // the surface-area cost.
+  // A run is stopped with a signal or `daemon.shutdown`, and either can land
+  // while a bazel command is running — the launch build, a codegen rebuild on
+  // reload, a first `bazel fetch` of the toolchain. Left alone, that command
+  // outlives the tool: measured, a build ran on to "Processing and signing
+  // app" five seconds after the tool had exited, and every bazel command in
+  // the workspace waited behind it for the output base's lock.
+  group('Bazel', () {
+    /// A [Bazel] whose commands are [FakeProcess]es the test finishes by hand.
+    ({
+      Bazel bazel,
+      List<({List<String> args, String workingDirectory})> spawned,
+      List<FakeProcess> processes,
+      List<Process> interrupted,
+    })
+    fakeBazel({
+      bool canInterrupt = true,
+      Duration stopBound = const Duration(seconds: 5),
+      Future<void>? spawnGate,
+    }) {
+      final spawned = <({List<String> args, String workingDirectory})>[];
+      final processes = <FakeProcess>[];
+      final interrupted = <Process>[];
+      Future<Process> spawn(
+        List<String> args, {
+        required String workingDirectory,
+      }) async {
+        spawned.add((args: args, workingDirectory: workingDirectory));
+        final process = FakeProcess();
+        processes.add(process);
+        if (spawnGate != null) await spawnGate;
+        return process;
+      }
+
+      final bazel = canInterrupt
+          ? Bazel.using(
+              spawn: spawn,
+              interrupt: interrupted.add,
+              stopBound: stopBound,
+            )
+          : Bazel.uninterruptible(
+              spawn: spawn,
+              because: 'this test gave it no way to',
+              stopBound: stopBound,
+            );
+      return (
+        bazel: bazel,
+        spawned: spawned,
+        processes: processes,
+        interrupted: interrupted,
+      );
+    }
+
+    test('runs a command in the workspace and returns what it said', () async {
+      final fake = fakeBazel();
+
+      final result = fake.bazel.run([
+        'info',
+        'output_base',
+      ], workingDirectory: '/ws');
+      await pumpEventQueue();
+      final process = fake.processes.single;
+      await process.outputAttached;
+      process.emitStdout('/out/base');
+      process.emitStderr('a warning\n');
+      process.complete(0);
+
+      final finished = await result;
+      expect(fake.spawned.single.args, ['info', 'output_base']);
+      expect(fake.spawned.single.workingDirectory, '/ws');
+      expect(finished.exitCode, 0);
+      expect(finished.stdout, '/out/base\n');
+      expect(finished.stderr, 'a warning\n');
+    });
+
+    test(
+      'close interrupts a running command and waits for it to end',
+      () async {
+        final fake = fakeBazel();
+        final build = fake.bazel.run([
+          'build',
+          '//:app',
+        ], workingDirectory: '/ws');
+        await pumpEventQueue();
+        final process = fake.processes.single;
+
+        var closed = false;
+        final closing = fake.bazel.close().then((_) => closed = true);
+        await pumpEventQueue();
+
+        expect(fake.interrupted, [same(process)]);
+        expect(
+          closed,
+          isFalse,
+          reason:
+              'bazel releases the output base when it exits, not when it is '
+              'asked to stop; returning before then leaves the next command to '
+              'wait behind it',
+        );
+
+        process.complete(8);
+        await closing;
+        await expectLater(build, throwsA(isA<BazelCancelled>()));
+      },
+    );
+
+    // Exit 8 is bazel's own "interrupted", but the status is not the fact:
+    // a build that happened to finish as the interrupt arrived still belongs
+    // to a run that is ending, and reporting it as a result would have the
+    // caller carry on launching.
+    test('a command close stopped is cancelled, whatever its status', () async {
+      final fake = fakeBazel();
+      final build = fake.bazel.run([
+        'build',
+        '//:app',
+      ], workingDirectory: '/ws');
+      await pumpEventQueue();
+
+      final closing = fake.bazel.close();
+      await pumpEventQueue();
+      fake.processes.single.complete(0);
+      await closing;
+
+      await expectLater(
+        build,
+        throwsA(
+          isA<BazelCancelled>().having(
+            (e) => '$e',
+            'message',
+            contains('bazel build //:app'),
+          ),
+        ),
+      );
+    });
+
+    test('a command that already ended is not interrupted', () async {
+      final fake = fakeBazel();
+      final info = fake.bazel.run(['info'], workingDirectory: '/ws');
+      await pumpEventQueue();
+      fake.processes.single.complete(0);
+      await info;
+
+      await fake.bazel.close();
+
+      expect(fake.interrupted, isEmpty);
+    });
+
+    test('refuses to start a command once closed', () async {
+      final fake = fakeBazel();
+      await fake.bazel.close();
+
+      await expectLater(
+        fake.bazel.run(['build', '//:app'], workingDirectory: '/ws'),
+        throwsA(isA<BazelCancelled>()),
+      );
+      expect(
+        fake.spawned,
+        isEmpty,
+        reason: 'a bazel started after the stop is one nothing will stop',
+      );
+    });
+
+    // The window `Teardown` exists for, one level down: a command whose
+    // process is still being created when the run is stopped has no process to
+    // interrupt yet, and must not come into existence unowned.
+    test('a command still starting when close is called is interrupted '
+        'once it exists', () async {
+      final gate = Completer<void>();
+      final fake = fakeBazel(spawnGate: gate.future);
+      final build = fake.bazel.run([
+        'build',
+        '//:app',
+      ], workingDirectory: '/ws');
+      await pumpEventQueue();
+
+      final closing = fake.bazel.close();
+      await pumpEventQueue();
+      expect(fake.interrupted, isEmpty);
+
+      gate.complete();
+      await pumpEventQueue();
+      final process = fake.processes.single;
+      expect(fake.interrupted, [same(process)]);
+
+      process.complete(8);
+      await closing;
+      await expectLater(build, throwsA(isA<BazelCancelled>()));
+    });
+
+    test(
+      'close gives up on a command that will not end, and says so',
+      () async {
+        final fake = fakeBazel(stopBound: const Duration(milliseconds: 20));
+        final records = <LogRecord>[];
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
+        unawaited(
+          fake.bazel
+              .run(['build', '//:app'], workingDirectory: '/ws')
+              .then<void>((_) {}, onError: (Object _) {}),
+        );
+        await pumpEventQueue();
+
+        await fake.bazel.close();
+
+        expect(
+          records.map((r) => r.message),
+          contains(contains('bazel_stop_timed_out')),
+        );
+      },
+    );
+
+    // Windows: no process group to signal. A console Ctrl-C reaches bazel on
+    // its own, so waiting for it is still what releases the output base; what
+    // cannot happen is asking it to stop.
+    test('without a way to interrupt, close still waits for the command, and '
+        'says it could not stop it', () async {
+      final fake = fakeBazel(
+        canInterrupt: false,
+        stopBound: const Duration(milliseconds: 20),
+      );
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      unawaited(
+        fake.bazel
+            .run(['build', '//:app'], workingDirectory: '/ws')
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
+      await pumpEventQueue();
+
+      await fake.bazel.close();
+
+      final timedOut = records.singleWhere(
+        (r) => '${r.message}'.contains('bazel_stop_timed_out'),
+      );
+      expect(
+        '${timedOut.message}',
+        contains(
+          'could not be interrupted, because this test gave it no way to',
+        ),
+      );
+    });
+
+    test('close with nothing running returns at once, and twice', () async {
+      final fake = fakeBazel();
+
+      await fake.bazel.close();
+      await fake.bazel.close();
+
+      expect(fake.interrupted, isEmpty);
+    });
+
+    group('build', () {
+      test('lists the outputs of a build that succeeded', () async {
+        final fake = fakeBazel();
+        final build = fake.bazel.build(
+          '//:app',
+          workspace: '/ws',
+          compilationMode: 'dbg',
+        );
+        await pumpEventQueue();
+        final buildProcess = fake.processes.single;
+        await buildProcess.outputAttached;
+        buildProcess.emitStderr('INFO: Build completed successfully\n');
+        buildProcess.complete(0);
+        await pumpEventQueue();
+        final cquery = fake.processes.last;
+        await cquery.outputAttached;
+        cquery.emitStdout('bazel-out/darwin/bin/app.zip');
+        cquery.complete(0);
+
+        final result = await build;
+        expect(fake.spawned.first.args.first, 'build');
+        expect(fake.spawned.last.args, [
+          'cquery',
+          '//:app',
+          '--output=files',
+          '-c',
+          'dbg',
+        ]);
+        expect(result.success, isTrue);
+        expect(result.outputFiles, ['/ws/bazel-out/darwin/bin/app.zip']);
+      });
+
+      test('a build that failed carries the tail of what bazel said, and '
+          'lists nothing', () async {
+        final fake = fakeBazel();
+        final build = fake.bazel.build('//:app', workspace: '/ws');
+        await pumpEventQueue();
+        final process = fake.processes.single;
+        await process.outputAttached;
+        process.emitStderr("ERROR: lib/main.dart: Expected ';'\n");
+        process.complete(1);
+
+        final result = await build;
+        expect(result.exitCode, 1);
+        expect(result.stderr, contains("Expected ';'"));
+        expect(fake.spawned, hasLength(1), reason: 'no cquery after a failure');
+      });
+
+      test('a build close stopped is cancelled and queries nothing', () async {
+        final fake = fakeBazel();
+        final build = fake.bazel.build('//:app', workspace: '/ws');
+        await pumpEventQueue();
+
+        final closing = fake.bazel.close();
+        await pumpEventQueue();
+        fake.processes.single.complete(8);
+        await closing;
+
+        await expectLater(build, throwsA(isA<BazelCancelled>()));
+        expect(fake.spawned, hasLength(1));
+      });
+    });
+  });
 }

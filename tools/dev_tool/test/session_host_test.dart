@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/bazel.dart';
 import 'package:flutter_bazel_dev_tool/command_failure.dart';
 import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
 import 'package:flutter_bazel_dev_tool/device.dart';
@@ -126,6 +127,44 @@ void main() {
       await expectLater(host.performCleanup(), throwsStateError);
 
       expect(host.shutdownRequested.isCompleted, isTrue);
+    });
+
+    // A run is most likely to be stopped during its build, before it has
+    // registered anything at all, so the bazel commands have to be the host's
+    // from the start rather than something a later step remembers to hand in.
+    // Last in the order: the app and the compiler come down first, and none
+    // of them waits on bazel to do it.
+    test('stops the bazel commands the run started, after everything '
+        'else', () async {
+      final order = <String>[];
+      final build = FakeProcess();
+      final host = SessionHost(
+        isMachine: false,
+        logger: Logger('test.session_host'),
+        bazel: Bazel.using(
+          spawn: (args, {required workingDirectory}) async => build,
+          interrupt: (process) {
+            order.add('bazel interrupted');
+            (process as FakeProcess).complete(8);
+          },
+        ),
+      );
+      await host.teardown.add(() async => order.add('app stopped'));
+      final running = host.bazel.run([
+        'build',
+        '//:app',
+      ], workingDirectory: '/ws');
+      await pumpEventQueue();
+
+      await host.performCleanup();
+
+      expect(order, ['app stopped', 'bazel interrupted']);
+      await expectLater(running, throwsA(isA<BazelCancelled>()));
+      await expectLater(
+        host.bazel.run(['info'], workingDirectory: '/ws'),
+        throwsA(isA<BazelCancelled>()),
+        reason: 'a bazel command started after the shutdown has no owner',
+      );
     });
   });
 

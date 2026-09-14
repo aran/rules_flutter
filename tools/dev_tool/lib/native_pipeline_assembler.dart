@@ -344,7 +344,7 @@ class NativePipelineAssembler {
       'text': 'Building the hot-reload inputs for $target...',
       'target': target,
     });
-    final devAppLabel = await bazelCqueryFlutterAppLabel(
+    final devAppLabel = await host.bazel.cqueryFlutterAppLabel(
       target,
       workspace: workspace,
       compilationMode: 'dbg',
@@ -360,7 +360,7 @@ class NativePipelineAssembler {
     // `_dev_config.json` and tells the user to "build with -c dbg" — a wrong
     // answer for a source file that simply did not compile. The build result is
     // the only place that distinguishes them.
-    final devBuild = await bazelBuild(
+    final devBuild = await host.bazel.build(
       devAppLabel,
       workspace: workspace,
       compilationMode: 'dbg',
@@ -559,7 +559,7 @@ class NativePipelineAssembler {
     // reload/restart so edits to codegen inputs are regenerated. Null for
     // non-codegen apps → no bazel build on a Dart edit (today's instant path).
     if (devConfig.generatedSourceUris.isNotEmpty) {
-      pipeline.refreshGenerated = () async => (await bazelBuild(
+      pipeline.refreshGenerated = () async => (await host.bazel.build(
         devAppLabel,
         workspace: workspace,
         compilationMode: 'dbg',
@@ -707,13 +707,13 @@ class NativePipelineAssembler {
   ///
   /// Returns the directory.
   Future<String> _wireAssets() async {
-    final candidates = await bazelCqueryFlutterAppFiles(
+    final candidates = await host.bazel.cqueryFlutterAppFiles(
       target,
       workspace: workspace,
       compilationMode: 'dbg',
       extraArgs: _launchArgs,
     );
-    final queried = await bazelCqueryFlutterAppLabel(
+    final queried = await host.bazel.cqueryFlutterAppLabel(
       target,
       workspace: workspace,
       compilationMode: 'dbg',
@@ -767,7 +767,7 @@ class NativePipelineAssembler {
   );
 
   Future<bool> _rebuildBundle() async {
-    final r = await bazelBuild(
+    final r = await host.bazel.build(
       target,
       workspace: workspace,
       compilationMode: 'dbg',

@@ -23,6 +23,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 
+import 'bazel.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
 import 'hot_reload/source_watcher.dart';
@@ -336,226 +337,235 @@ class RunCommand {
 
     protocol.startListening();
 
-    // Everything this invocation resolves to: devices, compilation mode, bazel
-    // flags, workspace, toolchain. The devices come back ready to launch —
-    // `--start-paused` and Android's VM-service preflight are launch-time engine
-    // arguments, so there is no later moment at which they could be applied.
-    final plan = await RunPlan.resolve(_results, logger);
-    // The first things the plan settles that the command surface depends on.
-    // Only a `-c dbg` native build carries the record `app.buildInfo` reads,
-    // and only a run with a VM service can reach the `ext.rules_flutter.*`
-    // extensions the `app.*` agent commands proxy to. See
-    // RunPlan.carriesBuildInfo and RunPlan.hasAgentSurface.
-    if (plan.carriesBuildInfo) host.registerBuildInfo();
-    if (plan.hasAgentSurface) {
-      host.registerAgentCommands();
-    } else {
-      // Said once, at the top of the run, rather than left to be discovered
-      // one refused command at a time. The absence is structural and known
-      // here; what a client gets otherwise is `Unknown command: app.getText`,
-      // which is true but does not say that no flag on this invocation would
-      // have made it available.
-      final absent = _noAgentSurface(plan);
-      logger.info({
-        'message': 'agent_surface_unavailable',
-        'text':
-            'This run has no VM service, so the app.* agent commands (tap, '
-            'enterText, getText, waitFor, dumpWidgetTree, …) are not offered: '
-            '${absent.because} What still works: the app console '
-            '(GET /sessions/{appId}/logs), a browser screenshot '
-            '(GET /sessions/{appId}/screenshot/native) and app.restart. To '
-            'drive the widget tree, run the DDC dev loop instead — the same '
-            'target with neither --wasm nor --profile.',
-        'reason': absent.reason,
-      });
-    }
-    final target = plan.target;
-    final workspace = plan.workspace;
-    final toolchain = plan.toolchain;
-    final devices = plan.devices;
-    final isWebDevice = plan.isWebDevice;
-
-    // Stamped before the build, not after: a source edited while bazel is
-    // reading it may or may not be in the result, and the two ways of being
-    // wrong are not equal. Unseeding costs a recompile of content the app
-    // already has; seeding drops the edit. See [AppliedVersions.seedFromBuild].
-    final builtBefore = DateTime.now();
-    final build = await plan.buildApp();
-    final appFile = build.appFile;
-    final outputFiles = build.outputFiles;
-
-    // Start watching before anything launches — including the DDC web assembly
-    // below. Assembly stands up the module server, DWDS and the frontend
-    // server and waits for the first compile, and an edit saved inside that
-    // window fires no watch event at all. Its content still reaches the page —
-    // the initial compile reads it if it lands before the snapshot cut, and the
-    // next reload re-sends it otherwise — so what is lost is only the trigger.
-    // That is the worst shape it could have: you save, nothing happens, nothing
-    // says why, and it comes right on the next save for no visible reason.
-    //
-    // A watcher created inside the session loop is later still: that loop runs
-    // after every device has launched and reported `app.started` and — on
-    // native — after the compiler's first full compile, and `DirectoryWatcher`
-    // reports nothing until its own initial scan completes on top of that.
-    //
-    // `await start()` is the other half: it returns once the underlying
-    // watcher is live, and until then events are simply not reported.
-    // Not in profile mode: that session never gets a reload pipeline to hand
-    // the changes to, so the watcher would only be a subscription nobody reads.
+    // Assigned part-way through the run and released in its `finally`, so
+    // declared before it.
     SourceWatcher? sourceWatcher;
-    if (plan.watchEnabled && plan.hotReloadOff == null) {
-      sourceWatcher = SourceWatcher(
-        root: workspace,
-        // Reads `assetTracker` on each event rather than closing over its
-        // value: the tracker is built later (it needs the build outputs), and
-        // it re-learns which directories feed the bundle after every rebuild,
-        // so a directory that starts holding assets mid-run starts being
-        // watched without restarting anything.
-        accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
-      );
-      await sourceWatcher.start();
-      // A dead watcher does not end the run — an explicit `app.hotReload`
-      // still works — but it silently ends `--watch`, so it has to be said.
-      // package:watcher closes itself permanently on a post-ready end or any
-      // error.
-      unawaited(
-        sourceWatcher.failed.then((failure) {
-          logger.severe({
-            'message': 'watcher_failed',
-            'text':
-                '${failure.reason}. Edits on disk will no longer trigger a '
-                'reload; use app.hotReload explicitly, or restart the run to '
-                'resume watching.',
-            'error': failure.error?.toString() ?? '',
-          });
-        }),
-      );
-    }
-
-    // Step 3a: the DDC dev loop — module server, DWDS, web frontend server —
-    // all before Chrome launches, so Chrome opens the module server's URL and
-    // the browser-connection listener is already attached when it connects.
     WebPipelineAssembler? web;
-    if (plan.isDdcWeb) {
-      web = WebPipelineAssembler(
-        plan: plan,
-        host: host,
-        pipeline: pipeline,
-        webSession: webSession,
-        fail: host.fail,
-        builtBefore: builtBefore,
-      );
-      await web.assemble(outputFiles);
-    }
 
-    // Step 3b: Launch on each device and create sessions.
-    final launcher = DeviceLauncher(plan: plan, host: host, appFile: appFile);
-    for (final device in devices) {
-      final deviceSession = await launcher.launch(device);
-      if (device is WebDevice && !webSession.isCompleted) {
-        webSession.complete(deviceSession);
-      }
-    }
-
-    // `app.setViewport` exists only where it can work. It is registered here,
-    // for any web run, rather than always with a handler that refuses on
-    // native: there is no capability list in this protocol (`daemon.connected`
-    // carries a version and a pid, nothing more), so a command that is present
-    // and always fails is not more discoverable than one that is absent — it
-    // is only a worse description of the run. On a native run the dispatcher
-    // answers `Unknown command: app.setViewport`, which is true.
-    //
-    // After the launch loop because the CDP port it needs is discovered by
-    // launching Chrome.
-    if (isWebDevice) {
-      final webDevice = plan.devices.first as WebDevice;
-      host.commandRunner.register('app.setViewport', (params) async {
-        await webDevice.setViewport(parseSetViewportCommand(params));
-        return {'succeeded': true};
-      });
-    }
-
-    // WASM's handlers deliberately shadow the pipeline-backed pair registered
-    // above, so this has to come after them — and after the launch loop, since
-    // the CDP port it needs is discovered by launching Chrome.
-    if (plan.webMode is WasmWebMode) {
-      final webDevice = plan.devices.first as WebDevice;
-      WasmPipelineAssembler(
-        cdpPort: webDevice.cdpPort,
-        appUrl: webDevice.appUrl,
-        target: plan.target,
-        workspace: plan.workspace,
-        compilationMode: plan.compilationMode,
-        extraArgs: plan.extraArgs,
-        host: host,
-        pipeline: pipeline,
-        logger: logger,
-      ).assemble();
-    }
-
-    // Started before the pipeline is assembled, because assembly can need the
-    // channel to finish: `--start-paused` holds the app before `main()`, and
-    // the first thing assembly does is ask the app what build it came from.
-    // Brought up afterwards, nothing could deliver the resume — the app waits
-    // for a debugger, the resume waits for the channel, and the channel waits
-    // for the app. Agent commands arriving in this window answer on their own
-    // (`agent_command.dart` knows a paused device has no widget tree), and
-    // reload commands wait on `pipeline.ready` rather than racing the seed.
-    if (plan.httpChannelEnabled) await host.startHttpChannel();
-
-    // Step 4: For native devices, start shared frontend_server AFTER launch.
-    //
-    // Assembled by the same object `attach` uses; the only difference is the
-    // launch context, which is what arms the native-libs relauncher and makes
-    // an asset rebuild reproduce the transitioned configuration the running
-    // bundle came from.
-    final hasVmClient = sessions.any((s) => s.vmClient != null);
-    // `plan.hotReloadOff` rather than `!plan.profileMode`: a derivation of "can
-    // this run reload" that forgets `--no-hot` lets `--no-hot -c dbg` build a
-    // full compiler and orchestrator that every transport can drive. The flag
-    // decides whether the machinery exists, which is what makes every
-    // transport's refusal true rather than merely stated.
-    if (!isWebDevice && hasVmClient && plan.hotReloadOff == null) {
-      await NativePipelineAssembler(
-        workspace: workspace,
-        toolchain: toolchain,
-        target: target,
-        configDevice: devices.first,
-        userBuildArgs: plan.userBuildArgs,
-        host: host,
-        pipeline: pipeline,
-        logger: logger,
-        builtBefore: builtBefore,
-        launch: NativeLaunch(appFile: appFile),
-      ).assemble();
-    }
-
-    // Any setup path that neither wired the pipeline nor recorded a specific
-    // failure (profile mode, WASM, no VM client, compiler config absent)
-    // settles the gate here so `app.hotReload` / `app.restart` return a
-    // clear error instead of waiting on a signal that will never come.
-    //
-    // A run told not to reload gets the flag's own words instead of the
-    // generic line. The two are different questions — "you asked me not to"
-    // is not "it was meant to work and did not" — and this is the single
-    // place the first one is answered, for the keyboard, the HTTP channel and
-    // the machine protocol alike.
-    //
-    // The reason is handed over bare — no leading subject and no trailing
-    // period. Every renderer composes a sentence around it
-    // (`reportReloadCommand` writes '$action failed: $error. …'), so a reason
-    // that brought its own would double them.
-    if (!pipeline.ready.isSettled) {
-      pipeline.ready.signalUnavailable(
-        plan.hotReloadOff ?? 'Hot reload is not available for this run.',
-      );
-    }
-
-    // The channel must outlive the session loop: an `app.stop` arriving over
-    // HTTP is still flushing its response when the loop ends, so the channel
-    // is stopped (gracefully, draining in-flight requests) only on the way
-    // out.
+    // Everything from here to the end of the run is inside this `try`, so
+    // however it ends — the session loop returning, a launch that throws
+    // after another device already launched, or a shutdown landing while
+    // bazel is still resolving or building — what it owns is released by
+    // the one `finally` below.
     try {
+      // Everything this invocation resolves to: devices, compilation mode,
+      // bazel flags, workspace, toolchain. The devices come back ready to
+      // launch — `--start-paused` and Android's VM-service preflight are
+      // launch-time engine arguments, so there is no later moment at which they
+      // could be applied.
+      final plan = await RunPlan.resolve(_results, logger, bazel: host.bazel);
+      // The first things the plan settles that the command surface depends on.
+      // Only a `-c dbg` native build carries the record `app.buildInfo` reads,
+      // and only a run with a VM service can reach the `ext.rules_flutter.*`
+      // extensions the `app.*` agent commands proxy to. See
+      // RunPlan.carriesBuildInfo and RunPlan.hasAgentSurface.
+      if (plan.carriesBuildInfo) host.registerBuildInfo();
+      if (plan.hasAgentSurface) {
+        host.registerAgentCommands();
+      } else {
+        // Said once, at the top of the run, rather than left to be discovered
+        // one refused command at a time. The absence is structural and known
+        // here; what a client gets otherwise is `Unknown command: app.getText`,
+        // which is true but does not say that no flag on this invocation would
+        // have made it available.
+        final absent = _noAgentSurface(plan);
+        logger.info({
+          'message': 'agent_surface_unavailable',
+          'text':
+              'This run has no VM service, so the app.* agent commands (tap, '
+              'enterText, getText, waitFor, dumpWidgetTree, …) are not offered: '
+              '${absent.because} What still works: the app console '
+              '(GET /sessions/{appId}/logs), a browser screenshot '
+              '(GET /sessions/{appId}/screenshot/native) and app.restart. To '
+              'drive the widget tree, run the DDC dev loop instead — the same '
+              'target with neither --wasm nor --profile.',
+          'reason': absent.reason,
+        });
+      }
+      final target = plan.target;
+      final workspace = plan.workspace;
+      final toolchain = plan.toolchain;
+      final devices = plan.devices;
+      final isWebDevice = plan.isWebDevice;
+
+      // Stamped before the build, not after: a source edited while bazel is
+      // reading it may or may not be in the result, and the two ways of being
+      // wrong are not equal. Unseeding costs a recompile of content the app
+      // already has; seeding drops the edit. See
+      // [AppliedVersions.seedFromBuild].
+      final builtBefore = DateTime.now();
+      final build = await plan.buildApp();
+      final appFile = build.appFile;
+      final outputFiles = build.outputFiles;
+
+      // Start watching before anything launches — including the DDC web
+      // assembly below. Assembly stands up the module server, DWDS and the
+      // frontend server and waits for the first compile, and an edit saved
+      // inside that window fires no watch event at all. Its content still
+      // reaches the page — the initial compile reads it if it lands before the
+      // snapshot cut, and the next reload re-sends it otherwise — so what is
+      // lost is only the trigger. That is the worst shape it could have: you
+      // save, nothing happens, nothing says why, and it comes right on the next
+      // save for no visible reason.
+      //
+      // A watcher created inside the session loop is later still: that loop
+      // runs after every device has launched and reported `app.started` and —
+      // on native — after the compiler's first full compile, and
+      // `DirectoryWatcher` reports nothing until its own initial scan completes
+      // on top of that.
+      //
+      // `await start()` is the other half: it returns once the underlying
+      // watcher is live, and until then events are simply not reported. Not in
+      // profile mode: that session never gets a reload pipeline to hand the
+      // changes to, so the watcher would only be a subscription nobody reads.
+      if (plan.watchEnabled && plan.hotReloadOff == null) {
+        sourceWatcher = SourceWatcher(
+          root: workspace,
+          // Reads `assetTracker` on each event rather than closing over its
+          // value: the tracker is built later (it needs the build outputs), and
+          // it re-learns which directories feed the bundle after every rebuild,
+          // so a directory that starts holding assets mid-run starts being
+          // watched without restarting anything.
+          accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
+        );
+        await sourceWatcher.start();
+        // A dead watcher does not end the run — an explicit `app.hotReload`
+        // still works — but it silently ends `--watch`, so it has to be said.
+        // package:watcher closes itself permanently on a post-ready end or any
+        // error.
+        unawaited(
+          sourceWatcher.failed.then((failure) {
+            logger.severe({
+              'message': 'watcher_failed',
+              'text':
+                  '${failure.reason}. Edits on disk will no longer trigger a '
+                  'reload; use app.hotReload explicitly, or restart the run to '
+                  'resume watching.',
+              'error': failure.error?.toString() ?? '',
+            });
+          }),
+        );
+      }
+
+      // Step 3a: the DDC dev loop — module server, DWDS, web frontend server —
+      // all before Chrome launches, so Chrome opens the module server's URL and
+      // the browser-connection listener is already attached when it connects.
+      if (plan.isDdcWeb) {
+        web = WebPipelineAssembler(
+          plan: plan,
+          host: host,
+          pipeline: pipeline,
+          webSession: webSession,
+          fail: host.fail,
+          builtBefore: builtBefore,
+        );
+        await web.assemble(outputFiles);
+      }
+
+      // Step 3b: Launch on each device and create sessions.
+      final launcher = DeviceLauncher(plan: plan, host: host, appFile: appFile);
+      for (final device in devices) {
+        final deviceSession = await launcher.launch(device);
+        if (device is WebDevice && !webSession.isCompleted) {
+          webSession.complete(deviceSession);
+        }
+      }
+
+      // `app.setViewport` exists only where it can work. It is registered here,
+      // for any web run, rather than always with a handler that refuses on
+      // native: there is no capability list in this protocol
+      // (`daemon.connected` carries a version and a pid, nothing more), so a
+      // command that is present and always fails is not more discoverable than
+      // one that is absent — it is only a worse description of the run. On a
+      // native run the dispatcher answers `Unknown command: app.setViewport`,
+      // which is true.
+      //
+      // After the launch loop because the CDP port it needs is discovered by
+      // launching Chrome.
+      if (isWebDevice) {
+        final webDevice = plan.devices.first as WebDevice;
+        host.commandRunner.register('app.setViewport', (params) async {
+          await webDevice.setViewport(parseSetViewportCommand(params));
+          return {'succeeded': true};
+        });
+      }
+
+      // WASM's handlers deliberately shadow the pipeline-backed pair registered
+      // above, so this has to come after them — and after the launch loop,
+      // since the CDP port it needs is discovered by launching Chrome.
+      if (plan.webMode is WasmWebMode) {
+        final webDevice = plan.devices.first as WebDevice;
+        WasmPipelineAssembler(
+          cdpPort: webDevice.cdpPort,
+          appUrl: webDevice.appUrl,
+          target: plan.target,
+          workspace: plan.workspace,
+          compilationMode: plan.compilationMode,
+          extraArgs: plan.extraArgs,
+          host: host,
+          pipeline: pipeline,
+          logger: logger,
+        ).assemble();
+      }
+
+      // Started before the pipeline is assembled, because assembly can need the
+      // channel to finish: `--start-paused` holds the app before `main()`, and
+      // the first thing assembly does is ask the app what build it came from.
+      // Brought up afterwards, nothing could deliver the resume — the app waits
+      // for a debugger, the resume waits for the channel, and the channel waits
+      // for the app. Agent commands arriving in this window answer on their own
+      // (`agent_command.dart` knows a paused device has no widget tree), and
+      // reload commands wait on `pipeline.ready` rather than racing the seed.
+      if (plan.httpChannelEnabled) await host.startHttpChannel();
+
+      // Step 4: For native devices, start shared frontend_server AFTER launch.
+      //
+      // Assembled by the same object `attach` uses; the only difference is the
+      // launch context, which is what arms the native-libs relauncher and makes
+      // an asset rebuild reproduce the transitioned configuration the running
+      // bundle came from.
+      final hasVmClient = sessions.any((s) => s.vmClient != null);
+      // `plan.hotReloadOff` rather than `!plan.profileMode`: a derivation of
+      // "can this run reload" that forgets `--no-hot` lets `--no-hot -c dbg`
+      // build a full compiler and orchestrator that every transport can drive.
+      // The flag decides whether the machinery exists, which is what makes
+      // every transport's refusal true rather than merely stated.
+      if (!isWebDevice && hasVmClient && plan.hotReloadOff == null) {
+        await NativePipelineAssembler(
+          workspace: workspace,
+          toolchain: toolchain,
+          target: target,
+          configDevice: devices.first,
+          userBuildArgs: plan.userBuildArgs,
+          host: host,
+          pipeline: pipeline,
+          logger: logger,
+          builtBefore: builtBefore,
+          launch: NativeLaunch(appFile: appFile),
+        ).assemble();
+      }
+
+      // Any setup path that neither wired the pipeline nor recorded a specific
+      // failure (profile mode, WASM, no VM client, compiler config absent)
+      // settles the gate here so `app.hotReload` / `app.restart` return a
+      // clear error instead of waiting on a signal that will never come.
+      //
+      // A run told not to reload gets the flag's own words instead of the
+      // generic line. The two are different questions — "you asked me not to"
+      // is not "it was meant to work and did not" — and this is the single
+      // place the first one is answered, for the keyboard, the HTTP channel and
+      // the machine protocol alike.
+      //
+      // The reason is handed over bare — no leading subject and no trailing
+      // period. Every renderer composes a sentence around it
+      // (`reportReloadCommand` writes '$action failed: $error. …'), so a reason
+      // that brought its own would double them.
+      if (!pipeline.ready.isSettled) {
+        pipeline.ready.signalUnavailable(
+          plan.hotReloadOff ?? 'Hot reload is not available for this run.',
+        );
+      }
+
       // Profile mode enters an interactive session (without hot reload).
       // This allows DevTools connection, performance overlay, and key handlers.
       // Not a `return`: leaving `_execute` from inside the try would skip the
@@ -613,12 +623,24 @@ class RunCommand {
           await sessions.first.terminated;
         }
       }
+    } on BazelCancelled {
+      // Only a shutdown stops a bazel command (see [Bazel.close]), and before
+      // the session loop the shutdown that does is `performCleanup` — which
+      // signals once everything is released. Waiting for that signal, as the
+      // session loop does, is what lets a `daemon.shutdown` that interrupted
+      // the build send its answer before the transports close under it.
+      await host.shutdownRequested.future;
     } finally {
       await sourceWatcher?.stop();
-      // Whatever route the loop ended by — 'q', an app.stop, the app exiting —
-      // everything the run owns goes here. Nothing is shut down by hand: there
-      // is a compiler per app, and they are registered here as they are built.
+      // Whatever route the run ended by — 'q', an app.stop, the app exiting,
+      // a failure, a shutdown — everything it owns goes here. Nothing is shut
+      // down by hand: there is a compiler per app, and they are registered
+      // here as they are built.
       await host.teardown.run();
+      // The channel must outlive the session loop: an `app.stop` arriving
+      // over HTTP is still flushing its response when the loop ends, so the
+      // channel is stopped (gracefully, draining in-flight requests) only on
+      // the way out.
       await host.closeTransports();
       if (web?.syntheticDirectory case final dir?) await deleteTempDir(dir);
     }

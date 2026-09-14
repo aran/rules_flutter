@@ -52,9 +52,9 @@ int exitCodeForSignal(ProcessSignal signal) =>
 /// sending real signals to the test runner: [listen] takes any stream, and
 /// both effects — shutting down, exiting — are injected.
 class ShutdownSignalHandler {
-  /// What a first signal runs. In production this is
+  /// What a first signal runs. For `run` and `attach` this is
   /// [SessionHost.performCleanup] followed by closing the transports: the
-  /// same work `daemon.shutdown` does.
+  /// same work `daemon.shutdown` does. For `build`, stopping the build.
   final Future<void> Function() _onShutdown;
 
   /// How the process ends. Injected so a test can observe the status instead
@@ -99,8 +99,8 @@ class ShutdownSignalHandler {
     _logger.info({
       'message': 'shutdown_signal',
       'text':
-          'Received $signal — stopping the app, the browser and the '
-          'compiler before exiting. Signal again to exit immediately.',
+          'Received $signal — stopping what this command started before '
+          'exiting. Signal again to exit immediately.',
       'signal': '$signal',
     });
     try {

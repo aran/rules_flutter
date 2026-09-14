@@ -5,6 +5,7 @@ import 'package:args/args.dart';
 
 import 'bazel.dart';
 import 'run_command.dart';
+import 'shutdown_signals.dart';
 
 class BuildCommand {
   static final parser = ArgParser()
@@ -49,17 +50,48 @@ class BuildCommand {
   BuildCommand(this._results);
 
   Future<void> execute() async {
+    final bazel = Bazel();
+    // Stopping `flutter_bazel build` has to stop the build. Dart's default for
+    // SIGINT and SIGTERM ends the VM on the spot, and bazel — in a process group
+    // of its own, which a terminal's Ctrl-C no longer reaches — would build on
+    // without it. The same handler `run` uses: a first signal stops the build
+    // and waits for it to exit, a second exits at once.
+    final handler = ShutdownSignalHandler(
+      onShutdown: bazel.close,
+      exitProcess: exit,
+    );
+    final subscriptions = [
+      for (final signal in shutdownSignalsFor(isWindows: Platform.isWindows))
+        handler.listen(signal.watch()),
+    ];
+
+    try {
+      await _build(bazel);
+    } on BazelCancelled {
+      // Only the handler stops a build, and it is still running: it exits once
+      // the build has. The signal subscriptions stay up on the way out because
+      // they are what keeps this process alive until then.
+      return;
+    }
+    // Cancelled once the build is over, or the process could not end: an
+    // uncancelled `ProcessSignal.watch()` keeps the VM alive after `main`.
+    for (final subscription in subscriptions) {
+      await subscription.cancel();
+    }
+  }
+
+  Future<void> _build(Bazel bazel) async {
     final target = _results['target'] as String;
     final config = _results['config'] as String?;
     final extraArgs = [
       ...(_results['build-arg'] as List<String>),
       ...dartDefineFlags(_results['dart-define'] as List<String>),
     ];
-    final workspace = await findWorkspaceRoot();
+    final workspace = await bazel.findWorkspaceRoot();
 
     stdout.writeln('Building $target...');
 
-    final result = await bazelBuild(
+    final result = await bazel.build(
       target,
       workspace: workspace,
       compilationMode: config,
