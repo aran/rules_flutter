@@ -155,11 +155,12 @@ void main() {
         '//:app',
       ], workingDirectory: '/ws');
       await pumpEventQueue();
+      final cancelled = expectLater(running, throwsA(isA<BazelCancelled>()));
 
       await host.performCleanup();
 
       expect(order, ['app stopped', 'bazel interrupted']);
-      await expectLater(running, throwsA(isA<BazelCancelled>()));
+      await cancelled;
       await expectLater(
         host.bazel.run(['info'], workingDirectory: '/ws'),
         throwsA(isA<BazelCancelled>()),

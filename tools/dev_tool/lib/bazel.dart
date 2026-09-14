@@ -169,6 +169,8 @@ class _BazelCommand {
   /// is told, whatever status the command then exits with.
   bool stopped = false;
 
+  final Completer<void> _read = Completer<void>();
+
   _BazelCommand(this.args, this.process);
 
   /// The command's exit status, or [BazelCancelled] if it was stopped.
@@ -176,6 +178,18 @@ class _BazelCommand {
     final exitCode = await process.exitCode;
     if (stopped) throw BazelCancelled(args.join(' '));
     return exitCode;
+  }
+
+  /// Completes once the command has exited *and* everything it printed has
+  /// been read. What [Bazel.close] waits for: an interrupted bazel's last
+  /// words — "Bazel caught terminate signal", "build interrupted" — follow its
+  /// exit status down the pipe, and a run that ended on the status alone would
+  /// drop the user's only confirmation that the build stopped.
+  Future<void> get finished => _read.future;
+
+  /// Called by whoever reads the command's output, once it has read it all.
+  void markRead() {
+    if (!_read.isCompleted) _read.complete();
   }
 }
 
@@ -318,7 +332,11 @@ class Bazel {
     try {
       exitCode = await command.exited;
     } finally {
-      await Future.wait([stdout, stderr]);
+      try {
+        await Future.wait([stdout, stderr]);
+      } finally {
+        command.markRead();
+      }
     }
     return ProcessResult(
       command.process.pid,
@@ -380,9 +398,13 @@ class Bazel {
     try {
       exitCode = await command.exited;
     } finally {
-      await streamed;
-      out.close();
-      err.close();
+      try {
+        await streamed;
+      } finally {
+        out.close();
+        err.close();
+        command.markRead();
+      }
     }
 
     // The tail travels with the result. A caller that turns this into a
@@ -571,23 +593,25 @@ class Bazel {
         'message': 'bazel_interrupted',
         'text': 'Stopping `bazel ${command.args.join(' ')}`...',
         'args': command.args,
+        // Also the id of the process group the signal goes to.
+        'pid': command.process.pid,
       });
       interrupt(command.process);
     }
-    await Future.wait(running.map(_awaitExit));
+    await Future.wait(running.map(_awaitFinished));
   }
 
-  Future<void> _awaitExit(_BazelCommand command) async {
-    final exited = await command.process.exitCode
+  Future<void> _awaitFinished(_BazelCommand command) async {
+    final finished = await command.finished
         .then((_) => true)
         .timeout(_stopBound, onTimeout: () => false);
-    if (exited) return;
+    if (finished) return;
     final what = '`bazel ${command.args.join(' ')}`';
     final waited = '${_stopBound.inMilliseconds}ms';
     _logger.warning({
       'message': 'bazel_stop_timed_out',
       'text': _cannotInterrupt == null
-          ? '$what was interrupted but had not exited $waited later. It is '
+          ? '$what was interrupted but had not ended $waited later. It is '
                 'left to finish stopping; until it does, other bazel commands '
                 'in this workspace wait for it.'
           : '$what could not be interrupted, because $_cannotInterrupt, and '

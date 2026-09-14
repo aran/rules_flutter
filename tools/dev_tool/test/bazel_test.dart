@@ -246,9 +246,12 @@ void main() {
               'wait behind it',
         );
 
+        // Expected before the stop is awaited: the stop finishes only once
+        // the command's caller has been told.
+        final cancelled = expectLater(build, throwsA(isA<BazelCancelled>()));
         process.complete(8);
         await closing;
-        await expectLater(build, throwsA(isA<BazelCancelled>()));
+        await cancelled;
       },
     );
 
@@ -266,10 +269,7 @@ void main() {
 
       final closing = fake.bazel.close();
       await pumpEventQueue();
-      fake.processes.single.complete(0);
-      await closing;
-
-      await expectLater(
+      final cancelled = expectLater(
         build,
         throwsA(
           isA<BazelCancelled>().having(
@@ -279,6 +279,9 @@ void main() {
           ),
         ),
       );
+      fake.processes.single.complete(0);
+      await closing;
+      await cancelled;
     });
 
     test('a command that already ended is not interrupted', () async {
@@ -330,9 +333,36 @@ void main() {
       final process = fake.processes.single;
       expect(fake.interrupted, [same(process)]);
 
+      final cancelled = expectLater(build, throwsA(isA<BazelCancelled>()));
       process.complete(8);
       await closing;
-      await expectLater(build, throwsA(isA<BazelCancelled>()));
+      await cancelled;
+    });
+
+    // Bazel's last words on an interrupt — "Bazel caught terminate signal",
+    // "build interrupted" — follow its exit status down the pipe. A run that
+    // ends the moment the status arrives loses them, and they are the user's
+    // only confirmation that the build really stopped.
+    test('close waits for what a stopped build printed, not only for its '
+        'exit', () async {
+      final fake = fakeBazel();
+      final build = fake.bazel.build('//:app', workspace: '/ws');
+      unawaited(build.then<void>((_) {}, onError: (Object _) {}));
+      await pumpEventQueue();
+      final process = fake.processes.single;
+      await process.outputAttached;
+
+      var closed = false;
+      final closing = fake.bazel.close().then((_) => closed = true);
+      await pumpEventQueue();
+      process.exitBeforeOutputEnds(8);
+      await pumpEventQueue();
+
+      expect(closed, isFalse);
+
+      process.emitStderr('Bazel caught terminate signal\n');
+      process.complete(8);
+      await closing;
     });
 
     test(
@@ -454,10 +484,10 @@ void main() {
 
         final closing = fake.bazel.close();
         await pumpEventQueue();
+        final cancelled = expectLater(build, throwsA(isA<BazelCancelled>()));
         fake.processes.single.complete(8);
         await closing;
-
-        await expectLater(build, throwsA(isA<BazelCancelled>()));
+        await cancelled;
         expect(fake.spawned, hasLength(1));
       });
     });

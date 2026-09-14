@@ -287,6 +287,13 @@ class FakeProcess implements Process {
     _stderrController.add(utf8.encode(data));
   }
 
+  /// Report exit [code] while stdout and stderr stay open: a real process's
+  /// exit status can arrive before the last of its output has been read.
+  /// [complete] ends the streams afterwards.
+  void exitBeforeOutputEnds(int code) {
+    if (!_exitCompleter.isCompleted) _exitCompleter.complete(code);
+  }
+
   /// Complete the process with the given exit code.
   void complete(int exitCode) {
     if (!_exitCompleter.isCompleted) _exitCompleter.complete(exitCode);
