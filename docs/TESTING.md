@@ -474,6 +474,7 @@ When re-running to reproduce, use `--nocache_test_results` and read the
 | `dev_build_recovery_e2e_test.dart` | macOS | A session whose **launch-time `bazel build`** failed still reloads — one step earlier than the row above, on the wider window. The assembler builds the flutter_application (whose `DefaultInfo` carries the app kernel under `is_debug`) before it starts any compiler, so a source that does not compile fails it; between `run`'s own launch build and this one sits an entire app launch, which is the window a developer saving a typo while the app comes up actually lands in. Breaks `hello_world/lib/main.dart` on the `resolving_toolchain` log line — the last thing logged before the cquery and the build, and **not** the build's own `bazel_command` record, since an edit racing bazel's file read is a coin flip whose lost half lands in the *other* recovery path. Asserts `dev_build_failed` carrying `recoverable: true` (JSON mode drops the human `text`), that it does not name the frontend server, and that the fix reloads and renders. Every edit is derived from the pristine file and asserted to have changed something, so a no-op edit cannot pass |
 | `native_libs_reload_e2e_test.dart` | macOS | Both directions of a hot reload whose **own rebuild** moved a native library. Over `e2e/codegen`, the one workspace that is source-assembled (so a reload runs `bazel build`) *and* bundles a `dlopen`ed library — through a `flutter_native_library` wrapper declaring the C header as its binding contract, which is what makes both directions drivable from one fixture: editing `native_add.c` moves the library alone, editing `native_add.h` moves both. Case A (code only) asserts the reload **succeeds**, the window shows the new Dart, and `nativeLibsStale` names the library anyway — then that a restart relaunches and the reload after it is clean, which is the guard against a relaunch that failed to re-baseline and would report the library stale forever. Case B (contract too) asserts the reload is **withheld** and the window still shows case A's Dart, which is what makes `runningCode: unchanged` checkable rather than self-reported. Waits for `frontend_server_ready` before editing, because an edit inside the assembler's own build window is compiled into the baseline (see `NativeLibsWatch.of`). A second group does the same two verdicts over **Chrome**, against a `native_modules` entry on `codegen`'s web bundle (an eight-byte wasm header plus a text contract — the tool compares bytes and parses neither), and ends by asserting that a web *restart* re-baselines: the page re-runs `main()` and re-fetches the module, so the reload after it must report nothing stale |
 | `relaunch_e2e_test.dart` | macOS | `app.restart`'s **relaunch** branch: edits `ffi_example/native/mul.c` so the rebuilt dylib differs, then asserts the HTTP control channel survives the process swap and the relaunched app answers on it. The only test that reaches this branch — it needs a real native-library change |
+| `stop_during_build_e2e_test.dart` | macOS | Stopping a run **while its launch build is running** stops the build: `SIGTERM` and `SIGINT` to the tool's pid alone (exit `143`/`130`), `daemon.shutdown` (answered, exit `0`), and `SIGINT` to `flutter_bazel build` (exit `130`). Each forces a real build with a `--dart-define` no earlier run used and stops it on bazel's `Analyzed target` line, then asserts bazel's own `Bazel caught terminate signal`, that nothing of the command's process group is left, that `bazel --noblock_for_lock info` answers at once, and that no `command_failed` was reported. Signalling bazelisk's pid instead of its group fails it: the build runs on to `Build completed successfully` |
 | `plugin_example_e2e_test.dart` | macOS/iOS-sim/Android/Chrome | Plugin apps render non-blank frames; Dart plugin registration survives `app.restart` (macOS); web plugins register in both DDC and `--wasm` dev mode (Chrome) |
 
 ### Dev tool screenshot mechanisms
@@ -499,8 +500,24 @@ Every cell says "always": at the pinned Flutter, **no** device can do `_flutter.
 
 `SIGTERM` and `SIGINT` (Ctrl-C) run the same shutdown `daemon.shutdown` does —
 the app stops, the browser and its temp profile go, the resident compiler
-closes — and the tool then exits `143` or `130`. Signal a second time to exit
-at once without waiting for the rest.
+closes, a bazel command still running is stopped — and the tool then exits
+`143` or `130`. Signal a second time to exit at once without waiting for the
+rest.
+
+**A bazel command the tool started stops with it.** A `bazel` on `PATH` is
+usually bazelisk, which ignores SIGINT and SIGTERM sent to its own pid and
+counts on a terminal signalling the whole process group. Measured before this
+was handled: a signal to the tool alone ended it in milliseconds, and its build
+ran on to completion, holding the output base's lock against the next command.
+So every bazel command starts in a process group of its own
+(`//tools/dev_tool:process_group_exec`), and shutdown sends that group SIGTERM
+— not SIGINT, which the Bazel client counts and answers on the third by killing
+the server — then waits for bazel to exit and for its last lines to be read.
+The Bazel server is never touched. `flutter_bazel build` stops its build the
+same way. Two launches cannot interrupt a command and say so if a stop has to
+wait on one: Windows, and the tool run from source with `dart run`, which has
+none of the helpers Bazel bundles. `stop_during_build_e2e_test.dart` is the
+guard.
 
 A leaked profile is not merely wasted bytes — see the `ChromeSession` docs on
 why an orphaned browser can serve a screenshot that makes a broken run look
