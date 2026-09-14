@@ -37,6 +37,10 @@ dart_binary(
         "//tools/ios_screenshot:screenshot",
         "//tools/ios_screenshot:tunneld",
     ] + select({
+        # Every `bazel` command starts through it, off Windows. See its target.
+        "@platforms//os:windows": [],
+        "//conditions:default": [":process_group_exec"],
+    }) + select({
         "@platforms//os:macos": [
             "//tools/macos_screenshot:screenshot",
         ],
@@ -49,6 +53,32 @@ dart_binary(
     main = "bin/flutter_bazel.dart",
     visibility = ["//visibility:public"],
     deps = _LIB_DEPS,
+)
+
+# Starts a program as the leader of a new process group, so that stopping a
+# `bazel` command the dev tool started reaches the real Bazel client and not
+# only the bazelisk in front of it. The why is in the source.
+#
+# Its own binary rather than a mode of `flutter_bazel`: it is exec'd once per
+# bazel command, and the whole of it is two system calls — it has no use for
+# the dev tool's library, its runfiles or its startup.
+#
+# Not on Windows, which has no process group a console process can be moved
+# into; the dev tool starts `bazel` directly there.
+dart_binary(
+    name = "process_group_exec",
+    compile_mode = "exe",
+    main = "bin/process_group_exec.dart",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+dart_analyze_test(
+    name = "process_group_exec_analyze_test",
+    size = "small",
+    target = ":process_group_exec",
 )
 
 # Static analysis, as a test — `bazel test //...` fails on an analysis
@@ -197,6 +227,7 @@ _UNIT_TESTS = {
         "loopbacks": True,
     },
     "package_roots_test": {},
+    "process_group_exec_test": {"data": [":process_group_exec"]},
     "shutdown_signals_test": {},
     "screenshot_blankness_test": {
         "harness": True,
