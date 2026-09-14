@@ -67,7 +67,10 @@ void main() {
         );
 
         expect(
-          await dt.process.exitCode.timeout(const Duration(seconds: 60)),
+          await dt.exitCodeWithin(
+            const Duration(seconds: 60),
+            stillRunning: 'the run failed during resolution but did not exit',
+          ),
           isNot(0),
         );
       });
@@ -132,8 +135,10 @@ void main() {
       // And the tool exits cleanly afterwards: this run's only app is gone, so
       // the session loop ends, which closes the channel and lets the process
       // finish.
-      final code = await dt.process.exitCode.timeout(
+      final code = await dt.exitCodeWithin(
         const Duration(seconds: 30),
+        stillRunning:
+            "the run's only app was stopped but the tool did not exit",
       );
       expect(code, 0);
     });

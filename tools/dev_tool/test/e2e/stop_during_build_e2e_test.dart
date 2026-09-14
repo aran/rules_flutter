@@ -117,7 +117,10 @@ void main() {
         dt.process.kill(signal);
 
         expect(
-          await dt.process.exitCode.timeout(const Duration(seconds: 60)),
+          await dt.exitCodeWithin(
+            const Duration(seconds: 60),
+            stillRunning: '$name stopped the build but not the tool',
+          ),
           code,
         );
         expect(
@@ -143,7 +146,11 @@ void main() {
 
       expect(reply['result']?['message'], 'shutdown');
       expect(
-        await dt.process.exitCode.timeout(const Duration(seconds: 60)),
+        await dt.exitCodeWithin(
+          const Duration(seconds: 60),
+          stillRunning:
+              'daemon.shutdown was answered but the tool did not exit',
+        ),
         0,
       );
       await expectBuildStopped(dt.stderrLines);

@@ -1034,6 +1034,29 @@ class DevToolProcess {
   /// could not run says so and the timeout is still reported. Paths rather than
   /// contents, because a sample of a Dart VM runs to thousands of lines and the
   /// point is to have it, not to print it.
+  /// The tool's exit status, provided it exits within [bound].
+  ///
+  /// A tool still running at the bound fails with [stillRunning] *and* the
+  /// `sample` and `lsof` of the live process, taken before anything kills it.
+  /// Every exit guard goes through here because a guard that throws first
+  /// leaves [dispose] to look, and by then the tool may have gone: the
+  /// `daemon.shutdown` guard in `web_e2e_test.dart` went red in a full-suite
+  /// run on 2026-09-14 with the process still up at 20s, and it had exited by
+  /// the time [dispose] asked, so the occurrence carried no evidence at all.
+  Future<int> exitCodeWithin(
+    Duration bound, {
+    required String stillRunning,
+  }) async {
+    try {
+      return await process.exitCode.timeout(bound);
+    } on TimeoutException {
+      final evidence = await _captureWedgeEvidence();
+      throw StateError(
+        '$stillRunning (still running ${bound.inSeconds}s later)\n  $evidence',
+      );
+    }
+  }
+
   Future<String> _captureWedgeEvidence() async {
     if (!Platform.isMacOS) {
       return 'no capture: `sample` is macOS-only, and this ran on '

@@ -316,13 +316,12 @@ void main() {
         app.process.kill();
         await app.process.exitCode;
 
-        final code = await dt.process.exitCode.timeout(
+        final code = await dt.exitCodeWithin(
           const Duration(seconds: 60),
-          onTimeout: () => throw StateError(
-            'the app attach was connected to exited, and 60s later attach was '
-            'still running. Nothing on the attach path can observe the app '
-            'going away, so the session waits forever.',
-          ),
+          stillRunning:
+              'the app attach was connected to exited, and attach did not. '
+              'Nothing on the attach path observed the app going away, so the '
+              'session waits forever',
         );
         expect(code, 0);
         // And it has to say why. A `run` that ends this way has the process exit
@@ -369,11 +368,9 @@ void main() {
         app.process.kill();
         await app.process.exitCode;
 
-        final code = await dt.process.exitCode.timeout(
+        final code = await dt.exitCodeWithin(
           const Duration(seconds: 120),
-          onTimeout: () => throw StateError(
-            'the app died during assembly and attach never exited',
-          ),
+          stillRunning: 'the app died during assembly and attach did not exit',
         );
         expect(
           code,
@@ -429,12 +426,11 @@ void main() {
         final response = await dt.sendCommand(1, 'daemon.shutdown');
         expect(response['result']?['message'], 'shutdown');
 
-        final code = await dt.process.exitCode.timeout(
+        final code = await dt.exitCodeWithin(
           const Duration(seconds: 30),
-          onTimeout: () => throw StateError(
-            'daemon.shutdown was answered but the attach process was still '
-            'running 30s later. Something the run owns is holding the VM open.',
-          ),
+          stillRunning:
+              'daemon.shutdown was answered but the attach process did not '
+              'exit. Something the run owns is holding the VM open',
         );
         expect(code, 0);
 

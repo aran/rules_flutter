@@ -587,6 +587,41 @@ void main() {
     });
   });
 
+  // An exit guard's failure is the one moment the live tool can still be
+  // examined: the test fails, the process is killed, and whatever held it
+  // open goes with it.
+  group('exitCodeWithin', () {
+    test('a tool that has not exited by the bound fails naming what to look '
+        'at', () async {
+      await expectLater(
+        tool.exitCodeWithin(
+          bound,
+          stillRunning:
+              'daemon.shutdown was answered but the tool did not exit',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains(
+                'daemon.shutdown was answered but the tool did not exit',
+              ),
+              contains('still running 1s later'),
+              contains('pid ${process.pid}'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('a tool that exits in time answers with its status', () async {
+      process.complete(3);
+
+      expect(await tool.exitCodeWithin(bound, stillRunning: 'unused'), 3);
+    });
+  });
+
   /// The gate that decides whether the `Android e2e` group runs.
   ///
   /// Every case drives a stub `adb` rather than the host's, because the whole

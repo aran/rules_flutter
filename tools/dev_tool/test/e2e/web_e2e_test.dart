@@ -55,7 +55,10 @@ void main() {
         expect(params['message'], contains('_dev_config.json'));
 
         expect(
-          await dt.process.exitCode.timeout(const Duration(seconds: 30)),
+          await dt.exitCodeWithin(
+            const Duration(seconds: 30),
+            stillRunning: 'the run failed to start but did not exit',
+          ),
           isNot(0),
         );
         // Nothing reached the point of claiming a running app.
@@ -238,12 +241,11 @@ void main() {
       final response = await dt.sendCommand(1, 'daemon.shutdown');
       expect(response['result']?['message'], 'shutdown');
 
-      final code = await dt.process.exitCode.timeout(
+      final code = await dt.exitCodeWithin(
         const Duration(seconds: 20),
-        onTimeout: () => throw StateError(
-          'daemon.shutdown was answered but the process was still running '
-          '20s later. Something the run owns is still holding the VM open.',
-        ),
+        stillRunning:
+            'daemon.shutdown was answered but the process did not exit. '
+            'Something the run owns is still holding the VM open',
       );
       expect(code, 0);
     });
