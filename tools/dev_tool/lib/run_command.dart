@@ -53,6 +53,9 @@ class RunCommand {
     ..addOption('config', abbr: 'c', help: 'Bazel config to use.')
     ..addMultiOption(
       'build-arg',
+      // A bazel flag's value can hold a comma (`--copt=-Wl,-rpath`), and the
+      // option repeats, so a comma never separates two of them.
+      splitCommas: false,
       help: 'Additional arguments to pass to bazel build.',
     )
     ..addMultiOption(

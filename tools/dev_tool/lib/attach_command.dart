@@ -61,6 +61,9 @@ class AttachCommand {
     // repeat them, or contradict the binary that is running.
     ..addMultiOption(
       'build-arg',
+      // A bazel flag's value can hold a comma (`--copt=-Wl,-rpath`), and the
+      // option repeats, so a comma never separates two of them.
+      splitCommas: false,
       help:
           'Additional argument for bazel build, matching the ones the run '
           'used. A build arg is not recorded in the app, so it cannot be '

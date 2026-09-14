@@ -1,5 +1,7 @@
+import 'package:flutter_bazel_dev_tool/attach_command.dart';
+import 'package:flutter_bazel_dev_tool/build_command.dart';
 import 'package:flutter_bazel_dev_tool/cli_args.dart';
-import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
+import 'package:flutter_bazel_dev_tool/run_command.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -44,5 +46,33 @@ void main() {
 
   test('an argv with no positionals passes', () {
     expect(() => requireNoPositionalArgs('run', const []), returnsNormally);
+  });
+
+  // `ArgParser` splits a multi-option on commas unless told not to, which cut
+  // `--build-arg=--ui_event_filters=-info,-progress` in two and handed bazel a
+  // bare `-progress` it refused. A comma inside a bazel flag's value is
+  // ordinary — `--copt=-Wl,-rpath`, `--platforms=a,b` — and `--build-arg` is
+  // already repeatable, so there is no second meaning for one to carry.
+  group('--build-arg keeps a comma inside the flag it passes', () {
+    for (final (command, parser) in [
+      ('run', RunCommand.parser),
+      ('build', BuildCommand.parser),
+      ('attach', AttachCommand.parser),
+    ]) {
+      test(command, () {
+        final results = parser.parse([
+          '-t',
+          '//:app',
+          '--build-arg=--ui_event_filters=-info,-progress',
+          '--build-arg',
+          '--copt=-Wl,-rpath',
+        ]);
+
+        expect(results['build-arg'], [
+          '--ui_event_filters=-info,-progress',
+          '--copt=-Wl,-rpath',
+        ]);
+      });
+    }
   });
 }
