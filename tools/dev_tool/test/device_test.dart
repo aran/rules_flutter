@@ -4177,6 +4177,46 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       },
     );
 
+    // A Ctrl-C in a terminal reaches the app as well as this tool — they share
+    // the terminal's process group — so by the time teardown asks, the app
+    // has often gone. `kill` answers `false` for a process that has exited,
+    // and reading that as a failed kill told every such user to go and stop by
+    // hand an app that was no longer running.
+    test(
+      'an app that has already exited is stopped without a warning',
+      () async {
+        final real = await Process.start('/bin/sh', ['-c', 'exit 0']);
+        await real.exitCode;
+        expect(
+          real.kill(),
+          isFalse,
+          reason:
+              'the platform fact this is about: FakeProcess mirrors it, and a '
+              'fake that did not could never fail this test',
+        );
+
+        final records = await recording(
+          () => MacOSDevice().stop(AppInstance(process: real)),
+        );
+
+        expect(
+          records.where((r) => r.message.contains('process_kill')),
+          isEmpty,
+          reason: 'an app that is already gone was stopped; nothing failed',
+        );
+      },
+      testOn: '!windows',
+    );
+
+    test(
+      'FakeProcess answers a kill after its exit the way a process does',
+      () {
+        final process = FakeProcess()..complete(0);
+
+        expect(process.kill(), isFalse);
+      },
+    );
+
     test('a web module server that never finishes stopping does not hold the '
         'browser hostage', () async {
       final process = FakeProcess();

@@ -72,16 +72,6 @@ final _logger = Logger('dev_tool.device');
 /// leaves an app (or a log tailer) running that the next run will collide with,
 /// so it must be said out loud rather than swallowed by the `await exitCode`
 /// that follows.
-void _warnKillFailed(String what, Process process) => _logger.warning({
-  'message': 'process_kill_failed',
-  'text':
-      'Could not kill the $what process (pid ${process.pid}); it may '
-      'still be running. Stop it by hand if the next run finds the port or '
-      'window already taken.',
-  'process': what,
-  'pid': process.pid,
-});
-
 /// Stop [process], escalating past a SIGTERM it refuses.
 ///
 /// SIGTERM is a request: a wedged process can take it and keep running, so
@@ -92,11 +82,13 @@ void _warnKillFailed(String what, Process process) => _logger.warning({
 /// a teardown that cannot confirm a death is still better than one that never
 /// ends, and the user needs to be told which they got.
 ///
-/// The escalation's own `kill` return value is deliberately not checked: a
-/// process that exits in the race between the bound expiring and the SIGKILL
-/// makes it report `false`, and that is success, not failure.
+/// Neither `kill`'s return value is read. `false` is what it reports for a
+/// process that has already exited, which is the outcome being asked for: a
+/// Ctrl-C in a terminal reaches the app along with this tool, so by the time
+/// teardown asks, the app has often gone. Whether a stop worked is settled by
+/// the process exiting, which is what the bound waits for.
 Future<void> _stopProcess(String what, Process process, Duration bound) async {
-  if (!process.kill()) _warnKillFailed(what, process);
+  process.kill();
   if (await _exitedWithin(process, bound)) return;
 
   _logger.warning({

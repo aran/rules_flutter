@@ -257,6 +257,9 @@ class FakeProcess implements Process {
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     signals.add(signal);
     killed = true;
+    // What `dart:io` answers for a process that has already exited and been
+    // reaped: there is nothing left to signal.
+    if (_exitCompleter.isCompleted) return false;
     if (ignoresSigterm && signal == ProcessSignal.sigterm) return true;
     // Never inline: a real process exits some time after the signal, and code
     // that only works when `exitCode` is already complete on the next line
