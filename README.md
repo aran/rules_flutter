@@ -1,140 +1,93 @@
 # rules_flutter
 
-> **Status: v0.0.1 — early/alpha.** Usable today, but the public API may change before 1.0. Feedback and contributions welcome.
+Bazel rules for building Flutter apps.
 
-Bazel rules for building Flutter applications. Provides Bazel-native compilation, asset bundling, AOT compilation, and platform-specific packaging for all Flutter target platforms.
+> **Status: v0.0.1, alpha.** It works today, but the public API may change before 1.0. Feedback and contributions are welcome.
 
-Built on top of [rules_dart](https://github.com/aran/rules_dart) for Dart compilation and delegates platform packaging to mature ecosystem rulesets (`rules_android`, `rules_apple`, etc.).
+rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and packages the result for macOS, iOS, Android, Linux, Windows, and the web. It builds on [rules_dart](https://github.com/aran/rules_dart) for Dart compilation and hands platform packaging to the rulesets that already do it well: `rules_apple`, `rules_android`, and friends. It also ships a dev tool, `flutter_bazel`, that gives you hot reload, hot restart, and an HTTP channel for driving a running app from a script.
 
-## Why Bazel?
+## Why build Flutter with Bazel
 
-If you're already using `flutter build`, here's what you gain by switching to Bazel:
+If `flutter build` works for you, here is what Bazel adds:
 
-- **Hermetic, reproducible builds** — every input is tracked; the same source always produces the same output, regardless of machine state.
-- **Remote caching** — build artifacts are content-addressed and shared across your team. A change that only touches one package doesn't rebuild anything else.
-- **Remote Build Execution (RBE)** — offload compilation to cloud workers. Build macOS, Linux, and Android targets from the same `bazel build` invocation.
-- **Monorepo interoperability** — Flutter apps, backend services, Rust libraries, C++ libraries, and infrastructure code all live in one build graph with correct dependency tracking.
-- **Native code composition** — depend on `cc_library`, `rust_shared_library`, or `swift_library` targets directly via `native_deps`. No CMake, no Gradle, no CocoaPods.
-- **No build_runner** — code generators (json_serializable, freezed, etc.) run as hermetic Bazel actions via `dart_codegen`.
+- **Reproducible builds.** Every input is tracked, so the same source produces the same output on every machine.
+- **Remote caching.** Build outputs are content-addressed and shared across a team. A change to one package rebuilds only what depends on it.
+- **Remote execution.** Compile on cloud workers, and build macOS, Linux, and Android targets from one `bazel build`.
+- **One build graph.** Flutter apps, backend services, Rust and C++ libraries, and infrastructure code live together with real dependency tracking.
+- **Native code without a second build system.** Depend on `cc_library`, `rust_shared_library`, or `swift_library` targets directly. No CMake, Gradle, or CocoaPods.
+- **No build_runner.** Code generators such as json_serializable and freezed run as ordinary Bazel actions.
 
-## Compatibility
+## Contents
 
-- **Bazel**: 9+
-- **Flutter SDK**: 3.47.2
+- [Getting started](#getting-started)
+- [Dependencies](#dependencies): pub packages, build hooks, native code
+- [Building for each platform](#building-for-each-platform): macOS, iOS, Android, Linux, Windows, web, cross-compiling, release permissions
+- [Rules reference](#rules-reference): libraries, applications, tests, plugins, code generation, providers
+- [The dev tool](#the-dev-tool): running apps, hot reload, driving an app from a script
+- [Examples](#examples)
 
-## Prerequisites
+## Getting started
 
-| Platform | Requirements |
-|----------|-------------|
-| All | Bazel 9+ |
-| macOS | Xcode (for `rules_apple` and `rules_swift`) |
-| iOS | Xcode + valid signing identity (simulator works without signing) |
-| Android | Android SDK (`$ANDROID_HOME`), Android NDK (`$ANDROID_NDK_HOME`, pointing at a *versioned* `ndk/<version>` directory), rules_android, rules_android_ndk, rules_kotlin — see [Android](#android) |
-| Linux | C++ toolchain (native or LLVM cross-toolchain from macOS) |
-| Windows | MSVC (native builds), or C++ cross-toolchain (debug JIT only from macOS/Linux) |
-| Web | None (Dart-to-WASM/JS compilation is fully hermetic) |
+### Requirements
 
-## Required `.bazelrc`
+| Platform | What you need |
+|---|---|
+| All | Bazel 9 or newer. The rules download Flutter 3.47.2 themselves. |
+| macOS | Xcode, for `rules_apple` and `rules_swift`. |
+| iOS | Xcode. The simulator needs no signing identity. A physical device does; see [Running on an iOS device](#running-on-an-ios-device). |
+| Android | The Android SDK and NDK, with `ANDROID_HOME` and `ANDROID_NDK_HOME` set. See [Android](#android). |
+| Linux | A C++ toolchain. From macOS, an LLVM cross-toolchain. |
+| Windows | MSVC for native builds. From macOS or Linux, a C++ cross-toolchain, debug builds only. |
+| Web | Nothing extra. Compiling Dart to WASM or JavaScript is fully hermetic. |
 
-rules_flutter's transitive Java toolchain (`rules_jvm_external` 7+, `rules_android` 0.7.2+) ships internal tool jars compiled at Java 21+ and uses Java 14+ language features in its sources. Bazel's defaults for the tool exec configuration are older than that, so without setting them explicitly you will hit either `UnsupportedClassVersionError` at action execution time or `could not locate class file for java.lang.Record` at compile time.
-
-Windows builds additionally require Bazel symlink support, which `rules_python` 2.0+ depends on.
-
-Paste this block into your project's `.bazelrc`:
-
-```bazelrc
-# Required for rules_flutter — bumps the tool exec JDK above Bazel's
-# `remotejdk_11` default so transitive rulesets' Java 21+ tool jars run.
-common --tool_java_language_version=25
-common --tool_java_runtime_version=remotejdk_25
-
-# Required on Windows for rules_python 2+.
-startup --windows_enable_symlinks
-```
-
-## Quickstart
-
-Add the following to your `MODULE.bazel`:
+### MODULE.bazel
 
 ```starlark
-bazel_dep(
-    name = "rules_flutter",
-    version = <latest from registry.bazel.build/modules/rules_flutter>,
-)
+bazel_dep(name = "rules_flutter", version = "<latest from registry.bazel.build/modules/rules_flutter>")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.2")
-use_repo(flutter, "flutter_toolchains")
+flutter.pub(
+    name = "deps",
+    lock = "//:pubspec.lock",
+)
+use_repo(flutter, "deps", "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
 ```
 
-Then in your `BUILD.bazel`:
+`flutter.toolchain` downloads the Flutter SDK and engine. `flutter.pub` reads your `pubspec.lock` and creates a repository, here named `deps`, with one target per package: `@deps//:flutter`, `@deps//:flutter_test`, `@deps//:collection`, and so on. See [Pub packages](#pub-packages).
 
-```starlark
-load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
+Some platforms need one more repository from the same extension. Add it to `use_repo` when you build for that platform:
 
-flutter_library(
-    name = "my_lib",
-    srcs = glob(["lib/**/*.dart"]),
-    assets = glob(["assets/**"]),
-)
+| Platform | Add to `use_repo` |
+|---|---|
+| macOS | `flutter_macos_engine` |
+| iOS | `flutter_ios_engine` |
+| Android | `flutter_android_engine_arm64`, or `flutter_android_engine_x64` for `android_abi = "x64"` |
+| Web | `flutter_web_sdk` |
 
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
-)
+Static analysis with rules_dart's `dart_analyze_test` also needs `flutter_sky_engine`, which is where `dart:ui` resolves from.
+
+### .bazelrc
+
+Two settings are required. Paste them into your project's `.bazelrc`:
+
+```bazelrc
+# rules_flutter's Java dependencies (rules_jvm_external 7+, rules_android 0.7.2+)
+# ship tool jars compiled for Java 21+. Bazel's default tool JDK is older.
+common --tool_java_language_version=25
+common --tool_java_runtime_version=remotejdk_25
+
+# Windows only: rules_python 2+ needs symlink support.
+startup --windows_enable_symlinks
 ```
 
-`flutter_application` is the core compilation target shared by all platforms. It produces a `FlutterApplicationInfo` provider that platform-specific packaging rules consume.
+Without the Java settings you get `UnsupportedClassVersionError` when an action runs, or `could not locate class file for java.lang.Record` when one compiles.
 
-`package_name` is required — it matches `pubspec.yaml`'s `name:` field, keys the kernel under stable `package:` URIs for hot reload, and lets the compile reach codegen siblings.
+### Your first app
 
-## Debug vs Release Builds
-
-Build mode is controlled by Bazel's standard compilation mode flag:
-
-| Flag | Mode | Compilation | Use case |
-|------|------|-------------|----------|
-| `-c dbg` | Debug | Kernel `.dill` (JIT) | Development, hot reload |
-| (default) | Fastbuild | AOT native code | CI, testing |
-| `-c opt` | Release | AOT native code (stripped) | Production |
-
-## Cross-Compilation
-
-`gen_snapshot` (the AOT compiler) is a cross-compiler: it runs on the host but produces code for the target. Different binaries exist per host/target pair.
-
-### Host-to-Target Matrix
-
-| Host | Target | AOT (release) | JIT (debug) | Notes |
-|------|--------|:---:|:---:|-------|
-| macOS | macOS | Yes | Yes | Native build |
-| macOS | iOS | Yes | Yes | Via `rules_apple` platform transition |
-| macOS | Android | Yes | Yes | Automatic platform transition in the Android rules |
-| macOS | Linux | No | Yes | Cross-compile with LLVM CC toolchain; JIT only (no cross gen_snapshot for desktop) |
-| macOS | Windows | No | Yes | JIT only; requires Windows CC cross-toolchain |
-| macOS | Web | Yes | N/A | Web uses dart2wasm/dart2js, not gen_snapshot |
-| Linux | Linux | Yes | Yes | Native build |
-| Linux | Android | Yes | Yes | Automatic platform transition in the Android rules |
-| Linux | iOS | No | No | Requires Xcode (macOS only) |
-| Linux | Web | Yes | N/A | |
-| Windows | Windows | Yes | Yes | Native build |
-| Windows | Android | Yes | Yes | Automatic platform transition in the Android rules |
-| Windows | Web | Yes | N/A | |
-
-**Key limitation:** Desktop-to-desktop AOT cross-compilation (e.g. macOS→Linux release) is not supported because Flutter does not publish cross-gen_snapshot binaries for desktop targets. Use debug/JIT mode for cross-compiled desktop bundles, or build natively on the target platform.
-
-## Platform Rules
-
-Each platform has a **Tier 1 convenience macro** (recommended) and **Tier 2 composable rules** (advanced).
-
-The Tier 1 macros auto-discover runner files from `flutter create` output and wire up all internal targets. The Tier 2 rules give full control over each component.
-
-### macOS
-
-> **macOS only** — requires Xcode and `rules_apple`.
+Start from a project made with `flutter create`. It has `lib/main.dart`, a `pubspec.yaml`, and one folder per platform. rules_flutter reads those files as they are. You add a `BUILD.bazel`:
 
 ```starlark
 load("@rules_flutter//flutter:defs.bzl", "flutter_application")
@@ -144,8 +97,173 @@ flutter_application(
     name = "my_app",
     package_name = "my_app",
     main = "lib/main.dart",
-    deps = [":my_lib"],
+    srcs = glob(["lib/**/*.dart"]),
+    assets = glob(["assets/**"]),
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
 )
+
+flutter_macos_app(
+    name = "my_app_macos",
+    application = ":my_app",
+    bundle_id = "com.example.my_app",
+)
+```
+
+`flutter_application` compiles the Dart code and bundles the assets. Each platform then has a macro, like `flutter_macos_app`, that wraps it in a runnable app. Two attributes deserve a note:
+
+- `package_name` must match the `name:` field in `pubspec.yaml`. Hot reload and code generation both rely on it.
+- `@rules_flutter//flutter:material_icons` bundles the Material icon font. Any app that uses Material widgets needs it in `deps`.
+
+Build it, or run it with hot reload:
+
+```sh
+bazel build //:my_app_macos
+bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_macos -d macos
+```
+
+### Build modes
+
+Bazel's compilation mode flag selects how the Dart is compiled:
+
+| Flag | Mode | Dart compilation | Use it for |
+|---|---|---|---|
+| `-c dbg` | Debug | Kernel `.dill`, run by the JIT | Development, hot reload |
+| none (fastbuild) | Release | AOT native code | CI, tests |
+| `-c opt` | Release | AOT native code, stripped | Production |
+
+Note that a plain `bazel build` is a release build, not a debug one. That matters for [permissions](#release-builds-and-permissions).
+
+## Dependencies
+
+### Pub packages
+
+`flutter.pub` turns `pubspec.lock` into Bazel targets. Every package in the lock gets a target in the hub repository: `@deps//:collection`, `@deps//:url_launcher`, `@deps//:flutter_test`. List them in `deps` like any other target:
+
+```starlark
+flutter_application(
+    name = "my_app",
+    package_name = "my_app",
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:collection",
+        "@deps//:url_launcher",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+```
+
+Plugins need no special treatment. A pub package that is a Flutter plugin arrives as a plugin target, and the platform macros register it and build its native code. On Android the hub also exposes `@deps//android:all_android_plugin_libs`, the Kotlin and Java of every plugin, and `flutter_android_app` adds it to the APK for you.
+
+One Android detail: a plugin that declares permissions in its own manifest (for example `record_android` and `RECORD_AUDIO`) needs this line in your `.bazelrc`, because Bazel's manifest merger drops library permissions by default where Gradle keeps them:
+
+```bazelrc
+common --merge_android_manifest_permissions
+```
+
+### Regenerating pubspec.lock
+
+Bazel reads `pubspec.lock` and never writes it. To regenerate it, use the Flutter toolchain the rules pin rather than a Flutter installed on your machine:
+
+```sh
+bazel run @rules_flutter//flutter:pub -- get       # after editing pubspec.yaml
+bazel run @rules_flutter//flutter:pub -- upgrade
+bazel run @rules_flutter//flutter:pub -- add qr
+```
+
+Arguments pass through to `dart pub` unchanged, and the command runs at your workspace root, so the lock lands where `flutter.pub` reads it.
+
+The version of Flutter that resolves the lock matters, and a mismatch is easy to miss. Pub treats the running Dart and Flutter versions as constraints, so an older installation quietly picks older packages, and the lock it writes is still valid. For example, resolving `e2e/plugin_example` with Flutter 3.41.6 pins `meta 1.17.0`, while the pinned 3.44.1 toolchain pins `meta 1.18.0`. Nothing downstream can tell the difference.
+
+The fetched toolchain contains engine artifacts and a Dart SDK but no `bin/flutter`, so this target runs `dart pub` with `FLUTTER_ROOT` pointed at a tree assembled from the same Flutter release. That tree is fetched the first time you run the target. Because it is `dart pub` rather than `flutter pub`, it writes `pubspec.lock` and `.dart_tool/package_config.json` and does not write `.flutter-plugins-dependencies`. rules_flutter generates plugin registrants from the build graph, so nothing needs that file.
+
+A package below the workspace root, such as a `tools/*` package, is resolved by the same target with pub's `--directory` flag. The path is relative to the workspace root:
+
+```sh
+bazel run @rules_flutter//flutter:pub -- get --directory tools/my_tool
+```
+
+### Packages with build hooks
+
+Some pub packages compile native code through a Dart `hook/build.dart` (Dart Native Assets). Bazel does not run those hooks. Instead:
+
+- **Curated replacements.** rules_dart keeps a registry of Bazel-native equivalents (`@rules_dart//dart/ext:registry.bzl`). Where one exists, such as `sqlite3`, `flutter.pub` attaches it automatically. An app that depends on `drift` gets `libsqlite3` without naming it.
+- **Overlays.** For a package with a hook and no curated entry, you can write a `BUILD.bazel.tpl` that reproduces what the hook builds. rules_flutter bundles overlays under `ext/`, and you can add your own with `flutter.plugin_overlays(roots = [...])`. Authoring one is described in [docs/TESTING.md](docs/TESTING.md) under "Native Assets overlay authoring".
+- **Ignoring a hook.** If a package's native code is never reached in your app, say so: `flutter.pub(ignore_hooks = ["<package>"])`.
+
+A hook that nothing replaces is an error when `flutter_application` reaches it. The alternative would be a build that succeeds and then fails at runtime on an unresolved `@Native` symbol.
+
+### Native code from Bazel
+
+A Flutter app can depend on native code built by any Bazel rule that produces a shared library: `rules_cc`, `rules_rust`, and so on. List the library in `native_deps` and it is bundled beside the app, where `dart:ffi` can open it:
+
+```starlark
+cc_shared_library(
+    name = "my_native_lib",
+    deps = [":my_cc_lib"],
+)
+
+flutter_application(
+    name = "my_app",
+    package_name = "my_app",
+    main = "lib/main.dart",
+    native_deps = [":my_native_lib"],
+    deps = ["@deps//:flutter"],
+)
+```
+
+If you would rather bind with `@Native(assetId: ...)` and let the Dart VM find the library, declare it as a Native Asset with `flutter_native_asset` from `@rules_flutter//flutter:native_assets.bzl`, and carry it on a `flutter_plugin`. `e2e/ffi_example` shows both styles side by side.
+
+#### Hot reload across a native rebuild
+
+A running process cannot pick up a rebuilt native library; it keeps the one it already loaded. So when a hot reload rebuilds a library, the dev tool has to decide whether the Dart it is about to inject still matches that library. Without more information it withholds the reload, and a pending native change blocks your Dart edits until you restart.
+
+You can tell it what the bindings were generated from, and then it can decide:
+
+```starlark
+flutter_native_library(
+    name = "bridge",
+    library = "@my_bridge//bridge:bridge_shared",
+    binding_contract = ["@my_bridge//bridge:codegen.ir"],
+)
+
+flutter_application(
+    name = "my_app",
+    native_deps = [":bridge"],
+    # ...
+)
+```
+
+`binding_contract` is whatever file decides what may be called and how: a binding generator's interface description, or the C header a hand-written FFI binding follows. The dev tool compares the bytes of those files and nothing else, so what matters is that every change to the wire format shows up in them, and that changes which do not affect the wire do not.
+
+With that declared, a reload has three outcomes:
+
+| What changed | What the reload does |
+|---|---|
+| Nothing native | Ordinary reload. |
+| The library's code, but not its contract | Delivers the edit and reports that the native code in the process is stale. |
+| The contract | Withholds the edit. Restart to pick up the new library. |
+
+On the web the same wrapper goes in `flutter_web_bundle`'s `native_modules`, which both serves the `.wasm` module and declares it. The situation is the same: the page instantiates the module once and a hot reload does not re-run `main()`. A web hot restart does re-run `main()`, so it re-fetches the module with no relaunch.
+
+## Building for each platform
+
+Every platform has two levels of API:
+
+- **A convenience macro** such as `flutter_macos_app`. It finds the runner files `flutter create` wrote, wires up every internal target, and is what most apps should use.
+- **Composable rules** such as `flutter_macos_runner_lib_gen`, for when you need control over a piece the macro decides for you. Each platform section shows them in a collapsed block.
+
+The macros take `flutter create` output as it is. You do not need to edit the generated `Runner` folders.
+
+### macOS
+
+Requires Xcode. Run `flutter create --platforms=macos .` first so `macos/Runner/` exists.
+
+```starlark
+load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 
 flutter_macos_app(
     name = "my_app_macos",
@@ -155,26 +273,22 @@ flutter_macos_app(
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=macos .` to generate `macos/Runner/` with Swift sources and XIB files.
-
 | Attribute | Description |
-|-----------|-------------|
-| `application` | A `flutter_application` target (required). |
-| `bundle_id` | macOS bundle identifier (required). |
-| `app_name` | Display name (menu bar, window title). Defaults to target name. |
-| `minimum_os_version` | Minimum macOS version. Default: `"10.14"`. |
-| `info_plist` | Override the conventional `macos/Runner/Info.plist`. |
+|---|---|
+| `application` | A `flutter_application` target. Required. |
+| `bundle_id` | The macOS bundle identifier. Required. |
+| `app_name` | Display name for the menu bar and window title. Defaults to the target name. |
+| `minimum_os_version` | Defaults to `"10.14"`. |
+| `info_plist` | Replaces the discovered `macos/Runner/Info.plist`. |
 | `version` | An `apple_bundle_version` target. Defaults to `"1.0"`. |
-| `entitlements` | Replace the entitlements wiring wholesale. By default the macro auto-discovers `macos/Runner/{DebugProfile,Release}.entitlements` and selects between them by compilation mode. |
-| `additional_entitlements` | Entitlement plist files merged into the selected base in **every** compilation mode. See [Release builds and permissions](#release-builds-and-permissions). |
-| `app_icons` | The app icon. Defaults to the `macos/Runner/Assets.xcassets/AppIcon.appiconset` that `flutter create` writes, so an app ships the icon already in its tree without asking. Pass a list to name a different `.appiconset` or an Icon Composer `.icon` bundle; pass `[]` to ship none. See [App icons](#app-icons). |
+| `entitlements` | Replaces the entitlements wiring. By default the macro finds `macos/Runner/DebugProfile.entitlements` and `Release.entitlements` and picks one by compilation mode. |
+| `additional_entitlements` | Entitlement plist files merged into the selected base in every compilation mode. See [Release builds and permissions](#release-builds-and-permissions). |
+| `app_icons` | Defaults to the `AppIcon.appiconset` in `macos/Runner/Assets.xcassets`. See [App icons](#app-icons). |
 
-Produces a `.app` bundle with `FlutterMacOS.framework`, `App.framework`, and `flutter_assets/`.
+The output is a `.app` bundle containing `FlutterMacOS.framework`, `App.framework`, and `flutter_assets/`.
 
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
-
-For full control over the macOS bundle (custom runner, custom framework layout, etc.):
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:macos.bzl",
@@ -200,9 +314,9 @@ flutter_macos_runner_lib_gen(
     engine = ":my_engine",
 )
 
-# rules_apple's `entitlements` takes one file; this merges additions into
-# it (add-only, with a hard error on a conflicting value). Also exported
-# from flutter:ios.bzl.
+# rules_apple's `entitlements` takes one file. This merges additions into it.
+# Additions only; a key present in both with different values is an error.
+# Also exported from flutter:ios.bzl.
 flutter_entitlements_merge(
     name = "my_entitlements",
     base = "macos/Runner/Release.entitlements",
@@ -226,18 +340,10 @@ macos_application(
 
 ### iOS
 
-> **macOS only** — requires Xcode, `rules_apple`, and `rules_swift`.
+Requires Xcode. Run `flutter create --platforms=ios .` first so `ios/Runner/` exists, and add `flutter_ios_engine` to `use_repo`.
 
 ```starlark
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
 load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app")
-
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
-)
 
 flutter_ios_app(
     name = "my_app_ios",
@@ -246,71 +352,25 @@ flutter_ios_app(
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=ios .` to generate `ios/Runner/` with Swift sources.
-
-Add to your `MODULE.bazel`:
-
-```starlark
-use_repo(flutter, "flutter_toolchains", "flutter_ios_engine")
-```
-
 | Attribute | Description |
-|-----------|-------------|
-| `application` | A `flutter_application` target (required). |
-| `bundle_id` | iOS bundle identifier (required). |
-| `families` | Device families. Default: `["iphone"]`. |
-| `app_name` | Display name. Defaults to target name. |
-| `minimum_os_version` | Minimum iOS version. Default: `"12.0"`. |
-| `info_plist` | Override conventional `ios/Runner/Info.plist`. |
+|---|---|
+| `application` | A `flutter_application` target. Required. |
+| `bundle_id` | The iOS bundle identifier. Required. |
+| `families` | Device families. Defaults to `["iphone"]`. |
+| `app_name` | Display name. Defaults to the target name. |
+| `minimum_os_version` | Defaults to `"12.0"`. |
+| `info_plist` | Replaces the discovered `ios/Runner/Info.plist`. |
 | `version` | An `apple_bundle_version` target. Defaults to `"1.0"`. |
-| `launch_storyboard` | Override launch storyboard. |
-| `entitlements` | Replace the entitlements wiring. By default the macro auto-discovers `ios/Runner/Runner.entitlements` if present; its absence is a valid, capability-less app. |
-| `additional_entitlements` | Entitlement plist files merged into the base in **every** compilation mode. Works when the app ships no entitlements file at all. See [Release builds and permissions](#release-builds-and-permissions). |
-| `provisioning_profile` | A `.mobileprovision` file (usually a `local_provisioning_profile` target) to sign a device build with. Required for device builds; unused by simulator builds. See [Running an iOS example on a physical device](#running-an-ios-example-on-a-physical-device). |
-| `app_icons` | The app icon. Defaults to the `ios/Runner/Assets.xcassets/AppIcon.appiconset` that `flutter create` writes, so an app ships the icon already in its tree without asking. Pass a list to name a different `.appiconset` or an Icon Composer `.icon` bundle; pass `[]` to ship none. See [App icons](#app-icons). |
+| `launch_storyboard` | Replaces the launch storyboard. |
+| `entitlements` | Replaces the entitlements wiring. By default the macro uses `ios/Runner/Runner.entitlements` if it exists. An app with no entitlements file is fine. |
+| `additional_entitlements` | Entitlement plist files merged into the base in every compilation mode. Works even when the app has no entitlements file. See [Release builds and permissions](#release-builds-and-permissions). |
+| `provisioning_profile` | A `.mobileprovision` file, usually a `local_provisioning_profile` target. Required for device builds, unused by simulator builds. See [Running on an iOS device](#running-on-an-ios-device). |
+| `app_icons` | Defaults to the `AppIcon.appiconset` in `ios/Runner/Assets.xcassets`. See [App icons](#app-icons). |
 
-The platform transition to iOS arm64 is handled automatically by `rules_apple`'s `ios_application`.
-
-### App icons
-
-On Apple platforms the icon comes from an **asset catalog**, not from loose
-files: `actool` compiles the catalog and has to be told which set inside it is
-the app icon, which is what `rules_apple`'s `app_icons` attribute says and what
-listing the same PNGs under `resources` cannot. `flutter_ios_app` and
-`flutter_macos_app` discover
-`{ios,macos}/Runner/Assets.xcassets/AppIcon.appiconset` — the catalog
-`flutter create` writes — and forward it, so an app that has never mentioned
-its icon ships the one already in its tree, as `flutter build` does from the
-same sources.
-
-To ship something else, name it: `app_icons` takes the files of an
-`.appiconset` or of an Icon Composer `.icon` bundle (`rules_apple` 4.5+
-generates the pre-26 sizes from the latter). It refuses the two together, so
-name exactly one. `app_icons = []` ships no icon.
-
-**Discovery is per-platform, and a missing catalog is silent.** A tree that ran
-`flutter create --platforms=ios .` has `ios/Runner/Assets.xcassets` and no
-macOS counterpart, so the iOS app gets an icon and the macOS app quietly does
-not — there is no error, because an app with no catalog and no `app_icons` has
-said nothing either way. If one platform shows your icon and the other shows
-the placeholder, look for the catalog before looking anywhere else.
-
-macOS icons want the platform's own grid rather than a full-bleed square: the
-rounded shape inset to roughly 824 of the 1024pt canvas, which is what makes it
-sit correctly beside other Dock icons. The rules pass the catalog through
-untouched and impose nothing here.
-
-One `flutter create` detail is handled for you on macOS. Its `Info.plist`
-declares `CFBundleIconFile` as an empty string for Xcode to fill in;
-`macos_application` generates its own value from the catalog, and Apple's
-plisttool refuses two different values for one key — `found key
-"CFBundleIconFile" in two plists with different values: "" != "AppIcon"`. The
-macro drops the empty placeholder, so the scaffold needs no edit. A plist that
-names a *real* icon file is left alone, and still conflicts if you also pass
-`app_icons`.
+`rules_apple`'s `ios_application` handles the transition to iOS arm64.
 
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:ios.bzl",
@@ -327,9 +387,9 @@ flutter_ios_registrant_gen(name = "my_registrant", application = ":my_app")
 flutter_ios_engine(name = "my_engine")
 flutter_ios_info_plist_gen(name = "my_info_plist", app_name = "My App")
 
-# Frameworks for the app's native assets and `native_deps` dylibs. Omitting
-# this from `deps` below builds and renders a perfectly normal-looking app
-# that fails every native-asset call at runtime.
+# Frameworks for the app's Native Assets and `native_deps` libraries. If you
+# leave this out of `deps` below, the app builds and renders normally and
+# then fails every native call at runtime.
 flutter_ios_native_frameworks_gen(name = "my_native_frameworks", application = ":my_app")
 
 flutter_ios_runner_lib_gen(
@@ -349,18 +409,96 @@ ios_application(
 
 </details>
 
-### Android
+#### Running on an iOS device
+
+Simulator builds need no code signing. Device builds need a provisioning profile, which is per-developer and should stay out of version control. `flutter_ios_app` takes it directly:
 
 ```starlark
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
-load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+# In a git-ignored //device package, so the credential stays local.
+load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
+local_provisioning_profile(
+    name = "profile",
+    profile_name = "iOS Team Provisioning Profile: *",
+    tags = ["manual"],
 )
+```
+
+```starlark
+flutter_ios_app(
+    name = "my_app_ios_device",
+    application = ":my_app",
+    bundle_id = "com.example.myapp",
+    provisioning_profile = "//device:profile",
+)
+```
+
+That is the only difference from the simulator target. `flutter_ios_app` is tagged `manual` by default, so `bazel build //...` on a fresh clone does not try to load the missing `//device` package.
+
+Keep the app target in the committed BUILD file and put only the `local_provisioning_profile` in `//device`. The profile is the one genuinely per-developer fact. If the whole device app lives in a git-ignored package it is invisible to review and CI, and it drifts. Two of this repository's own examples once had a device app that had quietly diverged from its committed simulator twin. The same advice applies if you assemble the app from the composable rules: give the device `ios_application` the same `deps` as the simulator one.
+
+Then run it:
+
+```sh
+bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_ios_device -d ios
+```
+
+Each iOS example ships a `device.example/` folder. Copy it to a git-ignored `device/` and set your bundle id.
+
+**Finding the profile's name.** `profile_name` matches the profile's `Name` field, and that is not always `iOS Team Provisioning Profile: <bundle id>`. Xcode mints a per-bundle-id profile only for an App ID registered in the developer portal. For an unregistered id, which most example and scratch apps have, automatic signing issues the team wildcard profile, `iOS Team Provisioning Profile: *`, and that is what covers your bundle id. List what you have:
+
+```sh
+for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+  security cms -D -i "$f" | plutil -extract Name raw -
+done
+```
+
+Without `provisioning_profile`, a device build fails at analysis with "The provisioning_profile attribute must be set for device builds on this platform (ios)".
+
+**Getting a profile.** This is an Apple Developer account operation, and the rules cannot do it for you. You need a development profile whose App ID matches your `bundle_id`, installed under `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. Either create the App ID and a profile in the developer portal, download it, and double-click it, or let Xcode do it from any project with the right bundle id and automatic signing:
+
+```sh
+xcodebuild -project <some>.xcodeproj -scheme <scheme> -configuration Debug \
+  -destination generic/platform=iOS \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+```
+
+The project can be a scratch project. It does not need to be the app you build with Bazel, which has no `.xcodeproj` at all. Free "Personal Team" profiles expire after about seven days. When a build fails with "no provisioning profile was found named …", mint a fresh one.
+
+#### Checking an iOS release build
+
+There is no way to run a release iOS build without a signing credential. That matters because release-only problems, such as [missing permissions](#release-builds-and-permissions), show up when you run the app, not when you read the code.
+
+- **Device, `-c opt`.** The real thing. Needs a provisioning profile.
+- **Simulator, `-c opt`.** Builds a complete `.ipa` with no warning, installs and launches with exit code 0, and then shows a blank white screen forever. The simulator engine is a JIT engine and looks for `flutter_assets/kernel_blob.bin`, which an AOT bundle does not have. It never crashes, so there is no crash log. The only evidence is in the simulator's system log:
+
+  ```
+  (Flutter) Failed to find snapshot at .../App.framework/flutter_assets/kernel_blob.bin
+  (Flutter) [ERROR:flutter/shell/common/engine.cc(219)] Engine run configuration was invalid.
+  ```
+
+  Read it with `xcrun simctl spawn booted log show --last 5m --predicate 'eventMessage CONTAINS "kernel_blob"'`.
+
+Use `-c dbg` on the simulator and a device for release.
+
+### App icons
+
+On Apple platforms the icon comes from an asset catalog. `actool` compiles the catalog and needs to be told which set inside it is the app icon, which is what `rules_apple`'s `app_icons` attribute does and what listing the same PNGs under `resources` cannot. `flutter_ios_app` and `flutter_macos_app` find the `AppIcon.appiconset` that `flutter create` wrote and forward it, so an app that never mentions its icon ships the one in its tree, the same as `flutter build`.
+
+To ship a different icon, pass `app_icons` the files of an `.appiconset` or of an Icon Composer `.icon` bundle. `rules_apple` 4.5+ generates the older sizes from an `.icon` bundle. Name one or the other, not both. `app_icons = []` ships no icon.
+
+Discovery is per platform, and a missing catalog is not an error. A tree made with `flutter create --platforms=ios .` has `ios/Runner/Assets.xcassets` and no macOS counterpart, so the iOS app gets its icon and the macOS app gets the placeholder. If one platform shows your icon and the other does not, check for the catalog first.
+
+macOS icons use the platform's own grid rather than a full-bleed square: the rounded shape sits inset to roughly 824 of the 1024-point canvas, which is what makes it line up with other Dock icons. The rules pass the catalog through untouched.
+
+One `flutter create` quirk is handled for you on macOS. Its `Info.plist` declares `CFBundleIconFile` as an empty string for Xcode to fill in, while `macos_application` generates its own value from the catalog, and Apple's plisttool refuses two different values for one key. The macro drops the empty placeholder. A plist that names a real icon file is left alone, and will still conflict if you also pass `app_icons`.
+
+### Android
+
+Run `flutter create --platforms=android .` first so `android/app/src/main/` exists with its manifest, resources, and Kotlin sources.
+
+```starlark
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
 
 flutter_android_app(
     name = "my_app_android",
@@ -369,16 +507,14 @@ flutter_android_app(
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=android .` to generate `android/app/src/main/` with manifest, resources, and Kotlin sources. The macro handles everything automatically — no edits to the `flutter create` output needed.
-
-Add to your `MODULE.bazel`:
+Add these to `MODULE.bazel`:
 
 ```starlark
 bazel_dep(name = "rules_android_ndk", version = "0.1.5")
 
-use_repo(flutter, "flutter_toolchains", "flutter_android_engine_arm64")
+use_repo(flutter, "deps", "flutter_toolchains", "flutter_android_engine_arm64")
 
-# Android NDK CC toolchain (used for native/FFI deps built for Android).
+# The NDK CC toolchain, used for native and FFI deps built for Android.
 android_ndk_repository_extension = use_extension(
     "@rules_android_ndk//:extension.bzl",
     "android_ndk_repository_extension",
@@ -387,35 +523,28 @@ use_repo(android_ndk_repository_extension, "androidndk")
 register_toolchains("@androidndk//:all")
 ```
 
-**Environment.** Android builds need *two* variables, both read by repository
-rules during fetch:
+**Environment variables.** Two are needed, and both are read by repository rules while Bazel fetches:
 
 | Variable | Value | Read by |
 |---|---|---|
-| `ANDROID_HOME` | the SDK root, e.g. `~/Library/Android/sdk` | `rules_android`'s `android_sdk_repository` |
-| `ANDROID_NDK_HOME` | a **versioned** NDK directory, e.g. `$ANDROID_HOME/ndk/28.2.13676358` | `rules_android_ndk`'s `android_ndk_repository` |
+| `ANDROID_HOME` | The SDK root, for example `~/Library/Android/sdk`. | `rules_android` |
+| `ANDROID_NDK_HOME` | A versioned NDK directory, for example `$ANDROID_HOME/ndk/28.2.13676358`. | `rules_android_ndk` |
 
-`ANDROID_NDK_HOME` must name the versioned directory, not its `ndk/` parent.
-Pointing at the parent fails inside the NDK repository rule with a message that
-mentions neither the variable nor the mistake:
+`ANDROID_NDK_HOME` has to name the versioned directory, not the `ndk/` folder above it. Pointing at the parent fails with a message that mentions neither the variable nor the mistake:
 
 ```
 Error in readdir: can't readdir(), not a directory:
   .../Android/sdk/ndk/toolchains/llvm/prebuilt/darwin-x86_64
 ```
 
-Exporting both in the environment works. Putting them in a `.bazelrc` requires
-`--repo_env`, **not** `--action_env` — `--action_env` reaches build actions
-only, and repository rules never see it, so an `--action_env` line fails
-exactly as if nothing were set:
+Exporting the variables in your shell works. To put them in `.bazelrc`, use `--repo_env`. `--action_env` only reaches build actions, and repository rules never see it:
 
 ```bazelrc
 common --repo_env=ANDROID_HOME=/path/to/Android/sdk
 common --repo_env=ANDROID_NDK_HOME=/path/to/Android/sdk/ndk/28.2.13676358
 ```
 
-With `ANDROID_NDK_HOME` unset, the build stops during repository fetch, before
-anything Android-specific is analyzed:
+With `ANDROID_NDK_HOME` unset, the build stops during fetch:
 
 ```
 ERROR: An error occurred during the fetch of repository
@@ -424,33 +553,27 @@ ERROR: An error occurred during the fetch of repository
   path attribute of android_ndk_repository must be set.
 ```
 
-Build — no platform flags needed. `flutter_android_bundle` transitions the
-Flutter application (AOT compile, FFI deps, and all) to the Android platform
-matching its `android_abi`:
+No platform flags are needed to build. `flutter_android_app` transitions the application, including its AOT compile and FFI deps, to the Android platform for its `android_abi`:
 
 ```sh
-ANDROID_HOME=~/Library/Android/sdk \
-ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/28.2.13676358 \
-  bazel build //:my_app_android
+bazel build //:my_app_android
 ```
 
 | Attribute | Description |
-|-----------|-------------|
-| `application` | A `flutter_application` target (required). |
-| `package_name` | Android package name, e.g. `"com.example.myapp"` (required). |
-| `app_name` | Display name. Defaults to target name. |
-| `android_abi` | Target ABI — `"arm64"` (default) or `"x64"`. Selects the engine and the Android platform the app is built for. |
+|---|---|
+| `application` | A `flutter_application` target. Required. |
+| `package_name` | The Android package name, for example `"com.example.myapp"`. Required. |
+| `app_name` | Display name. Defaults to the target name. |
+| `android_abi` | `"arm64"` (default) or `"x64"`. Selects the engine and the Android platform. |
 | `min_sdk_version` | Minimum Android SDK version. |
 | `target_sdk_version` | Target Android SDK version. |
-| `manifest` | Override AndroidManifest.xml (auto-discovered from `flutter create` output or generated). Used verbatim: `${applicationName}` is **not** substituted, so this attribute cannot take `flutter create`'s own `android/app/src/main/AndroidManifest.xml` — let the macro discover that one instead. |
-| `debug_manifest` | Variant manifest whose permissions merge into `-c dbg` APKs only. `None` (default) discovers `android/app/src/debug/AndroidManifest.xml`; a label overrides discovery; `False` disables variant handling. |
-| `permissions` | Permission names added to the effective manifest in **every** compilation mode, e.g. `["android.permission.INTERNET"]`. See [Release builds and permissions](#release-builds-and-permissions). |
-| `multidex` | Multidex mode. Default: `"native"`. |
+| `manifest` | A manifest you wrote yourself, used verbatim. Placeholders like `${applicationName}` are not substituted, so do not pass `flutter create`'s own manifest here; let the macro discover that one. |
+| `debug_manifest` | A variant manifest whose permissions merge into `-c dbg` builds only. `None` (default) discovers `android/app/src/debug/AndroidManifest.xml`. A label overrides discovery. `False` disables variant handling. |
+| `permissions` | Permission names added to the manifest in every compilation mode, for example `["android.permission.INTERNET"]`. See [Release builds and permissions](#release-builds-and-permissions). |
+| `multidex` | Defaults to `"native"`. |
 
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
-
-For full control over the Android build (custom manifest, custom runner activity, etc.):
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:android.bzl",
@@ -483,25 +606,19 @@ android_binary(
 `flutter_android_bundle` output groups:
 
 | Group | Contents |
-|-------|----------|
-| `native_libs` | `libapp.so` (AOT) + any `native_deps` shared libraries |
-| `flutter_assets` | `flutter_assets/` tree |
-| `mobile_install` | JNI-structured symlinks + assets for `bazel mobile-install` |
+|---|---|
+| `native_libs` | `libapp.so` (AOT code) plus any `native_deps` libraries |
+| `flutter_assets` | The `flutter_assets/` tree |
+| `mobile_install` | JNI-structured symlinks and assets for `bazel mobile-install` |
 
 </details>
 
 ### Linux
 
-```starlark
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
-load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
+Run `flutter create --platforms=linux .` first. If `linux/runner/` is missing, the rules use a built-in runner.
 
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
-)
+```starlark
+load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 
 flutter_linux_app(
     name = "my_app_linux",
@@ -510,48 +627,36 @@ flutter_linux_app(
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=linux .` to generate `linux/runner/` with C++ sources. If no runner files are found, the built-in template is used automatically.
+| Attribute | Description |
+|---|---|
+| `application` | A `flutter_application` target. Required. |
+| `app_name` | Binary name. Defaults to the target name. |
+| `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. |
 
-**GTK3 and your cc toolchain.** rules_flutter ships its own hermetic Chromium
-sysroot for GTK3 headers and libraries, and links those libraries **as explicit
-files** — it adds no `-L` to the link line and never passes `-lgtk-3`-style
-flags. Your cc toolchain's `--sysroot` is untouched and remains the sole owner
-of libc, libm and the rest of the C runtime. (This matters: a Debian sysroot's
-`libm.so` is a GNU ld script holding absolute paths that `lld` rewrites only for
-scripts found beneath `--sysroot`, so a second sysroot on the `-l` search path
-would break `-lm` with a "no such file" error naming a file that exists.)
+The output directory:
 
-Cross-compile from macOS. Desktop cross-compiles are **debug/JIT only** — see
-[Cross-Compilation](#cross-compilation); Flutter publishes no
-cross-`gen_snapshot` for desktop targets, so there is no `-c opt` equivalent of
-this command:
+```
+my_app/
+  my_app                     GTK runner executable
+  lib/
+    libapp.so                AOT-compiled Dart
+    libflutter_linux_gtk.so  Flutter engine
+    *.so                     native plugin libraries, if any
+  data/
+    flutter_assets/          fonts, images, shaders, asset manifest
+    icudtl.dat               ICU data
+```
+
+**GTK3 and your C++ toolchain.** rules_flutter ships its own hermetic sysroot for the GTK3 headers and libraries, and links those libraries as explicit files. It adds no `-L` and no `-lgtk-3` flags. Your toolchain's `--sysroot` stays the only owner of libc, libm, and the rest of the C runtime. This matters because a Debian sysroot's `libm.so` is a linker script with absolute paths that `lld` rewrites only for scripts under `--sysroot`; a second sysroot on the search path would break `-lm` with a "no such file" error naming a file that exists.
+
+**Cross-compiling from macOS** works in debug mode only, because Flutter publishes no cross-compiling `gen_snapshot` for desktop targets. See [Cross-compiling](#cross-compiling).
 
 ```sh
 bazel build //:my_app_linux -c dbg --platforms=@rules_flutter//flutter/platforms:linux_x64
 ```
 
-| Attribute | Description |
-|-----------|-------------|
-| `application` | A `flutter_application` target (required). |
-| `app_name` | Binary name. Defaults to target name. |
-| `gtk_app_id` | GTK application identifier. Default: `"com.example.flutter"`. |
-
-Output directory structure:
-
-```
-my_app/
-  my_app                     (GTK runner executable)
-  lib/
-    libapp.so                (AOT-compiled Dart code)
-    libflutter_linux_gtk.so  (Flutter engine)
-    *.so                     (native plugin libraries, if any)
-  data/
-    flutter_assets/          (fonts, images, shaders, asset manifest)
-    icudtl.dat               (ICU internationalization data)
-```
-
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:linux.bzl",
@@ -581,16 +686,10 @@ flutter_linux_bundle(
 
 ### Windows
 
-```starlark
-load("@rules_flutter//flutter:defs.bzl", "flutter_application")
-load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
+Run `flutter create --platforms=windows .` first. If `windows/runner/` is missing, the rules use a built-in runner.
 
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
-)
+```starlark
+load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 
 flutter_windows_app(
     name = "my_app_windows",
@@ -598,27 +697,25 @@ flutter_windows_app(
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=windows .` to generate `windows/runner/` with C++ sources. If no runner files are found, the built-in template is used automatically.
-
 | Attribute | Description |
-|-----------|-------------|
-| `application` | A `flutter_application` target (required). |
-| `app_name` | Binary name. Defaults to target name. |
+|---|---|
+| `application` | A `flutter_application` target. Required. |
+| `app_name` | Binary name. Defaults to the target name. |
 
-Output directory structure:
+The output directory:
 
 ```
 my_app/
-  my_app.exe             (Win32 runner executable)
-  flutter_windows.dll    (Flutter engine)
-  app.so                 (AOT-compiled Dart code as ELF)
+  my_app.exe             Win32 runner executable
+  flutter_windows.dll    Flutter engine
+  app.so                 AOT-compiled Dart, as ELF
   data/
-    flutter_assets/      (fonts, images, shaders, asset manifest)
-    icudtl.dat           (ICU internationalization data)
+    flutter_assets/      fonts, images, shaders, asset manifest
+    icudtl.dat           ICU data
 ```
 
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:windows.bzl",
@@ -647,79 +744,54 @@ flutter_windows_bundle(
 
 ### Web
 
+Run `flutter create --platforms=web .` first so `web/` has its `index.html`, `manifest.json`, and icons. Any of those that are missing are replaced by built-in templates. Add `flutter_web_sdk` to `use_repo`.
+
 ```starlark
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 
 flutter_web_app(
     name = "my_app_web",
     package_name = "my_app",
-    deps = ["@deps//:flutter"],
+    main = "lib/main.dart",
+    deps = ["@deps//:flutter", "@rules_flutter//flutter:material_icons"],
     app_name = "My App",
 )
 ```
 
-**Prerequisites:** Run `flutter create --platforms=web .` to generate `web/` with `index.html`, `manifest.json`, and icons. If these files don't exist, the built-in templates are used automatically.
-
-Add to your `MODULE.bazel`:
-
-```starlark
-use_repo(flutter, "flutter_toolchains", "flutter_web_sdk")
-```
-
-> **Note:** Unlike other platforms, web rules take `main` + `deps` (Dart source) directly — not a `flutter_application` target. Web compilation uses dart2wasm/dart2js which have a structurally different pipeline from AOT platforms.
+Unlike the other platforms, the web macro takes `main` and `deps` directly rather than a `flutter_application`. Web compilation goes through dart2wasm or dart2js, which is a different pipeline from the AOT one.
 
 | Attribute | Description |
-|-----------|-------------|
-| `deps` | `dart_library` or `flutter_library` dependencies (required). |
-| `main` | The main `.dart` entry point. Default: `"lib/main.dart"`. |
-| `app_name` | Application name for HTML title and manifest. Defaults to target name. |
-| `pwa` | Ship `flutter_service_worker.js` and register it from the generated bootstrap. Default: `True`. Adds no offline caching — like `flutter build web`, which [deprecated its caching worker](https://github.com/flutter/flutter/issues/156910), the worker unregisters itself and reloads its clients, freeing visitors who still hold a caching worker from an earlier deployment. Visitors without one never get a worker registered. |
+|---|---|
+| `package_name` | The Dart package name, same as `pubspec.yaml`. Required. |
+| `deps` | `dart_library` or `flutter_library` targets. Required. |
+| `main` | The entry point. Defaults to `"lib/main.dart"`. |
+| `app_name` | Used for the HTML title and manifest. Defaults to the target name. |
+| `base_href` | Substituted for `$FLUTTER_BASE_HREF` in `web/index.html`. Defaults to `"/"`. |
+| `extra_web_assets` | Extra files copied into the bundle root, for generated files the `web/` glob cannot see. |
+| `pwa` | Ship `flutter_service_worker.js` and register it. Defaults to `True`. The worker adds no offline caching. Like `flutter build web`, which [deprecated its caching worker](https://github.com/flutter/flutter/issues/156910), it unregisters itself and reloads its clients, which frees visitors still holding a caching worker from an older deployment. |
 
-#### Content-Security-Policy
+The macro always compiles with dart2wasm and renders with skwasm. Compiler settings such as `optimization_level_wasm` and `minify_wasm` pass through to `flutter_web_bundle`. For dart2js or CanvasKit, use `flutter_web_bundle` directly.
 
-A `<meta http-equiv="Content-Security-Policy">` in `web/index.html` applies to
-the built bundle **and** to `flutter_bazel run -d chrome`, because the dev loop
-serves the same page the bundle ships. Measured on `e2e/web_example` against
-Flutter 3.47:
-
-| Policy | Built bundle (`--wasm`) | DDC dev loop |
-| --- | --- | --- |
-| `script-src 'self' 'wasm-unsafe-eval'` | renders | **blank page** |
-| `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'` | renders | renders |
-
-The dev loop needs `'unsafe-inline'` — not `'unsafe-eval'`, which changes
-nothing — and the failure is silent: DWDS connects, the VM service answers, 311
-DDC modules load, no CSP violation reaches the console, and the app never
-paints. `connect-src 'self' ws: wss:` is enough for the dev loop's WebSocket.
-
-A bundle under `default-src 'self'` must also serve its own renderer:
-`use_local_canvaskit = True`, or the engine's `skwasm.js` fetch to
-`www.gstatic.com` is blocked and the page stays blank. Flutter's font fallback
-(`fonts.gstatic.com`) is blocked too — harmless unless the app needs those
-glyphs.
-
-So a policy strict enough to be worth having cannot live in `web/index.html`
-today: it has to reach the bundled page only. Compose `flutter_web_bundle`
-directly with a generated `index_html` if you need that split now.
+The files under `web/` are treated as templates and substituted the way `flutter build web` substitutes them, so raw `flutter create` output works unchanged: `web/index.html`, `web/flutter_bootstrap.js`, `web/manifest.json`, and `web/version.json` are each discovered when present, and everything else under `web/` is copied into the bundle root.
 
 <details>
-<summary>Advanced: Tier 2 composable rules</summary>
-
-For full control over compiler/renderer:
+<summary>Composable rules</summary>
 
 ```starlark
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
 
-# WASM (modern, default):
+# WASM, the default:
 flutter_web_bundle(
     name = "my_app_web",
+    package_name = "my_app",
     main = "lib/main.dart",
     deps = ["@deps//:flutter"],
 )
 
-# JavaScript (legacy):
+# JavaScript, for wider browser support:
 flutter_web_bundle(
     name = "my_app_web_js",
+    package_name = "my_app",
     main = "lib/main.dart",
     compiler = "dart2js",
     renderer = "canvaskit",
@@ -729,34 +801,146 @@ flutter_web_bundle(
 
 </details>
 
-## Core Rules
+#### Content-Security-Policy
 
-Loaded from `@rules_flutter//flutter:defs.bzl`.
+A `<meta http-equiv="Content-Security-Policy">` in `web/index.html` applies both to the built bundle and to the dev loop (`flutter_bazel run -d chrome`), because the dev loop serves the same page. Measured on `e2e/web_example` with Flutter 3.47:
 
-### `flutter_library`
+| Policy | Built bundle (WASM) | Dev loop (DDC) |
+|---|---|---|
+| `script-src 'self' 'wasm-unsafe-eval'` | Renders | Blank page |
+| `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'` | Renders | Renders |
 
-Collects Flutter/Dart sources and assets. Propagates `DartInfo` and `FlutterInfo` providers to downstream targets. Does not compile — serves as the dependency unit for Flutter packages.
+The dev loop needs `'unsafe-inline'`. Adding `'unsafe-eval'` instead changes nothing. The failure is silent: DWDS connects, the VM service answers, every module loads, no CSP violation reaches the console, and the app never paints. `connect-src 'self' ws: wss:` is enough for the dev loop's WebSocket.
+
+A bundle served under `default-src 'self'` must also serve its own renderer, with `use_local_canvaskit = True`. Otherwise the engine's fetch of `skwasm.js` from `www.gstatic.com` is blocked and the page stays blank. Flutter's font fallback from `fonts.gstatic.com` is blocked too, which is harmless unless the app needs those glyphs.
+
+So a policy strict enough to be useful cannot live in `web/index.html` today, because the dev loop reads the same file. If you need one, compose `flutter_web_bundle` directly with a generated `index_html` for the production bundle.
+
+### Cross-compiling
+
+`gen_snapshot`, the AOT compiler, runs on the host and produces code for the target. Flutter publishes a different binary per host and target pair, and not every pair exists.
+
+| Host | Target | AOT (release) | JIT (debug) | Notes |
+|---|---|:---:|:---:|---|
+| macOS | macOS | Yes | Yes | Native build |
+| macOS | iOS | Yes | Yes | `rules_apple` handles the transition |
+| macOS | Android | Yes | Yes | The Android rules handle the transition |
+| macOS | Linux | No | Yes | Needs an LLVM cross-toolchain |
+| macOS | Windows | No | Yes | Needs a Windows cross-toolchain |
+| macOS | Web | Yes | n/a | Web uses dart2wasm or dart2js, not gen_snapshot |
+| Linux | Linux | Yes | Yes | Native build |
+| Linux | Android | Yes | Yes | The Android rules handle the transition |
+| Linux | iOS | No | No | Needs Xcode |
+| Linux | Web | Yes | n/a | |
+| Windows | Windows | Yes | Yes | Native build |
+| Windows | Android | Yes | Yes | The Android rules handle the transition |
+| Windows | Web | Yes | n/a | |
+
+The gap is desktop to desktop: there is no release cross-compile from macOS to Linux or Windows, because Flutter does not publish those `gen_snapshot` binaries. Build debug bundles across, or build release natively on the target.
+
+### Release builds and permissions
+
+`flutter create`'s scaffold grants network access in debug builds only, and these rules reproduce that. An app that reaches the network under `-c dbg` can be offline under `-c opt` with no build error, no exception, and nothing in its log. The same shape exists on every platform, because in every case the debug-only grant is for the Dart VM service, not for the app:
+
+| Platform | What debug has that release does not | Why |
+|---|---|---|
+| macOS | `com.apple.security.network.server` and `com.apple.security.cs.allow-jit` in `DebugProfile.entitlements`. `Release.entitlements` has only `app-sandbox`. | The sandbox must let the VM service bind and the JIT map executable pages. |
+| Android | `android.permission.INTERNET`, from `android/app/src/debug/AndroidManifest.xml`. | Android enforces `INTERNET` at the kernel level. Without it the VM service cannot bind even a loopback socket. |
+| iOS | `NSBonjourServices` and `NSLocalNetworkUsageDescription`, merged in by these rules for non-release builds. | The engine advertises the VM service over mDNS. |
+
+An app that uses the network for itself has to say so once, in a way that applies to every compilation mode:
+
+```starlark
+flutter_macos_app(
+    name = "my_app_macos",
+    application = ":my_app",
+    bundle_id = "com.example.myapp",
+    additional_entitlements = ["entitlements/Network.entitlements"],
+)
+
+flutter_ios_app(
+    name = "my_app_ios",
+    application = ":my_app",
+    bundle_id = "com.example.myapp",
+    additional_entitlements = ["entitlements/Network.entitlements"],
+)
+
+flutter_android_app(
+    name = "my_app_android",
+    application = ":my_app",
+    package_name = "com.example.myapp",
+    permissions = ["android.permission.INTERNET"],
+)
+```
+
+where `entitlements/Network.entitlements` is an ordinary plist:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>
+```
+
+These attributes add to whichever base file the compilation mode selected, so one declaration covers debug and release, and the `flutter create` files stay untouched. A key the base already has with the same value is deduplicated, so declaring `network.server` above is safe even though `DebugProfile.entitlements` already grants it. A key the base has with a different value is an error naming the key and both files.
+
+Note that `com.apple.security.network.client` is in neither scaffold file. Most Flutter apps go through `NSURLSession`, which the sandbox exempts. A raw socket is not exempt, so if you open one, you need this key.
+
+**iOS local network privacy.** iOS 14 and later gate LAN access behind `NSLocalNetworkUsageDescription` and `NSBonjourServices`. The rules add both to non-release builds for the VM service and drop them in release. An app that needs LAN access for itself declares them in `ios/Runner/Info.plist`, where they survive into `-c opt`. The rules merge the VM service keys into that file, keeping your usage description and adding `_dartVmService._tcp` to your Bonjour list. The iOS simulator does not enforce local network privacy, so only a physical device tells you whether these keys are right.
+
+**Check the artifact.** A `build_test` cannot see any of this. Read the built app:
+
+```sh
+# macOS: the entitlements codesign embedded
+unzip -oq bazel-bin/my_app_macos.zip -d /tmp/app && \
+  codesign -d --entitlements - "/tmp/app/My App.app"
+
+# Android: the compiled manifest inside the APK
+aapt2 dump xmltree --file AndroidManifest.xml bazel-bin/my_app_android.apk
+
+# iOS: the processed Info.plist inside the .ipa
+unzip -oq bazel-bin/my_app_ios.ipa -d /tmp/ipa && \
+  plutil -p "/tmp/ipa/Payload/my_app_ios.app/Info.plist"
+```
+
+Remember that a plain `bazel build` is a release build, so it already takes the release side of each of these choices. `e2e/macos_example`, `e2e/android_example`, and `e2e/ios_example` each have a test that reads the built artifact this way.
+
+## Rules reference
+
+The core rules load from `@rules_flutter//flutter:defs.bzl`.
+
+### flutter_library
+
+Collects Dart sources and assets for a Flutter package. It does not compile anything. It carries `DartInfo` and `FlutterInfo` to whatever depends on it.
 
 ```starlark
 flutter_library(
     name = "my_lib",
     srcs = glob(["lib/**/*.dart"]),
-    deps = ["@pub_deps//:some_package"],
+    deps = ["@deps//:some_package"],
     assets = glob(["assets/**"]),
-    package_name = "my_lib",  # optional, defaults to last component of Bazel package path
+    package_name = "my_lib",
 )
 ```
 
 | Attribute | Description |
-|-----------|-------------|
-| `srcs` | Dart source files (mandatory). |
-| `deps` | `dart_library` or `flutter_library` dependencies. |
-| `assets` | Flutter asset files (images, fonts, etc.). |
-| `package_name` | Dart package name. Defaults to the last component of the Bazel package path. |
+|---|---|
+| `srcs` | Dart source files. Required. |
+| `deps` | `dart_library` or `flutter_library` targets. |
+| `assets` | Asset files: images, fonts, and so on. |
+| `shaders` | Fragment shaders to compile with impellerc. |
+| `package_name` | The Dart package name. Defaults to the last component of the Bazel package path. |
+| `language_version` | The Dart language version, matching the `sdk:` constraint in `pubspec.yaml`. |
 
-### `flutter_application`
+### flutter_application
 
-Core compilation pipeline that chains sources to kernel `.dill`, AOT native code, and asset bundle. Mode-aware: debug (`-c dbg`) produces kernel `.dill` + assets for JIT; release (`-c opt` or default) produces AOT native code + assets.
+Compiles a Flutter app. In debug mode (`-c dbg`) it produces a kernel `.dill` for the JIT. Otherwise it produces AOT native code. Either way it also builds the `flutter_assets/` bundle. The platform macros consume its `FlutterApplicationInfo`.
 
 ```starlark
 flutter_application(
@@ -766,52 +950,54 @@ flutter_application(
     srcs = glob(["lib/**/*.dart"]),
     deps = [
         ":my_lib",
-        "@rules_flutter//flutter:material_icons",  # if app uses Material widgets
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
     ],
-    native_deps = [":my_native_lib"],  # optional, for dart:ffi
+    native_deps = [":my_native_lib"],
 )
 ```
 
-Apps that use Material widgets must list `@rules_flutter//flutter:material_icons` in `deps` to bundle `MaterialIcons-Regular.otf` into `flutter_assets/`. The font is shipped by the active Flutter toolchain; the dep is the explicit opt-in.
-
 | Attribute | Description |
-|-----------|-------------|
-| `main` | The main `.dart` entry point (mandatory). |
-| `package_name` | Dart package name; same value as `pubspec.yaml`'s `name:` (mandatory). Keys the kernel's libraries under stable `package:` URIs (hot-reload parity), anchors codegen sibling co-location, and resolves `package:<self>/...` imports. |
-| `srcs` | Additional Dart source files. |
-| `deps` | `dart_library` or `flutter_library` dependencies. Add `@rules_flutter//flutter:material_icons` to bundle the MaterialIcons font. |
-| `assets` | Asset files to include in the bundle. |
-| `native_deps` | Shared libraries for dart:ffi bundling. |
-| `defines` | Dart environment defines (`-D` flags). |
-| `profile` | If True, compile in profile mode (AOT, unstripped, with service extensions for profiling). Default: `False`. |
-| `obfuscate` | If True, obfuscate Dart symbols in the AOT output. Pair with `split_debug_info`. Default: `False`. |
-| `split_debug_info` | If True, extract debug info into a separate `.symbols` file. Default: `False`. |
-| `extra_gen_snapshot_options` | Additional flags passed directly to `gen_snapshot`. |
-| `track_widget_creation` | If True, track widget creation locations for the DevTools inspector. Default: `False`. |
-| `shaders` | Fragment shader files (`.frag`) to compile with impellerc. |
-| `tree_shake_icons` | If True, tree-shake icon fonts to only include used glyphs. Default: `True`. |
-| `license_files` | License/NOTICE files to include in `NOTICES.Z`. |
-| `min_os_version` | Minimum OS deployment target for Apple platforms. Passed to `gen_snapshot` as `--macho-min-os-version`. |
+|---|---|
+| `main` | The entry point. Required. |
+| `package_name` | The Dart package name, the same as `pubspec.yaml`'s `name:`. Required. It keys the compiled libraries under stable `package:` URIs, which hot reload matches against, and resolves `package:<self>/...` imports. |
+| `srcs` | Other Dart sources in the app package, including generated ones. |
+| `deps` | `dart_library` or `flutter_library` targets. Add `@rules_flutter//flutter:material_icons` to bundle the Material icon font. |
+| `assets` | Asset files for the bundle. |
+| `native_deps` | Shared libraries to bundle for `dart:ffi`. |
+| `defines` | Dart environment defines, the `-D` flags. |
+| `language_version` | The Dart language version, matching `pubspec.yaml`. |
+| `profile` | Compile in profile mode: AOT, unstripped, with service extensions. Default `False`. |
+| `obfuscate` | Obfuscate Dart symbols in the AOT output. Pair with `split_debug_info`. Default `False`. |
+| `split_debug_info` | Write debug info to a separate `.symbols` file. Default `False`. |
+| `extra_gen_snapshot_options` | Extra flags for `gen_snapshot`. |
+| `track_widget_creation` | Record widget creation locations for the DevTools inspector. Default `False`. |
+| `shaders` | Fragment shaders to compile with impellerc. |
+| `tree_shake_icons` | Keep only the icon glyphs the app uses. Default `True`. |
+| `license_files` | License and NOTICE files to include in `NOTICES.Z`. |
+| `min_os_version` | Minimum Apple deployment target, passed to `gen_snapshot` as `--macho-min-os-version`. |
 
-#### Dart defines from the command line
+**Defines from the command line.** The repeatable flag `--@rules_flutter//flutter:extra_dart_defines=KEY=VALUE` adds a define to every Dart compile: native kernel, `flutter_test`, dart2wasm, and dart2js. Each occurrence of the flag is one define, so values may contain commas. When a key is set both by the flag and by the `defines` attribute, the flag wins. The keys `dart.vm.profile` and `dart.vm.product` are set by the build from the compilation mode and cannot be passed. The dev tool's `--dart-define` forwards to this flag and replays the defines on hot reload and restart, matching `flutter run --dart-define`.
 
-Beyond the per-target `defines` attr, the repeatable build flag `--@rules_flutter//flutter:extra_dart_defines=KEY=VALUE` appends defines to every Dart compile (native kernel, `flutter_test`, dart2wasm/dart2js). One define per flag occurrence, so values may contain commas. On a key collision the flag wins over the attr. The keys `dart.vm.profile` and `dart.vm.product` are reserved (the build sets them from the compilation mode) and rejected. The dev tool's `flutter_bazel run --dart-define KEY=VALUE` forwards to this flag and replays the defines on hot reload/restart recompiles, matching `flutter run --dart-define`.
+### flutter_test
 
-### `flutter_test`
-
-Compiles and runs Flutter widget/unit tests using the Dart VM with Flutter's platform `.dill`. Tests run with assertions enabled.
+Compiles and runs widget and unit tests on the Dart VM with Flutter's test engine. Assertions are enabled.
 
 ```starlark
 flutter_test(
-    name = "my_test",
-    main = "my_test.dart",
-    deps = [":my_lib"],
+    name = "widget_test",
+    package_name = "my_app",
+    main = "test/widget_test.dart",
+    srcs = glob(["lib/**/*.dart"]),
+    deps = ["@deps//:flutter", "@deps//:flutter_test"],
 )
 ```
 
+It takes the compile attributes of `flutter_application` (`main`, `srcs`, `deps`, `defines`, `package_name`, `language_version`, `assets`, `shaders`) plus the usual `data` and `env`. Values in `env` are literal; there is no `$(location)` expansion.
+
 #### Golden files
 
-**Goldens must be declared in `data`, or the test cannot see them.**
+Goldens must be listed in `data`, or the test cannot see them:
 
 ```starlark
 flutter_test(
@@ -822,136 +1008,102 @@ flutter_test(
 )
 ```
 
-This is the first thing to check when a golden fails, because the failure does
-not describe it. The comparator reads goldens out of runfiles, so a PNG sitting
-in the source tree that is not an input of the target is invisible — and it
-fails as `Could not be compared against non-existent file`, **word for word the
-message you get when the file really is absent**. A file you can see on disk,
-reported as non-existent, is the confusing case; undeclared is almost always the
-reason.
+This is the first thing to check when a golden fails, because the failure message does not say it. The comparator reads goldens from runfiles, so a PNG in the source tree that is not an input of the test is invisible to it, and it fails with `Could not be compared against non-existent file`, the same message you get when the file really is absent. If you can see the file on disk and the test says it does not exist, it is almost certainly undeclared. Making declared inputs the only inputs is what keeps a cached pass meaningful.
 
-That the two are indistinguishable is deliberate rather than an oversight: a
-comparison whose inputs are all declared is one whose cached pass still means
-something. Undeclared inputs would make a cached green meaningless.
+Otherwise `matchesGoldenFile('goldens/x.png')` means what it means under `flutter test`: the golden is read from `goldens/x.png` next to the test's `main`, and a mismatch reports the pixel difference the same way. When a comparison fails, the four diff images (`masterImage`, `testImage`, `isolatedDiff`, `maskedDiff`) are written under `bazel-testlogs/<pkg>/<target>/test.outputs/failures/`, and the failure message names the path. Upstream writes them beside the test, which under Bazel would be inside the sandbox and gone before you could open them.
 
-Otherwise `matchesGoldenFile('goldens/x.png')` means what it means under
-`flutter test`: the golden is read from
-`<directory of the test's `main`>/goldens/x.png`, and a mismatch reports
-upstream's pixel percentage. The comparator is installed into the generated
-bootstrap at the point `flutter test` installs its own.
-
-Regenerate with upstream's flag, under `bazel run`:
+To regenerate goldens, use upstream's flag under `bazel run`:
 
 ```sh
 bazel run //:widget_test -- --update-goldens
 ```
 
-That writes the PNGs back to the **source** tree, next to the test, and names
-each file it wrote. The same flag under `bazel test` is refused with exit 64: a
-test action cannot write to the source tree, and a golden regenerated into the
-sandbox would report success while changing nothing. There is no repo-wide
-regeneration command — it is one `bazel run` per target, which
-`bazel query 'tests(//...)'` can drive.
+That writes the PNGs into the source tree next to the test and names each one. The same flag under `bazel test` exits with code 64, because a test action cannot write to the source tree and a golden regenerated into the sandbox would report success while changing nothing. There is no repo-wide command; it is one `bazel run` per target, which `bazel query 'tests(//...)'` can drive.
 
-When a comparison fails, the four diff images (`masterImage`, `testImage`,
-`isolatedDiff`, `maskedDiff`) are written to
-`bazel-testlogs/<pkg>/<target>/test.outputs/failures/`, which is what the
-failure message names. Upstream points at a directory beside the test; under
-Bazel that is inside the sandbox and is deleted before you can open it.
+Two limits come from Flutter rather than from these rules:
 
-Two limits worth knowing, both inherited from Flutter rather than introduced
-here:
+- **Goldens are host-specific.** Font rendering and antialiasing differ between operating systems, so a PNG generated on macOS may not match on Linux or Windows. Regenerate on the platform that checks them, or keep per-OS golden directories.
+- **Replacing the comparator disables regeneration.** If a test assigns its own `goldenFileComparator`, `--update-goldens` calls that object's `update()`, which for `LocalFileComparator` writes into runfiles. The run passes, prints nothing, and leaves the source PNG unchanged.
 
-- **Goldens are host-specific.** Font rasterisation and antialiasing differ
-  between operating systems, so a PNG generated on macOS may not match one
-  rendered on Linux or Windows. Regenerate on the platform that will check it,
-  or keep per-OS golden directories.
-- **Replacing the comparator disables regeneration.** If a test assigns its own
-  `goldenFileComparator`, `--update-goldens` routes through that object's
-  `update()` instead — typically `LocalFileComparator`'s, which writes into
-  runfiles. The run reports PASS, prints nothing, and leaves the source PNG
-  untouched.
+### flutter_plugin
 
-### `flutter_plugin`
-
-Declares a Flutter plugin with Dart API code and per-platform native implementation dependencies.
+Declares a Flutter plugin written in your workspace: its Dart code plus per-platform native implementations. Plugins from pub do not need this; the hub declares them.
 
 ```starlark
 flutter_plugin(
-    name = "url_launcher",
-    srcs = glob(["lib/**/*.dart"]),
-    deps = ["@pub_deps//:flutter"],
-    platforms = ["android", "ios", "macos", "linux", "windows", "web"],
-    dart_plugin_class = "UrlLauncherPlugin",
-    native_deps = select({
-        "@platforms//os:linux": [":url_launcher_linux_cc"],
-        "@platforms//os:windows": [":url_launcher_windows_cc"],
-        "//conditions:default": [],
-    }),
-)
-```
-
-### `flutter_kernel_target`
-
-Compiles Flutter sources to a kernel `.dill` file using Flutter's patched platform kernel. This is the base compilation step shared by all platform targets.
-
-### `flutter_aot_target`
-
-Compiles Flutter sources to an AOT native shared library (`.so` on Linux/Android, `.dylib` on macOS) via `gen_snapshot`.
-
-### `flutter_asset_bundle`
-
-Generates a `flutter_assets/` tree artifact containing `AssetManifest.bin`, `FontManifest.json`, `NOTICES.Z`, and copied asset files.
-
-## Code Generation Rules
-
-Loaded from `@rules_flutter//flutter:codegen.bzl`. These replace `build_runner` with hermetic Bazel actions.
-
-### `dart_codegen`
-
-Per-file code generation. Runs a Dart script or pre-compiled binary as a code generator, producing one output file per input file. Supports persistent Bazel workers to amortize Dart VM startup.
-
-```starlark
-load("@rules_flutter//flutter:codegen.bzl", "dart_codegen")
-
-dart_codegen(
-    name = "models_generated",
-    srcs = ["lib/model.dart", "lib/order.dart"],
-    generator = "tools/my_generator.dart",
-    output_suffix = ".g.dart",
-    use_worker = True,  # optional, enables persistent worker mode
+    name = "multiply_plugin",
+    srcs = ["lib/multiply_plugin.dart"],
+    dart_plugin_class = "MultiplyPlugin",
+    native_deps = ["//:multiply"],
+    platforms = ["macos", "linux", "windows", "ios"],
 )
 ```
 
 | Attribute | Description |
-|-----------|-------------|
-| `srcs` | Input `.dart` source files to process (mandatory). |
-| `generator` | A `.dart` script to run as the generator. |
-| `generator_bin` | A pre-compiled generator executable (alternative to `generator`). |
-| `output_suffix` | Suffix for generated files, e.g. `.g.dart`, `.freezed.dart`. Default: `.g.dart`. |
-| `generator_args` | Additional arguments passed to the generator. |
-| `data` | Additional data files the generator needs as inputs. |
-| `use_worker` | Enable persistent Bazel worker for `.dart` generators. Default: `False`. |
+|---|---|
+| `srcs` | Dart sources. |
+| `deps` | `dart_library` or `flutter_library` targets. |
+| `platforms` | The platforms the plugin supports. |
+| `dart_plugin_class` | The Dart class registered with the engine at startup. |
+| `plugin_class` | The native plugin class, for plugins with a native registration. |
+| `native_deps` | Shared libraries bundled for `dart:ffi`. |
+| `native_assets` | `flutter_native_asset` targets, usually inside a `select()` on platform. |
+| `assets`, `resources` | Asset and resource files. |
+| `package_name`, `language_version`, `version` | The package's name, language version, and version. |
 
-### `dart_aggregate_codegen`
+`e2e/ffi_example` shows a plugin built on Native Assets, `e2e/ffi_plugin_example` one with a Dart plugin class and `native_deps`, and `e2e/plugin_example` one with a Dart plugin class only.
 
-Package-level code generation. Takes all sources in a package and produces a single aggregate output file.
+### Lower-level rules
+
+These are what `flutter_application` is made of. Most apps never need them.
+
+| Rule | What it does |
+|---|---|
+| `flutter_kernel_target` | Compiles Dart to a kernel `.dill` with Flutter's patched platform kernel. |
+| `flutter_aot_target` | Compiles Dart to an AOT shared library (`.so` on Linux and Android, `.dylib` on macOS) with `gen_snapshot`. |
+| `flutter_asset_bundle` | Builds the `flutter_assets/` tree: `AssetManifest.bin`, `FontManifest.json`, `NOTICES.Z`, and the asset files. |
+| `flutter_native_library` | Pairs a native library with its binding contract. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). |
+| `flutter_native_asset`, `flutter_data_asset` | Declare Dart Native Assets, from `@rules_flutter//flutter:native_assets.bzl`. |
+
+### Code generation
+
+rules_dart provides `dart_codegen` and `dart_aggregate_codegen`, which replace `build_runner` with ordinary Bazel actions. They load from `@rules_dart//dart:defs.bzl`. A generated file goes into the consuming target's `srcs`, and the rules place it next to its hand-written sibling so a `part` directive resolves:
 
 ```starlark
-load("@rules_flutter//flutter:codegen.bzl", "dart_aggregate_codegen")
+load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_codegen")
 
+# One output per input file, for example a json_serializable part.
+dart_codegen(
+    name = "user_json",
+    package_name = "my_app",
+    src = "lib/user.dart",
+    generator = "tools/json_generator.dart",
+    output_suffixes = [".g.dart"],
+)
+
+# One output from all the inputs, for example a route registry.
 dart_aggregate_codegen(
-    name = "routes",
-    srcs = glob(["lib/**/*.dart"]),
-    generator_script = "tools/route_generator.dart",
-    output = "lib/router.gr.dart",
+    name = "registry",
+    package_name = "my_app",
+    srcs = ["lib/model.dart", "lib/order.dart"],
+    generator_script = "tools/aggregate_generator.dart",
+    outputs = ["lib/registry.g.dart"],
+)
+
+flutter_application(
+    name = "my_app",
+    package_name = "my_app",
+    main = "lib/main.dart",
+    srcs = ["lib/user.dart", ":user_json", ":registry"],
+    deps = ["@deps//:flutter"],
 )
 ```
 
-### `flutter_gen_l10n`
+`e2e/codegen` is the worked example, including generated code in dependency packages and hot reload over regenerated sources.
 
-Generates Flutter's `AppLocalizations` from `.arb` files — the Bazel equivalent
-of `flutter gen-l10n`.
+#### flutter_gen_l10n
+
+Generates `AppLocalizations` from `.arb` files, the equivalent of `flutter gen-l10n`.
 
 ```starlark
 load("@rules_flutter//flutter:defs.bzl", "flutter_gen_l10n")
@@ -979,532 +1131,247 @@ flutter_test(
 )
 ```
 
-The generated files land beside the `.arb` files, so a consumer collects them
-by listing the target in `srcs`.
+The generated files land beside the `.arb` files, and a consumer collects them by listing the target in `srcs`. The attributes mirror the flags of `flutter gen-l10n` with the same defaults: `template_arb_file`, `output_class`, `use_deferred_loading`, and so on. `l10n.yaml` is not read, because Bazel has to know the output file names during analysis and a config file read while the action runs cannot tell it.
 
-**Keep `@@locale` consistent with the filename.** The rule derives the declared
-output names from the arb *filenames*, while the generator decides what to write
-from each file's `@@locale` field. If `app_english.arb` declares
-`"@@locale": "en"`, Bazel expects `app_localizations_english.dart` and the
-generator writes `app_localizations_en.dart`, which surfaces as an opaque
-"output was not created". Bazel cannot read file contents during analysis, so
-this is a convention the rule cannot check for you.
+A few things to know:
 
-**`l10n.yaml` is not read.** Configuration comes from rule attributes instead.
-Bazel must know the output file names during analysis, and a config file read
-when the action runs cannot inform that. The attributes mirror upstream's flags
-(`template_arb_file`, `output_class`, `use_deferred_loading`, …) with upstream's
-defaults.
+- **Keep `@@locale` consistent with the filename.** The rule derives output names from the arb filenames, while the generator decides what to write from each file's `@@locale`. If `app_english.arb` declares `"@@locale": "en"`, Bazel expects `app_localizations_english.dart` and the generator writes `app_localizations_en.dart`, which surfaces as "output was not created". Bazel cannot read file contents during analysis, so the rule cannot check this for you.
+- **Outputs are grouped by primary language.** `app_es.arb` and `app_es_419.arb` produce one `app_localizations_es.dart` holding both classes, matching upstream.
+- **Generated files always use LF line endings.** Upstream copies the line endings of `pubspec.yaml`, which would make the output depend on a file the action does not declare.
+- **There is no `format` attribute.** Formatting shells out to the `dart` binary, which the action does not have. Setting it is an error rather than a silent no-op. Use a `dart_format_test` if you want the output checked.
+- **Two copies of `intl` are in play.** The generator has its own. An app using the generated code needs `intl` in its own lock. Upstream has the same split.
 
-**Outputs are grouped by primary language subtag.** `app_es.arb` and
-`app_es_419.arb` produce a *single* `app_localizations_es.dart` holding both
-`AppLocalizationsEs` and `AppLocalizationsEs419`, matching upstream. Listing one
-output per input arb is therefore wrong.
+The generator is carved out of `flutter_tools` at fetch time with a set of patches, so a Flutter version bump re-validates it. A release that moves the patch context fails the patch, and a new release also needs a `source_sha256` in `flutter/private/versions.bzl`. Two things those checks cannot catch: a newly added read of an undeclared file at run time, which shows up as a `PathNotFoundException`, and a newly adopted `dart:io` API newer than the Dart that rules_dart provides, which shows up as a compile error naming a missing type. The fix for the second is to cut the dead code that uses it, as the existing patches do for an unused `NetworkInterface` wrapper. See `flutter/private/flutter_gen_l10n_repo.bzl`.
 
-**Two behaviours differ from the `flutter` CLI**, both deliberate:
+On Windows, the repository rule extracts all of `packages/flutter_tools` (about 19 MB) and uses twenty of its files. The deepest path is around 130 characters from the repository root, which fits within `MAX_PATH` given a short `output_user_root`.
 
-- Generated files always use LF line endings. Upstream mirrors the project
-  `pubspec.yaml`'s line endings, which would make build output depend on a file
-  that is not a declared action input.
-- `format` is not offered and setting it upstream-style is an error rather than
-  a silent no-op. Formatting shells out to the `dart` binary, which the action
-  does not have; check the generated sources with a `dart_format_test` if you
-  want it enforced.
+### Providers
 
-**Two `intl`s are in play.** The generator resolves its own `intl` from
-`//flutter/private/gen_l10n:pubspec.lock`; an app *using* the generated code
-needs `intl` in its own lock. Upstream has the same split.
-
-**Bumping Flutter** re-validates this rule by design. The generator is vendored
-out of `flutter_tools` at fetch time by seven patches; a release that moves
-their context makes `repository_ctx.patch` fail, and a new release also needs
-`source_sha256` in `//flutter/private:versions.bzl`. Both are loud. Two things
-neither catches:
-
-- A newly introduced **undeclared runtime read** — reading a file at run time
-  that the action never declared. No static analysis surfaces it; the symptom
-  is a `PathNotFoundException` naming the file.
-- A newly adopted **`dart:io` API**. flutter_tools is only ever compiled by its
-  own bundled Dart, so it can use APIs newer than the Dart a `dart_binary`
-  gets from rules_dart; the symptom is a compile error naming a missing
-  `dart:io` type. The fix is to cut the dead code that uses it — the seventh
-  patch does exactly this for the unused `NetworkInterface` wrapper — not to
-  reach for a toolchain override.
-
-See `//flutter/private:flutter_gen_l10n_repo.bzl`.
-
-**Windows note:** the repository rule extracts all of `packages/flutter_tools`
-(about 19 MB, 1400 files) and uses 20 of them. The deepest extracted path is
-roughly 130 characters relative to the repository root, which is within
-`MAX_PATH` given the short `output_user_root` Windows CI already sets, but it is
-more of that budget than the rule needs.
-
-## Pub Integration
-
-Use `rules_dart`'s `pub.from_lock()` to resolve pub packages:
+**`FlutterSdkInfo`** comes from the toolchain and carries the engine binaries and SDK files a custom rule needs:
 
 ```starlark
-# In MODULE.bazel:
-pub = use_extension("@rules_dart//dart/pub:extensions.bzl", "pub")
-pub.from_lock(name = "pub_deps", lock = "//:pubspec.lock")
-use_repo(pub, "pub_deps")
-```
-
-```starlark
-# In BUILD.bazel:
-flutter_application(
-    name = "app",
-    package_name = "app",
-    main = "main.dart",
-    deps = [
-        "@pub_deps//:collection",      # plain Dart package
-        ":my_plugin",                   # local Flutter plugin
-    ],
-)
-
-# For pub packages that are Flutter plugins, wrap them:
-flutter_plugin(
-    name = "my_plugin",
-    deps = ["@pub_deps//:my_plugin"],
-    dart_plugin_class = "MyPlugin",
-    platforms = ["android", "ios", "macos"],
-)
-```
-
-See `e2e/plugin_example/` for a complete example.
-
-### Regenerating `pubspec.lock`
-
-Bazel *consumes* `pubspec.lock` — it never writes one. Resolve it with the
-toolchain rules_flutter pins, not with a Flutter installed separately:
-
-```sh
-bazel run @rules_flutter//flutter:pub -- get       # after editing pubspec.yaml
-bazel run @rules_flutter//flutter:pub -- upgrade
-bazel run @rules_flutter//flutter:pub -- add qr
-```
-
-Arguments pass through to `dart pub` unchanged, and the command runs in your
-workspace root, so `pubspec.lock` lands where `flutter.pub()` reads it.
-
-**Why not the `flutter` on your `PATH`.** The version matters and the failure is
-silent. Pub's solver treats the running Dart SDK's version and the Flutter SDK's
-version as constraints, so an installation older than the pinned toolchain
-quietly selects older packages — and the lock it writes is still perfectly
-valid, so nothing downstream can tell. Resolving `e2e/plugin_example` with a
-host Flutter 3.41.6 (Dart 3.11.4) pins `meta 1.17.0`; the pinned 3.44.1
-toolchain (Dart 3.12.1) pins `meta 1.18.0`.
-
-The fetched toolchain is engine artifacts plus a Dart SDK — there is no
-`bin/flutter` in it, and no `pub` executable — so this target runs `dart pub`
-with `FLUTTER_ROOT` pointed at `@flutter_dev_root`, a tree assembled from the
-same flutter/flutter tag the toolchain pins. That repository is fetched the
-first time you run the target and by nothing else.
-
-Two consequences of it being `dart pub` rather than `flutter pub`: it writes
-`pubspec.lock` and `.dart_tool/package_config.json` (both already covered by
-`flutter create`'s `.gitignore` for the latter), and it does not write
-`.flutter-plugins-dependencies` — rules_flutter generates plugin registrants
-from the build graph, so nothing here reads that file.
-
-**A package below the workspace root** — this repo's own
-`flutter/private/gen_l10n`, or a `tools/*` package — is still resolved by the
-same target. Arguments pass through unchanged, so `dart pub`'s `--directory`
-reaches it:
-
-```sh
-bazel run @rules_flutter//flutter:pub -- get --directory flutter/private/gen_l10n
-```
-
-The target always runs at `BUILD_WORKSPACE_DIRECTORY`, so the path is relative
-to the workspace root and does not change with your shell's location. Without
-`--directory` it resolves the root `pubspec.yaml`, which in a ruleset does not
-exist.
-
-This form exists so there is never a reason to reach for a separately installed
-Dart. Resolving a nested package by hand is the same silent trap the warning
-above describes, and it is worse here than at the root, because nothing about
-the resulting lock looks wrong.
-
-## Native Interop
-
-Flutter applications can depend on native code built by other Bazel rules. This replaces Flutter's `native_assets` build hook system.
-
-```starlark
-cc_shared_library(
-    name = "my_native_lib",
-    deps = [":my_cc_lib"],
-)
-
-flutter_application(
-    name = "my_app",
-    package_name = "my_app",
-    main = "lib/main.dart",
-    deps = [":my_lib"],
-    native_deps = [":my_native_lib"],
-)
-```
-
-Works with `rules_cc`, `rules_rust`, and any ruleset that produces shared libraries.
-
-### Keeping hot reload working across a native rebuild
-
-A running process can never pick up a rebuilt native library — it keeps the image it `dlopen`ed — so a reload that rebuilds one has to decide whether the Dart it is about to inject still matches. Left to guess, it withholds the edit, which is correct and means a pending native change blocks your Dart loop until you restart.
-
-Declaring what the bindings were generated from is what lets a reload through:
-
-```starlark
-flutter_native_library(
-    name = "bridge",
-    library = "@my_bridge//bridge:bridge_shared",
-    binding_contract = ["@my_bridge//bridge:codegen.ir"],
-)
-
-flutter_application(
-    name = "my_app",
-    native_deps = [":bridge"],
-    # ...
-)
-```
-
-`binding_contract` is whatever file decides what may be called and how a call is encoded — a binding generator's interface description, or the C header a hand-written FFI binding is written against. The dev tool compares those bytes and never parses them, so what matters is that every wire-affecting change reaches them and that changes which do not affect the wire do not. Both labels must be visible to the rule, like any other dependency.
-
-On web the same wrapper goes in a bundle's `native_modules`, which serves the module *and* declares it:
-
-```starlark
-flutter_native_library(
-    name = "bridge_wasm",
-    library = "@my_bridge//bridge:bridge.wasm",
-    binding_contract = ["@my_bridge//bridge:codegen.ir"],
-)
-
-flutter_web_bundle(
-    name = "app_web",
-    native_modules = [":bridge_wasm"],   # not also in `web_assets` — it is served from here
-    # ...
-)
-```
-
-The physics are the same with a different cause: the page instantiates the module once, a hot reload does not re-run `main()`, and the instance outlives the increment. Declaring is the only way — the bundle directory also holds Flutter's own `main.dart.wasm`, which changes on every Dart edit, so nothing can recognise a native module by its name. What differs from native is the remedy: a web **restart** re-runs `main()` in the live page, so the module is re-fetched and re-instantiated with no relaunch at all.
-
-With that declared, a hot reload has three answers instead of one:
-
-| what moved | the reload |
-| --- | --- |
-| nothing | ordinary reload |
-| the library's code, not its contract | **delivered**, and the stale native code is reported |
-| the contract too | withheld — the increment would be injected over a library that cannot serve it |
-
-## Providers
-
-### `FlutterSdkInfo`
-
-Provided by the Flutter toolchain. Carries all engine binaries and SDK files needed by custom rules. Access via:
-
-```starlark
-flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
+sdk = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `version` | `str` | Flutter SDK version string (e.g. `"3.47.2"`). |
-| `engine_revision` | `str` | Engine commit hash. |
-| `dart` | `File` | The `dart` executable from the Flutter-bundled Dart SDK. |
-| `dartaotruntime` | `File` | The `dartaotruntime` executable for running AOT snapshots. |
-| `gen_snapshot` | `File` | The `gen_snapshot` AOT compiler binary. |
-| `frontend_server` | `File` | The `frontend_server_aot.dart.snapshot` for kernel compilation. |
-| `platform_kernel_dill` | `File` | `platform_strong.dill` — debug platform kernel. |
-| `platform_kernel_dill_product` | `File` | `platform_strong_product.dill` — release platform kernel. |
-| `patched_sdk` | `Target` | Flutter patched Dart SDK root directory. |
-| `icu_data` | `File` | `icudtl.dat` — ICU data file required by the engine. |
-| `tool_files` | `depset[File]` | All files needed to run Flutter build tools (for action inputs). |
-| `engine_library` | `Target or None` | Platform-specific Flutter engine runtime library. `None` for mobile/web. |
-| `const_finder` | `File or None` | `const_finder.dart.snapshot` for icon tree shaking. |
-| `font_subset` | `File or None` | `font-subset` binary for font subsetting. |
-| `impellerc` | `File or None` | `impellerc` shader compiler binary. |
+|---|---|---|
+| `version` | `str` | The Flutter SDK version, for example `"3.47.2"`. |
+| `engine_revision` | `str` | The engine commit hash. |
+| `dart` | `File` | The `dart` executable from the bundled Dart SDK. |
+| `dartaotruntime` | `File` | The runtime for AOT snapshots. |
+| `gen_snapshot` | `File` | The AOT compiler. |
+| `frontend_server` | `File` | `frontend_server_aot.dart.snapshot`, for kernel compilation. |
+| `platform_kernel_dill` | `File` | `platform_strong.dill`, the debug platform kernel. |
+| `platform_kernel_dill_product` | `File` | `platform_strong_product.dill`, the release platform kernel. |
+| `patched_sdk` | `Target` | The Flutter-patched Dart SDK root. |
+| `icu_data` | `File` | `icudtl.dat`. |
+| `tool_files` | `depset[File]` | Everything needed to run the build tools, for action inputs. |
+| `engine_library` | `Target` or `None` | The platform engine runtime library. `None` for mobile and web. |
+| `const_finder` | `File` or `None` | `const_finder.dart.snapshot`, for icon tree shaking. |
+| `font_subset` | `File` or `None` | The `font-subset` binary. |
+| `impellerc` | `File` or `None` | The shader compiler. |
 | `shader_lib` | `list[File]` | Shader include files for impellerc. |
-| `target_os` | `str` | Cross-compilation target OS, or empty for native. |
-| `target_arch` | `str` | Cross-compilation target architecture, or empty for native. |
+| `target_os`, `target_arch` | `str` | The cross-compilation target, or empty for a native build. |
 
-### `FlutterInfo`
-
-Propagated by `flutter_library` and `flutter_plugin`. Carries transitive assets, plugins, and native libs.
+**`FlutterInfo`** is carried by `flutter_library` and `flutter_plugin`:
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `asset_dirs` | `depset[File]` | Directories containing Flutter assets. |
-| `plugins` | `list[struct]` | Plugin metadata structs. Each has `name` (str) and `platforms` (dict). |
-| `transitive_native_libs` | `depset[File]` | Shared libraries from plugin `native_deps`, merged transitively. |
+|---|---|---|
+| `asset_dirs` | `depset[File]` | Directories containing assets. |
+| `plugins` | `list[struct]` | Plugin metadata, each with `name` and `platforms`. |
+| `transitive_native_libs` | `depset[File]` | Shared libraries from plugins' `native_deps`. |
 
-### `FlutterApplicationInfo`
-
-Propagated by `flutter_application`. Contains the outputs of the compilation pipeline for platform bundling rules to consume.
+**`FlutterApplicationInfo`** is carried by `flutter_application` and consumed by the platform rules:
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `aot_output` | `File or None` | AOT compiled native code. `None` in debug mode. |
-| `kernel_dill` | `File or None` | Kernel `.dill` file for JIT mode. `None` in release mode. |
-| `flutter_assets` | `File` | The `flutter_assets/` tree artifact. |
-| `icu_data` | `File` | The `icudtl.dat` file. |
-| `native_libs` | `list[File]` | Shared libraries from `native_deps` (for dart:ffi). |
-| `is_debug` | `bool` | `True` if built in debug/JIT mode. |
-| `native_plugin_registrant` | `File or None` | Generated native plugin registrant source file for desktop platforms. |
+|---|---|---|
+| `aot_output` | `File` or `None` | AOT native code. `None` in debug mode. |
+| `kernel_dill` | `File` or `None` | The kernel `.dill`. `None` in release mode. |
+| `flutter_assets` | `File` | The `flutter_assets/` tree. |
+| `icu_data` | `File` | `icudtl.dat`. |
+| `native_libs` | `list[File]` | Shared libraries from `native_deps`. |
+| `is_debug` | `bool` | `True` for a debug build. |
+| `native_plugin_registrant` | `File` or `None` | The generated plugin registrant source for desktop platforms. |
 
-## Dev Tool
+## The dev tool
 
-The `tools/dev_tool/` directory contains `flutter_bazel`, a Dart program that handles the iterative development workflow: device management, app installation, hot reload, and hot restart. It speaks the `--machine` JSON-RPC protocol for IDE compatibility with existing Flutter IDE plugins (VS Code, IntelliJ).
+`flutter_bazel`, in `tools/dev_tool/`, is the development loop: it builds a target, installs and launches it on a device, and gives you hot reload and hot restart. It speaks the same `--machine` JSON-RPC protocol as `flutter run`, so the existing IDE plugins for VS Code and IntelliJ work with it. It also opens an HTTP channel that scripts and coding agents can use to drive the running app.
+
+### Running an app
+
+```sh
+bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_macos -d macos
+```
+
+`run` builds the target, launches it, and then watches the filesystem. Saving a Dart file triggers a hot reload. The flags most people use:
+
+| Flag | What it does |
+|---|---|
+| `-t`, `--target` | The Bazel target to build and run. Required. |
+| `-d`, `--device` | Where to run it. Repeat for several devices at once. See below. |
+| `-c`, `--config` | A Bazel config to build with. |
+| `--build-arg` | An extra argument for `bazel build`. Repeatable. |
+| `--dart-define KEY=VALUE` | A Dart define, forwarded to the build and replayed on reload and restart. Repeatable. |
+| `--no-hot` | Run without hot reload. |
+| `--profile` | Profile mode: AOT, unstripped, with profiling enabled. |
+| `--start-paused` | Hold the app at the start of `main()` until a debugger resumes it. |
+| `--route` | The initial route. |
+| `--no-watch` | Do not reload on save. Watching is on in terminal mode and off in `--machine` mode. |
+| `--no-devtools` | Do not launch DevTools. |
+| `--machine` | Speak the JSON-RPC protocol on stdout. |
+| `--no-http-control-channel` | Do not open the HTTP channel. |
+| `--wasm` | On the web, run the WASM build. No hot reload; edits rebuild and reload the page. |
+| `--web-port`, `--web-hostname`, `--web-launch-url`, `--web-viewport`, `--web-run-headless`, `--web-header`, `--web-browser-flag` | Web dev server and browser settings. `--web-viewport 393x660@3` lays the app out at a phone-sized viewport regardless of the window. |
+
+`flutter_bazel build` builds without running, and `flutter_bazel attach --debug-url <uri>` attaches to an app that is already running. `--help` on each command lists everything.
 
 ### Choosing a device
 
-`-d` / `--device` takes:
+`-d` takes:
 
-| id | reaches |
-| --- | --- |
-| `macos`, `linux`, `windows` | the host desktop |
-| `chrome` | a browser, through the dev module server |
-| `ios-simulator`, `ios-simulator:<udid>` | the booted simulator, or the one named |
-| `ios`, `ios:<udid>` | the attached device, or the one named |
-| `android`, `android:<serial>` | whichever device `adb` picks, or the one named |
+| Id | Reaches |
+|---|---|
+| `macos`, `linux`, `windows` | The host desktop. |
+| `chrome` | A browser, through the dev module server. |
+| `ios-simulator`, `ios-simulator:<udid>` | The booted simulator, or the one named. |
+| `ios`, `ios:<udid>` | The attached iPhone, or the one named. |
+| `android`, `android:<serial>` | Whichever device `adb` picks, or the one named. |
 
-A bare Android serial works too (`-d emulator-5554`), which is what any unrecognised id is treated as — with a warning, since a misspelled platform prefix lands there rather than being corrected.
+A bare Android serial works too (`-d emulator-5554`). Any id the tool does not recognise is treated as one, with a warning, so a misspelled platform name lands there rather than being corrected.
+
+For `-d ios`, the tool lists attached devices with `devicectl` and ignores devices that were paired once but are not attached now. With two attached, it asks for `-d ios:<udid>` rather than guessing. A device has two identifiers, the hardware UDID Xcode shows and the CoreDevice UUID that `devicectl` prints, and either works there.
+
+### Hot reload and hot restart
+
+In terminal mode, press `r` to reload and `R` to restart, or just save a file. A reload compiles only the changed libraries and injects them into the running isolate, keeping app state. A restart re-runs `main()`, so it also reflects changes to code that runs only at startup.
+
+A restart can go one step further. Dart code can be swapped into a running process, but a native library the process has already loaded cannot. So when a rebuild changes one of the app's loose native libraries (`native_deps` or Native Assets), `app.restart` relaunches the process instead of restarting the isolate, and says so in its response. The HTTP channel, its token, and the `appId` stay the same across a relaunch. Only the log buffer starts over.
+
+A hot reload cannot relaunch anything, because replacing the process is exactly the state loss a reload exists to avoid. When a reload rebuilds a native library, what happens depends on whether the bindings changed with it, which is what `flutter_native_library`'s `binding_contract` tells the tool. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). Without that declaration, the reload is withheld and a restart picks up the library. This check only arises for apps whose reload goes through a Bazel rebuild, which are apps with generated sources. A plain Dart edit takes the fast path and never touches Bazel.
 
 ### App output
 
-A running app's console output — `print`, `debugPrint`, `NSLog`, Java stack traces, uncaught errors — is forwarded for the whole life of the run, starting before the VM service comes up so that startup failures are visible.
+A running app's console output (`print`, `debugPrint`, `NSLog`, Java stack traces, uncaught errors) is forwarded for the whole run, starting before the VM service is up so that startup failures are visible.
 
-Where it goes depends on the mode:
+In terminal mode the app's stdout goes to the tool's stdout and its stderr to the tool's stderr, matching `flutter run`. With more than one `-d`, lines are prefixed with `[<device>] `. In `--machine` mode the output arrives as `app.log` events, and nothing else is written to raw stdout, which belongs to the protocol stream.
 
-| Mode | Destination |
-| --- | --- |
-| terminal (default) | the app's stdout → the tool's stdout, its stderr → the tool's stderr, matching `flutter run` |
-| `--machine` | `app.log` events. Nothing app-related is written to raw stdout, which belongs to the JSON-RPC stream |
-
-With more than one `-d`, terminal output is prefixed `[<device>] ` so an interleaved multi-device run stays readable — same convention as `flutter run -d all`. Machine mode never prefixes: each `app.log` event already carries its `appId`.
-
-Each platform has exactly **one** log source, because a Dart `print()` reaches both the process's stdout and the VM service's `Stdout` stream, and reading both would duplicate every line:
+Each platform has exactly one log source, because a Dart `print()` reaches both the process's stdout and the VM service's `Stdout` stream, and reading both would duplicate every line:
 
 | Platform | Source |
-| --- | --- |
-| macOS / Linux / Windows | the app process's stdout + stderr |
-| Android | `adb logcat`, filtered host-side to `flutter*`, `DartVM`, `AndroidRuntime`, `System.err` and fatal records |
-| iOS Simulator | a dedicated `simctl spawn log stream` scoped to the app process (separate from the stream used for VM-service discovery) |
-| iOS device | `devicectl --console`, plus lldb's own output — lldb stays attached for the whole run |
-| Chrome, DDC dev mode | the DWDS VM service's `Stdout`/`Stderr` streams |
-| Chrome, WASM / production JS | CDP `Runtime.consoleAPICalled` |
-| `attach` | the VM service's `Stdout`/`Stderr` streams — the app wasn't spawned here, so there is no process to read |
-
-**Physical iOS devices.** Output comes from `devicectl --console` — which also
-carries devicectl's own progress banners (`Acquired tunnel connection…`,
-`Launched application with…`) — together with lldb's, since lldb stays attached
-for the whole run holding the debugserver the JIT depends on. Upstream treats
-the pair the same way: on a CoreDevice with Xcode ≥ 26 `flutter_tools` selects a
-combined `devicectlAndLldb` log source, noting that `idevicesyslog` "stopped
-working with at least Xcode 26."
-
-Expect the first line to take longer than on a host. Starting a debug build
-under the JIT breakpoint is not free: the engine traps to the debugger for every
-executable page it allocates, and the handler writes to device memory over the
-debugserver link. Setting `--auto-continue` on the breakpoint changes nothing,
-because the cost is the memory write rather than the stop/resume handshake. On a
-recent iPhone with a healthy Xcode install, resume to the engine's first log
-measured **~8 s over a cable and ~40 s over the network**. A cable
-is still several times faster, but the network is not a different order of
-magnitude.
-
-Minutes-long launches mean something is wrong on the *host*, not on the phone.
-The usual cause is an unfinished Xcode symbol copy, which leaves lldb without
-the on-disk shared cache; check that Xcode has finished copying symbols for the
-device before looking anywhere else. The tool prints a "still waiting" note at 45 s so
-a slow launch stays distinguishable from a hang.
-
-### Finding the VM service
-
-On every platform except physical iOS hardware, the URI arrives in-band: the
-engine prints it, and discovery reads the same log stream that carries app
-output. Nothing extra is involved.
-
-A physical iOS device is the exception. A wirelessly attached device has no
-console channel at all, and the one a wired device has belongs to the `devicectl`
-invocation that launched the app. So the URI comes from the app's **mDNS
-advertisement** instead — the one channel both connections share. Every Flutter app built in
-debug or profile mode advertises `_dartVmService._tcp` with its port in the SRV
-record and its service auth code in the TXT record; the generated debug/profile
-`Info.plist` declares the matching `NSBonjourServices` entry
-(`flutter/private/runners/ios/DartVmServiceMdns.plist`), so this works for any
-app built through these rules with no extra configuration.
-
-This is the single mechanism for iOS hardware — nothing races it — and it is
-what makes wireless devices work at all:
-
-| Connection | VM service host | Port |
-| --- | --- | --- |
-| wired | `127.0.0.1` through an `iproxy` forward, because the service binds to the device's loopback | the advertised device-side port, forwarded |
-| wireless | the device's own address, resolved from the advertisement | the advertised port, dialed directly |
-
-The two halves are chosen together from what `devicectl list devices` reports:
-a wireless launch also passes `--vm-service-host=0.0.0.0` so the service is
-reachable off-device, and a wired launch deliberately does not.
-
-Three things are worth knowing when it fails:
-
-- **Local Network permission.** On macOS the mDNS socket needs it. Denied, the
-  failure is a specific error naming System Settings > Privacy & Security >
-  Local Network — not a silent timeout. The device also prompts once, on its
-  own, the first time an app advertises.
-- **mDNS queries get lost.** They are UDP, and RFC 6762 §5.1 requires a querier
-  to retransmit. Against a USB-attached iPhone a single query succeeded roughly
-  two times in five, so discovery retransmits with the specified backoff; in
-  practice it resolves in ~200 ms and worst-observed 3.3 s.
-- **`dns-sd` is not evidence of what this tool can see**, in either direction.
-  It answers from mDNSResponder's table, which holds records a raw multicast
-  socket cannot reach: over USB, CoreDevice proxies the device's Bonjour records
-  in as **local-only registrations**, invisible to a multicast socket by design.
-  So `package:multicast_dns` seeing nothing over USB while `dns-sd` lists the
-  phone is correct on both sides. The table also keeps **ghosts** — stale
-  `_dartVmService` registrations on `lo0` from booted simulators, with no app
-  running. Unplugged, the phone multicasts for real on `en0`/`en1` and the raw
-  socket sees it. If you do reach for `dns-sd`, read the interface index on each
-  `Add` line — interface 1 is `lo0` and proves nothing about the device.
-
-Hot reload and hot restart get the same allowance. A reload is quick — only the
-changed library is compiled and no pages are re-JITed — but a restart re-runs
-`main()` and so pays the breakpoint cost again, taking about as long as the
-original launch. The per-call budget is five minutes wired and fifteen wireless,
-against thirty seconds on a host. Those are backstops for a run that will never
-succeed, deliberately sized for the worst host state seen rather than for the
-seconds a healthy one takes: too short a budget does not merely wait less, it
-abandons the RPC and force-closes the VM-service connection, reporting a timeout
-for a restart that was on its way to succeeding.
-
-`devicectl list devices` also lists devices that were paired once and are not
-attached now. Those are filtered out, so `-d ios` picks the device that is
-actually there; with two attached, it asks for `-d ios:<udid>` rather than
-guessing. Either identifier works there — a device has two, the hardware UDID
-Xcode shows and the CoreDevice UUID `devicectl` prints as `identifier`. Only the
-hardware one means anything to usbmuxd, so that is what `iproxy` and `lldb` are
-addressed with; getting this wrong yields a port forward that binds locally and
-then resets every connection, which surfaces much later as a DDS failure.
+|---|---|
+| macOS, Linux, Windows | The process's stdout and stderr. |
+| Android | `adb logcat`, filtered to `flutter*`, `DartVM`, `AndroidRuntime`, `System.err`, and fatal records. |
+| iOS simulator | A `simctl spawn log stream` scoped to the app process. |
+| iOS device | `devicectl --console` plus lldb's output. lldb stays attached for the whole run. |
+| Chrome, dev loop | The DWDS VM service's `Stdout` and `Stderr` streams. |
+| Chrome, WASM or production JS | Chrome DevTools Protocol console events. |
+| `attach` | The VM service's `Stdout` and `Stderr` streams, since there is no process to read. |
 
 ### Assets and fonts
 
-An edit to a bundled asset goes live the same way an edit to a `.dart` file
-does, on hot reload or a watched save. The tool tracks the built
-`flutter_assets` tree, so it knows which workspace directories feed it and can
-answer "did an asset change?" from a few directory listings — a run whose assets
-are untouched never pays for a `bazel build` on a Dart edit.
+An edit to a bundled asset goes live on hot reload or on save, the same as a Dart edit. The tool knows which workspace directories feed the `flutter_assets` tree, so it can tell whether an asset changed from a few directory listings. A run whose assets are untouched never pays for a `bazel build` on a Dart edit.
 
-When one has changed, the bundle is rebuilt and only the differing entries are
-uploaded into the app's devFS, which is what makes this work on a phone, inside
-an APK, and inside a sandboxed `flutter create` macOS app — none of which can
-read `bazel-out`. Everything not uploaded still resolves to what shipped: the
-engine keeps the original bundle behind the devFS directory. A changed font
-additionally re-registers the engine's font collection, so re-exporting a `.ttf`
-in place takes effect (upstream ignores that until a restart).
+When an asset has changed, the bundle is rebuilt and only the differing entries are uploaded into the app's devFS. That is what makes it work on a phone, inside an APK, and inside a sandboxed macOS app, none of which can read `bazel-out`. Everything else still resolves to what shipped, because the engine keeps the original bundle behind the devFS directory. A changed font also re-registers the engine's font collection, so re-exporting a `.ttf` takes effect where upstream waits for a restart.
 
-On web the dev server already serves `assets/` off the build tree per request,
-so only the page's caches have to be dropped. Fonts are the exception there —
-the web engine registers them once at startup and exposes no reload hook — and
-the reload says so rather than reporting success.
+On the web the dev server serves `assets/` from the build tree on every request, so only the page's caches are dropped. Fonts are the exception: the web engine registers them once at startup with no reload hook, and the reload says so rather than reporting success.
 
 ### Debugging from the first line
 
-`flutter_bazel run --start-paused` holds the app at the beginning of `main()`
-so a debugger can attach before any app code runs. The switch reaches each
-platform the way that platform accepts one — `FLUTTER_ENGINE_SWITCH_<N>` on
-desktop, an `--ez start-paused true` intent extra on Android, trailing argv on
-iOS — and on web there is no switch at all: DWDS gates `main()`, so the tool
-simply withholds the run request and DWDS starts the app when a client resumes
-it.
+`flutter_bazel run --start-paused` holds the app at the beginning of `main()` so a debugger can attach before any app code runs. Each platform gets the switch the way it accepts one: an engine switch on desktop, an intent extra on Android, argv on iOS. On the web there is no switch; DWDS holds `main()` until a client resumes it, so the tool withholds the run request.
 
-The pause is reported only once it has been *observed* (the main isolate's own
-`pauseEvent`), so a target that ignored the switch is called out rather than
-leaving you waiting at a debugger for an app that already ran. While paused,
-`app.*` commands answer with the reason instead of blocking on an isolate that
-cannot run, and `--route` / `--trace-startup` are skipped with a warning —
-both need a framework that has not started yet.
+The pause is reported only once the tool has observed it from the main isolate's own pause event, so a target that ignored the switch is called out rather than leaving you waiting at a debugger for an app that already ran. While paused, `app.*` commands answer with the reason instead of blocking, and `--route` and `--trace-startup` are skipped with a warning, because both need a framework that has not started.
 
-### Agent / external-tool control surface
+### Physical iOS devices
 
-`flutter_bazel run` starts an HTTP control channel by default (disable with `--no-http-control-channel`). External tools — IDE integrations, AI coding agents, end-to-end test harnesses — drive the running app over this channel without needing a TTY.
+On every platform except iOS hardware, the VM service URI arrives in the app's log: the engine prints it, and the tool reads it off the same stream that carries app output.
+
+An iPhone is different. A wirelessly attached device has no console channel at all, and a wired device's console belongs to the `devicectl` call that launched the app. So the tool finds the URI through the app's mDNS advertisement instead. Every Flutter app built in debug or profile mode advertises `_dartVmService._tcp` with its port and auth code, and the generated debug `Info.plist` declares the matching `NSBonjourServices` entry, so this works for any app built with these rules and no configuration.
+
+| Connection | VM service host | Port |
+|---|---|---|
+| Wired | `127.0.0.1` through an `iproxy` forward, because the service binds to the device's loopback. | The advertised port, forwarded. |
+| Wireless | The device's own address, from the advertisement. | The advertised port, dialed directly. |
+
+The tool picks the pair from what `devicectl list devices` reports. A wireless launch also passes `--vm-service-host=0.0.0.0` so the service is reachable off-device, and a wired launch does not.
+
+When discovery fails, three things are worth checking:
+
+- **Local Network permission.** On macOS the mDNS socket needs it. If it is denied, the error names System Settings > Privacy & Security > Local Network. The device also prompts once, the first time an app advertises.
+- **Lost queries.** mDNS is UDP and the spec requires retransmission. Against a USB-attached iPhone a single query succeeded about two times in five, so the tool retransmits with the specified backoff. In practice it resolves in around 200 ms, with 3.3 s the worst observed.
+- **`dns-sd` does not show what this tool sees**, in either direction. It answers from mDNSResponder's table, which includes records a raw multicast socket cannot reach: over USB, CoreDevice proxies the device's Bonjour records in as local-only registrations. So `dns-sd` listing the phone while the tool sees nothing over USB is correct on both sides. The table also keeps stale `_dartVmService` records on `lo0` from booted simulators with no app running. Unplugged, the phone multicasts for real on `en0` or `en1` and the raw socket sees it. If you do use `dns-sd`, read the interface index on each `Add` line; interface 1 is `lo0` and proves nothing about the device.
+
+**Launch times.** Expect the first log line to take longer than on a host. A debug build runs under the JIT breakpoint, and the engine traps to the debugger for every executable page it allocates, with each trap writing to device memory over the debugserver link. On a recent iPhone with a healthy Xcode install, the time from resume to the engine's first log line measured about 8 seconds over a cable and about 40 seconds over Wi-Fi. A cable is several times faster, but Wi-Fi works.
+
+A launch that takes minutes means something is wrong on the host, not the phone. The usual cause is an unfinished Xcode symbol copy, which leaves lldb without the shared cache. Check that Xcode has finished copying symbols for the device before looking anywhere else. The tool prints a "still waiting" note at 45 seconds so a slow launch stays distinguishable from a hang.
+
+Hot reload and restart get the same allowance. A reload is quick, since only the changed library is compiled. A restart re-runs `main()` and pays the breakpoint cost again, so it takes about as long as the launch. The per-call budget is five minutes wired and fifteen wireless, against thirty seconds on a host. Those are backstops for a run that will never succeed, sized for the slowest host state seen rather than the seconds a healthy one takes, because a budget that is too short does worse than wait less: it abandons the RPC and force-closes the VM service connection, reporting a timeout for a restart that was about to succeed.
+
+For log output, `devicectl --console` also carries devicectl's own progress banners, and lldb's output is included because lldb holds the debugserver the JIT depends on. Upstream does the same: with Xcode 26 and later, `flutter_tools` reads both, noting that `idevicesyslog` stopped working.
+
+### Driving the app from a script
+
+`flutter_bazel run` opens an HTTP control channel by default. IDE integrations, coding agents, and end-to-end test harnesses can drive the running app through it without a terminal: tap widgets, enter text, read text back, take screenshots, reload, restart, and shut down.
 
 ```sh
 bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- \
-  run --target //:my_app --machine
-# stderr emits the channel's own record — as a JSON line under LOG_FORMAT=json,
-# carrying every endpoint below as data rather than as prose. Each one comes
-# with the URL that works, token included; the token is a query parameter
-# (`tokenParam`), not an Authorization header:
-#   {"message":"http_control_channel","uri":"http://localhost:PORT",
-#    "token":"...","tokenParam":"token","endpoints":[
-#      {"method":"POST","path":"/command",
-#       "url":"http://localhost:PORT/command?token=...", ...}, ...]}
-# stdout emits the protocol stream, starting with daemon.connected:
-#   [{"event":"app.start","params":{"appId":"...","deviceId":"macOS", ...}}]
+  run -t //:my_app_macos -d macos --machine
 ```
 
-**What counts as protocol on stdout.** A line is a protocol message if and
-only if it is a `[{…}]` envelope; anything else is passthrough output and a
-client should hand it to the user rather than parse it. That is upstream's own
-convention — `flutter_tools`' DAP and the Dart-Code extension both filter
-exactly this way — and it is what makes the invocation above safe: under
-`bazel run`, this tool's stdout **is** bazel's stdout, and bazel forwards a
-successful action's stdout to it. So a run that has to rebuild the tool first
-prints, for instance, `Generated: /…/flutter_bazel` from `dart compile exe`
-ahead of the first envelope. Nothing before `daemon.connected` is addressed to
-a protocol client.
+On stderr, the tool prints the channel's record. Under `LOG_FORMAT=json` it is one JSON line that carries every endpoint with a ready-made URL, token included. The token is a query parameter, not an `Authorization` header:
 
-Once the channel is up:
+```json
+{"message":"http_control_channel","uri":"http://localhost:PORT",
+ "token":"...","tokenParam":"token","endpoints":[
+   {"method":"POST","path":"/command",
+    "url":"http://localhost:PORT/command?token=...", ...}, ...]}
+```
+
+On stdout, the protocol stream starts with `daemon.connected` and then reports `app.start`, `app.started`, and the rest.
+
+**What counts as protocol on stdout.** A line is a protocol message if and only if it is a `[{…}]` envelope. Anything else is passthrough output that a client should show to the user rather than parse. That is upstream's convention too, and it is what makes `bazel run` safe here: bazel forwards a successful action's stdout, so a run that first has to rebuild the tool prints a line like `Generated: /…/flutter_bazel` before the first envelope.
+
+#### Endpoints
 
 | Endpoint | Verb | Purpose |
-| --- | --- | --- |
-| `/command?token=<token>` | `POST` | Run a machine-protocol method against a running session. Body: `{"method":"app.<X>", "params":{"appId":"...", ...}}`. |
-| `/sessions/{appId}/screenshot/flutter?token=<token>` | `GET` | PNG of the Flutter widget tree (`_flutter.screenshot` via VM service). **Not available on any device at the pinned Flutter** — see below. |
-| `/sessions/{appId}/screenshot/native?token=<token>` | `GET` | PNG of the app as the platform sees it (`screencapture` / `scrot` / `simctl io screenshot` / `adb screencap` on a physical Android device, `adb emu screenrecord screenshot` on an emulator / CDP). Works on every device. |
+|---|---|---|
+| `/command?token=…` | `POST` | Run a protocol method against the session. Body: `{"method":"app.<X>", "params":{"appId":"…", …}}`. |
+| `/commands?token=…` | `GET` | What this run can do right now: `{"protocolVersion", "commands":[{"name","longRunning"}]}`. |
+| `/sessions/{appId}/logs?token=…` | `GET` | The app's console output, from a bounded ring buffer. |
+| `/sessions/{appId}/screenshot/native?token=…` | `GET` | A PNG of the app as the platform sees it. Works on every device. |
+| `/sessions/{appId}/screenshot/flutter?token=…` | `GET` | A PNG of the widget tree from the engine. Not available at the pinned Flutter; see below. |
 
-**When the picture was taken.** Both endpoints wait for the app to go idle before capturing, so a screenshot taken straight after an `app.tap` includes what the tap did. Without that wait a capture is just a moment — it returns the frame from *before* the action painted, and a stale picture is indistinguishable from a feature that did not work. The answer says which you got: `X-Settled: yes` (idle first), `no` (the wait ran out, or the app is backgrounded), or `skipped` (`&settle=false`, or this run has no VM service to ask — `--wasm`, `--profile`), with `X-Settle-Detail` carrying the reason for anything but `yes`. The reason is prose that can hold characters a header cannot, so it arrives as percent-encoded UTF-8: ASCII text reads as it is, and any URI-component decoder (`Uri.decodeComponent`, `decodeURIComponent`, `urllib.parse.unquote`) gives back the exact text. Never fatal: an app that cannot settle is the one whose picture is most worth having. `app.settle` is the same wait as a command, for use between two of your own.
-| `/commands?token=<token>` | `GET` | What this run can be asked to do: `{"protocolVersion", "commands":[{"name","longRunning"}]}`. See below. |
-| `/sessions/{appId}/logs?token=<token>` | `GET` | The app's console output, from a bounded ring buffer. See below. |
+The endpoints speak plain HTTP/1.1, so `curl -s "$URI/..."` works. If your `curl` tries HTTP/2 by default, add `--http1.1`.
 
-**Which screenshot.** `screenshot/flutter` captures only the widget tree, with no OS chrome, by asking the engine — but the engine cannot encode a compressed screenshot under **Impeller**, and there is no engine screenshot on web at all. Since Flutter 3.47 every platform renders with Impeller by default, so every device answers `501` naming `screenshot/native`, rather than a `500` that reads as transient. An app that turns Impeller off could serve it; the dev tool does not try to detect that, because the renderer is a runtime property of the app and `screenshot/native` captures both. `screenshot/native` is the one that works everywhere.
+#### Which commands are available
 
-**Which commands.** The set is not fixed when a client connects — it grows
-through a run, and it is a statement about *this* run rather than about the
-tool. A web run gains `app.setViewport` once the browser is up and never
-offers `app.buildInfo` at all, because only a `-c dbg` native build carries
-the record that command reads; a native debug run gains `app.buildInfo` once
-the plan is resolved. The agent commands (`app.tap`, `app.getText`, …) are
-offered once the plan says this run has a VM service to reach the app's
-extensions through — every native run, and on a browser only the DDC dev
-loop — and answer once that service actually exists, which on web and on an
-iOS device is well after `app.started`. So re-read `/commands` rather than
-caching the first answer. `longRunning` marks the commands that
-rebuild or recompile before they answer — the ones worth a generous timeout,
-and the ones `app.progress` is emitted for.
+The set of commands is not fixed when a client connects. It grows through the run and describes this run rather than the tool. A web run gains `app.setViewport` once the browser is up and never offers `app.buildInfo`, because only a `-c dbg` native build carries the record that command reads. The widget-driving commands are offered once the tool knows the run has a VM service, which is every native run and the DDC dev loop on the web, and they answer once that service exists, which on the web and on an iPhone is well after `app.started`. So re-read `/commands` rather than caching the first answer. `longRunning` marks commands that rebuild or recompile before answering; those deserve a generous timeout and are the ones `app.progress` events are emitted for.
 
-A `--machine` client does not need this endpoint: it is handed the list on
-`daemon.connected` and again on every `daemon.commandsChanged`, because it
-reads stdout from the first byte and cannot miss either. `daemon.connected`
-also carries `protocolVersion`, which says which of these fields to expect.
+A `--machine` client does not need the endpoint. It receives the list in `daemon.connected` and again in every `daemon.commandsChanged`. `daemon.connected` also carries `protocolVersion`. The protocol stream is also the only place for things the channel cannot push: `app.devTools` carries the DevTools URL, `app.debugPort` the VM service's `port`, `wsUri`, and `baseUri`, and `app.webLaunchUrl` the address a web run is served at. The browser the tool launches uses a scratch profile and may be headless, so that URL is how you open the page in your own browser. The full event list is the header comment of `tools/dev_tool/lib/machine_protocol.dart`.
 
-It is also told things this channel has no way to push: `app.devTools` carries
-the DevTools URL for the app once there is one to serve, `app.debugPort` the
-VM service's `port`, `wsUri` and `baseUri`, and `app.webLaunchUrl` the address
-a web run is served at — the browser this tool launches uses a scratch profile
-and may be headless, so that URL is how you open the page in your own browser.
-The full event list is the header of
-`tools/dev_tool/lib/machine_protocol.dart`, which is the registry rather than
-a copy of it.
+The commands, once the app is up:
 
-**Reading logs.** `/logs` is a cursor-polling endpoint rather than a stream: there is no long-lived connection, and a caller reads exactly as much as it asks for.
+- **Widget driving:** `app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`, `app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`, `app.waitFor`, `app.waitForAbsent`, `app.pageBack`, `app.settle`. These are served by extensions the app registers before `main()` on every launch, so they survive hot restart.
+- **Lifecycle:** `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
+- **Run-specific:** `app.buildInfo` on native debug runs, `app.setViewport` on web runs.
 
-| `since` | meaning |
-| --- | --- |
-| omitted | tail the last 200 lines — what you want with no prior cursor |
-| `-N` | tail the last `N` lines |
-| `0` | everything still buffered, oldest first |
-| `N > 0` | resume at line `N` (feed back a previous `nextCursor`) |
+`app.stop` stops the one app its `appId` names, as upstream's does. A run driving two devices carries on with the other. A bare `app.stop` with no `appId` is refused rather than read as "all of them". `daemon.shutdown` ends the run: every app, the browser, the compiler, and the tool itself.
 
-`limit` caps the page (default and maximum 500). A non-numeric `since`, or a non-positive `limit`, is a `400` rather than a silent fallback — a typo'd cursor would otherwise look like a working poll loop that re-reads the tail forever.
+**A web run without a VM service offers no widget driving.** `--wasm`, `--profile`, and `--no-hot` serve a bundle built by dart2wasm or dart2js, where `registerExtension` is a stub and there is no service to dispatch through. The commands are absent from `/commands` rather than present and refusing, and the run says so once at startup as an `agent_surface_unavailable` log record. Such a run can still serve `/logs`, `screenshot/native`, and `app.restart`. To drive the widget tree on the web, run the DDC dev loop: neither `--wasm` nor `--profile`.
+
+**Commands issued early wait.** `app.started` means `main()` has begun, which is what upstream's protocol means by it, and an app that has begun running has not built a widget tree yet. On `-d chrome` the gap is DWDS, which holds `main()` until the browser has connected. On an iPhone the gap is the app's own start, measured at 61 seconds after `app.started` for a debug build. A command sent in that window waits it out rather than failing, so you can fire on `app.started` without a readiness poll. The wait is reported as an `app.progress` pair ("Waiting for the app to render its first frame"), and an app that never paints is refused with a reason rather than a bare timeout. Waiting for a specific widget is still yours to ask for, with `app.waitFor`.
+
+#### Reading logs
+
+`/logs` is polled with a cursor. There is no long-lived connection, and each call returns exactly what you ask for.
+
+| `since` | Meaning |
+|---|---|
+| omitted | The last 200 lines. Use this when you have no cursor yet. |
+| `-N` | The last `N` lines. |
+| `0` | Everything still buffered, oldest first. |
+| `N > 0` | Resume at line `N`. Feed back a previous `nextCursor`. |
+
+`limit` caps the page, with a default and maximum of 500. A non-numeric `since` or a non-positive `limit` is a `400`, because a mistyped cursor would otherwise look like a working poll loop that re-reads the tail forever.
 
 ```sh
 # Tail, then poll forward.
@@ -1515,61 +1382,49 @@ curl -s "$URI/sessions/$APP/logs?token=$T"
 curl -s "$URI/sessions/$APP/logs?token=$T&since=813"
 ```
 
-`error` marks lines that arrived on an error channel — the process's stderr, a VM-service `Stderr` event, `console.error` — the same bit, under the same name, that `app.log` uses. It is a *channel*, not a severity: platforms that hand the whole device log over one stream (iOS via `devicectl`/`simctl`, Android via `logcat`) deliver engine `[ERROR:…]` lines with `error:false`, so match on the text when you care about engine errors there.
+The fields in the response:
 
-`missed` is non-zero when the requested cursor had already been evicted, so a poller learns it has a gap instead of reading a short page as though it were complete; `dropped` is the total evicted over the run. `closed` turns true once the app's output source has ended — no further lines can arrive, so a poll loop can stop. The buffer survives the app's exit, so a crashed app's final output is still readable.
+- `error` marks lines that arrived on an error channel: the process's stderr, a VM service `Stderr` event, `console.error`. It is a channel, not a severity. Platforms that deliver the whole device log over one stream (iOS and Android) deliver engine `[ERROR:…]` lines with `error: false`, so match on the text if you care about those.
+- `missed` is non-zero when the cursor you asked for had already been evicted, so a poller learns it has a gap instead of reading a short page as complete. `dropped` is the total evicted over the run.
+- `closed` turns true once the app's output has ended, so a poll loop can stop. The buffer survives the app's exit, so a crashed app's final output is still readable.
+- `launch` is which launch of the app the page came from: 1 for the original, one more per relaunch. Each launch buffers from zero, so when `launch` changes, drop your cursor and re-tail.
 
-`launch` is which launch of the app the page came from: `1` for the original, one more for each relaunch (see `app.restart` below). Each launch buffers its own output from zero, so a cursor only means anything within one launch — when `launch` changes, drop your cursor and re-tail.
+#### Screenshots
 
-App-driving methods (proxied to the agent extensions the app registers before `main()` on every launch, so they survive hot restart — from the generated plugin registrant the engine invokes on native, and from the dev tool's generated entrypoint on web):
+`screenshot/native` captures the app the way the platform sees it (`screencapture`, `scrot`, `simctl io screenshot`, `adb screencap`, or the browser's own capture) and works on every device. `screenshot/flutter` asks the engine for the widget tree alone, with no window chrome, but the engine cannot produce it under Impeller and there is no engine screenshot on the web at all. Since Flutter 3.47 every platform renders with Impeller by default, so every device answers `501` naming `screenshot/native`. The tool does not try to detect an app that has turned Impeller off, because `screenshot/native` captures either way.
 
-`app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`,
-`app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`,
-`app.waitFor`, `app.waitForAbsent`, `app.pageBack`, `app.settle`.
+Both endpoints wait for the app to go idle before capturing, so a screenshot taken right after `app.tap` shows what the tap did. Without that wait you would get the frame from before the action painted, and a stale picture is indistinguishable from a feature that did not work. The response says what you got: `X-Settled: yes` means the app was idle first, `no` means the wait ran out or the app is backgrounded, and `skipped` means you passed `settle=false` or the run has no VM service to ask (`--wasm`, `--profile`). `X-Settle-Detail` carries the reason for anything but `yes`, percent-encoded so it can hold characters a header cannot; any URI-component decoder gives back the text. The wait is never fatal, since an app that cannot settle is the one whose picture you most want. `app.settle` is the same wait as a command, for use between two of your own.
 
-Two more are offered only by the runs that can serve them, and appear in
-`/commands` when they are: `app.buildInfo` — which build tree backs the
-running app, read from a record `flutter_compile_kernel` bakes into `-c dbg`
-native builds — and `app.setViewport`, which resizes a web run's browser.
+#### Driving widgets
 
-**A web run without a VM service offers none of them.** `--wasm`, `--profile`
-and `--no-hot` serve a bundle built by dart2wasm or dart2js, where
-`dart:developer`'s `registerExtension` is a no-op stub and there is no service
-to dispatch through in any case, so the driving methods above are absent from
-`/commands` rather than present and refusing. The run says so once, up front,
-as an `agent_surface_unavailable` log record. What such a run can still do:
-`/logs` (its console arrives over CDP), `/sessions/{appId}/screenshot/native`
-(CDP's own capture) and `app.restart` (a bazel rebuild plus a page reload).
-To drive the widget tree, run the same target as the DDC dev loop — neither
-`--wasm` nor `--profile`.
+Methods that target a widget (`tap`, `longPress`, `doubleTap`, `drag`, `getRect`, `getText`, `enterText`, `scrollIntoView`, `waitFor`, `waitForAbsent`) take exactly one selector, following `flutter_driver`'s finder vocabulary:
 
-These are answerable later than `app.started` suggests, on every platform. `app.started` means `main()` has begun running — the same thing upstream's daemon protocol means by it — and an app that has begun running has not yet built a widget tree. On `-d chrome` the gap is DWDS: the browser's VM service only exists once the page has connected, and DWDS holds `main()` back until it does, so nothing is registered for the first few seconds of a run or of a hot restart. On a physical device the gap is the app's own start: a debug build on an iPhone JITs through the debugger and its VM service answers *nothing* — not an agent call, not `getVersion` — until the app paints, measured at 61s after `app.started`.
+| Param | Matches |
+|---|---|
+| `key` | A widget whose `ValueKey` value equals the string. |
+| `text` | A `Text` or `EditableText` whose content equals the string. |
+| `tooltip` | A `Tooltip` whose `message` equals the string. |
+| `type` | A widget whose runtime type name equals the string, for example `ElevatedButton`. |
+| `semanticsLabel` | A widget whose semantics label equals the string. |
 
-A command issued in that window waits it out rather than failing, so you can fire on `app.started` and need no readiness poll of your own. The wait is reported as an `app.progress` pair (`Waiting for the app to render its first frame`) so a client can show it, and an app that never paints is refused with a reason rather than a bare timeout. Waiting for a widget is still yours to ask for, with `app.waitFor`.
+Zero selectors or more than one is an error. Other params: `durationMs` (longPress, drag, scrollIntoView), `dx` and `dy` (drag, scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`, `settle`, `requireHit`.
 
-Lifecycle methods: `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
+Put the `Key` on the widget you would point at, such as the `Chip`, the `ListTile`, or the button, rather than on the `Text` it builds. A selector reaches the same distance for every method.
 
-`app.stop` stops the **one app** its `appId` names, as upstream's does; a run
-driving two devices carries on with the other, and ends when its last app
-does. It needs the `appId` — a bare `app.stop` is refused rather than read as
-"all of them". `daemon.shutdown` is the one that ends the run: every app, the
-browser, the compiler and this process.
+- **`getText`** returns the text of the first text-bearing descendant of the match, in pre-order (`Text` including `Text.rich`, `RichText`, `EditableText`), and lists all of them in `texts`, so a container with two strings shows as two: `{"text":"Increment","texts":["Increment"]}`.
+- **`enterText`** takes `text` as the string to type, which is why it is the one method that does not accept the `text` selector. With a selector it focuses the first `EditableText` under the match and types into it, with no preceding tap needed, and reports what it typed into: `{"enteredText":"hi","into":"ValueKey(emailField)"}`. With no selector it types into whatever is focused, reporting `"into":"focused"`.
 
-**How a command says no.** Every failure, on either transport, is a top-level
-`error` carrying the reason — there is no second place to look. Over HTTP the
-status says which kind it is: `404` the command or the app does not exist
-here, `400` the request was malformed (a missing parameter, two selectors),
-`501` this run cannot serve it (an engine screenshot under Impeller), `422` it
-was asked properly and could not be done — the app refused, or never answered.
-A `500` means the tool itself broke, which is the one case worth retrying or
-reporting. On the stdin protocol the same failure is upstream's
-`{"id":…, "error":"<reason>"}`, with `error` a string.
+**Settling.** After dispatching input, a method waits until the app is idle before returning, so a follow-up `getRect` or `getText` sees the post-action layout. The wait is bounded by `timeoutMs`, default 10000. If the app cannot settle in time, the method returns a `TimeoutException` saying how many animations were still running. The input was still delivered, so that error means "I cannot promise the result is visible yet", never "nothing happened", and retrying it taps twice. Zero animations in the message means the app was backgrounded mid-command. An app that was already backgrounded returns immediately, because backgrounding is what stops frames (minimizing or covering the window does not), so there is nothing to wait for.
 
-What stays inside `result` is an outcome that carries its own verdict: a hot
-reload answers `{"succeeded":false, "error":…}`, because it ran and reported a
-failure rather than refusing to run.
+Some apps never go idle: a spinner, a progress indicator, any perpetual `AnimationController` keeps a frame callback pending for as long as it runs, so every command against such an app spends its whole timeout and fails. `settle: "false"` turns the wait off for one command, the equivalent of `flutter_driver`'s `runUnsynchronized`. What you give up is the guarantee: an immediate `getText` after an unsynchronised `tap` races the rebuild and reads the old value about half the time, so resynchronise with `app.waitFor` on the value you expect. `settle` accepts only `"true"` and `"false"`, because a typo would otherwise choose the opposite behaviour in silence.
 
-**Restarts that relaunch.** A hot restart swaps Dart code into the running process, which cannot replace a native library it has already `dlopen`ed. So `app.restart` first rebuilds the app and, when the bundle's loose native libraries (`native_deps`, and Native Assets code assets) changed, relaunches the process instead of restarting the isolate:
+**Reaching the widget.** Being in the tree is not the same as being where a pointer can land. A child of a scroll view that is scrolled off screen is laid out outside the viewport, and a widget behind a dialog is covered. A selector still finds it and it still has a rect, so `tap`, `longPress`, `doubleTap`, and `drag` hit-test the point first and refuse when nothing there resolves to the target. The refusal says which case it is and what to do: scroll it into view, or move what covers it. This is `WidgetController`'s `warnIfMissed` with the fatal choice made, on the view that a success response for an event nobody received is worse than an error. `requireHit: "false"` dispatches at the point anyway, for a caller who means it.
+
+`app.scrollIntoView` is the way through, and its `reachable` field answers whether a tap would now land. `iterations` counts drag-scrolls of a lazy list; `0` means the target was already built and `Scrollable.ensureVisible` was used.
+
+#### Reload and restart responses
+
+A restart that relaunched the process because a native library changed says so:
 
 ```json
 {"succeeded":true,"runningCode":"updated","relaunched":true,
@@ -1577,9 +1432,9 @@ failure rather than refusing to run.
  "message":"Restart successful — the app was relaunched because its native libraries changed (…). …"}
 ```
 
-**Reloads that refuse, and reloads that warn.** A hot reload cannot relaunch anything — replacing the process is how the app's state is lost, which is what a reload exists to keep — so when a rebuild moves a native library, what it can do depends on whether the bindings moved with it (see [Native Interop](#keeping-hot-reload-working-across-a-native-rebuild) for declaring that).
+`ready` says the relaunched app rendered a first frame before the response returned, so its extensions are registered and the next `app.*` call will land. `false` means that wait timed out, not that the app is broken. The protocol stream re-emits `app.debugPort` and `app.started` for the new process.
 
-Bindings unchanged: the edit is delivered, and the machine code behind it is not:
+A reload after a native rebuild, with the bindings unchanged, delivers the edit and reports the stale library:
 
 ```json
 {"succeeded":true,"runningCode":"updated",
@@ -1587,7 +1442,7 @@ Bindings unchanged: the edit is delivered, and the machine code behind it is not
  "message":"Hot reload successful. …/libbridge.dylib was rebuilt and its bindings did not change, so the increment is live over the library the app already loaded — the new native code is not running. A restart (R) relaunches the app on it."}
 ```
 
-Bindings changed, or nothing declaring them:
+With the bindings changed, or nothing declaring them, the edit is withheld:
 
 ```json
 {"succeeded":false,"runningCode":"unchanged",
@@ -1595,286 +1450,37 @@ Bindings changed, or nothing declaring them:
  "message":"Hot reload withheld: …/libbridge.dylib changed, and so did what its bindings are generated from …"}
 ```
 
-Withheld, not injected: the increment was compiled against the rebuilt interface, and a process holding the old library would run it against machine code that cannot serve it — a skew that surfaces later as a malformed request or a call landing on the wrong function, with nothing left pointing at the library. Nothing is compiled and nothing is sent, so the app is left whole on the code *and* the library it launched with, and `app.restart` is what picks the new library up.
+Nothing is compiled and nothing is sent, so the app keeps the code and the library it launched with, and `app.restart` picks up the new one. `nativeLibsStale` means the same thing in both replies, and `succeeded` says whether the edit landed. The check costs no Bazel of its own: a `stat` per declared file, and a content hash only for a file the build rewrote.
 
-`nativeLibsStale` carries the same meaning in both replies — these libraries' code is not what the process is running — and `succeeded` is what says whether the increment landed.
+#### How a command says no
 
-Both apply on web, where a declared `native_modules` entry is checked the same way — and where a plain restart is enough to pick the new module up, since the page re-runs `main()` and re-fetches it.
+Every failure, on either transport, is a top-level `error` carrying the reason. Over HTTP the status says which kind: `404` the command or app does not exist here, `400` the request was malformed (a missing parameter, two selectors), `501` this run cannot serve it (an engine screenshot under Impeller), `422` it was asked properly and could not be done (the app refused, or never answered). A `500` means the tool itself broke, which is the one case worth retrying or reporting. On the stdin protocol the same failure is upstream's `{"id":…, "error":"<reason>"}`.
 
-This only arises for an app whose reload rebuilds through bazel — a source-assembled (codegen) app, where regenerating sources recompiles the libraries too. The check reads the libraries and contracts that build declared (`_dev_config.json`), so it costs no bazel of its own: a `stat` per file, and a content hash only for one the build actually rewrote. A Dart-only edit stays on the instant path.
-
-The channel is a property of the *run*, not of the app process: the port, the token and the `appId` are unchanged, and there is no second banner because none is needed — keep using the ones you started with. The machine protocol re-emits `app.debugPort` and `app.started` for the replacement process. `ready` says the relaunched app rendered a first frame before the response returned, so its service extensions are registered and the next `app.*` call will land; a `false` means that wait timed out, not that the app is broken. The one thing that does not carry over is `/logs`: the new process buffers its output from zero, so compare `launch` and re-tail. Only `app.stop` and `daemon.shutdown` end a session.
-
-**Selecting a widget.** Methods that target a widget (`tap`, `longPress`, `doubleTap`, `drag`, `getRect`, `getText`, `enterText`, `scrollIntoView`, `waitFor`, `waitForAbsent`) take **exactly one** selector — mirroring `flutter_driver`'s finder vocabulary:
-
-| param | matches |
-| --- | --- |
-| `key` | a widget whose `ValueKey` value equals the string |
-| `text` | a `Text`/`EditableText` whose content equals the string |
-| `tooltip` | a `Tooltip` whose `message` equals the string |
-| `type` | a widget whose runtime type name equals the string (e.g. `ElevatedButton`) |
-| `semanticsLabel` | a widget whose semantics label equals the string |
-
-Passing zero or more than one selector returns a clear error. Other params: `durationMs` (longPress/drag/scrollIntoView), `dx`/`dy` (drag/scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`, `settle`, `requireHit`.
-
-A selector reaches the same distance for every method: put the `Key` on the widget you would point at — the `Chip`, the `ListTile`, the button — not on the `Text` or `EditableText` it happens to build.
-
-- **`getText`** returns the text of the first text-bearing descendant of the match in pre-order (`Text`, including `Text.rich`; `RichText`; `EditableText`), and lists every one of them in `texts` — so a container holding two strings is visible as two rather than silently reported as its first. `{"text":"Increment (agent)","texts":["Increment (agent)"]}`.
-- **`enterText`** takes `text` as the string to type, which is why it is the one method whose selector vocabulary excludes the `text` selector: `key`, `tooltip`, `type` and `semanticsLabel` apply. With a selector it focuses the first `EditableText` under the match and types into it — no preceding `tap` needed — and echoes what it typed into: `{"enteredText":"hi","into":"ValueKey(emailField)"}`. With no selector it types into whatever is focused (`flutter_driver`'s model), reporting `"into":"focused"`.
-
-**Settling and timeouts.** After dispatching input, interaction methods wait until the app is idle (no animations in flight) before returning, so a follow-up `getRect`/`getText` sees post-action layout — the same model as `flutter_driver`. The wait is bounded by `timeoutMs` (default 10000); if the app can't settle within it the method returns a `TimeoutException` error rather than blocking forever, and the error says how many animations were still in flight — zero means the app was backgrounded mid-command and the frame being awaited never arrived. **The input is still delivered**, so that error means "I cannot promise the result is observable yet", never "nothing happened"; retrying it taps twice. An app that was *already* backgrounded returns immediately instead: backgrounding is what stops frames (minimizing or covering its window does not), so there is no frame to wait for and none of `timeoutMs` is spent.
-
-**Reaching the widget.** Being in the tree is not the same as being where a pointer can land. A child of a scroll view that is scrolled past is laid out at coordinates outside the viewport; one behind a dialog or an overlay is covered. A selector still finds it and it still has a rect, so `tap`, `longPress`, `doubleTap` and `drag` hit-test the point before dispatching and **refuse** when nothing there resolves to the target. The refusal names which case it is and gives the matching remedy — scroll it into view, or move what covers it; a coordinate that lands in a different pane is the second, and telling you to scroll a widget already on screen would send you nowhere. This is `WidgetController`'s `warnIfMissed` with the fatal choice made: a success response for an event nobody received is worse than an error.
-
-`app.scrollIntoView` is the way through, and it answers the question directly: its `reachable` field says whether a tap would now land. (`iterations` counts drag-scrolls of a lazy list; `0` means the target was already built and `Scrollable.ensureVisible` was used, which is not "there was nothing to do".) `requireHit: "false"` dispatches at the point anyway — upstream's `warnIfMissed: false`, for a caller who means it.
-
-**`settle: "false"`** turns the wait off for one command — `flutter_driver`'s `runUnsynchronized` under a name that says what it disables. Some apps never go idle: a spinner, a progress indicator, a hand-rolled caret, any perpetual `AnimationController` holds a transient frame callback for as long as it runs, so *every* command against such an app spends its whole `timeoutMs` and fails. What you give up is the guarantee the wait exists for — an immediate `getText` after an unsynchronised `tap` races the rebuild and reads the pre-action value about as often as not — so resynchronise with `app.waitFor` on the value you expect rather than reading straight back. `settle` takes `"true"` or `"false"` and rejects anything else: a typo here would otherwise choose the opposite behaviour in silence.
-
-**curl note.** The endpoints speak plain HTTP/1.1; no special flags are needed — `curl -s "$URI/..."` works. (If your `curl` is configured to attempt HTTP/2, add `--http1.1`.)
-
-This means an external agent can: build the app, launch it under `flutter_bazel`, drive an entire user flow (taps, text entry, waits, screenshots) over plain HTTP, and shut it down cleanly — no manual `q` keystroke needed.
+An outcome that carries its own verdict stays inside `result`. A hot reload that ran and failed answers `{"succeeded":false, "error":…}`, because it ran and reported a failure rather than refusing to run.
 
 ## Examples
 
-End-to-end examples are in the `e2e/` directory:
+The `e2e/` directory holds working workspaces, each with its own tests:
 
-| Directory | Description |
-|-----------|-------------|
-| `e2e/smoke` | Minimal smoke test for toolchain setup. |
-| `e2e/hello_world` | Minimal Flutter app: kernel compilation, AOT, asset bundling, macOS bundle, web build. |
-| `e2e/codegen` | Per-file and aggregate code generation with `dart_codegen` and `dart_aggregate_codegen`, including custom generators; doubles as the hot-reload-with-codegen example. |
-| `e2e/ffi_example` | `flutter_plugin` with `native_deps` only (FFI, no registration). |
-| `e2e/ffi_plugin_example` | `flutter_plugin` with both `dart_plugin_class` and `native_deps`. |
-| `e2e/plugin_example` | `flutter_plugin` with `dart_plugin_class` only (Dart-side registration). |
-| `e2e/macos_example` | Full macOS app build + bundle structure verification. |
-| `e2e/ios_example` | iOS app build (requires Xcode). |
-| `e2e/android_example` | Android APK build (3 approaches) + APK content verification + web build. |
-| `e2e/linux_example` | Linux desktop app (3 approaches) + bundle structure verification. |
-| `e2e/windows_example` | Windows desktop app (3 approaches) + bundle structure verification. |
-| `e2e/web_example` | Web app builds (dart2wasm + dart2js) with web_assets. |
-| `e2e/cross_compile_example` | Cross-compile Linux bundle from macOS. |
-| `e2e/multi_window_example` | Multi-window macOS + multi-scene iOS builds with FlutterEngineGroup. |
+| Directory | What it shows |
+|---|---|
+| `e2e/smoke` | The smallest possible toolchain check. |
+| `e2e/hello_world` | A minimal app on every platform: kernel, AOT, assets, macOS, iOS, Android, Linux, Windows, and web. |
+| `e2e/codegen` | Per-file and aggregate code generation, generated code in dependency packages, and hot reload over generated sources. |
+| `e2e/ffi_example` | Native code as Dart Native Assets and as `native_deps`, side by side. |
+| `e2e/ffi_plugin_example` | A `flutter_plugin` with a Dart plugin class and `native_deps`. |
+| `e2e/plugin_example` | Pub plugins from the hub, and a `flutter_plugin` with a Dart plugin class only. |
+| `e2e/macos_example` | A full macOS app with bundle structure checks. |
+| `e2e/ios_example` | An iOS app. Requires Xcode. |
+| `e2e/android_example` | An Android APK built three ways, with APK content checks. |
+| `e2e/linux_example` | A Linux app built three ways, with bundle checks. |
+| `e2e/windows_example` | A Windows app built three ways, with bundle checks. |
+| `e2e/web_example` | WASM and JavaScript web builds with `web_assets`. |
+| `e2e/cross_compile_example` | A Linux bundle cross-compiled from macOS. |
+| `e2e/multi_window_example` | Multi-window macOS and multi-scene iOS with `FlutterEngineGroup`. |
+| `e2e/dual_hub` | Two pub hubs in one workspace that disagree on a package version. |
 
-## Release builds and permissions
-
-**`flutter create`'s scaffold grants network access in debug only, and these
-rules reproduce that faithfully.** An app that networks perfectly under
-`-c dbg` can be silently offline under `-c opt`: there is no build error, no
-runtime exception, and nothing in the app's own log — just an app that never
-reaches anything. Every platform has the same shape, because on every
-platform the debug-only grant exists for the *Dart VM service*, not for the
-app.
-
-| Platform | What debug has that release does not | Why it is there |
-|----------|--------------------------------------|-----------------|
-| macOS | `com.apple.security.network.server`, `com.apple.security.cs.allow-jit` in `DebugProfile.entitlements`; `Release.entitlements` declares only `app-sandbox` | The sandbox must let the VM service bind and the JIT engine map executable pages |
-| Android | `android.permission.INTERNET`, from `android/app/src/debug/AndroidManifest.xml` | Android enforces `INTERNET` at the kernel level (AID_INET group membership) — without it the VM service cannot bind even a loopback socket |
-| iOS | `NSBonjourServices`, `NSLocalNetworkUsageDescription`, merged by these rules into non-release builds | The engine advertises the VM service over mDNS |
-
-None of that is the app's network grant, and none of it survives into
-release. An app that networks for itself must say so, once, in a way that
-applies to every compilation mode:
-
-```starlark
-flutter_macos_app(
-    name = "my_app_macos",
-    application = ":my_app",
-    bundle_id = "com.example.myapp",
-    additional_entitlements = ["entitlements/Network.entitlements"],
-)
-
-flutter_ios_app(
-    name = "my_app_ios",
-    application = ":my_app",
-    bundle_id = "com.example.myapp",
-    additional_entitlements = ["entitlements/Network.entitlements"],
-)
-
-flutter_android_app(
-    name = "my_app_android",
-    application = ":my_app",
-    package_name = "com.example.myapp",
-    permissions = ["android.permission.INTERNET"],
-)
-```
-
-where `entitlements/Network.entitlements` is an ordinary plist fragment:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<key>com.apple.security.network.server</key>
-	<true/>
-</dict>
-</plist>
-```
-
-These attributes are **additive**, which is the point: they merge into
-whichever base the compilation mode selected, so one declaration covers
-debug and release both, and `flutter create`'s files stay untouched.
-
-- A key the base already declares with the *same* value is deduped —
-  `DebugProfile.entitlements` already grants `network.server`, so declaring
-  it above is safe in both configurations.
-- A key the base declares with a *different* value is a hard error naming
-  the key and both files, rather than a silent winner.
-- `com.apple.security.network.client` is absent from **both** scaffold
-  files. Most Flutter apps network through `NSURLSession`, which the sandbox
-  exempts; a raw socket is not exempt. If you open one, you need this key.
-
-### iOS Local Network Privacy
-
-iOS 14+ gates LAN access behind `NSLocalNetworkUsageDescription` and
-`NSBonjourServices`. These rules add both to non-release builds for the Dart
-VM service and drop them in release, which is correct — they are the
-debugger's, not the app's. An app that needs LAN access **for itself**
-declares them in `ios/Runner/Info.plist`, where they survive into `-c opt`;
-the rules merge the VM service keys into that file, keeping your usage
-description and unioning your Bonjour service list with
-`_dartVmService._tcp`.
-
-> The iOS **simulator** does not enforce Local Network Privacy at all, so a
-> simulator build proves nothing about these keys. Only a physical device
-> does.
-
-### Verifying, rather than assuming
-
-These are exactly the defects a `build_test` cannot see. Check the artifact:
-
-```sh
-# macOS — the entitlements codesign actually embedded
-unzip -oq bazel-bin/my_app_macos.zip -d /tmp/app && \
-  codesign -d --entitlements - "/tmp/app/My App.app"
-
-# Android — the compiled manifest inside the APK
-aapt2 dump xmltree --file AndroidManifest.xml bazel-bin/my_app_android.apk
-
-# iOS — the processed Info.plist inside the .ipa
-unzip -oq bazel-bin/my_app_ios.ipa -d /tmp/ipa && \
-  plutil -p "/tmp/ipa/Payload/my_app_ios.app/Info.plist"
-```
-
-Bazel's default `fastbuild` is *not* `-c dbg`, so a plain `bazel build`
-already takes the release arm of each of these selects. `e2e/macos_example`,
-`e2e/android_example` and `e2e/ios_example` each carry a test that reads the
-built artifact this way.
-
-## Running an iOS example on a physical device
-
-iOS simulator builds need no code signing and run out of the box (e.g.
-`flutter_bazel run -t //:hello_world_ios -d ios-simulator`). Device builds need
-signing, which is per-developer and must stay out of version control.
-
-`flutter_ios_app` takes the credential directly:
-
-```starlark
-load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
-
-# In a git-ignored //device package, so the credential stays local.
-local_provisioning_profile(
-    name = "profile",
-    profile_name = "iOS Team Provisioning Profile: *",
-    tags = ["manual"],
-)
-```
-
-```starlark
-flutter_ios_app(
-    name = "my_app_ios_device",
-    application = ":my_app",
-    bundle_id = "com.example.myapp",
-    provisioning_profile = "//device:profile",
-)
-```
-
-That is the whole difference from the simulator target — the device bundle is
-the same construction, not a second hand-assembled one. `flutter_ios_app`
-defaults to `tags = ["manual"]`, so `bazel build //...` on a fresh clone does
-not expand the target and therefore does not load the missing `//device`
-package.
-
-The same split applies when the app is hand-assembled from the Tier-2 `_gen`
-rules: give the device `ios_application` `provisioning_profile` and the same
-`deps` list as the simulator one, and keep both in the committed BUILD file.
-Only `local_provisioning_profile` belongs in `//device` — it is the one fact
-that is genuinely per-developer. Putting the assembly there instead hides it
-from review, from CI and from every refactor, and it drifts: two of this
-repository's own examples had a git-ignored device app that had silently
-diverged from its committed simulator twin.
-
-**Naming the profile.** `profile_name` matches the profile's `Name` field,
-which is *not* always `iOS Team Provisioning Profile: <bundle id>`. Xcode mints
-a per-bundle-id profile only for an App ID registered explicitly in the
-developer portal; for an unregistered id — which an example or scratch app's
-usually is — automatic signing issues the team **wildcard** profile instead,
-named `iOS Team Provisioning Profile: *` over App ID `<TEAM>.*`, and that is
-what covers your bundle id. List what you actually have:
-
-```sh
-for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
-  security cms -D -i "$f" | plutil -extract Name raw -
-done
-```
-
-Without `provisioning_profile`, a device build fails at analysis with
-*"The provisioning_profile attribute must be set for device builds on this
-platform (ios)"*.
-
-**Obtaining the profile.** This is an Apple Developer account operation and
-these rules cannot do it for you. You need a development provisioning profile
-whose App ID matches your `bundle_id`, installed in
-`~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. Either:
-
-- **From the Developer portal** — create the App ID and a development profile,
-  download it, and double-click it. This works for any repository layout.
-- **From any Xcode project** whose `PRODUCT_BUNDLE_IDENTIFIER` is your bundle
-  id, using automatic signing:
-  ```sh
-  xcodebuild -project <some>.xcodeproj -scheme <scheme> -configuration Debug \
-    -destination generic/platform=iOS \
-    -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
-  ```
-  Note this needs an `.xcodeproj`, and a `flutter create --platforms=ios .`
-  tree checked into a Bazel repository has no reason to keep one —
-  `flutter_ios_app` only ever reads `ios/Runner/*.swift` and
-  `ios/Runner/Info.plist`. The project can be any scratch project with the
-  right bundle id; it does not have to be, and usually is not, the app you
-  are building with Bazel.
-
-Free ("Personal Team") profiles expire after about seven days; when a build
-fails with *"no provisioning profile was found named …"*, mint a fresh one the
-same way.
-
-Then: `flutter_bazel run -t //:my_app_ios_device -d ios`. Each iOS example
-also ships a `device.example/` template — copy it to a git-ignored `device/`
-package and set your bundle id.
-
-## Observing an iOS release build
-
-There is no way to *run* a release-configured iOS build without a signing
-credential, which matters because release-only defects (see
-[Release builds and permissions](#release-builds-and-permissions)) are found
-by running, not by reading.
-
-- **Device, `-c opt`** — the real thing, and it needs a provisioning profile.
-- **Simulator, `-c opt`** — builds a complete `.ipa` with no warning, and
-  `xcrun simctl install` and `launch` both return 0 and print a pid. The
-  process then stays alive and renders **blank white forever**. It never
-  crashes, so nothing appears in a crash log. The simulator slice of the
-  engine is JIT and looks for `flutter_assets/kernel_blob.bin`, which an AOT
-  bundle does not contain; the only evidence is in the simulator's system log:
-  ```
-  (Flutter) Failed to find snapshot at .../App.framework/flutter_assets/kernel_blob.bin
-  (Flutter) [ERROR:flutter/shell/common/engine.cc(219)] Engine run configuration was invalid.
-  ```
-  Read it with
-  `xcrun simctl spawn booted log show --last 5m --predicate 'eventMessage CONTAINS "kernel_blob"'`.
-
-Use `-c dbg` on the simulator, and a device for release.
+[docs/TESTING.md](docs/TESTING.md) describes how the repository itself is tested, including the manual checks that need a display or a device.
 
 ## License
 
