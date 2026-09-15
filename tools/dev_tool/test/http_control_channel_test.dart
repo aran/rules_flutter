@@ -7,6 +7,7 @@ import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/device.dart';
 import 'package:flutter_bazel_dev_tool/http_control_channel.dart';
 import 'package:flutter_bazel_dev_tool/session.dart';
+import 'package:flutter_bazel_dev_tool/vm_service_client.dart';
 import 'package:test/test.dart';
 
 import 'loopbacks.dart';
@@ -319,6 +320,72 @@ void main() {
         final response = await _get('/sessions/unknown/screenshot/native');
         expect(response.statusCode, HttpStatus.notFound);
         await response.drain<void>();
+      });
+
+      group('an app that never settles', () {
+        const png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+        /// Capture from an app whose `app.settle` refuses with [reason].
+        ///
+        /// The session has a VM service, so the channel asks; the command
+        /// runner answers for the app, so nothing here connects to one.
+        Future<(HttpClientResponse, List<int>)> captureRefusedWith(
+          String reason,
+        ) async {
+          commandRunner.register('app.settle', (_) async {
+            throw CommandFailure.failed(reason);
+          });
+          sessions['app1'] = DeviceSession(
+            device: _CapturingDevice(png),
+            appInstance: AppInstance(process: _StubProcess()),
+            vmClient: VmServiceClient(),
+            appId: 'app1',
+          );
+          final response = await _get('/sessions/app1/screenshot/native');
+          final body = await response.fold<List<int>>(
+            [],
+            (bytes, chunk) => bytes..addAll(chunk),
+          );
+          return (response, body);
+        }
+
+        /// [body] as text for a failure message: a PNG is not UTF-8.
+        String printable(List<int> body) =>
+            const Utf8Decoder(allowMalformed: true).convert(body);
+
+        // What `app.settle` says when the app stopped answering at all. It
+        // has an em dash, and an HTTP header cannot hold one: written raw,
+        // the header threw and the capture came back a 500.
+        test('still returns the picture, with the reason intact', () async {
+          const reason =
+              'ext.rules_flutter.settle did not answer within 40s. Its isolate '
+              'reported no pause, so the app was running and the handler never '
+              'returned — a backgrounded app stops producing frames, and any '
+              'unbounded wait for one never ends.';
+          final (response, body) = await captureRefusedWith(reason);
+
+          expect(response.statusCode, HttpStatus.ok, reason: printable(body));
+          expect(body, png);
+          expect(response.headers.value('x-settled'), 'no');
+          expect(
+            Uri.decodeComponent(response.headers.value('x-settle-detail')!),
+            reason,
+          );
+        });
+
+        // A reason is text from the app and the VM service, not from this
+        // file: a line break in it would end the header, and a `%` would
+        // read as an escape a decoder then trips on.
+        test('a reason with a line break or a percent round-trips', () async {
+          const reason = 'paused at a breakpoint\nin 100% of isolates';
+          final (response, body) = await captureRefusedWith(reason);
+
+          expect(response.statusCode, HttpStatus.ok, reason: printable(body));
+          expect(
+            Uri.decodeComponent(response.headers.value('x-settle-detail')!),
+            reason,
+          );
+        });
       });
     });
 
@@ -701,6 +768,21 @@ class _StubDevice extends Device {
 
   @override
   Future<void> stop(AppInstance instance) async {}
+}
+
+/// A device whose platform capture writes [png].
+class _CapturingDevice extends _StubDevice {
+  _CapturingDevice(this.png);
+
+  final List<int> png;
+
+  @override
+  Future<void> screenshot(
+    AppInstance instance,
+    String outputPath, {
+    VmServiceClient? vmClient,
+    String? window,
+  }) => File(outputPath).writeAsBytes(png);
 }
 
 /// A device that declares `_flutter.screenshot` unavailable — what iOS and

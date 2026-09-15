@@ -770,7 +770,8 @@ class DevToolProcess {
   /// A native capture with the endpoint's own account of it.
   ///
   /// `settled` is `X-Settled` — `yes`, `no` or `skipped` — and `detail` the
-  /// reason for anything but `yes`. A test that only reads pixels cannot tell
+  /// reason for anything but `yes`, decoded from the percent-encoding the
+  /// header carries it in. A test that only reads pixels cannot tell
   /// a fresh frame from a stale one, which is the whole point of the header.
   Future<({List<int> bytes, String? settled, String? detail})>
   httpNativeScreenshotReply(
@@ -787,7 +788,10 @@ class DevToolProcess {
     return (
       bytes: _screenshotBytes(reply, 'Native screenshot'),
       settled: reply.headers['x-settled'],
-      detail: reply.headers['x-settle-detail'],
+      detail: switch (reply.headers['x-settle-detail']) {
+        final detail? => Uri.decodeComponent(detail),
+        null => null,
+      },
     );
   }
 
@@ -827,9 +831,14 @@ class DevToolProcess {
   /// Where nothing ever answers, the endpoint really is wedged, and that has to
   /// stay legible — it is the world in which "no response header ever arrived"
   /// is the true story rather than an artifact of the budget.
+  ///
+  /// [settle] is passed through: an app that never goes idle would otherwise
+  /// spend its whole settle wait on every attempt of a poll that is only asking
+  /// whether the window is up.
   Future<List<int>> nativeScreenshotWhenOnScreen(
     String appId, {
     String? window,
+    bool? settle,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     final deadline = DateTime.now().add(timeout);
@@ -856,6 +865,7 @@ class DevToolProcess {
           appId,
           'native',
           window: window,
+          settle: settle,
           timeout: remaining,
         );
       } catch (e) {

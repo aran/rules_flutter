@@ -165,9 +165,9 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
                   'backgrounded mid-command and the frame being waited on never '
                   'arrived' : '$animating animation'
                   '${animating == 1 ? ' was' : 's were'} still in flight, so it '
-                  'never went idle'}. An app that animates perpetually — a spinner, '
-        'a custom caret — never settles: pass "settle": "false" to act '
-        'without waiting, and app.waitFor to resynchronise afterwards.',
+                  'never went idle'}. An app that animates perpetually never '
+        'settles: pass "settle": "false" to act without waiting, and '
+        'app.waitFor to resynchronise afterwards.',
       );
     }
   };

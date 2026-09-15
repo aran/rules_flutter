@@ -834,6 +834,20 @@ void main() {
             contains('settle must be "true" or "false"'),
           );
 
+          // A screenshot is the one call whose wait is never fatal: this is the
+          // app whose picture is most worth having. The refusal travels in
+          // `X-Settle-Detail`, and a header that cannot hold it would turn
+          // the capture into a 500.
+          await dt.nativeScreenshotWhenOnScreen(appId, settle: false);
+          final shot = await dt.httpNativeScreenshotReply(appId);
+          expect(shot.bytes, isNotEmpty);
+          expect(shot.settled, 'no');
+          expect(
+            shot.detail,
+            allOf(contains('still in flight'), contains('"settle": "false"')),
+            reason: 'the header must carry the refusal intact: ${shot.detail}',
+          );
+
           await dt.sendCommand(1, 'daemon.shutdown');
         },
         timeout: const Timeout(Duration(minutes: 3)),

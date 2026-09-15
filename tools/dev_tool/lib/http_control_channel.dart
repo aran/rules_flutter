@@ -364,7 +364,8 @@ class HttpControlChannel {
   /// `X-Settled: yes` when it went idle first, `no` when the wait ran out or
   /// the app is backgrounded, `skipped` when `?settle=false` was asked for or
   /// this run has no VM service to ask through (`--wasm`, `--profile`).
-  /// `X-Settle-Detail` carries the reason for anything but `yes`.
+  /// `X-Settle-Detail` carries the reason for anything but `yes`, encoded by
+  /// [_headerValue].
   Future<({String state, String? detail})> _settleBeforeCapture(
     DeviceSession session,
     HttpRequest request,
@@ -407,8 +408,30 @@ class HttpControlChannel {
   ) {
     request.response.headers.set('X-Settled', settle.state);
     if (settle.detail case final detail?) {
-      request.response.headers.set('X-Settle-Detail', detail);
+      request.response.headers.set('X-Settle-Detail', _headerValue(detail));
     }
+  }
+
+  /// [text] as a header value: UTF-8, with every byte a header cannot carry
+  /// percent-encoded, and `%` itself so a decoder reads the result exactly.
+  ///
+  /// A reason is prose from the app, the VM service and this tool, and a header
+  /// holds only printable ASCII. Written raw, a reason with anything else in it
+  /// makes `headers.set` throw, and a capture that is never meant to fail on
+  /// its reason comes back a 500. Readable ASCII stays as it is, so a caller
+  /// that prints the header without decoding still reads it.
+  static String _headerValue(String text) {
+    final encoded = StringBuffer();
+    for (final byte in utf8.encode(text)) {
+      if (byte >= 0x20 && byte < 0x7F && byte != 0x25) {
+        encoded.writeCharCode(byte);
+      } else {
+        encoded.write(
+          '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
+        );
+      }
+    }
+    return encoded.toString();
   }
 
   Future<void> _handleNativeScreenshot(
