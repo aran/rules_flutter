@@ -124,6 +124,8 @@ bazel build //:my_app_macos
 bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_macos -d macos
 ```
 
+The second command is long. [Shorter commands with bazel_env](#shorter-commands-with-bazel_env) turns it into `fl run -t //:my_app_macos -d macos`.
+
 ### Build modes
 
 Bazel's compilation mode flag selects how the Dart is compiled:
@@ -1225,6 +1227,41 @@ bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_macos
 
 `flutter_bazel build` builds without running, and `flutter_bazel attach --debug-url <uri>` attaches to an app that is already running. `--help` on each command lists everything.
 
+### Shorter commands with bazel_env
+
+[bazel_env.bzl](https://github.com/buildbuddy-io/bazel_env.bzl) puts Bazel-built tools on your `PATH` under names you choose, so the dev tool becomes a two-letter command. Add it to `MODULE.bazel` and declare the tool:
+
+```starlark
+# MODULE.bazel
+bazel_dep(name = "bazel_env.bzl", version = "0.9.0", dev_dependency = True)
+```
+
+```starlark
+# BUILD.bazel
+load("@bazel_env.bzl", "bazel_env")
+
+bazel_env(
+    name = "bazel_env",
+    tools = {
+        "fl": "@rules_flutter//tools/dev_tool:flutter_bazel",
+    },
+)
+```
+
+Then run `bazel run //:bazel_env` once. It builds the tool, writes a shim to `.bazel_env/bin/fl`, and prints setup instructions for [direnv](https://direnv.net), which amount to this `.envrc` next to `MODULE.bazel`:
+
+```sh
+watch_file .bazel_env/bin
+PATH_add .bazel_env/bin
+if [[ ! -d .bazel_env/bin ]]; then
+  log_error "ERROR[bazel_env.bzl]: Run 'bazel run //:bazel_env' to regenerate .bazel_env/bin"
+fi
+```
+
+After `direnv allow`, the command is `fl run -t //:my_app_macos -d macos`, from any directory in the workspace. The shim finds the workspace root with `bazel info workspace`, so it does not depend on being launched by `bazel run`. Add `.bazel_env` to `.gitignore`. Without direnv, `bazel run //:bazel_env print-path` prints the directory to add to `PATH` yourself.
+
+The rest of this section spells the command out in full so it works before you set this up.
+
 ### Choosing a device
 
 `-d` takes:
@@ -1457,6 +1494,51 @@ Nothing is compiled and nothing is sent, so the app keeps the code and the libra
 Every failure, on either transport, is a top-level `error` carrying the reason. Over HTTP the status says which kind: `404` the command or app does not exist here, `400` the request was malformed (a missing parameter, two selectors), `501` this run cannot serve it (an engine screenshot under Impeller), `422` it was asked properly and could not be done (the app refused, or never answered). A `500` means the tool itself broke, which is the one case worth retrying or reporting. On the stdin protocol the same failure is upstream's `{"id":…, "error":"<reason>"}`.
 
 An outcome that carries its own verdict stays inside `result`. A hot reload that ran and failed answers `{"succeeded":false, "error":…}`, because it ran and reported a failure rather than refusing to run.
+
+### Working with a coding agent
+
+The control channel is what lets a coding agent such as Claude Code check its own work: it can reload the app after an edit, read text back, and look at a screenshot rather than guessing from the code. Three choices make that work well.
+
+**Start the app in machine mode, in the background.** The run lives for the whole session, so start it once and send its output to files. `--machine` keeps stdout to protocol events, `LOG_FORMAT=json` makes the channel record on stderr one parseable line, and `--no-devtools` avoids opening a browser tab nobody will look at. On the web, add `--web-run-headless`.
+
+```sh
+LOG_FORMAT=json fl run -t //:my_app_macos -d macos --machine --no-devtools \
+  > /tmp/app.out 2> /tmp/app.err &
+```
+
+The agent reads the URL and token from the `http_control_channel` line in the stderr file, and waits for `app.started` in the stdout file before sending commands.
+
+**Choose a watch strategy.** In terminal mode the tool reloads on every save. In machine mode watching is off by default, and that is the better setting for an agent. An agent edits several files in a row, and a reload after each save would compile half-finished changes. Have the agent call `app.hotReload` itself when it is done editing. The reply says whether the reload landed and which files were recompiled, which is exactly the evidence the agent should be reporting. If the agent needs watch mode anyway, pass `--watch` and have it call `app.settle` before reading anything back.
+
+**Ask for screenshots before and after every change.** An agent that edits code without looking at the result will happily report success on a blank screen. Put the rule in the file your agent reads at startup, such as `CLAUDE.md` or `AGENTS.md`:
+
+```markdown
+## Running the app
+
+Start the app once per session, in the background, and keep it running:
+
+    LOG_FORMAT=json fl run -t //:my_app_macos -d macos --machine --no-devtools \
+      > /tmp/app.out 2> /tmp/app.err &
+
+The control channel URL and token are on the `http_control_channel` line of
+/tmp/app.err. Wait for an `app.started` event in /tmp/app.out before driving
+the app. The `appId` is in that event.
+
+## Every code change
+
+1. Before editing, save a screenshot: GET /sessions/<appId>/screenshot/native.
+2. Edit, then reload: POST /command with
+   {"method":"app.hotReload","params":{"appId":"<appId>"}}.
+   Use app.restart instead when the change touches main() or startup code.
+   Read `succeeded` from the reply. A reload that fails is not done.
+3. After the reload, save a second screenshot and compare it with the first.
+   Say in your report what changed on screen, not just what changed in code.
+4. Check GET /sessions/<appId>/logs for exceptions before moving on.
+
+Stop the app with daemon.shutdown at the end of the session.
+```
+
+Adjust the target and device to your project. With the long form of the command in place of `fl`, this works without bazel_env. The screenshot endpoint waits for the app to settle, so a capture taken straight after a tap or a reload shows the result; see [Screenshots](#screenshots).
 
 ## Examples
 
