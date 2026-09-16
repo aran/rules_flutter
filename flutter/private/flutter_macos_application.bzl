@@ -73,7 +73,14 @@ def _flutter_macos_framework_impl(ctx):
     # App.framework/ level. Tree artifacts placed via additional_contents have
     # their contents expanded into the destination, so the internal structure
     # must include the App.framework/ directory name.
-    wrapper_dir = ctx.actions.declare_directory("app_framework")
+    #
+    # Named after this target, at the package root. Not in a subdirectory:
+    # rules_apple puts the contents under the directory holding the wrapper,
+    # relative to its package, so `<name>/app_framework` would bundle as
+    # `Frameworks/<name>/App.framework`. And not a fixed name: two apps in one
+    # package built from different applications would both declare it, which
+    # fails analysis with conflicting actions.
+    wrapper_dir = ctx.actions.declare_directory(ctx.label.name)
 
     inputs = [flutter_assets]
     shell_parts = [
