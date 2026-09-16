@@ -35,7 +35,7 @@ bazel_dep(name = "rules_android", version = "0.7.3")
 bazel_dep(name = "rules_kotlin", version = "2.4.10")
 bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
-bazel_dep(name = "rules_dart", version = "0.6.3")
+bazel_dep(name = "rules_dart", version = "0.6.4")
 bazel_dep(name = "rules_python", version = "2.3.2")
 bazel_dep(name = "yaml.bzl", version = "0.1.2")
 
