@@ -1,4 +1,4 @@
-"""Flutter macOS App.framework assembly and native lib extraction.
+"""Flutter macOS App.framework assembly and native lib staging.
 
 Two rules:
 
@@ -7,8 +7,8 @@ Two rules:
    The framework is placed into the .app via additional_contents (NOT linked
    against the runner binary), matching how `flutter build macos` works.
 
-2. `flutter_macos_native_libs` — exposes native plugin .dylib files for
-   bundling via additional_contents.
+2. `flutter_macos_native_libs` — stages native .dylib files, flat under their
+   basenames, for bundling via additional_contents.
 
 These are exported as `flutter_macos_framework_gen` and `flutter_macos_native_libs_gen`
 from flutter/macos.bzl.
@@ -149,10 +149,10 @@ flutter_macos_framework = rule(
     doc = "Assembles the Flutter AOT dylib and assets into App.framework for macOS.",
 )
 
-# -- flutter_macos_native_libs (dylib extraction for additional_contents) ------
+# -- flutter_macos_native_libs (dylib staging for additional_contents) -------
 
 def _flutter_macos_native_libs_impl(ctx):
-    """Exposes native plugin .dylib files for bundling via additional_contents.
+    """Stages native .dylib files flat, for bundling via additional_contents.
 
     Includes both the legacy `native_libs` set (from `native_deps`-style
     FFI cc_library targets) and the modern `bundled_code_assets` set
@@ -160,11 +160,75 @@ def _flutter_macos_native_libs_impl(ctx):
     rules_apple's `additional_contents = {target: "Frameworks"}` machinery
     code-signs the dylibs as part of the outer `macos_application` build —
     no bespoke codesign action needed here.
+
+    Every library ships as `Contents/Frameworks/<basename>`, because that is
+    where the loader finds it: a bare-name `DynamicLibrary.open` resolves
+    there, and so does a Native Assets manifest entry. Handing rules_apple the
+    files themselves does not achieve that. It places a plain file at its path
+    relative to its owning package, so a library that is not at its package
+    root (a vendored `third_party/foo/lib/libfoo.dylib`, a genrule writing into
+    a subdirectory) lands in `Frameworks/lib/`, which codesign rejects as a
+    malformed bundle and dyld never searches.
+
+    So the libraries are copied into one directory under their basenames, and
+    that directory is what this target provides: rules_apple expands a tree
+    artifact's contents into the destination, as it does for App.framework's
+    wrapper. The directory is named after this target, which keeps two apps in
+    one package from declaring the same output.
+
+    Two different libraries with the same basename would overwrite one another
+    there, so that fails the build and names both.
     """
     app_info = ctx.attr.application[FlutterApplicationInfo]
-    files = list(app_info.native_libs)
-    files.extend(app_info.bundled_code_assets.to_list())
-    return [DefaultInfo(files = depset(files))]
+
+    # One library can arrive by both routes; the same path is the same library.
+    libs_by_path = {}
+    for lib in app_info.native_libs + app_info.bundled_code_assets.to_list():
+        libs_by_path[lib.path] = lib
+
+    libs_by_basename = {}
+    for lib in libs_by_path.values():
+        other = libs_by_basename.get(lib.basename)
+        if other:
+            fail(
+                ("%s: two native libraries would both be bundled as " +
+                 "Contents/Frameworks/%s:\n  %s (from %s)\n  %s (from %s)\n" +
+                 "macOS loads a bundled library by its file name, so only " +
+                 "one of them can ship. Rename one.") % (
+                    ctx.label,
+                    lib.basename,
+                    other.path,
+                    other.owner,
+                    lib.path,
+                    lib.owner,
+                ),
+            )
+        libs_by_basename[lib.basename] = lib
+
+    if not libs_by_basename:
+        return [DefaultInfo(files = depset())]
+
+    staged = ctx.actions.declare_directory(ctx.label.name)
+    args = ctx.actions.args()
+    args.add(staged.path)
+    for basename, lib in libs_by_basename.items():
+        args.add(lib)
+        args.add(basename)
+    ctx.actions.run_shell(
+        command = "\n".join([
+            "set -e",
+            'out="$1"',
+            "shift",
+            'mkdir -p "$out"',
+            'while [ "$#" -gt 0 ]; do cp "$1" "$out/$2"; shift 2; done',
+        ]),
+        arguments = [args],
+        inputs = libs_by_basename.values(),
+        outputs = [staged],
+        mnemonic = "FlutterMacOSNativeLibs",
+        progress_message = "Staging native libraries for %{label}",
+    )
+    return [DefaultInfo(files = depset([staged]))]
 
 flutter_macos_native_libs = rule(
     implementation = _flutter_macos_native_libs_impl,
@@ -175,7 +239,7 @@ flutter_macos_native_libs = rule(
             providers = [FlutterApplicationInfo],
         ),
     },
-    doc = "Extracts native plugin .dylib files for macOS bundling via additional_contents.",
+    doc = "Stages native .dylib files under their basenames for macOS bundling via additional_contents.",
 )
 
 # -- flutter_macos_privacy_manifests (xcprivacy bundling) ---------------------

@@ -1,4 +1,5 @@
-/// Runtime verification: launches the macOS .app and checks window dimensions.
+/// Runtime verification: launches the macOS .app, checks window dimensions, and
+/// checks that both bundled native libraries loaded.
 ///
 /// This test requires a GUI environment and accessibility permissions, so it
 /// uses `tags = ["manual"]` to skip during normal `bazel test //...` runs.
@@ -16,6 +17,12 @@
 /// - App launches without crashing
 /// - Window appears within 30s
 /// - Window width > 100 AND height > 100
+/// - The app prints `macos_example_native sum=7 difference=3`: `add` from
+///   `libadd.dylib` (built at its package root) and `sub` from `libsub.dylib`
+///   (built in a subdirectory of its package) both loaded and answered. A
+///   window alone does not show this — a library that fails to load throws in
+///   `main()` before `runApp`, and the runner still opens its window at full
+///   size.
 library;
 
 // This script's diagnostics are its product: it reports what it found in
@@ -24,7 +31,11 @@ library;
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+const _nativeMarker = 'macos_example_native';
+const _expectedNative = '$_nativeMarker sum=7 difference=3';
 
 Future<void> main() async {
   final testSrcDir = Platform.environment['TEST_SRCDIR'];
@@ -59,6 +70,21 @@ Future<void> main() async {
     final process = await Process.start(executable, const []);
     final pid = process.pid;
     print('PID: $pid');
+
+    // Drain both streams for the life of the process — an undrained pipe can
+    // block the app on a write — and keep them for the failure report.
+    final output = StringBuffer();
+    final nativeLine = Completer<String>();
+    for (final stream in [process.stdout, process.stderr]) {
+      stream.transform(utf8.decoder).transform(const LineSplitter()).listen((
+        line,
+      ) {
+        output.writeln(line);
+        if (!nativeLine.isCompleted && line.contains(_nativeMarker)) {
+          nativeLine.complete(line);
+        }
+      });
+    }
 
     // A crash exits before any window can appear; report that rather than
     // spending 30s waiting for a window from a process that is already gone.
@@ -119,6 +145,14 @@ Future<void> main() async {
     final processAlive = !exited;
     print('Process alive: $processAlive');
 
+    // `main()` prints this before `runApp`, so it normally arrived before the
+    // first frame. Bounded because an app whose library failed to load never
+    // reaches the print, and the wait has to end for that to be reported.
+    final native = await nativeLine.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => '',
+    );
+
     await _quitApp(pid);
 
     // Evaluate results.
@@ -131,7 +165,18 @@ Future<void> main() async {
       '(${sizeOk ? "OK" : "FAIL — too small"})',
     );
     print('Process alive: $processAlive');
+    print('Native libraries: ${native.isEmpty ? "no report" : native}');
 
+    if (!native.contains(_expectedNative)) {
+      stderr
+        ..writeln(
+          'FAIL: expected the app to print "$_expectedNative" — a bundled '
+          'native library did not load or did not answer',
+        )
+        ..writeln('--- app output ---')
+        ..write(output);
+      exit(1);
+    }
     if (!sizeOk) {
       stderr.writeln(
         'FAIL: Window size ${width}x$height is too small '

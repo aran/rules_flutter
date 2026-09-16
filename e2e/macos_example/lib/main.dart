@@ -1,20 +1,41 @@
+import 'dart:ffi';
+
 import 'package:add_plugin/add_plugin.dart';
 import 'package:flutter/material.dart';
 
+/// `sub` from `libsub.dylib`, which the build produces in a subdirectory of
+/// its package (`vendor/lib/`) rather than at the package root. Opened by bare
+/// file name, so this resolves only if the bundle put the library directly in
+/// `Contents/Frameworks/`.
+final int Function(int, int) _sub = DynamicLibrary.open('libsub.dylib')
+    .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
+      'sub',
+    );
+
 void main() {
   final result = add(3, 4);
+  final difference = _sub(7, 4);
 
-  runApp(MyApp(result: result));
+  // verify_macos_app_test reads this line off the app's stdout: the proof that
+  // both bundled native libraries loaded and answered.
+  debugPrint('macos_example_native sum=$result difference=$difference');
+
+  runApp(MyApp(result: result, difference: difference));
 }
 
-/// Root widget of the macOS example, which displays a sum computed by the
-/// bundled `add_plugin` FFI package rather than in Dart.
+/// Root widget of the macOS example, which displays values computed by two
+/// bundled native libraries rather than in Dart.
 class MyApp extends StatelessWidget {
-  /// Creates the macOS example's root widget showing [result].
-  const MyApp({required this.result, super.key});
+  /// Creates the macOS example's root widget showing [result] and
+  /// [difference].
+  const MyApp({required this.result, required this.difference, super.key});
 
   /// The sum returned by the plugin's native `add`, rendered on screen.
   final int result;
+
+  /// The difference returned by the app's own native `sub`, rendered on
+  /// screen.
+  final int difference;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +56,10 @@ class MyApp extends StatelessWidget {
             children: [
               Text(
                 '3 + 4 = $result',
+                style: const TextStyle(fontSize: 32),
+              ),
+              Text(
+                '7 - 4 = $difference',
                 style: const TextStyle(fontSize: 32),
               ),
               // Renders the E2E_MESSAGE dart-define (empty without one).

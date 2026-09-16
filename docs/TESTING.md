@@ -679,7 +679,7 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 | ffi_example | Both FFI mechanisms — Native Assets (`add_plugin`, `@Native` asset-id bind) and `native_deps` (`mul_plugin`, conventional-path open) — bundle structure on macOS/Linux plus manual runtime proof on iOS simulator and macOS |
 | ffi_plugin_example | FFI plugin build + macOS/Linux bundle structure with `libmultiply.dylib`/`.so` |
 | plugin_example | Real pub.dev plugins (`path_provider`, `url_launcher`, `package_info_plus`) plus the hand-written `:greeting_plugin` regression case; per-platform bundle builds; web plugin assertions via the e2e suite; macOS runtime verifier asserting the four plugin-result strings. See **Plugin verification matrix** below. |
-| macos_example | Full macOS app build + bundle structure verification (Info.plist, ObjC symbols, framework linkage, AOT dylib, flutter_assets) |
+| macos_example | Full macOS app build + bundle structure verification (Info.plist, ObjC symbols, framework linkage, AOT dylib, flutter_assets, and a native library built in a subdirectory of its package landing flat at `Contents/Frameworks/libsub.dylib`) |
 | ios_example | iOS app build (requires Xcode) |
 | web_example | Web app builds (dart2wasm + dart2js) with web_assets |
 | multi_window_example | Multi-window macOS + multi-scene iOS builds with FlutterEngineGroup; macOS bundle verification |
@@ -776,12 +776,14 @@ These require a GUI environment and are skipped by `bazel test //...`.
 
 Launches the app, polls for a window, and verifies dimensions > 100x100. Catches window sizing bugs (e.g. the 1x32 collapsed-window bug).
 
+It also reads the app's stdout for `macos_example_native sum=7 difference=3`, which `main()` prints only after calling into both bundled native libraries: `libadd.dylib` (built at its package root) and `libsub.dylib` (built at `vendor/lib/` in its package). The window check cannot see this on its own — a library that fails to load throws in `main()` before `runApp`, and the runner still opens its 800x632 window (measured with the library renamed out of reach).
+
 ```sh
 cd e2e/macos_example
 bazel test :verify_macos_app_test --test_tag_filters= --strategy=TestRunner=standalone
 ```
 
-**When to run:** After any change to macOS runner code (`flutter/private/runners/macos/`).
+**When to run:** After any change to macOS runner code (`flutter/private/runners/macos/`) or to what the macOS bundle carries (`flutter_macos_application.bzl`).
 
 ### FFI runtime tests (iOS simulator, macOS, Linux, Windows)
 

@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
@@ -35,6 +36,35 @@ cc_shared_library(
     name = "add",
     visibility = ["//packages/add_plugin:__pkg__"],
     deps = [":add_cc"],
+)
+
+# A native library that does not sit at the root of its package, which is the
+# shape of a vendored prebuilt (`third_party/foo/lib/libfoo.dylib`) or a
+# genrule writing into a subdirectory. `add` above is the other shape: a
+# cc_shared_library output lands at its package root.
+#
+# The bundle must still carry it as `Contents/Frameworks/libsub.dylib`, where
+# `DynamicLibrary.open('libsub.dylib')` in lib/main.dart finds it. Bundled at
+# its package-relative path instead, it lands in `Frameworks/vendor/lib/`,
+# which the loader never searches and codesign rejects as a malformed bundle.
+# :verify_macos_bundle_test checks where it lands; :verify_macos_app_test
+# checks that the app loads it.
+cc_library(
+    name = "sub_cc",
+    srcs = ["native/sub.c"],
+    hdrs = ["native/sub.h"],
+)
+
+cc_shared_library(
+    name = "sub_built",
+    shared_lib_name = "libsub.dylib",
+    deps = [":sub_cc"],
+)
+
+copy_file(
+    name = "sub",
+    src = ":sub_built",
+    out = "vendor/lib/libsub.dylib",
 )
 
 _APP_DEPS = [
@@ -83,6 +113,7 @@ flutter_application(
     # runs and asserts the change reaches the UI.
     assets = glob(["assets/**"]),
     main = "lib/main.dart",
+    native_deps = [":sub"],
     deps = _APP_DEPS,
 )
 
