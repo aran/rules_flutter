@@ -281,11 +281,11 @@ flutter_test(
 )
 
 # Exercises: the coverage path through the runner, which `bazel test` alone
-# never reaches. `bazel coverage` spawns flutter_tester `--start-paused`, so
-# the runner has to resume the root isolate over the VM service before the
-# suite can hand shake. `COVERAGE_OUTPUT_FILE` is the runner's own trigger for
-# that path, so setting it exercises the real code under the canonical
-# `bazel test //...` rather than simulating it.
+# never reaches. `bazel coverage` spawns flutter_tester with its VM service
+# enabled, and the runner collects LCOV over it after the suite runs.
+# `COVERAGE_OUTPUT_FILE` is the runner's own trigger for that path, so setting
+# it exercises the real code under the canonical `bazel test //...` rather
+# than simulating it.
 #
 # The `moderate` timeout is deliberately *longer* than the runner's own
 # two-minute dial-back bound, so a hang is reported by the runner with a reason

@@ -19,9 +19,9 @@
 ///   - When the suite is exhausted we send `{type: 'close'}` on id 0.
 ///
 /// Coverage: when `bazel coverage` sets `COVERAGE_OUTPUT_FILE`, the spawn
-/// switches to `--vm-service-port=0 --start-paused`. The runner pulls the
-/// Observatory URI from flutter_tester's stdout, connects via the VM service
-/// JSON-RPC, resumes isolates, then collects source reports and writes LCOV.
+/// switches to `--vm-service-port=0`. The runner pulls the VM service URI from
+/// flutter_tester's stdout and, once the suite has run and before it is told to
+/// close, collects source reports over the VM service JSON-RPC and writes LCOV.
 ///
 /// Goldens: `--update-goldens` (upstream's spelling) sets
 /// `FLUTTER_TEST_UPDATE_GOLDENS` in the tester's environment, which the
@@ -254,13 +254,18 @@ class _Harness {
     required bool updateGoldens,
   }) async {
     final enableVmService = coverageOutput != null;
+    // Coverage does not start the tester paused, and `flutter test --coverage`
+    // does not either. Nothing needs holding: the VM records coverage from
+    // the first line `main()` runs, and collection happens before the suite
+    // is told to close, while the isolate is still alive. Starting paused and
+    // resuming over the VM service hung one run in ten, measured on
+    // `:hello_coverage_test`: the resumed isolate sat idle inside the
+    // bootstrap, never dialling the harness, until an unrelated VM service
+    // request woke it. Unpaused, 80 runs in a row passed with identical
+    // covered lines.
     final command = <String>[
       tester,
-      if (enableVmService) ...[
-        '--vm-service-port=0',
-        '--start-paused',
-      ] else
-        '--disable-vm-service',
+      if (enableVmService) '--vm-service-port=0' else '--disable-vm-service',
       '--icu-data-file-path=$icu',
       '--enable-checked-mode',
       '--verify-entry-points',
@@ -316,25 +321,16 @@ class _Harness {
           stderr.writeln('[flutter_tester] $line');
         });
 
-    // Coverage runs spawn flutter_tester `--start-paused`, which holds the
-    // root isolate before `main()`. The bootstrap therefore cannot dial the
-    // harness until something resumes it, so the resume has to happen *before*
-    // we wait for that dial-back. Waiting first deadlocks: the isolate sits at
-    // `PauseStart` indefinitely, and the run ends only when Bazel's outer test
-    // timeout kills it, with nothing after the VM-service line in the log.
+    // A coverage run that cannot reach the VM service cannot produce what it
+    // exists for, so it ends here rather than running the whole suite first
+    // and failing at collection.
     Uri? coverageVmServiceUri;
     if (enableVmService) {
       try {
         coverageVmServiceUri = await vmServiceUriCompleter.future.timeout(
           const Duration(seconds: 30),
         );
-        await _resumeIsolatesViaVmService(
-          coverageVmServiceUri,
-        ).timeout(const Duration(seconds: 30));
       } catch (e) {
-        // Not a coverage-only degradation: with the isolate still paused the
-        // suite cannot run at all, so fail here rather than let it resurface
-        // as a dial-back timeout two minutes later.
         stderr.writeln(
           'flutter_test (coverage): failed to bring up the VM service: $e',
         );
@@ -419,11 +415,10 @@ class _Harness {
     String? coverageError;
     if (enableVmService && coverageVmServiceUri != null) {
       try {
-        // Bounded for the same reason the resume above is: a VM service that
-        // stops answering mid-collection would otherwise park here until
-        // Bazel's outer test timeout, one RPC away from the deadlock this
-        // ordering was fixed to remove. Measured at ~2s for the whole Flutter
-        // framework (958 scripts), so the bound is headroom, not a deadline.
+        // Bounded: a VM service that stops answering mid-collection would
+        // otherwise park here until Bazel's outer test timeout, killed with no
+        // reason given. Measured at ~2s for the whole Flutter framework (958
+        // scripts), so the bound is headroom, not a deadline.
         final lcov = await collectCoverage(
           coverageVmServiceUri,
         ).timeout(const Duration(minutes: 2));
@@ -827,61 +822,6 @@ String _indent(String body, String prefix) {
 // `dart`-based runner had, but pointed at flutter_tester instead of the Dart
 // SDK binary.
 
-/// Resumes the root isolate that `--start-paused` holds before `main()`.
-///
-/// Waiting for `PauseStart` is the whole point, and skipping that wait fails in
-/// a way that hides itself. The VM registers the isolate *before* it reaches
-/// `PauseStart`, so a `getVM` issued when the service prints its URI routinely
-/// finds the isolate already there — and a `resume` sent then is a no-op that
-/// still answers `{type: Success}`. The isolate pauses a moment later and stays
-/// paused, so the run hangs with a successful resume in the log pointing away
-/// from the cause. Measured before this was event-driven: four runs in five hung
-/// exactly that way, each having logged `resumed … -> {type: Success}`.
-///
-/// So subscribe first, then act on the state rather than on the clock: anything
-/// already at `PauseStart` is resumed directly, and anything not yet there is
-/// resumed when its event arrives. The caller bounds the wait.
-Future<void> _resumeIsolatesViaVmService(Uri httpUri) async {
-  final ws = await _connectVmServiceWebSocket(httpUri);
-  try {
-    final rpc = _VmServiceRpc(ws);
-    final resumedOne = Completer<void>();
-    final alreadyResumed = <String>{};
-
-    Future<void> resumeAtStart(String isolateId) async {
-      // The subscription and the `getVM` sweep below can both name the same
-      // isolate; the second `resume` would be the same
-      // no-op-on-a-running-isolate this exists to avoid.
-      if (!alreadyResumed.add(isolateId)) return;
-      await rpc.call('resume', {'isolateId': isolateId});
-      if (!resumedOne.isCompleted) resumedOne.complete();
-    }
-
-    rpc.onEvent = (event) {
-      if (event['kind'] != 'PauseStart') return;
-      final id = (event['isolate'] as Map?)?['id'] as String?;
-      if (id != null) unawaited(resumeAtStart(id));
-    };
-
-    // Subscribed before the first look, so an isolate that reaches
-    // `PauseStart` between the two is delivered rather than missed.
-    await rpc.call('streamListen', {'streamId': 'Debug'});
-
-    final vm = await rpc.call('getVM');
-    for (final iso in (vm['isolates'] as List?) ?? const []) {
-      final id = (iso as Map)['id'] as String;
-      final detail = await rpc.call('getIsolate', {'isolateId': id});
-      if ((detail['pauseEvent'] as Map?)?['kind'] == 'PauseStart') {
-        await resumeAtStart(id);
-      }
-    }
-
-    await resumedOne.future;
-  } finally {
-    await ws.close();
-  }
-}
-
 /// Collects an LCOV report from every isolate the VM service lists.
 ///
 /// Public so `flutter_test_runner_test.dart` can drive it against a fake VM
@@ -943,21 +883,11 @@ class _VmServiceRpc {
   final _pending = <String, Completer<Map<String, dynamic>>>{};
   int _id = 1;
 
-  /// Receives `streamNotify` events for whichever streams have been
-  /// `streamListen`ed. Unset for call-only users like coverage collection.
-  void Function(Map<String, dynamic>)? onEvent;
-
   void _onMessage(dynamic raw) {
     final m = json.decode(raw as String) as Map<String, dynamic>;
     final id = m['id']?.toString();
     if (id != null && _pending.containsKey(id)) {
       _pending[id]!.complete(m);
-      return;
-    }
-    if (m['method'] == 'streamNotify') {
-      final params = (m['params'] as Map?)?.cast<String, dynamic>();
-      final event = (params?['event'] as Map?)?.cast<String, dynamic>();
-      if (event != null) onEvent?.call(event);
     }
   }
 
