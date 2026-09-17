@@ -401,7 +401,11 @@ class MdnsVmServiceDiscovery {
     if (seen.isEmpty) {
       buffer.writeln(
         'No app advertised a Dart VM service at all. The app must '
-        'be built in debug or profile mode.',
+        'be built in debug or profile mode. On a physical device, check the '
+        'device itself as well: iOS asks once, per app, before it lets one '
+        'onto the local network, and an app whose prompt was denied or never '
+        'answered runs normally and registers nothing. Settings > Privacy & '
+        'Security > Local Network lists it once it has been asked.',
       );
     } else {
       buffer.writeln('Saw these advertisements, none of them a match:');

@@ -2815,7 +2815,13 @@ class IOSDevice extends Device {
         'this host, check that Xcode has finished copying symbols for this '
         'device: a copy stranded part-way leaves lldb without the on-disk '
         'shared cache, and every one of those traps then costs a read off '
-        'the device.',
+        'the device.\n'
+        'If this is the first launch of $bundleId on this device, look at '
+        'the phone instead. iOS asks once, per app, before it lets one onto '
+        'the local network, and the prompt appears over the app: until it is '
+        'answered the advertisement never goes out, and no amount of waiting '
+        'here will change that. Settings > Privacy & Security > Local '
+        'Network lists the app once it has been asked.',
       ),
     );
 

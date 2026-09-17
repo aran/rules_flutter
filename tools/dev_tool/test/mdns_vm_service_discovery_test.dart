@@ -437,6 +437,33 @@ void main() {
       );
     });
 
+    // The cause that never resolves by waiting, and the only one that lives on
+    // the device: iOS gates an app's first use of the local network behind a
+    // prompt, and a denied one leaves an app that runs, logs its VM service
+    // line, and registers nothing. Nothing on this host can tell that apart
+    // from a slow launch, so the message has to name it.
+    test('names the device-side Local Network gate', () async {
+      final factory = FakeMDnsClientFactory();
+
+      await expectLater(
+        discoveryOver(factory).discover(
+          bundleId: bundleId,
+          hostnames: deviceHostnames,
+          timeout: const Duration(seconds: 1),
+        ),
+        throwsA(
+          isA<MdnsDiscoveryException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('Privacy & Security > Local Network'),
+              contains('never answered'),
+            ),
+          ),
+        ),
+      );
+    });
+
     // Without an IPv4 link-local interface a USB-attached device cannot answer
     // an mDNS query at all, so the message names that cause.
     test('names the missing link-local interface in the failure', () async {
