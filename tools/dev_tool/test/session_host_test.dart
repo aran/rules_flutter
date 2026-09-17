@@ -357,6 +357,120 @@ void main() {
     });
   });
 
+  // The banner binds before any app exists, so its per-session paths are
+  // templates. Nothing else in a human-readable run ever prints the id they
+  // stand for — `app.started` carries it, and that event is machine-mode only.
+  group('SessionHost.announceSession', () {
+    Future<List<Map<String, Object?>>> recordsOf(
+      Future<void> Function(SessionHost) act, {
+      required bool isMachine,
+      required bool withChannel,
+    }) async {
+      final host = SessionHost(
+        isMachine: isMachine,
+        logger: Logger('test.session_host'),
+      );
+      final records = <Map<String, Object?>>[];
+      final subscription = Logger('test.session_host').onRecord.listen((r) {
+        if (r.object case final Map<String, Object?> fields) {
+          records.add(fields);
+        }
+      });
+      addTearDown(subscription.cancel);
+      Logger.root.level = Level.ALL;
+
+      if (withChannel) {
+        await host.startHttpChannel();
+        addTearDown(host.closeTransports);
+      }
+      await act(host);
+      return records;
+    }
+
+    test('completes the banner\'s {appId} with a URL that works', () async {
+      final records = await recordsOf(
+        (host) async => host.announceSession('___app_ios_device_iOS__1234_'),
+        isMachine: false,
+        withChannel: true,
+      );
+
+      final banner = records.singleWhere(
+        (r) => r['message'] == 'http_control_channel',
+      );
+      final announced = records.singleWhere(
+        (r) => r['message'] == 'session_ready',
+      );
+      expect(announced['appId'], '___app_ios_device_iOS__1234_');
+      final logs = (banner['endpoints']! as List)
+          .cast<Map<String, String>>()
+          .singleWhere((e) => e['path']!.endsWith('/logs'));
+      expect(
+        announced['text'],
+        contains(
+          logs['url']!.replaceFirst('{appId}', '___app_ios_device_iOS__1234_'),
+        ),
+      );
+    });
+
+    // The order a run actually takes: the app is launched, and the channel
+    // binds after it. The launcher's own announcement finds no channel and
+    // says nothing, so the banner has to carry the id or nothing does.
+    test('announces a session that was up before the channel', () async {
+      final host = SessionHost(
+        isMachine: false,
+        logger: Logger('test.session_host'),
+      );
+      final records = <Map<String, Object?>>[];
+      final subscription = Logger('test.session_host').onRecord.listen((r) {
+        if (r.object case final Map<String, Object?> fields) {
+          records.add(fields);
+        }
+      });
+      addTearDown(subscription.cancel);
+      Logger.root.level = Level.ALL;
+
+      host.sessions.add(newSession('launched-first'));
+      host.announceSession('launched-first');
+      expect(
+        records.where((r) => r['message'] == 'session_ready'),
+        isEmpty,
+        reason: 'there is no channel yet, so there is nothing to complete',
+      );
+
+      await host.startHttpChannel();
+      addTearDown(host.closeTransports);
+
+      final announced = records.singleWhere(
+        (r) => r['message'] == 'session_ready',
+      );
+      expect(announced['appId'], 'launched-first');
+    });
+
+    // `app.started` already carries it there, and this channel's whole
+    // audience is a program that read the event.
+    test('says nothing under --machine', () async {
+      final records = await recordsOf(
+        (host) async => host.announceSession('a'),
+        isMachine: true,
+        withChannel: true,
+      );
+
+      expect(records.where((r) => r['message'] == 'session_ready'), isEmpty);
+    });
+
+    // Without the channel the id addresses nothing: there are no per-session
+    // endpoints to complete.
+    test('says nothing without an HTTP channel', () async {
+      final records = await recordsOf(
+        (host) async => host.announceSession('a'),
+        isMachine: false,
+        withChannel: false,
+      );
+
+      expect(records.where((r) => r['message'] == 'session_ready'), isEmpty);
+    });
+  });
+
   group('SessionHost.closeTransports', () {
     test('stops the HTTP channel it started', () async {
       final host = newHost();

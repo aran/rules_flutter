@@ -333,6 +333,7 @@ class DeviceLauncher {
     }
 
     host.protocol.appStarted(appId);
+    host.announceSession(appId);
     final deviceSession = DeviceSession(
       device: device,
       appInstance: appInstance,

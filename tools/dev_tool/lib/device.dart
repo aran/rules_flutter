@@ -3294,8 +3294,10 @@ if not error.Success():
   /// The screenshot binary is bundled as a Bazel py_binary and resolved from
   /// runfiles. Requires building via `bazel build //tools/dev_tool:flutter_bazel`.
   ///
-  /// Prerequisites:
-  ///   sudo flutter_bazel ios-tunnel  # in a separate terminal
+  /// Prerequisites: the tunnel daemon, running as root in another terminal.
+  /// It is `ios-tunnel` on this same binary — run the built binary itself
+  /// under sudo, never `sudo bazel run`, which runs bazel as root and leaves
+  /// root-owned files in the output base.
   @override
   Future<void> screenshot(
     AppInstance instance,
@@ -3337,8 +3339,12 @@ if not error.Success():
           err.contains('no devices found')) {
         throw StateError(
           'iOS device screenshot requires a running tunnel daemon.\n'
-          'Start in a separate terminal:\n'
-          '  sudo flutter_bazel ios-tunnel',
+          'Start it in a separate terminal, as root — it creates a TUN '
+          'interface:\n'
+          '  sudo ${Platform.resolvedExecutable} ios-tunnel\n'
+          'Not `sudo bazel run`: that runs bazel as root and leaves '
+          'root-owned files in the output base, which break the builds that '
+          'follow.',
         );
       }
       throw StateError('iOS screenshot failed: $err');

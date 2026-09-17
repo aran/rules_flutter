@@ -9,15 +9,27 @@ import 'runfiles_helper.dart';
 
 /// Execute the ios-tunnel command.
 ///
-/// Resolves the tunneld binary from runfiles (Bazel).
-/// Requires `sudo bazel-bin/tools/dev_tool/flutter_bazel ios-tunnel`.
+/// Resolves the tunneld binary from runfiles (Bazel). Run the built binary
+/// itself under sudo — `sudo bazel run` runs bazel as root and leaves
+/// root-owned files in the output base.
 Future<Never> executeTunnelCommand() async {
   // Check for root privileges.
   final uidResult = Process.runSync('id', ['-u']);
   final uid = (uidResult.stdout as String).trim();
   if (uid != '0') {
-    stderr.writeln('This command requires root privileges.');
-    stderr.writeln('Run: sudo flutter_bazel ios-tunnel');
+    // The path this process was started from, rather than a `bazel run` line.
+    // `sudo bazel run` is the reading people take from "sudo flutter_bazel",
+    // and it runs bazel itself as root: the output base fills with root-owned
+    // files, and every later build by the user fails on them. Only the daemon
+    // needs the privilege, so only the daemon is what sudo should reach.
+    stderr.writeln(
+      'This command requires root privileges — it creates a TUN interface.',
+    );
+    stderr.writeln('Run: sudo ${Platform.resolvedExecutable} ios-tunnel');
+    stderr.writeln(
+      'Not `sudo bazel run`: that runs bazel as root and leaves root-owned '
+      'files in the output base, which break the builds that follow.',
+    );
     exit(1);
   }
 

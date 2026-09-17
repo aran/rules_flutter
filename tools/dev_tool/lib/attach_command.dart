@@ -252,6 +252,7 @@ class AttachCommand {
           uri,
         );
         protocol.appStarted(appId);
+        host.announceSession(appId);
 
         final appInstance = _AttachedAppInstance(uri, vmClient.gone);
         // Said once, here, because this is the only place it is news. A `run`

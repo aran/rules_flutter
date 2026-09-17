@@ -324,6 +324,46 @@ class SessionHost {
       'tokenParam': 'token',
       'endpoints': endpoints,
     });
+    // The common order, not an edge case: this channel binds after the app is
+    // up, so by now there is a session and its id is the only thing standing
+    // between a reader and the URLs just printed.
+    if (!protocol.enabled) {
+      for (final session in sessions) {
+        _announceSession(session.appId);
+      }
+    }
+  }
+
+  /// Say which session the endpoints' `{appId}` stands for.
+  ///
+  /// The banner can only print templates — it renders one list for every
+  /// session a run has — and a reader who cannot resolve `{appId}` cannot use
+  /// a single one of the per-session endpoints. The id is built from the
+  /// target and the device's name, which for a phone is `iOS (<UDID>)`, so it
+  /// is not something to guess at: one run's was
+  /// `___app_ios_device_iOS__00008101_001C512E14D2001E_`.
+  ///
+  /// Called from both ends of a race that has no fixed order: a device launch
+  /// announces its own session, and [startHttpChannel] announces the ones
+  /// already running when it binds. Whichever happens second is the one that
+  /// prints, because the other found its counterpart missing and returned.
+  ///
+  /// Nothing is said under `--machine`, where `app.started` already carries
+  /// the id and a second copy would be noise.
+  void announceSession(String appId) {
+    if (httpChannel == null || protocol.enabled) return;
+    _announceSession(appId);
+  }
+
+  void _announceSession(String appId) {
+    final channel = httpChannel!;
+    _logger.info({
+      'message': 'session_ready',
+      'text':
+          'Session $appId is up — that is the {appId} above, e.g.\n'
+          '  ${channel.uri}/sessions/$appId/logs?token=${channel.token}',
+      'appId': appId,
+    });
   }
 
   /// Close the command transports, in the order the run's `finally` closed
