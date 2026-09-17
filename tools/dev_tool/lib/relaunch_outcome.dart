@@ -64,3 +64,21 @@ final class Relaunched extends RelaunchOutcome {
     required this.launches,
   });
 }
+
+/// The libraries moved and the old process was stopped to replace it, but the
+/// replacement did not launch — an install the device refused (out of
+/// storage, a signature mismatch), or a launch that never came up.
+///
+/// Its own case because it is the one outcome that leaves no app running.
+/// Nothing can be rolled back: the stop has already happened, so the run ends
+/// with the session. What this carries is the reason, so the reply to the
+/// restart that caused it can say why instead of the run disappearing.
+final class RelaunchFailed extends RelaunchOutcome {
+  /// The libraries whose change required the relaunch.
+  final List<String> changedLibs;
+
+  /// Why each app that failed to come back did not, by appId.
+  final Map<String, String> failures;
+
+  const RelaunchFailed({required this.changedLibs, required this.failures});
+}

@@ -36,12 +36,17 @@ class _RelaunchDevice extends Device {
   int launches = 0;
   int stops = 0;
 
+  /// Thrown by [launch] when set: the replacement's install or launch failing
+  /// after the old process has been stopped.
+  Object? launchError;
+
   @override
   String get name => 'fake';
 
   @override
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     launches++;
+    if (launchError case final error?) throw error;
     return AppInstance(process: FakeProcess());
   }
 
@@ -211,6 +216,43 @@ void main() {
     expect(wire['succeeded'], isTrue);
     expect(wire['runningCode'], 'updated');
     expect(wire['message'], contains('libnative.dylib'));
+  });
+
+  // Measured on an Android emulator short of storage: `adb install -r` refused
+  // the rebuilt APK after the old app had been stopped. The run then ended
+  // with no reply and no log line saying why.
+  test('a relaunch that cannot launch says why and ends the session', () async {
+    final h = await _Harness.create();
+    addTearDown(h.dispose);
+    h.device.launchError = StateError(
+      'adb install failed: the device is out of room for this APK.',
+    );
+    final r = await h.relauncher(
+      rebuild: () async {
+        h.changeNativeLib('machine code v2 — longer');
+        return true;
+      },
+    );
+
+    final outcome = await r.relaunchIfNeeded();
+
+    expect(outcome, isA<RelaunchFailed>());
+    final failed = outcome as RelaunchFailed;
+    expect(failed.changedLibs, ['libnative.dylib']);
+    expect(failed.failures.values.single, contains('out of room'));
+    expect(failed.failures.values.single, isNot(startsWith('Bad state')));
+    // The old process is gone and nothing replaced it.
+    expect(h.device.stops, 1);
+    await h.session.terminated.timeout(const Duration(seconds: 5));
+
+    final wire = toWire(
+      CommandReport(verb: 'Restart', relaunchFailed: failed),
+    );
+    expect(wire['succeeded'], isFalse);
+    expect(wire['runningCode'], 'unknown');
+    expect(wire['relaunched'], isFalse);
+    expect(wire['error'], contains('out of room'));
+    expect(wire['message'], contains('not running'));
   });
 
   // A relaunch repoints the units; it does not rebuild them. Each unit owns

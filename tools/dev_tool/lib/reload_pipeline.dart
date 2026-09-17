@@ -564,6 +564,17 @@ class ReloadPipeline {
                 relaunch: relaunched,
               ),
             );
+          // The old process was stopped and its replacement never came up.
+          // The run ends with the session; this reply is how anyone learns why.
+          case RelaunchFailed failed:
+            return toWire(
+              CommandReport(
+                verb: 'Restart',
+                appIds: addressed,
+                assets: assets,
+                relaunchFailed: failed,
+              ),
+            );
           // The libraries are unchanged; fall through to the isolate restart,
           // the fast path this whole check exists to protect.
           case RelaunchNotNeeded():

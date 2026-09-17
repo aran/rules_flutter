@@ -146,6 +146,14 @@ class CommandReport {
   /// from the bundle the rebuild had just produced.
   final Relaunched? relaunch;
 
+  /// Set when the command stopped the app to relaunch it on changed native
+  /// libraries and the relaunch did not come up, so no app is running.
+  ///
+  /// [succeeded] is false and [runningCode] is [RunningCode.unknown]: the
+  /// question "which code is loaded" has no app to be about, and neither
+  /// `unchanged` nor `updated` would be true of a process that is gone.
+  final RelaunchFailed? relaunchFailed;
+
   final Duration? elapsed;
 
   /// The apps this command addressed, or null when it stopped before it could
@@ -170,6 +178,7 @@ class CommandReport {
     this.sourceRebuildFailed,
     this.nativeLibs,
     this.relaunch,
+    this.relaunchFailed,
     this.elapsed,
   });
 
@@ -180,6 +189,7 @@ class CommandReport {
   bool get succeeded {
     if (unavailable != null) return false;
     if (sourceRebuildFailed != null) return false;
+    if (relaunchFailed != null) return false;
     // The edit is not running: it was never compiled. Reporting success here
     // would be the silence the whole check exists to break.
     if (nativeLibs is NativeBindingsMoved ||
@@ -203,6 +213,7 @@ class CommandReport {
   RunningCode get runningCode {
     // Refused before anything ran, so there was nothing to deliver.
     if (unavailable != null) return RunningCode.unchanged;
+    if (relaunchFailed != null) return RunningCode.unknown;
     // Withheld before the snapshot, so no compiler and no device was touched —
     // the strongest form of `unchanged` this type has.
     if (nativeLibs is NativeBindingsMoved ||

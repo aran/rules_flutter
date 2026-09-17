@@ -42,6 +42,25 @@ Map<String, dynamic> toWire(CommandReport report) {
   // here, so there is no outcome, no strategy and no asset diff to fold in —
   // and falling through would reach the `null` outcome arm and call a broken
   // build a success.
+  // Also returning outright: the app is gone, and nothing below describes a
+  // command that ended with no app to report on.
+  if (report.relaunchFailed case final failed?) {
+    final reasons = failed.failures.entries
+        .map((e) => '${e.key}: ${e.value}')
+        .join('; ');
+    return {
+      ..._verdict(report),
+      'relaunched': false,
+      'nativeLibsChanged': failed.changedLibs,
+      'error': reasons,
+      'message':
+          '${report.verb} failed — the app was stopped to relaunch it on its '
+          'changed native libraries (${failed.changedLibs.join(', ')}), and '
+          'the relaunch failed: $reasons. The app is not running, so this run '
+          'ends.',
+    };
+  }
+
   if (report.sourceRebuildFailed case final reason?) {
     return {
       ..._verdict(report),

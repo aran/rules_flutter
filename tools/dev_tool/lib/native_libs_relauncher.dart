@@ -104,6 +104,7 @@ class Relauncher {
     });
 
     final relaunched = <DeviceSession>[];
+    final failures = <String, String>{};
     // Whether every relaunched app reported a first frame, i.e. can take an
     // `app.*` command now. Reported rather than assumed: a caller that gets
     // `ready: false` knows to wait instead of reading a `Method not found` as a
@@ -115,22 +116,41 @@ class Relauncher {
       // replacement's arrival it must not look like the app ended, or the run's
       // transports (the HTTP control channel included) would be torn down under
       // a driver that is mid-restart.
-      await session.relaunch(() async {
-        await session.vmClient?.disconnect();
-        // Stopping closes the old instance's log stream, so the sink attached
-        // below is the only live one — the relaunched app's output never
-        // doubles up with the previous instance's.
-        await session.device.stop(session.appInstance);
-        return session.device.launch(
-          appFile,
-          onLog: appLogSinkFor(
-            protocol: protocol,
-            appId: session.appId,
-            deviceName: session.device.name,
-            multiDevice: sessions.length > 1,
-          ),
-        );
-      });
+      try {
+        await session.relaunch(() async {
+          await session.vmClient?.disconnect();
+          // Stopping closes the old instance's log stream, so the sink
+          // attached below is the only live one — the relaunched app's output
+          // never doubles up with the previous instance's.
+          await session.device.stop(session.appInstance);
+          return session.device.launch(
+            appFile,
+            onLog: appLogSinkFor(
+              protocol: protocol,
+              appId: session.appId,
+              deviceName: session.device.name,
+              multiDevice: sessions.length > 1,
+            ),
+          );
+        });
+      } catch (e) {
+        // The old process is already gone, so this session has ended; what is
+        // left to do is say why, in the log and in the restart's reply, before
+        // the run ends with it. A device's launch failures are StateErrors
+        // whose message is the whole account; the "Bad state: " prefix is not.
+        final reason = e is StateError ? e.message : '$e';
+        failures[session.appId] = reason;
+        logger.severe({
+          'message': 'relaunch_failed',
+          'text':
+              'Stopped ${session.device.name} to relaunch it on its changed '
+              'native libraries, and the relaunch failed: $reason',
+          'appId': session.appId,
+          'device': session.device.name,
+          'error': reason,
+        });
+        continue;
+      }
       relaunched.add(session);
       allReady &= await _reconnect(session);
       protocol.appStarted(session.appId);
@@ -140,6 +160,11 @@ class Relauncher {
     // service did not return is marked disconnected, so a request naming it is
     // told why instead of failing to apply a kernel to a closed socket.
     orchestrator.syncLiveApps(_appInstances());
+    if (failures.isNotEmpty) {
+      // Not re-baselined: nothing running took the new libraries from this
+      // attempt that the baseline could describe as a whole.
+      return RelaunchFailed(changedLibs: changed, failures: failures);
+    }
     _live = fingerprint;
     await nativeLibs?.markLive();
 
