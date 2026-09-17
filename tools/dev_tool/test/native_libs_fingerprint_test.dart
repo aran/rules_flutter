@@ -104,6 +104,126 @@ void main() {
     },
   );
 
+  group('native code inside frameworks', () {
+    // iOS forbids loose dylibs, so every `native_deps` library ships as
+    // `<name>.framework/<name>`. Excluding frameworks wholesale left an iOS
+    // app with an empty fingerprint: a native edit restarted into the old
+    // machine code and reported success.
+    Directory makeIosBundle(String name, {required List<int> addBytes}) {
+      final app = Directory('${tmp.path}/$name/Payload/app.app');
+      final frameworks = Directory('${app.path}/Frameworks');
+      File('${frameworks.path}/add.framework/add')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(addBytes);
+      File(
+        '${frameworks.path}/add.framework/Info.plist',
+      ).writeAsStringSync('<plist/>');
+      File('${frameworks.path}/App.framework/App')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([1, 2, 3]);
+      File(
+          '${frameworks.path}/App.framework/flutter_assets/kernel_blob.bin',
+        )
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([4, 5, 6]);
+      File('${frameworks.path}/Flutter.framework/Flutter')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([7, 8]);
+      return Directory('${tmp.path}/$name');
+    }
+
+    Future<String> zipIpa(Directory root) async {
+      final ipa = '${root.path}.ipa';
+      final r = await Process.run('zip', [
+        '-q',
+        '-r',
+        ipa,
+        'Payload',
+      ], workingDirectory: root.path);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      return ipa;
+    }
+
+    test('an iOS native-asset framework binary is a native library', () async {
+      final root = makeIosBundle('ios_a', addBytes: [1, 1, 1, 1]);
+      final fp = await nativeLibsFingerprint(await zipIpa(root));
+      expect(fp.keys, ['Payload/app.app/Frameworks/add.framework/add']);
+
+      File(
+        '${root.path}/Payload/app.app/Frameworks/add.framework/add',
+      ).writeAsBytesSync([1, 1, 1, 2]);
+      File('${root.path}.ipa').deleteSync();
+      final after = await nativeLibsFingerprint(await zipIpa(root));
+      expect(changedLibs(fp, after), [
+        'Payload/app.app/Frameworks/add.framework/add',
+      ]);
+    });
+
+    test('a Dart edit or engine change still does not count', () async {
+      final root = makeIosBundle('ios_b', addBytes: [1, 1, 1, 1]);
+      final app = '${root.path}/Payload/app.app';
+      final fp = await nativeLibsFingerprint(app);
+      expect(fp.keys, ['Frameworks/add.framework/add']);
+
+      File('$app/Frameworks/App.framework/App').writeAsBytesSync([9, 9, 9]);
+      File(
+        '$app/Frameworks/App.framework/flutter_assets/kernel_blob.bin',
+      ).writeAsBytesSync([9]);
+      File('$app/Frameworks/Flutter.framework/Flutter').writeAsBytesSync([9]);
+      File(
+        '$app/Frameworks/add.framework/Info.plist',
+      ).writeAsStringSync('<plist>changed</plist>');
+      expect(
+        fingerprintsEqual(fp, await nativeLibsFingerprint(app)),
+        isTrue,
+        reason: 'only a native binary changing may buy a relaunch',
+      );
+    });
+
+    test('an Android APK is read as the zip it is', () async {
+      // An .apk carries no .zip suffix, and neither does an .ipa. Reading
+      // either as a directory that does not exist fingerprinted every Android
+      // and iOS app as having no native libraries at all.
+      final root = Directory('${tmp.path}/apk')..createSync();
+      final abi = Directory('${root.path}/lib/arm64-v8a')
+        ..createSync(recursive: true);
+      File('${abi.path}/libadd.so').writeAsBytesSync([1, 2]);
+      // Flutter's own: the AOT Dart snapshot and the engine.
+      File('${abi.path}/libapp.so').writeAsBytesSync([3, 4]);
+      File('${abi.path}/libflutter.so').writeAsBytesSync([5, 6]);
+      final apk = '${tmp.path}/app.apk';
+      final r = await Process.run('zip', [
+        '-q',
+        '-r',
+        apk,
+        'lib',
+      ], workingDirectory: root.path);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect((await nativeLibsFingerprint(apk)).keys, [
+        'lib/arm64-v8a/libadd.so',
+      ]);
+    });
+
+    test('a versioned macOS plugin framework binary counts', () async {
+      final app = makeBundle('mac_plugin', dylibBytes: [1]);
+      final frameworks = '${app.path}/Contents/Frameworks';
+      File('$frameworks/my_plugin.framework/Versions/A/my_plugin')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([3, 3]);
+      File('$frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([4, 4]);
+      final fp = await nativeLibsFingerprint(app.path);
+      expect(
+        fp.keys,
+        unorderedEquals([
+          'Contents/Frameworks/libdemo.dylib',
+          'Contents/Frameworks/my_plugin.framework/Versions/A/my_plugin',
+        ]),
+      );
+    });
+  });
+
   test('bundle without loose native libs fingerprints empty', () async {
     final app = Directory('${tmp.path}/plain.app');
     Directory(

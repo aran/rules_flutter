@@ -1,4 +1,4 @@
-/// Fingerprinting of an app's loose native libraries, which is how both apply
+/// Fingerprinting of an app's native libraries, which is how both apply
 /// paths find out that the running process can no longer be trusted.
 ///
 /// A reload or a restart replaces Dart code but cannot replace native
@@ -9,12 +9,16 @@
 /// anything without throwing away the state it exists to preserve — withholds
 /// the increment and says why.
 ///
-/// "Native libraries" means the loose `.dylib`/`.so`/`.dll` files bundled
-/// into the app (macOS: `Contents/Frameworks/`) — the `native_deps`
-/// contract. Framework directories are deliberately excluded:
-/// `App.framework` changes on every Dart edit (it carries the kernel) and
-/// would otherwise force a relaunch on every restart, and
-/// `FlutterMacOS.framework` only changes with an engine bump.
+/// "Native libraries" means the native code bundled into the app: loose
+/// `.dylib`/`.so`/`.dll` files (macOS `Contents/Frameworks/`, Android `lib/`)
+/// and the binary of every framework that is not Flutter's own. iOS forbids
+/// loose dylibs, so each `native_deps` library ships there as
+/// `<name>.framework/<name>`, and a plugin's native code is a framework on
+/// both Apple platforms. Flutter's frameworks are excluded: `App.framework`
+/// changes on every Dart edit (it carries the kernel) and would otherwise
+/// force a relaunch on every restart, and `Flutter.framework` /
+/// `FlutterMacOS.framework` only change with an engine bump. A framework's
+/// resources never count, only its binary.
 library;
 
 import 'dart:io';
@@ -24,14 +28,16 @@ import 'dart:typed_data';
 /// are opaque content tokens — only equality across two calls with the
 /// same artifact form matters.
 ///
-/// [artifactPath] is the launch artifact: a `.zip` of the bundle (fingered
-/// from the central directory's CRC32 + size, no extraction) or an
-/// extracted `.app` directory (fingered by hashing file bytes).
+/// [artifactPath] is the launch artifact: a zip of the bundle (`.zip`, `.ipa`
+/// or `.apk`, fingered from the central directory's CRC32 + size, no
+/// extraction) or an extracted `.app` directory (fingered by hashing file
+/// bytes).
 ///
-/// An empty map means the bundle has no loose native libraries, in which
-/// case the relaunch check should disable itself entirely.
+/// An empty map means the bundle has no native libraries, in which case the
+/// relaunch check should disable itself entirely.
 Future<Map<String, String>> nativeLibsFingerprint(String artifactPath) async {
-  if (artifactPath.endsWith('.zip')) {
+  // An .ipa and an .apk are zip archives under other names.
+  if (const ['.zip', '.ipa', '.apk'].any(artifactPath.endsWith)) {
     return _fromZipTableOfContents(artifactPath);
   }
   final dir = Directory(artifactPath);
@@ -85,11 +91,36 @@ List<String> changedLibs(
   ]..sort();
 }
 
-bool _isLooseNativeLib(String path) {
-  if (path.contains('.framework/')) return false;
-  return path.endsWith('.dylib') ||
-      path.endsWith('.so') ||
-      path.endsWith('.dll');
+/// Flutter's own frameworks: the app's Dart (kernel or AOT) and the engine.
+const _flutterFrameworks = {'App', 'Flutter', 'FlutterMacOS'};
+
+/// Android's equivalents: `libapp.so` is the AOT Dart snapshot and
+/// `libflutter.so` the engine.
+const _flutterLibraries = {'libapp.so', 'libflutter.so'};
+
+bool _isNativeLib(String path) {
+  final segments = path.split('/');
+  final fw = segments.lastIndexWhere((s) => s.endsWith('.framework'));
+  if (fw < 0) {
+    if (_flutterLibraries.contains(segments.last)) return false;
+    return path.endsWith('.dylib') ||
+        path.endsWith('.so') ||
+        path.endsWith('.dll');
+  }
+  final name = segments[fw].substring(
+    0,
+    segments[fw].length - '.framework'.length,
+  );
+  if (_flutterFrameworks.contains(name)) return false;
+  final rest = segments.sublist(fw + 1);
+  // iOS frameworks are flat (`<name>.framework/<name>`); macOS frameworks are
+  // versioned (`<name>.framework/Versions/A/<name>`), and `Versions/Current`
+  // is a symlink to the real version.
+  return (rest.length == 1 && rest[0] == name) ||
+      (rest.length == 3 &&
+          rest[0] == 'Versions' &&
+          rest[1] != 'Current' &&
+          rest[2] == name);
 }
 
 // ---------------------------------------------------------------- zip TOC --
@@ -136,7 +167,7 @@ Future<Map<String, String>> _fromZipTableOfContents(String zipPath) async {
       final name = String.fromCharCodes(
         cd.sublist(pos + 46, pos + 46 + nameLen),
       );
-      if (_isLooseNativeLib(name)) {
+      if (_isNativeLib(name)) {
         out[name] = 'crc32:$crc32:$uncompressedSize';
       }
       pos += 46 + nameLen + extraLen + commentLen;
@@ -162,7 +193,7 @@ Future<Map<String, String>> _fromExtractedBundle(Directory appDir) async {
   await for (final entity in appDir.list(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
     final rel = entity.path.substring(appDir.path.length + 1);
-    if (!_isLooseNativeLib(rel)) continue;
+    if (!_isNativeLib(rel)) continue;
     out[rel] = 'fnv:${await _fnv1a64(entity)}';
   }
   return out;
