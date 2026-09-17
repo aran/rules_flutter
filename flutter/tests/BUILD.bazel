@@ -11,6 +11,7 @@ load(":flutter_pub_package_test.bzl", "flutter_pub_package_test_suite")
 load(":flutter_pubspec_test.bzl", "flutter_pubspec_test_suite")
 load(":flutter_sdk_package_test.bzl", "flutter_sdk_package_test_suite")
 load(":flutter_test_bootstrap_test.bzl", "flutter_test_bootstrap_test_suite")
+load(":ios_entitlements_test.bzl", "ios_entitlements_test_suite")
 load(":language_version_test.bzl", "language_version_test_suite")
 load(":linux_sysroot_link_test.bzl", "linux_sysroot_link_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
@@ -38,6 +39,8 @@ toolchain_test_suite(name = "toolchain_test")
 common_test_suite(name = "common_test")
 
 asset_bundle_test_suite(name = "asset_bundle_test")
+
+ios_entitlements_test_suite(name = "ios_entitlements_test")
 
 macos_test_suite(name = "macos_test")
 

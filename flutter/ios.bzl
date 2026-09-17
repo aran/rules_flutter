@@ -67,6 +67,7 @@ load("//flutter/private:flutter_apple_plugins_aggregator.bzl", _flutter_apple_pl
 load("//flutter/private:flutter_ios_application.bzl", _flutter_ios_application = "flutter_ios_application", _flutter_ios_framework_rule = "flutter_ios_framework", _flutter_ios_native_frameworks_rule = "flutter_ios_native_frameworks", _flutter_ios_privacy_manifests_rule = "flutter_ios_privacy_manifests")
 load("//flutter/private:flutter_ios_registrant.bzl", _flutter_ios_registrant_rule = "flutter_ios_registrant")
 load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
+load("//flutter/private:ios_entitlements.bzl", "resolve_ios_entitlements")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
 
 # Re-export constants for user BUILD files.
@@ -374,7 +375,15 @@ def flutter_ios_app(
             always emits the entitlements files), iOS only ships
             Runner.entitlements when capabilities are enabled in Xcode;
             its absence is a valid, capability-less app and the macro
-            ships nothing rather than synthesizing a default.
+            ships nothing rather than synthesizing a default. Pass `False`
+            to ship none although the file exists — a device build is
+            signed against a profile, and an entitlement the profile does
+            not grant fails it: `aps-environment`, which Xcode writes when
+            Push is enabled, cannot be granted by a team wildcard profile
+            at all. rules_apple reports that as "uses entitlements with
+            the ... key, but the profile does not have this key", which
+            names the profile and not the file — and the file is in the
+            build because it is on disk, not because anyone named it.
         additional_entitlements: Entitlement plist files merged into the
             base entitlements in **every** compilation mode — the additive
             seam for an app that needs one more `com.apple.security.*` key
@@ -428,13 +437,15 @@ def flutter_ios_app(
     # passed one. Its absence is convention-matching (no-capabilities
     # apps don't have an entitlements file); rules_apple's signing
     # pipeline still injects `get-task-allow=true` for debug builds.
-    if entitlements == None:
-        runner_entitlements = native.glob(
+    # `False` ships none although the file exists — see
+    # `resolve_ios_entitlements` for the device build that needs it.
+    entitlements = resolve_ios_entitlements(
+        entitlements,
+        discovered = "ios/Runner/Runner.entitlements" if native.glob(
             ["ios/Runner/Runner.entitlements"],
             allow_empty = True,
-        )
-        if runner_entitlements:
-            entitlements = "ios/Runner/Runner.entitlements"
+        ) else None,
+    )
 
     # Fold the app's own entitlement additions in. `base` may legitimately be
     # None here: an iOS app without Xcode capabilities ships no entitlements

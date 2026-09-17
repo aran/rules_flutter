@@ -464,7 +464,7 @@ flutter_ios_app(
 )
 ```
 
-That is the only difference from the simulator target. `flutter_ios_app` is tagged `manual` by default, so `bazel build //...` on a fresh clone does not try to load the missing `//device` package.
+That is the only difference from the simulator target, unless the app ships entitlements its profile cannot grant — see below. `flutter_ios_app` is tagged `manual` by default, so `bazel build //...` on a fresh clone does not try to load the missing `//device` package.
 
 Keep the app target in the committed BUILD file and put only the `local_provisioning_profile` in `//device`. The profile is the one genuinely per-developer fact. If the whole device app lives in a git-ignored package it is invisible to review and CI, and it drifts. Two of this repository's own examples once had a device app that had quietly diverged from its committed simulator twin. The same advice applies if you assemble the app from the composable rules: give the device `ios_application` the same `deps` as the simulator one.
 
@@ -485,6 +485,27 @@ done
 ```
 
 Without `provisioning_profile`, a device build fails at analysis with "The provisioning_profile attribute must be set for device builds on this platform (ios)".
+
+**Entitlements your profile cannot grant.** A simulator build is ad-hoc signed and validates nothing. A device build is signed against the profile, and an entitlement the profile does not grant fails it:
+
+```
+Target "//:my_app_ios_device" uses entitlements with the "aps-environment" key,
+but the profile does not have this key
+```
+
+`aps-environment` is the common one. Xcode writes it into `ios/Runner/Runner.entitlements` the moment Push Notifications is enabled, it stays there long after the code that used it is gone, and a team wildcard profile can never grant it — push requires a registered App ID. The message names the profile, so the file is the last place you look, and `flutter_ios_app` discovers it silently because it is on disk. Pass `entitlements = False` on the device target to ship none:
+
+```starlark
+flutter_ios_app(
+    name = "my_app_ios_device",
+    application = ":my_app",
+    bundle_id = "com.example.myapp",
+    entitlements = False,
+    provisioning_profile = "//device:profile",
+)
+```
+
+Deleting the file is the wrong fix. It is the app's real answer for the profile that *does* grant push, and Xcode will write it again.
 
 **Getting a profile.** This is an Apple Developer account operation, and the rules cannot do it for you. You need a development profile whose App ID matches your `bundle_id`, installed under `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. Either create the App ID and a profile in the developer portal, download it, and double-click it, or let Xcode do it from any project with the right bundle id and automatic signing:
 

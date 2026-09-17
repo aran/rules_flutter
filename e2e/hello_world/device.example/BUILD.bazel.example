@@ -27,6 +27,20 @@
 #
 #   for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
 #     security cms -D -i "$f" | plutil -extract Name raw -; done
+#
+# Entitlements your profile cannot grant. A device build is signed against the
+# profile, and an entitlement it does not grant fails the build:
+#
+#   Target "//:..." uses entitlements with the "aps-environment" key, but the
+#   profile does not have this key
+#
+# `aps-environment` is the usual one. Xcode writes it into
+# ios/Runner/Runner.entitlements the moment Push Notifications is enabled, it
+# outlives the code that used it, and a team wildcard profile can never grant
+# it — push needs a registered App ID. The message names the profile, so the
+# file is the last place you look. Pass `entitlements = False` on the device
+# target to ship none; do not delete the file, which is the app's real answer
+# for a profile that does grant push.
 
 load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 
