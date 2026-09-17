@@ -1901,17 +1901,21 @@ Device _resolveDevice(String id) {
 
 /// iOS Simulator device (via xcrun simctl).
 class IOSSimulatorDevice extends Device {
-  final String udid;
+  /// The simulator every `simctl` command of this device addresses.
+  String get udid => _udid;
+  final String _udid;
+
   final String? _bundleId;
   final ProcessRunSync _runProcess;
   final ProcessStarter _startProcess;
 
   IOSSimulatorDevice({
-    required this.udid,
+    required String udid,
     String? bundleId,
     ProcessRunSync? runProcess,
     ProcessStarter? startProcess,
-  }) : _bundleId = bundleId,
+  }) : _udid = udid,
+       _bundleId = bundleId,
        _runProcess = runProcess ?? Process.run,
        _startProcess = startProcess ?? Process.start;
 
@@ -2163,15 +2167,20 @@ class _IOSSimulatorDeviceBooted extends IOSSimulatorDevice {
     );
   }
 
+  /// The simulator this run launched on, once it has; `booted` before.
+  ///
+  /// A getter every `simctl` command reads, rather than a device made for the
+  /// launch alone: `simctl`'s own `booted` means whichever booted simulator it
+  /// finds first, so with two booted a screenshot or a stop addressed that way
+  /// reached a different simulator from the one the app was running on —
+  /// measured, a screenshot of another app on a booted iPad.
+  @override
+  String get udid => _resolvedUdid ?? super.udid;
+
   @override
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
-    final resolvedUdid = await _resolveBootedUdid();
-    final real = IOSSimulatorDevice(
-      udid: resolvedUdid,
-      runProcess: _runProcess,
-      startProcess: _startProcess,
-    );
-    return real.launch(appPath, onLog: onLog);
+    await _resolveBootedUdid();
+    return super.launch(appPath, onLog: onLog);
   }
 }
 

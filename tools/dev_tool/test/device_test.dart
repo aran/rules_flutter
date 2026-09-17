@@ -206,6 +206,44 @@ void main() {
   });
 
   group('IOSSimulatorDevice', () {
+    // `simctl`'s own `booted` picks whichever booted simulator it finds first.
+    // With several booted, a stop or screenshot addressed that way reached a
+    // different simulator from the one the app was launched on.
+    test('a booted device addresses the simulator it launched on, after '
+        'launch', () async {
+      final calls = <String>[];
+      final device = IOSSimulatorDevice.booted(
+        runProcess: (exe, args) async {
+          calls.add(args.join(' '));
+          if (args.take(3).join(' ') == 'simctl list devices') {
+            return ProcessResult(
+              0,
+              0,
+              '{"devices":{"iOS":[{"udid":"SIM-FIRST"},{"udid":"SIM-2"}]}}',
+              '',
+            );
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+        startProcess: (exe, args) async =>
+            throw StateError('stop the launch here'),
+      );
+      expect(device.udid, 'booted');
+      await expectLater(
+        device.launch('/build/Runner.app'),
+        throwsA(isA<StateError>()),
+      );
+      expect(device.udid, 'SIM-FIRST');
+      expect(device.name, 'iOS Simulator (SIM-FIRST)');
+
+      calls.clear();
+      await device.screenshot(
+        AppInstance(process: FakeProcess()),
+        '/tmp/shot.png',
+      );
+      expect(calls, ['simctl io SIM-FIRST screenshot /tmp/shot.png']);
+    });
+
     test('has correct name with udid', () {
       final device = IOSSimulatorDevice(udid: 'ABC-123');
       expect(device.name, 'iOS Simulator (ABC-123)');
