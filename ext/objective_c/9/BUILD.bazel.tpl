@@ -115,10 +115,23 @@ cc_shared_library(
         # basename via `dlopen`, but `@rpath/objective_c.dylib` lets
         # the loader pick it up wherever it's bundled in the .app.
         "-Wl,-install_name,@rpath/objective_c.dylib",
-        # The hook also passes `-undefined dynamic_lookup` so the
-        # Objective-C runtime symbols resolve at load time against the
-        # process. Replicate that here.
-        "-Wl,-undefined,dynamic_lookup",
+        # Foundation, rather than the `-undefined dynamic_lookup` the
+        # package's own hook passes. Every symbol this dylib leaves
+        # undefined is a system one — libobjc (`objc_msgSend`,
+        # `class_addMethod`), Foundation's classes, libSystem (`malloc`,
+        # `dispatch_async`, the Block runtime) — and none come from the
+        # host process, so there is nothing for a load-time lookup to find
+        # that the SDK cannot resolve at link time. Checked with `nm -u` on
+        # both the macOS and iOS-simulator slices: 72 undefined symbols, no
+        # `Dart_*` among them.
+        #
+        # Linking them is also the stronger answer. `dynamic_lookup` defers
+        # every unresolved symbol to `dlopen` time, so a misspelled or
+        # dropped one becomes a crash in someone's app instead of a link
+        # error here — and Apple now deprecates the flag, warning
+        # "-undefined dynamic_lookup is deprecated on iOS-simulator" on
+        # every consumer's link.
+        "-Wl,-framework,Foundation",
     ],
     visibility = ["//visibility:private"],
     deps = [":_{PKG}_objc"],
