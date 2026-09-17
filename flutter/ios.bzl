@@ -69,6 +69,7 @@ load("//flutter/private:flutter_ios_registrant.bzl", _flutter_ios_registrant_rul
 load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
 load("//flutter/private:ios_entitlements.bzl", "resolve_ios_entitlements")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
+load("//flutter/private:validation.bzl", "validate_minimum_os_version")
 
 # Re-export constants for user BUILD files.
 IOS_MINIMUM_OS_VERSION = _IOS_MINIMUM_OS_VERSION
@@ -425,6 +426,13 @@ def flutter_ios_app(
     """
     display_name = app_name or name
     tags = kwargs.pop("tags", ["manual"])
+    validate_minimum_os_version(
+        "flutter_ios_app",
+        name,
+        minimum_os_version,
+        _IOS_MINIMUM_OS_VERSION,
+        "iOS",
+    )
 
     module_name = runner_module_name("flutter_ios_app", name)
 

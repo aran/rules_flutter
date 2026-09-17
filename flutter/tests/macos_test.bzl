@@ -4,7 +4,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:flutter_macos_application.bzl", "flutter_macos_framework", "flutter_macos_native_libs")
-load("//flutter/private:validation.bzl", "is_valid_bundle_id")
+load("//flutter/private:validation.bzl", "is_valid_bundle_id", "minimum_os_version_is_below")
 
 def _valid_bundle_id_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -58,9 +58,32 @@ def _bundle_id_segment_validation_test_impl(ctx):
 
     return unittest.end(env)
 
+# The engine these rules vend is a prebuilt framework with a minimum of its
+# own, and the constant is both the default and the floor. Compared segment by
+# segment, because macOS spent years in the range where string order and
+# version order disagree.
+def _minimum_os_version_floor_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    asserts.true(env, minimum_os_version_is_below("14.0", "15.0"), "14.0 < 15.0")
+    asserts.false(env, minimum_os_version_is_below("15.0", "15.0"), "equal is not below")
+    asserts.false(env, minimum_os_version_is_below("16.2", "15.0"), "16.2 > 15.0")
+
+    # "10.9" sorts above "10.14" as text and below it as a version — the whole
+    # reason this is not a string comparison.
+    asserts.true(env, minimum_os_version_is_below("10.9", "10.14"), "10.9 < 10.14")
+    asserts.false(env, minimum_os_version_is_below("10.14", "10.9"), "10.14 > 10.9")
+
+    # A version written short means the same version.
+    asserts.false(env, minimum_os_version_is_below("15", "15.0"), "15 == 15.0")
+    asserts.false(env, minimum_os_version_is_below("15.0.0", "15"), "15.0.0 == 15")
+
+    return unittest.end(env)
+
 _t0_test = unittest.make(_valid_bundle_id_test_impl)
 _t1_test = unittest.make(_invalid_bundle_id_test_impl)
 _t2_test = unittest.make(_bundle_id_segment_validation_test_impl)
+_t3_test = unittest.make(_minimum_os_version_floor_test_impl)
 
 # -- Bundling ------------------------------------------------------------------
 #
@@ -294,7 +317,12 @@ def _bundling_tests(name):
 
 def macos_test_suite(name):
     unittest.suite(name + "_bundle_id", _t0_test, _t1_test, _t2_test)
+    unittest.suite(name + "_minimum_os_version", _t3_test)
     native.test_suite(
         name = name,
-        tests = [":" + t for t in [name + "_bundle_id"] + _bundling_tests(name)],
+        tests = [
+            ":" + t
+            for t in [name + "_bundle_id", name + "_minimum_os_version"] +
+                     _bundling_tests(name)
+        ],
     )

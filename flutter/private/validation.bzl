@@ -272,3 +272,62 @@ def escape_html(text):
         The escaped string safe for use in HTML attributes and content.
     """
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+def validate_minimum_os_version(macro, name, value, floor, platform):
+    """Fail when a deployment target is below what the vended engine can serve.
+
+    The engine is a prebuilt framework with a minimum of its own, and a bundle
+    cannot honour one below it — the link warns, and the app is left claiming
+    an OS the engine it loads was never built to run on. Failing here names the
+    rule, the attribute and the floor, where the linker's warning names none of
+    them and arrives once per consumer forever.
+
+    Args:
+        macro: The macro's name, for the message.
+        name: The target's name, for the message.
+        value: The caller's `minimum_os_version`.
+        floor: The vended engine's own minimum — see `constants.bzl`.
+        platform: "iOS" or "macOS", for the message.
+    """
+    if not minimum_os_version_is_below(value, floor):
+        return
+    fail(
+        ("%s(name = %r): minimum_os_version = %r is below %s %s, which is " +
+         "what the prebuilt engine these rules vend is built for. A lower " +
+         "deployment target does not widen the audience — the bundle would " +
+         "claim an OS the engine cannot run on. Pass %r or higher.") % (
+            macro,
+            name,
+            value,
+            platform,
+            floor,
+            floor,
+        ),
+    )
+
+def minimum_os_version_is_below(value, floor):
+    """Whether deployment target [value] is lower than [floor].
+
+    Compared segment by segment rather than as text: "10.9" is above "10.14"
+    by string order and below it by version order, and macOS spent years in
+    exactly that range.
+
+    Args:
+        value: A version like "15.0".
+        floor: A version like "15.0".
+
+    Returns:
+        True if [value] is below [floor].
+    """
+    return _version_parts(value) < _version_parts(floor)
+
+def _version_parts(value):
+    """`"15.0"` as a comparable list. Fails on anything that is not a version."""
+    numbers = []
+    for part in value.split("."):
+        if not part.isdigit():
+            fail("%r is not a version, so it cannot be a deployment target." % value)
+        numbers.append(int(part))
+
+    # Padded so "15" and "15.0" compare equal rather than by length.
+    return numbers + [0] * (3 - len(numbers))

@@ -69,6 +69,7 @@ load("//flutter/private:flutter_macos_application.bzl", _flutter_macos_framework
 load("//flutter/private:flutter_macos_registrant.bzl", _flutter_macos_registrant_rule = "flutter_macos_registrant")
 load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
+load("//flutter/private:validation.bzl", "validate_minimum_os_version")
 
 # Re-export for user BUILD files.
 MACOS_MINIMUM_OS_VERSION = _MACOS_MINIMUM_OS_VERSION
@@ -346,6 +347,13 @@ def flutter_macos_app(
     """
     display_name = app_name or name
     tags = kwargs.pop("tags", ["manual"])
+    validate_minimum_os_version(
+        "flutter_macos_app",
+        name,
+        minimum_os_version,
+        _MACOS_MINIMUM_OS_VERSION,
+        "macOS",
+    )
 
     module_name = runner_module_name("flutter_macos_app", name)
 

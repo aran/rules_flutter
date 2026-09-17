@@ -309,7 +309,7 @@ flutter_macos_app(
 | `application` | A `flutter_application` target. Required. |
 | `bundle_id` | The macOS bundle identifier. Required. |
 | `app_name` | Display name for the menu bar and window title. Defaults to the target name. |
-| `minimum_os_version` | Defaults to `"10.14"`. |
+| `minimum_os_version` | Defaults to `"12.0"`, which is what the prebuilt engine is built for. A lower value is refused rather than warned about. |
 | `info_plist` | Replaces the discovered `macos/Runner/Info.plist`. |
 | `version` | An `apple_bundle_version` target. Defaults to `"1.0"`. |
 | `entitlements` | Replaces the entitlements wiring. By default the macro finds `macos/Runner/DebugProfile.entitlements` and `Release.entitlements` and picks one by compilation mode. |
@@ -389,7 +389,7 @@ flutter_ios_app(
 | `bundle_id` | The iOS bundle identifier. Required. |
 | `families` | Device families. Defaults to `["iphone"]`. |
 | `app_name` | Display name. Defaults to the target name. |
-| `minimum_os_version` | Defaults to `"12.0"`. |
+| `minimum_os_version` | Defaults to `"15.0"`, which is what the prebuilt engine is built for. A lower value is refused rather than warned about. |
 | `info_plist` | Replaces the discovered `ios/Runner/Info.plist`. |
 | `version` | An `apple_bundle_version` target. Defaults to `"1.0"`. |
 | `launch_storyboard` | Replaces the launch storyboard. |
@@ -433,7 +433,7 @@ ios_application(
     name = "my_ios_app",
     bundle_id = "com.example.myapp",
     families = ["iphone"],
-    minimum_os_version = "12.0",
+    minimum_os_version = "15.0",
     deps = [":my_framework", ":my_native_frameworks", ":my_runner"],
 )
 ```
