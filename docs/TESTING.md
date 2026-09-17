@@ -1380,6 +1380,19 @@ wireless launch must pass `--vm-service-host=0.0.0.0` and dial the device's own
 address; a wired one must do neither. If the device has never been used this way
 it will prompt for Local Network permission once — accept it, then re-run.
 
+One launch that renders proves little about the debugger. The JIT breakpoint
+can lose a page when threads race (see README "Debugger stops"), so a regression
+shows up as some launches freezing, not all of them. After changing how `IOSDevice`
+drives lldb, launch once and then relaunch several times with a native edit
+before each `R`, and confirm every relaunch renders the new value. Before the fix
+about half of a dozen launches froze on an iOS 27 iPhone; with it, 11 of 11
+worked.
+
+Then stop the run with Ctrl-C, and once during a launch as well, and confirm
+nothing is left: `pgrep -x iproxy`, `pgrep -x lldb` and `pgrep -x devicectl`
+print nothing, and `xcrun devicectl device info processes --device <udid>` no
+longer lists the app.
+
 Budget the time: starting a debug build under the JIT breakpoint costs more than
 a host launch, and the mDNS query only resolves once the app is up. On a recent
 iPhone with a healthy Xcode install, resume to first log is **~8 s wired and

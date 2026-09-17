@@ -254,6 +254,20 @@ abstract class Device {
   /// Stop the running app.
   Future<void> stop(AppInstance instance);
 
+  /// Release what a launch left running when no session took ownership of it.
+  ///
+  /// The launcher gives this to the run's teardown before it calls [launch],
+  /// because a session's own disposer is registered only once the launch and
+  /// the VM-service connect after it have both finished — minutes, on a
+  /// physical device. A teardown in that window (SIGTERM, `daemon.shutdown`)
+  /// otherwise reaches nothing on the device, and helpers that outlive this
+  /// process keep ports and apps up with nothing left to stop them. A launch
+  /// still in flight must fail rather than start anything more.
+  ///
+  /// Called after the session's own [stop] when there is one, so it must be a
+  /// no-op on anything that is already released.
+  Future<void> abandonLaunch() async {}
+
   /// The external programs a launch on this device will drive.
   ///
   /// Declared rather than discovered at each call site so [preflight] can check
@@ -1375,6 +1389,18 @@ class AndroidDevice extends Device {
   /// clears what a killed run left.
   @override
   Future<void> stop(AppInstance instance) async {
+    await _releaseApp();
+    await _stopProcess('Android logcat', instance.process, teardownBound);
+    await instance.logs.close();
+  }
+
+  /// The launch's logcat ends with this process; the app and the forward,
+  /// which live on the device and in the adb server, do not.
+  @override
+  Future<void> abandonLaunch() => _releaseApp();
+
+  /// Stop the app and remove the forward this launch created.
+  Future<void> _releaseApp() async {
     if (_packageName != null) {
       await _runProcess(
         adbPath,
@@ -1401,8 +1427,6 @@ class AndroidDevice extends Device {
         });
       }
     }
-    await _stopProcess('Android logcat', instance.process, teardownBound);
-    await instance.logs.close();
   }
 
   /// How long a whole capture gets to answer — all three `adb` calls, not
@@ -2279,6 +2303,18 @@ class IOSDevice extends Device {
   /// lldb process for debugger attachment (killed on stop).
   Process? _lldbProcess;
 
+  /// The launched app's pid on the device, once the launch has found it.
+  ///
+  /// Killing lldb does not end the app on a physical device — debugserver
+  /// detaches and the app keeps running — so this is what [stop] terminates.
+  int? _appPid;
+
+  /// What the current launch's lldb does with a stop, once the app runs.
+  _LldbStops? _lldbStops;
+
+  /// Set by [abandonLaunch]: the launch in flight must start nothing more.
+  bool _launchAbandoned = false;
+
   IOSDevice({
     String? udid,
     String? bundleId,
@@ -2444,16 +2480,57 @@ class IOSDevice extends Device {
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     try {
       return await _launchAndAttach(appPath, onLog: onLog);
+    } on MdnsDiscoveryException catch (e) {
+      // A launch failure like any other, so the launcher reports it: its own
+      // type escaped as an unhandled exception and took the tool down.
+      await _abandonLaunch();
+      throw StateError(e.message);
     } catch (_) {
-      await _reapLaunchHelpers();
+      await _abandonLaunch();
       rethrow;
     }
+  }
+
+  @override
+  Future<void> abandonLaunch() async {
+    _launchAbandoned = true;
+    await _abandonLaunch();
+  }
+
+  void _throwIfAbandoned() {
+    if (_launchAbandoned) {
+      throw StateError(
+        'The launch on $name was abandoned because the run is ending.',
+      );
+    }
+  }
+
+  /// Start a launch helper, unless the launch has been abandoned; one started
+  /// just as it was abandoned is killed rather than left to outlive the run.
+  Future<Process> _startHelper(String executable, List<String> args) async {
+    _throwIfAbandoned();
+    final process = await _startProcess(executable, args);
+    if (_launchAbandoned) {
+      process.kill(ProcessSignal.sigkill);
+      _throwIfAbandoned();
+    }
+    return process;
+  }
+
+  /// Undo a launch that did not complete: every helper it started, then the
+  /// app it may have resumed.
+  Future<void> _abandonLaunch() async {
+    _lldbStops?.stopping = true;
+    // Helpers first: see [_terminateApp] for why the debugger must be gone.
+    await _reapLaunchHelpers();
+    await _terminateApp();
   }
 
   Future<AppInstance> _launchAndAttach(
     String appPath, {
     AppLogListener? onLog,
   }) async {
+    _launchAbandoned = false;
     final info = await _resolveInfo();
 
     // Extract .app from .ipa if needed — devicectl install requires .app.
@@ -2510,7 +2587,7 @@ class IOSDevice extends Device {
     // devicectl it has a terminal attached in order to redirect stdout"
     // (`ios/core_devices.dart`). That is unnecessary here: devicectl writes
     // the app's console output to these pipes without a pty.
-    _consoleLauncherProcess = await _startProcess('xcrun', [
+    _consoleLauncherProcess = await _startHelper('xcrun', [
       'devicectl',
       'device',
       'process',
@@ -2578,11 +2655,12 @@ class IOSDevice extends Device {
 
     // Step 2: Get PID from running process list.
     final processId = await _findAppProcessId(installationUrl);
+    _appPid = processId;
 
     // Step 3-5: Attach lldb debugger, set breakpoint, resume.
     // Matches flutter_tools LLDB._selectDevice, _setBreakpoint,
     // _attachToAppProcess, _resumeProcess.
-    final lldb = await _startProcess('lldb', []);
+    final lldb = await _startHelper('lldb', []);
     _lldbProcess = lldb;
     // lldb is a log source, not just a control channel — see [_startLldbOutput].
     final lldbDone = _startLldbOutput(lldb, appLogs: logs);
@@ -2613,15 +2691,33 @@ class IOSDevice extends Device {
     );
     await _lldbCommand(lldb, _jitBreakpointScript);
     await _lldbCommand(lldb, 'DONE');
+    // Synchronous, and every breakpoint stop resumed by [_LldbStops] rather
+    // than by lldb itself. Letting lldb auto-continue the JIT breakpoint loses
+    // hits when two threads allocate code at once (llvm/llvm-project#190956):
+    // the app then runs a page the debugger never wrote and stops on
+    // EXC_BAD_ACCESS (code=50). flutter_tools made the same change for the
+    // same reason (af06e99a29, flutter/flutter#190307).
+    await _lldbCommand(lldb, 'script lldb.debugger.SetAsync(False)');
+    // The whole stop block, so the stop handling below starts after it and
+    // never reads the attach's own SIGSTOP as a stop of the running app.
     await _lldbCommand(
       lldb,
       'device process attach --pid $processId',
-      waitFor: RegExp(r'Process \d+ stopped'),
+      waitFor: _lldbTargetStopped,
     );
+    _throwIfAbandoned();
+    _lldbStops = _LldbStops(
+      from: _lldbOutput!.nextCursor,
+      lldb: lldb,
+      appLogs: logs,
+      deviceName: name,
+    );
+    // A debug app hits the JIT breakpoint as soon as it runs, and lldb in
+    // synchronous mode then reports that stop instead of the resume.
     await _lldbCommand(
       lldb,
       'process continue',
-      waitFor: RegExp(r'Process \d+ resuming'),
+      waitFor: RegExp(r'location added to breakpoint|Process \d+ resuming'),
     );
 
     // Step 6: Find the VM service by its mDNS advertisement.
@@ -2672,7 +2768,7 @@ class IOSDevice extends Device {
     switch (info.transport) {
       case IOSDeviceTransport.wired:
         // The advertised port is a device-side port on the device's loopback.
-        final iproxy = await _startProcess('iproxy', [
+        final iproxy = await _startHelper('iproxy', [
           '${record.port}:${record.port}',
           '-u',
           info.udid,
@@ -2724,7 +2820,9 @@ class IOSDevice extends Device {
   }
 
   /// Python script for the JIT page notification breakpoint.
-  /// Matches flutter_tools' LLDB._pythonScript.
+  ///
+  /// Matches flutter_tools' `LLDB._pythonScript`. It returns nothing, so lldb
+  /// stops after running it and [_LldbStops] resumes the app.
   static const _jitBreakpointScript = '''
 """Intercept NOTIFY_DEBUGGER_ABOUT_RX_PAGES and touch the pages."""
 base = frame.register["x0"].GetValueAsAddress()
@@ -2736,8 +2834,10 @@ frame.GetThread().GetProcess().WriteMemory(base, data, error)
 if not error.Success():
     print(f'Failed to write into {base}[+{page_len}]', error)
     return
-return False
 ''';
+
+  /// The last line of every stop lldb reports: `Target 0: (Runner) stopped.`
+  static final _lldbTargetStopped = RegExp(r'^Target \d+: .* stopped\.$');
 
   /// Every line lldb has written, live and replayable.
   ///
@@ -2784,6 +2884,8 @@ return False
     final forwarded = Completer<void>();
     out.lines.listen(
       (line) {
+        final stops = _lldbStops;
+        if (stops != null && stops.lldb == lldb && stops.consume(line)) return;
         if (_isLldbCommandEcho(line.text)) return;
         appLogs.add(_stripDeviceLogPrefix(line.text), isError: line.isError);
       },
@@ -2841,6 +2943,7 @@ return False
     RegExp? waitFor,
     bool returnMatch = false,
   }) async {
+    _throwIfAbandoned();
     final output = _lldbOutput;
     if (output == null) {
       throw StateError(
@@ -2859,14 +2962,33 @@ return False
       return null;
     }
 
-    // Subscribe before writing so a fast reply cannot land first — and because
-    // the stream replays, output already buffered still counts.
+    // Subscribe before writing so a fast reply cannot land first. The stream
+    // replays everything buffered, so only lines from here on can answer: a
+    // stop or a breakpoint id lldb printed for an earlier command matches the
+    // same pattern and would otherwise be taken for this one's reply.
+    final from = output.nextCursor;
     final completer = Completer<String>();
-    final sub = output.lines.listen((line) {
-      if (!completer.isCompleted && waitFor.hasMatch(line.text)) {
-        completer.complete(line.text);
-      }
-    });
+    final sub = output.lines.listen(
+      (line) {
+        if (line.index < from) return;
+        if (!completer.isCompleted && waitFor.hasMatch(line.text)) {
+          completer.complete(line.text);
+        }
+      },
+      // lldb exited, or the launch was abandoned and reaped it: no answer is
+      // coming, so say so now rather than after the timeout.
+      onDone: () {
+        if (completer.isCompleted) return;
+        completer.completeError(
+          StateError(
+            _launchAbandoned
+                ? 'The launch on $name was abandoned because the run is ending.'
+                : 'lldb exited before answering "$command".\nlldb said:\n'
+                      '${output.read(-40).lines.map((l) => '  ${l.text}').join('\n')}',
+          ),
+        );
+      },
+    );
 
     try {
       lldb.stdin.writeln(command);
@@ -3038,10 +3160,67 @@ return False
 
   @override
   Future<void> stop(AppInstance instance) async {
+    _lldbStops?.stopping = true;
+    // Helpers first: see [_terminateApp] for why the debugger must be gone.
     await _reapLaunchHelpers();
+    await _terminateApp();
     await _stopProcess('iOS app', instance.process, teardownBound);
     await instance.logs.close();
     await instance.disposeScratchDirs();
+  }
+
+  /// End the launched app on the device, if this launch got as far as
+  /// finding it.
+  ///
+  /// Its own step because nothing else ends it: killing lldb detaches
+  /// debugserver and the app keeps running, holding its VM service port.
+  ///
+  /// Only once lldb is gone. While it is attached, debugserver intercepts the
+  /// SIGTERM `devicectl` sends and holds the app stopped instead; killing lldb
+  /// then resumes it with the signal swallowed. Measured on an iOS 27 iPhone:
+  /// terminate-then-detach left the app running every time.
+  Future<void> _terminateApp() async {
+    final pid = _appPid;
+    if (pid == null) return;
+    _appPid = null;
+    final ProcessResult result;
+    try {
+      result = await _runProcess('xcrun', [
+        'devicectl',
+        'device',
+        'process',
+        'terminate',
+        '--device',
+        _addressedUdid,
+        '--pid',
+        '$pid',
+      ]).timeout(teardownBound);
+    } on TimeoutException {
+      _logger.warning({
+        'message': 'ios_app_terminate_timed_out',
+        'text':
+            'devicectl did not terminate the app (pid $pid) on $name within '
+            '${teardownBound.inSeconds}s. It may still be running on the '
+            'device.',
+        'device': name,
+        'pid': pid,
+      });
+      return;
+    }
+    // An app that already exited — it crashed, or the user closed it — is
+    // the outcome this was after, not a failure.
+    if (result.exitCode != 0 &&
+        !'${result.stderr}'.contains('No such process')) {
+      _logger.warning({
+        'message': 'ios_app_terminate_failed',
+        'text':
+            'devicectl could not terminate the app (pid $pid) on $name, so it '
+            'may still be running: ${result.stderr}',
+        'device': name,
+        'pid': pid,
+        'error': '${result.stderr}',
+      });
+    }
   }
 
   /// iOS physical device screenshot via pymobiledevice3 DVT service.
@@ -3968,3 +4147,105 @@ Future<void> _cdpScreenshot(
 /// One definition of where Chrome lives, shared with the preflight that reports
 /// its absence — see [chromeTool].
 String? findChrome() => chromeTool().find();
+
+/// What a physical iOS device launch does with each stop lldb reports once the
+/// app is running.
+///
+/// lldb runs synchronously and the JIT breakpoint does not auto-continue (see
+/// the launch), so every page notification arrives as a stop. A stop at a
+/// breakpoint is routine: it is resumed and not shown. Any other stop is the
+/// app itself stopping — an EXC_BAD_ACCESS, an abort — and left alone it hangs
+/// the app under the debugger while the VM service goes silent. So it is
+/// reported as app output, backtraced, and the debugger detaches and quits,
+/// which ends the session the way an exited app does on every other platform.
+class _LldbStops {
+  /// The first line of lldb's output that can belong to a stop of the running
+  /// app; everything earlier is the launch's own.
+  final int from;
+
+  final Process lldb;
+  final AppLogStream appLogs;
+  final String deviceName;
+
+  /// Set while the tool is ending the app itself, whose stops are not news.
+  bool stopping = false;
+
+  final List<String> _stop = [];
+  bool _inStop = false;
+  bool _reported = false;
+
+  _LldbStops({
+    required this.from,
+    required this.lldb,
+    required this.appLogs,
+    required this.deviceName,
+  });
+
+  static final _processStopped = RegExp(r'^Process \d+ stopped$');
+  static final _processExited = RegExp(r'^Process \d+ exited with status');
+
+  /// Whether [line] was this handler's to deal with, so it is not forwarded as
+  /// ordinary output.
+  bool consume(AppLogLine line) {
+    if (line.index < from) return false;
+    final text = line.text;
+    if (_reported) {
+      // The backtrace and detach that follow a reported stop are the report.
+      if (text.trim().isEmpty || text.startsWith('(lldb)')) return true;
+      appLogs.add(text, isError: true);
+      return true;
+    }
+    if (!_inStop) {
+      if (_processExited.hasMatch(text.trim())) {
+        if (stopping) return true;
+        // Nothing is left to debug; quitting lldb ends the session.
+        _reported = true;
+        _logger.info({
+          'message': 'ios_app_exited',
+          'text': 'The app on $deviceName exited ($text).',
+          'device': deviceName,
+          'line': text,
+        });
+        appLogs.add(text);
+        lldb.stdin.writeln('quit');
+        return true;
+      }
+      if (!_processStopped.hasMatch(text.trim())) return false;
+      _inStop = true;
+      _stop.clear();
+    }
+    _stop.add(text);
+    if (!IOSDevice._lldbTargetStopped.hasMatch(text.trim())) return true;
+
+    _inStop = false;
+    if (_stop.any((l) => l.contains('stop reason = breakpoint'))) {
+      lldb.stdin.writeln('process continue');
+      return true;
+    }
+    if (stopping) return true;
+
+    _reported = true;
+    final reason = _stop
+        .firstWhere(
+          (l) => l.contains('stop reason = '),
+          orElse: () => _stop.first,
+        )
+        .trim();
+    _logger.warning({
+      'message': 'ios_app_stopped',
+      'text':
+          'The app stopped under the debugger on $deviceName ($reason). '
+          'Reporting its backtrace and detaching.',
+      'device': deviceName,
+      'reason': reason,
+    });
+    for (final l in _stop) {
+      appLogs.add(l, isError: true);
+    }
+    lldb.stdin
+      ..writeln('thread backtrace all')
+      ..writeln('detach')
+      ..writeln('quit');
+    return true;
+  }
+}

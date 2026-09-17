@@ -74,6 +74,9 @@ class DeviceLauncher {
       multiDevice: plan.devices.length > 1,
     );
 
+    // Before the launch, not after it: the session's own disposer comes only
+    // once the launch and the VM-service connect have both finished.
+    await host.teardown.add(device.abandonLaunch);
     final AppInstance appInstance;
     try {
       appInstance = await device.launch(appFile, onLog: logSink);

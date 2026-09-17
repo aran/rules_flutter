@@ -1433,6 +1433,28 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       expect(calls.expand((args) => args), isNot(contains('--remove-all')));
     });
 
+    // A teardown that arrives after `launch` returned but before the launcher
+    // registered a session — during the VM-service connect, which can take
+    // minutes — reaches the device only through [Device.abandonLaunch]. The
+    // forward is adb-server state, so nothing else would ever remove it.
+    test(
+      'abandoning a launch force-stops the app and removes its forward',
+      () async {
+        final fakeLogcat = FakeProcess();
+        final (device, calls) = recordingDevice(fakeLogcat);
+        announceVmService(fakeLogcat);
+
+        await device.launch('/path/to/app.apk');
+        await device.abandonLaunch();
+
+        expect(
+          calls,
+          anyElement(equals(['shell', 'am', 'force-stop', 'com.example.app'])),
+        );
+        expect(calls, anyElement(equals(['forward', '--remove', 'tcp:41234'])));
+      },
+    );
+
     test('stop removes nothing when the launch forwarded nothing', () async {
       final fakeLogcat = FakeProcess();
       final (device, calls) = recordingDevice(fakeLogcat);
@@ -3019,6 +3041,17 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         '{"result":{"installedApplications":'
         '[{"installationURL":"$installationUrl"}]}}';
 
+    /// The block lldb prints when the process stops, as it prints it.
+    void emitLldbStop(FakeProcess lldb, String reason) {
+      lldb.emitStdout('Process 4242 stopped');
+      lldb.emitStdout(
+        "* thread #1, queue = 'com.apple.main-thread', "
+        'stop reason = $reason',
+      );
+      lldb.emitStdout('    frame #0: 0x000000011c3800c4');
+      lldb.emitStdout('Target 0: (Runner) stopped.');
+    }
+
     /// One entry of what `devicectl info processes --json-output` writes.
     Map<String, Object?> runningProcess({
       required int pid,
@@ -3037,9 +3070,11 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     Future<
       ({
         AppInstance instance,
+        IOSDevice device,
         FakeProcess devicectl,
         FakeProcess lldb,
         List<List<String>> starts,
+        List<List<String>> runs,
       })
     >
     launchFaked({
@@ -3052,11 +3087,16 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       FakeProcess? devicectlProcess,
       FakeProcess? lldbProcess,
       FakeProcess? iproxyProcess,
+      Object? mdnsStartError,
+      bool Function(FakeProcess lldb, String line)? lldbResponder,
+      List<List<String>>? runsLog,
+      void Function(IOSDevice device)? onDevice,
     }) async {
       final devicectl = devicectlProcess ?? FakeProcess();
       final lldb = lldbProcess ?? FakeProcess();
       final iproxy = iproxyProcess ?? FakeProcess();
       final starts = <List<String>>[];
+      final runs = runsLog ?? <List<String>>[];
 
       // A wired launch port-forwards the advertised VM-service port through
       // iproxy and waits for that forward to accept connections before
@@ -3089,6 +3129,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
             authCode: 'test=',
             addresses: deviceAddresses,
           ),
+          startError: mdnsStartError,
         ).call,
       );
 
@@ -3097,6 +3138,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         bundleId: 'com.example.test',
         mdns: mdns,
         runProcess: (exe, args) async {
+          runs.add([exe, ...args.cast<String>()]);
           final out = args.contains('--json-output')
               ? args[args.indexOf('--json-output') + 1]
               : null;
@@ -3130,13 +3172,17 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         },
       );
 
+      onDevice?.call(device);
+
       // Script the lldb side: each command the launch issues gets the reply
-      // its `waitFor` pattern is looking for.
+      // lldb itself prints. [lldbResponder] answers first, and returning true
+      // means it has handled the line.
       lldb.stdinLines.listen((line) {
+        if (lldbResponder?.call(lldb, line) ?? false) return;
         if (line.startsWith('breakpoint set')) {
           lldb.emitStdout('Breakpoint 1: where = Foo`NOTIFY...');
         } else if (line.startsWith('device process attach')) {
-          lldb.emitStdout('Process 4242 stopped');
+          emitLldbStop(lldb, 'signal SIGSTOP');
         } else if (line.startsWith('process continue')) {
           lldb.emitStdout('Process 4242 resuming');
         }
@@ -3160,9 +3206,11 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
 
       return (
         instance: await pending,
+        device: device,
         devicectl: devicectl,
         lldb: lldb,
         starts: starts,
+        runs: runs,
       );
     }
 
@@ -3334,6 +3382,25 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         reason: 'lldb holds the app itself, stopped, on the device',
       );
       expect(devicectl.killed, isTrue);
+    });
+
+    test('a launch that fails after resuming the app terminates it', () async {
+      // Discovery comes after the resume, so the app is up and running on the
+      // phone when it fails; reaping the helpers alone leaves it there.
+      final runs = <List<String>>[];
+      await expectLater(
+        launchFaked(
+          mdnsStartError: const SocketException('No route to host'),
+          runsLog: runs,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        runs,
+        contains(
+          containsAllInOrder(['process', 'terminate', '--pid', '4242']),
+        ),
+      );
     });
 
     // Wired: the VM service binds to the device's loopback, so it is only
@@ -3543,6 +3610,220 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         );
       },
     );
+
+    // iOS 26+ runs JIT code only on pages the debugger has written, and the
+    // NOTIFY_DEBUGGER_ABOUT_RX_PAGES breakpoint is how it learns of each one.
+    // Letting lldb auto-continue that breakpoint (`return False` from the
+    // script, asynchronous mode) loses hits when two threads allocate code at
+    // once — llvm/llvm-project#190956. The app then runs a page nobody wrote,
+    // stops on EXC_BAD_ACCESS (code=50) and its VM service goes silent.
+    // Measured on an iOS 27 iPhone: about half of a dozen launches froze;
+    // with the tool resuming each stop itself, 11 of 11 did not. The same
+    // change is flutter_tools af06e99a29 (flutter/flutter#190307).
+    test('runs lldb synchronously and leaves resuming to the tool', () async {
+      final r = await launchFaked();
+      final sent = r.lldb.stdinBuffer.toString();
+
+      expect(sent, contains('script lldb.debugger.SetAsync(False)'));
+      expect(sent, contains('NOTIFY_DEBUGGER_ABOUT_RX_PAGES'));
+      expect(
+        sent,
+        isNot(contains('return False')),
+        reason: 'the breakpoint script must not auto-continue',
+      );
+    });
+
+    test('resumes the app after every breakpoint stop, silently', () async {
+      final r = await launchFaked();
+      final before = 'process continue'
+          .allMatches(r.lldb.stdinBuffer.toString())
+          .length;
+
+      emitLldbStop(r.lldb, 'breakpoint 1.1');
+      await pumpEventQueue();
+      emitLldbStop(r.lldb, 'breakpoint 1.1');
+      await pumpEventQueue();
+
+      expect(
+        'process continue'.allMatches(r.lldb.stdinBuffer.toString()).length,
+        before + 2,
+      );
+      expect(
+        r.instance.logs.read(0).lines.map((l) => l.text),
+        isNot(contains(contains('stop reason = breakpoint'))),
+        reason: 'a routine JIT page stop is not app output',
+      );
+    });
+
+    test(
+      'a stop that is not a breakpoint is reported, then detached',
+      () async {
+        final r = await launchFaked();
+
+        emitLldbStop(r.lldb, 'EXC_BAD_ACCESS (code=50, address=0x11c3800c4)');
+        await pumpEventQueue();
+
+        final sent = r.lldb.stdinBuffer.toString();
+        expect(sent, contains('thread backtrace all'));
+        expect(sent, contains('detach'));
+        expect(
+          sent,
+          contains('quit'),
+          reason: 'the session ends with lldb, and the app is not coming back',
+        );
+        final logged = r.instance.logs.read(0).lines;
+        final reason = logged.firstWhere(
+          (l) => l.text.contains('EXC_BAD_ACCESS (code=50'),
+        );
+        expect(reason.isError, isTrue);
+      },
+    );
+
+    // The session lives as long as lldb, and lldb stays at its prompt after
+    // the app it debugs exits. An app closed on the phone, or killed by the
+    // system, would otherwise leave a run attached to nothing.
+    test('an app that exits on its own ends the session', () async {
+      final r = await launchFaked();
+
+      r.lldb.emitStdout('Process 4242 exited with status = 0 (0x00000000)');
+      await pumpEventQueue();
+
+      expect(r.lldb.stdinBuffer.toString(), contains('quit'));
+    });
+
+    // The attach waits on a stop, and lldb's output is replayed to every
+    // reader. A stop printed before the attach was asked for — a previous
+    // command's, or an earlier line in the same buffer — must not answer it.
+    test('does not take an earlier stop as the attach reply', () async {
+      FakeProcess? held;
+      final pending = launchFaked(
+        lldbResponder: (lldb, line) {
+          if (line.startsWith('device select')) {
+            // Printed before the attach, so it cannot be the attach's reply.
+            emitLldbStop(lldb, 'signal SIGSTOP');
+            return true;
+          }
+          if (line.startsWith('device process attach')) {
+            held = lldb;
+            return true;
+          }
+          return false;
+        },
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(held, isNotNull, reason: 'the launch reached the attach');
+      expect(
+        held!.stdinBuffer.toString(),
+        isNot(contains('process continue')),
+        reason: 'the attach has not been answered yet',
+      );
+
+      emitLldbStop(held!, 'signal SIGSTOP');
+      final r = await pending;
+      expect(r.lldb.stdinBuffer.toString(), contains('process continue'));
+    });
+
+    // Killing lldb does not kill the app on a physical device: debugserver
+    // detaches and the app keeps running, holding its VM service port and
+    // whatever the next launch expected to replace. Measured on an iOS 27
+    // iPhone, where every stopped or failed run left its app up.
+    test('stop terminates the app on the device', () async {
+      final r = await launchFaked();
+
+      final stopping = r.device.stop(r.instance);
+      // lldb reports the terminated app as a stop; that is not a crash.
+      emitLldbStop(r.lldb, 'signal SIGTERM');
+      await stopping;
+
+      expect(
+        r.runs,
+        contains(
+          containsAllInOrder([
+            'devicectl',
+            'device',
+            'process',
+            'terminate',
+            '--device',
+            'TEST-UDID',
+            '--pid',
+            '4242',
+          ]),
+        ),
+      );
+      expect(
+        r.lldb.stdinBuffer.toString(),
+        isNot(contains('thread backtrace all')),
+        reason: 'stopping the app on purpose is not a crash to report',
+      );
+    });
+
+    // SIGTERM during a launch runs the teardown before any session exists, so
+    // the device hears of it only through [Device.abandonLaunch]. Measured on
+    // an iOS 27 iPhone before this: the tool exited in a second and left its
+    // iproxy running under launchd, holding the VM service port.
+    test('abandoning a launch in flight leaves no helper behind', () async {
+      late IOSDevice device;
+      final starts = <String>[];
+      await expectLater(
+        launchFaked(
+          // The fakes do not exit when killed, so each reap would otherwise sit
+          // out the real bound twice over.
+          onDevice: (d) =>
+              device = d..teardownBound = const Duration(milliseconds: 20),
+          lldbResponder: (lldb, line) {
+            if (line.startsWith('device process attach')) {
+              // The teardown lands while the attach is outstanding.
+              unawaited(device.abandonLaunch());
+              emitLldbStop(lldb, 'signal SIGSTOP');
+              return true;
+            }
+            return false;
+          },
+        ).then((r) {
+          starts.addAll(r.starts.map((a) => a.first));
+          return r;
+        }),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        starts,
+        isEmpty,
+        reason: 'the launch must not complete after being abandoned',
+      );
+    });
+
+    test('abandoning a launch that returned terminates its app', () async {
+      final r = await launchFaked();
+
+      await r.device.abandonLaunch();
+
+      expect(r.lldb.killed, isTrue);
+      expect(r.devicectl.killed, isTrue);
+      expect(
+        r.runs,
+        contains(
+          containsAllInOrder(['process', 'terminate', '--pid', '4242']),
+        ),
+      );
+    });
+
+    // Every other launch failure is a StateError the launcher turns into a
+    // reported command failure. Discovery threw its own type, which escaped as
+    // an unhandled exception and took the tool down with a stack trace.
+    test('a discovery failure fails the launch as a StateError', () async {
+      await expectLater(
+        launchFaked(
+          mdnsStartError: const SocketException('No route to host'),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('mDNS socket'),
+          ),
+        ),
+      );
+    });
   });
 
   // `devicectl list devices` lists every device that has ever been paired,
