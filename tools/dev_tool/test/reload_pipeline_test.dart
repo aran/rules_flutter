@@ -1332,6 +1332,169 @@ void main() {
       expect(result['message'], contains('libbridge.dylib'));
     });
 
+    group('with a native hot patch', () {
+      ({
+        List<Set<String>> asked,
+        List<Set<String>> marked,
+        List<int> reassembled,
+      })
+      wirePatch(_Harness h, NativePatchOutcome outcome) {
+        final asked = <Set<String>>[];
+        final marked = <Set<String>>[];
+        final reassembled = <int>[];
+        h.pipeline.patchNativeLibs = ({movedLibraries = const {}}) async {
+          asked.add(movedLibraries);
+          return outcome;
+        };
+        h.pipeline.patchableNativeLibs = () => ['libbridge.dylib'];
+        h.pipeline.markNativeLibsPatched = (libs) async => marked.add(libs);
+        h.pipeline.reassembleNativePatched = () async => reassembled.add(1);
+        return (asked: asked, marked: marked, reassembled: reassembled);
+      }
+
+      test('a native-only edit is delivered, and the widgets rebuild to show '
+          'it', () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        h.writeSource('main.dart', 'void main() {}');
+        h.seedApplied();
+        final patch = wirePatch(
+          h,
+          const NativePatched(
+            functions: {
+              'libbridge.dylib': ['bridge::greet'],
+            },
+          ),
+        );
+        h.pipeline.ready.signalReady();
+
+        final result = await h.hotReload();
+        expect(result['succeeded'], isTrue, reason: '${result['error']}');
+        expect(result['runningCode'], 'updated');
+        expect(result['nativePatched'], {
+          'libbridge.dylib': ['bridge::greet'],
+        });
+        expect(result['message'], contains('Patched libbridge.dylib'));
+        // No Dart to send, so nothing else would rebuild what is on screen.
+        expect(patch.reassembled, hasLength(1));
+      });
+
+      test('a reload with Dart too does not reassemble twice', () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        h.writeSource('main.dart', 'void main() {}');
+        h.seedApplied();
+        h.writeSource('main.dart', 'void main() { print(1); }');
+        final patch = wirePatch(
+          h,
+          const NativePatched(
+            functions: {
+              'libbridge.dylib': ['bridge::greet'],
+            },
+          ),
+        );
+        h.pipeline.ready.signalReady();
+
+        final result = await h.hotReload();
+        expect(result['succeeded'], isTrue, reason: '${result['error']}');
+        expect(h.compiler.recompileCalls, hasLength(1));
+        expect(patch.reassembled, isEmpty);
+      });
+
+      test('a library the patch delivered is no longer called stale', () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        h.writeSource('main.dart', 'void main() {}');
+        h.nativeLibs = const NativeCodeStale([
+          'bazel-out/bin/libbridge.dylib',
+          'bazel-out/bin/libplain.dylib',
+        ]);
+        h.seedApplied();
+        final patch = wirePatch(
+          h,
+          const NativePatched(
+            functions: {
+              'libbridge.dylib': ['bridge::greet'],
+            },
+          ),
+        );
+        h.pipeline.ready.signalReady();
+
+        final result = await h.hotReload();
+        // The rebuild that moved the library is the patcher's other trigger.
+        expect(patch.asked.single, {'libbridge.dylib', 'libplain.dylib'});
+        expect(result['nativeLibsStale'], ['bazel-out/bin/libplain.dylib']);
+        expect(patch.marked.single, {'libbridge.dylib'});
+      });
+
+      test('an edit that needs a restart is withheld with the builder\'s '
+          'reason', () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        h.writeSource('main.dart', 'void main() {}');
+        h.seedApplied();
+        h.writeSource('main.dart', 'void main() { print(1); }');
+        final patch = wirePatch(
+          h,
+          const NativePatchNeedsRestart({
+            'libbridge.dylib': ['`bridge::Point` changed layout.'],
+          }),
+        );
+        h.pipeline.ready.signalReady();
+
+        final result = await h.hotReload();
+        expect(result['succeeded'], isFalse);
+        expect(result['runningCode'], 'unchanged');
+        expect(result['message'], contains('Hot reload withheld'));
+        expect(result['error'], contains('`bridge::Point` changed layout.'));
+        expect(result['nativePatchRestart'], {
+          'libbridge.dylib': ['`bridge::Point` changed layout.'],
+        });
+        expect(h.compiler.recompileCalls, isEmpty);
+        expect(h.app.calls, isEmpty);
+        expect(patch.reassembled, isEmpty);
+      });
+
+      test(
+        'a patch that loaded in one app and not another says both',
+        () async {
+          final h = await _Harness.create();
+          addTearDown(h.dispose);
+          h.writeSource('main.dart', 'void main() {}');
+          h.seedApplied();
+          wirePatch(
+            h,
+            const NativePatchLoadFailed(
+              failures: {'phone': 'missing code signature'},
+              applied: ['mac'],
+            ),
+          );
+          h.pipeline.ready.signalReady();
+
+          final result = await h.hotReload();
+          expect(result['succeeded'], isFalse);
+          // One app runs the new native code, so the run as a whole does.
+          expect(result['runningCode'], 'updated');
+          expect(result['nativePatchFailed'], {
+            'phone': 'missing code signature',
+          });
+          expect(result['nativePatchApplied'], ['mac']);
+        },
+      );
+
+      test('a restart never patches: it is the reset', () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        h.writeSource('main.dart', 'void main() {}');
+        h.seedApplied();
+        final patch = wirePatch(h, const NativePatchNotNeeded());
+        h.pipeline.ready.signalReady();
+
+        await h.restart();
+        expect(patch.asked, isEmpty);
+      });
+    });
+
     test('a restart whose bindings held restarts, and says so', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);

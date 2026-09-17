@@ -52,6 +52,7 @@ import 'compiler_config.dart';
 import 'host_tools.dart';
 import 'logging.dart';
 import 'mdns_vm_service_discovery.dart';
+import 'native_patch_delivery.dart';
 import 'reload_strategy.dart';
 import 'runfiles_helper.dart';
 import 'temp_dir.dart';
@@ -402,6 +403,11 @@ abstract class Device {
   /// refuses by name (see [WebDevice.createReloadStrategy]) rather than
   /// returning null.
   ReloadStrategy createReloadStrategy() => VmServiceReloadStrategy();
+
+  /// How a native hot patch reaches the app this device launched, or null where
+  /// none can: a device no delivery has been written for, or one that has not
+  /// launched the app it would need to know about.
+  NativePatchDelivery? get nativePatchDelivery => null;
 }
 
 /// macOS desktop device.
@@ -439,6 +445,9 @@ class MacOSDevice extends Device {
     args,
     environment: desktopLaunchEnvironment(startPaused: startPaused),
   );
+
+  @override
+  NativePatchDelivery? get nativePatchDelivery => const MacOSPatchDelivery();
 
   @override
   String get name => 'macOS';
@@ -1022,6 +1031,18 @@ class AndroidDevice extends Device {
     // the APK, which a caller that already named them skips.
     if (_packageName == null && _explicitAapt2Path == null) aapt2Tool(),
   ];
+
+  @override
+  NativePatchDelivery? get nativePatchDelivery {
+    final packageName = _packageName;
+    if (packageName == null) return null;
+    return AndroidPatchDelivery(
+      packageName: packageName,
+      adb: adbPath,
+      adbPrefix: _adbArgs(const []),
+      run: _runProcess,
+    );
+  }
 
   @override
   String get name => 'Android${deviceId != null ? ' ($deviceId)' : ''}';
@@ -1932,6 +1953,10 @@ class IOSSimulatorDevice extends Device {
   }
 
   @override
+  NativePatchDelivery? get nativePatchDelivery =>
+      IOSSimulatorPatchDelivery(run: _runProcess);
+
+  @override
   String get name => 'iOS Simulator ($udid)';
 
   @override
@@ -2359,6 +2384,25 @@ class IOSDevice extends Device {
     return resolved;
   }
 
+  /// The bundle and the installed `.app` of the last launch, which a patch is
+  /// signed and addressed by.
+  String? _launchedBundleId;
+  String? _launchedAppPath;
+
+  @override
+  NativePatchDelivery? get nativePatchDelivery {
+    final bundleId = _launchedBundleId;
+    final appPath = _launchedAppPath;
+    final resolved = udid;
+    if (bundleId == null || appPath == null || resolved == null) return null;
+    return IOSDevicePatchDelivery(
+      udid: resolved,
+      bundleId: bundleId,
+      appPath: appPath,
+      run: _runProcess,
+    );
+  }
+
   @override
   String get name => 'iOS (${udid ?? 'auto-detect'})';
 
@@ -2578,6 +2622,8 @@ class IOSDevice extends Device {
 
     // Extract bundle ID from .app/Info.plist if not provided.
     final bundleId = _bundleId ?? await _extractBundleId(installPath);
+    _launchedBundleId = bundleId;
+    _launchedAppPath = installPath;
 
     // iOS debug apps require a debugger (ptrace) to be attached before the
     // Flutter engine will start. This matches what `flutter run` does:

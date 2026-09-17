@@ -177,6 +177,29 @@ void main() {
     expect(await watch.verdict(), isA<NativeCodeStale>());
   });
 
+  test(
+    'a native hot patch clears the library it delivered, and only that',
+    () async {
+      final bridge = file('libbridge.dylib', [1]);
+      final other = file('libother.dylib', [5]);
+      final contract = file('codegen.ir', [10]);
+      final watch = await NativeLibsWatch.of({
+        bridge.path: [contract.path],
+        other.path: [contract.path],
+      });
+      bridge.writeAsBytesSync([2]);
+      other.writeAsBytesSync([6]);
+
+      // A patch put libbridge's new code into the running process; libother
+      // still runs what it launched with.
+      await watch.markPatched({'libbridge.dylib'});
+      expect(
+        await watch.verdict(),
+        isA<NativeCodeStale>().having((v) => v.libs, 'libs', [other.path]),
+      );
+    },
+  );
+
   test('a declared file the build never wrote is loud', () async {
     final lib = file('liba.dylib', [1]);
     final watch = await NativeLibsWatch.of({lib.path: const []});

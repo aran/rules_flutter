@@ -4,8 +4,8 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_binary", "dart_format_test", "dart_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library", "flutter_native_library")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -30,6 +30,7 @@ load(
     "flutter_macos_runner_lib_gen",
 )
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
+load(":c_hot_patch.bzl", "c_hot_patch")
 load(":ios_sim_debug.bzl", "ios_sim_debug_app")
 
 exports_files(["pubspec.lock"])
@@ -46,16 +47,66 @@ cc_shared_library(
     deps = [":add_cc"],
 )
 
+# `mul` is patchable in a running app: `native/mul_hot_patch.c` routes every
+# call through a pointer a patch can move, and `:mul_native` tells the dev tool
+# how patches are built. An edit to `native/mul.c` then reaches a running app on
+# a hot reload; an edit to `native/mul.h` answers that a restart is needed.
+cc_library(
+    name = "mul_body_cc",
+    srcs = ["native/mul.c"],
+    hdrs = [
+        "native/mul.h",
+        "native/mul_body.h",
+    ],
+)
+
 cc_library(
     name = "mul_cc",
-    srcs = ["native/mul.c"],
-    hdrs = ["native/mul.h"],
+    srcs = ["native/mul_hot_patch.c"],
+    # `dlopen` lives in libdl on glibc before 2.34; Apple, bionic and newer
+    # glibc need nothing, and Windows loads through kernel32.
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    deps = [":mul_body_cc"],
 )
 
 cc_shared_library(
     name = "mul",
-    visibility = ["//mul_plugin:__pkg__"],
     deps = [":mul_cc"],
+)
+
+# The patch: `native/mul.c` built on its own, beside the library the app runs.
+cc_shared_library(
+    name = "mul_patch",
+    deps = [":mul_body_cc"],
+)
+
+dart_binary(
+    name = "c_patch_tool",
+    main = "tools/c_patch_tool.dart",
+)
+
+c_hot_patch(
+    name = "mul_hot_patch",
+    contract = "native/mul.h",
+    library = ":mul",
+    patch_library = ":mul_patch",
+    sources = [
+        "native/mul.c",
+        "native/mul.h",
+        "native/mul_body.h",
+    ],
+    tool = ":c_patch_tool",
+)
+
+flutter_native_library(
+    name = "mul_native",
+    binding_contract = ["native/mul.h"],
+    hot_patch = ":mul_hot_patch",
+    library = ":mul",
+    visibility = ["//mul_plugin:__pkg__"],
 )
 
 flutter_application(
@@ -378,6 +429,7 @@ dart_analyze_test(
     options = ":options",
     target = ":%s" % t,
 ) for t in [
+    "c_patch_tool",
     "verify_ios_simulator_test",
     "verify_linux_bundle_test",
     "verify_linux_runtime_test",
@@ -395,6 +447,7 @@ dart_format_test(
     srcs = glob([
         "lib/**/*.dart",
         "test/**/*.dart",
+        "tools/**/*.dart",
     ]),
     # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
     # `latest` default would enforce a style `dart format` here cannot

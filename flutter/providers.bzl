@@ -83,6 +83,7 @@ makes a rebuilt copy of it stop a hot reload rather than merely be reported.
     fields = {
         "libraries": "depset[File]: The shared libraries (.so/.dylib/.dll) this entry contributes.",
         "binding_contract": "depset[File]: Files whose bytes decide what the generated bindings may call and how they encode a call. The dev tool compares these bytes and never parses them.",
+        "hot_patch": "struct or None: What builds patches of these libraries for a running app — `manifest` (File, the `*.hot_patch.json`) and `files` (depset[File], everything the `hot_patch` target builds, the manifest included). None when the wrapper names no `hot_patch`.",
     },
 )
 

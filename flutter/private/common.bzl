@@ -360,9 +360,16 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     agent_src_attr = getattr(ctx.attr, "_agent_extensions_src", None)
     inject_agent = (not aot) and bazel_mode == "dbg" and not profile and agent_src_attr != None
     staged_agent = None
+    staged_native_agent = None
     if inject_agent:
         staged_agent = ctx.actions.declare_file(ctx.label.name + ".agent_extensions.dart")
         ctx.actions.symlink(output = staged_agent, target_file = ctx.file._agent_extensions_src)
+
+        # The native-only half (`dart:ffi`): loading a native hot patch. A
+        # kernel compile is always native — web stages `agent.dart` alone, in
+        # its own rule.
+        staged_native_agent = ctx.actions.declare_file(ctx.label.name + ".native_agent_extensions.dart")
+        ctx.actions.symlink(output = staged_native_agent, target_file = ctx.file._native_agent_extensions_src)
 
     # Collect plugins from deps and generate the registrant. The registrant is
     # a side library (upstream _PluginRegistrant shape) the engine invokes
@@ -377,6 +384,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         plugins,
         target_platform = target_platform,
         agent_import = staged_agent.basename if staged_agent else None,
+        native_agent_import = staged_native_agent.basename if staged_native_agent else None,
     )
     registrant_uri = "org-dartlang-root:///" + registrant.path if registrant else None
 
@@ -391,6 +399,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
             ctx,
             plugins,
             agent_import = staged_agent.basename if staged_agent else None,
+            native_agent_import = staged_native_agent.basename if staged_native_agent else None,
         )
 
     # Resolve the kernel entrypoint: the user's main, keyed by its package:
@@ -399,7 +408,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     if registrant:
         all_srcs = all_srcs + [registrant]
     if staged_agent:
-        all_srcs = all_srcs + [staged_agent]
+        all_srcs = all_srcs + [staged_agent, staged_native_agent]
 
     # Collect extra frontend_server flags from build flag attrs.
     extra_frontend_flags = []
@@ -946,6 +955,11 @@ AGENT_EXTENSIONS_ATTR = {
     "_agent_extensions_src": attr.label(
         doc = "AI-agent service-extension source. Registered from the generated plugin registrant in debug builds; ignored in AOT/release.",
         default = Label("//flutter/private/agent_extensions:agent.dart"),
+        allow_single_file = [".dart"],
+    ),
+    "_native_agent_extensions_src": attr.label(
+        doc = "The native-only agent extensions (`dart:ffi`): loading a `flutter_native_library.hot_patch`. Staged beside `_agent_extensions_src` in native debug builds; never on web.",
+        default = Label("//flutter/private/agent_extensions:native_patch.dart"),
         allow_single_file = [".dart"],
     ),
 }

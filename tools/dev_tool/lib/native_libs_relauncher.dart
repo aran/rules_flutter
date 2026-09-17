@@ -71,6 +71,16 @@ class Relauncher {
   /// loose native libraries, which never constructs one of these either.
   final NativeLibsWatch? nativeLibs;
 
+  /// The libraries a native hot patch has changed in the running process, by
+  /// file name. Non-empty means the process runs code its bundle does not hold,
+  /// so a restart relaunches even when the rebuilt bundle matches the launched
+  /// one — an edit patched in and then undone is exactly that.
+  final List<String> Function()? patchedLibs;
+
+  /// Run after a relaunch the rest of the run has to hear about: the native hot
+  /// patcher re-snapshots the image the new process loaded.
+  final Future<void> Function()? afterRelaunch;
+
   Relauncher({
     required this.appFile,
     required this.rebuild,
@@ -81,6 +91,8 @@ class Relauncher {
     required this.logger,
     required Map<String, String> liveFingerprint,
     this.nativeLibs,
+    this.patchedLibs,
+    this.afterRelaunch,
   }) : _live = liveFingerprint;
 
   /// Rebuild, and relaunch if the native libraries moved.
@@ -95,8 +107,13 @@ class Relauncher {
       );
     }
     final fingerprint = await nativeLibsFingerprint(appFile);
-    if (fingerprintsEqual(fingerprint, _live)) return const RelaunchNotNeeded();
-    final changed = changedLibs(_live, fingerprint);
+    final patched = patchedLibs?.call() ?? const [];
+    final bundleMoved = !fingerprintsEqual(fingerprint, _live);
+    if (!bundleMoved && patched.isEmpty) return const RelaunchNotNeeded();
+    // The bundle's own difference when it has one. Only when it has none is the
+    // patch the reason — an edit patched in and then undone — and then the
+    // patched libraries are what the reply has to name.
+    final changed = bundleMoved ? changedLibs(_live, fingerprint) : patched;
     logger.info({
       'message': 'native_libs_changed',
       'text': 'Native libraries changed (${changed.join(', ')}); relaunching.',
@@ -167,6 +184,7 @@ class Relauncher {
     }
     _live = fingerprint;
     await nativeLibs?.markLive();
+    await afterRelaunch?.call();
 
     return Relaunched(
       changedLibs: changed,

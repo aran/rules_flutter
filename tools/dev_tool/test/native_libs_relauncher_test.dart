@@ -138,6 +138,8 @@ class _Harness {
 
   Future<Relauncher> relauncher({
     required Future<bool> Function() rebuild,
+    List<String> Function()? patchedLibs,
+    Future<void> Function()? afterRelaunch,
   }) async {
     return Relauncher(
       appFile: appDir,
@@ -148,6 +150,8 @@ class _Harness {
       assetsDir: '',
       logger: Logger('test.relauncher'),
       liveFingerprint: await nativeLibsFingerprint(appDir),
+      patchedLibs: patchedLibs,
+      afterRelaunch: afterRelaunch,
     );
   }
 }
@@ -169,6 +173,48 @@ void main() {
     expect(await r.relaunchIfNeeded(), isA<RelaunchNotNeeded>());
     expect(rebuilds, 1);
     expect(h.device.launches, 0);
+  });
+
+  group('over a native hot patch', () {
+    // A patched process runs code its bundle does not hold. A restart is the
+    // reset, so it relaunches even when the rebuilt bundle is the launched one
+    // — which is exactly an edit that was patched in and then undone.
+    test('a live patch relaunches an unchanged bundle, naming the patched '
+        'library', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      var rebaselined = 0;
+      final r = await h.relauncher(
+        rebuild: () async => true,
+        patchedLibs: () => ['libnative.dylib'],
+        afterRelaunch: () async => rebaselined++,
+      );
+      expect(
+        await r.relaunchIfNeeded(),
+        isA<Relaunched>().having((o) => o.changedLibs, 'changedLibs', [
+          'libnative.dylib',
+        ]),
+      );
+      expect(h.device.launches, 1);
+      // The hot patcher re-snapshots the image the new process loaded.
+      expect(rebaselined, 1);
+    });
+
+    test(
+      'no live patch and an unchanged bundle is still the fast path',
+      () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        var rebaselined = 0;
+        final r = await h.relauncher(
+          rebuild: () async => true,
+          patchedLibs: () => const [],
+          afterRelaunch: () async => rebaselined++,
+        );
+        expect(await r.relaunchIfNeeded(), isA<RelaunchNotNeeded>());
+        expect(rebaselined, 0);
+      },
+    );
   });
 
   test('a failed rebuild reports it and relaunches nothing', () async {

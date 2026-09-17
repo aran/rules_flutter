@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:add_plugin/add_plugin.dart';
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide Column;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:mul_plugin/mul_plugin.dart';
@@ -137,9 +137,24 @@ class MyApp extends StatelessWidget {
           title: const Text('FFI Example'),
         ),
         body: Center(
-          child: Text(
-            '3 + 4 = $addResult\n3 × 4 = $mulResult\nsqlite3 $sqliteVersion',
-            style: const TextStyle(fontSize: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '3 + 4 = $addResult\n'
+                '3 × 4 = $mulResult\n'
+                'sqlite3 $sqliteVersion',
+                style: const TextStyle(fontSize: 32),
+              ),
+              // Called on every build rather than once in `main`, so a hot
+              // reload shows what `mul` answers now: `mul` is patchable, and
+              // an edit to `native/mul.c` reaches this line without a restart.
+              Text(
+                'live 3 × 4 = ${mul(3, 4)}',
+                key: const ValueKey('liveMul'),
+                style: const TextStyle(fontSize: 32),
+              ),
+            ],
           ),
         ),
       ),

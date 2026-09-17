@@ -38,6 +38,16 @@ Map<String, dynamic> toWire(CommandReport report) {
     };
   }
 
+  // Returning outright, like the refusal above: the native half stopped the
+  // command before anything was compiled.
+  if (_nativePatchRefusal(report) case final refusal?) {
+    return {
+      ..._verdict(report),
+      ...refusal,
+      'message': '${report.verb} withheld: ${refusal['error']}',
+    };
+  }
+
   // Before everything below, and returning outright: the command stopped
   // here, so there is no outcome, no strategy and no asset diff to fold in —
   // and falling through would reach the `null` outcome arm and call a broken
@@ -96,7 +106,10 @@ Map<String, dynamic> toWire(CommandReport report) {
       map['filesRecompiled'] = filesRecompiled.toList()..sort();
       map['isEmpty'] = isEmpty;
     case ReloadNoChange():
-      map['message'] = '${report.verb} successful (no changes detected)';
+      // A native patch is a change, whatever the Dart half found.
+      map['message'] = report.nativePatch is NativePatched
+          ? '${report.verb} successful'
+          : '${report.verb} successful (no changes detected)';
     case ReloadCompileFailed(:final diagnostics):
       map['message'] = 'Compilation failed';
       map['error'] = diagnostics.isNotEmpty
@@ -144,6 +157,19 @@ Map<String, dynamic> toWire(CommandReport report) {
     map['nativeLibsStale'] = libs;
     map['message'] =
         '${map['message'] ?? _headline(report)}. ${_staleCodeClause(libs)}';
+  }
+
+  // Delivered native code, said on the success sentence the way a stale library
+  // is: which libraries, and what the patch replaced.
+  if (report.nativePatch case NativePatched(
+    :final functions,
+    :final reverted,
+  )) {
+    if (functions.isNotEmpty) map['nativePatched'] = functions;
+    if (reverted.isNotEmpty) map['nativeReverted'] = reverted;
+    map['message'] =
+        '${map['message'] ?? _headline(report)}. '
+        '${_patchedClause(functions, reverted)}';
   }
 
   if (report.relaunch case final relaunched?) {
@@ -206,6 +232,55 @@ String _withCursorCaveat(CommandReport report, String sentence) =>
     ? sentence
     : '$sentence. The control channel keeps its port and token; '
           '/logs cursors do not survive — re-tail.';
+
+/// The wire fields of a native patch that stopped the command, or null when it
+/// did not.
+///
+/// Each says what the reader can do next. A restart reason is the patch
+/// builder's own sentence about their edit; a build failure is their code or the
+/// builder; a load failure names the apps, because one app running the new code
+/// and another not is the state they have to know about.
+Map<String, dynamic>? _nativePatchRefusal(
+  CommandReport report,
+) => switch (report.nativePatch) {
+  NativePatchNeedsRestart(:final reasons) => {
+    'error':
+        '${reasons.keys.join(', ')} changed in a way that cannot be '
+        'patched into the running app: '
+        '${[for (final r in reasons.values) ...r].join(' ')} Nothing was '
+        'compiled and nothing was sent. A restart (R) relaunches the app '
+        'on the new code.',
+    'nativePatchRestart': reasons,
+  },
+  NativePatchBuildFailed(:final message) => {
+    'error':
+        'the native patch could not be built, so nothing was compiled and '
+        'nothing was sent.\n$message',
+  },
+  NativePatchLoadFailed(:final failures, :final applied) => {
+    'error':
+        'the native patch did not load in '
+        '${failures.entries.map((e) => '${e.key} (${e.value})').join(', ')}'
+        '${applied.isEmpty ? '' : ', and did in ${applied.join(', ')}, which now run the new native code'}'
+        '. The Dart edit was not sent. A restart (R) relaunches the app on '
+        'the new code.',
+    'nativePatchFailed': failures,
+    'nativePatchApplied': applied,
+  },
+  _ => null,
+};
+
+/// What a delivered native patch owes the reader: which code is new.
+String _patchedClause(
+  Map<String, List<String>> functions,
+  List<String> reverted,
+) => [
+  for (final MapEntry(key: lib, value: replaced) in functions.entries)
+    'Patched $lib in the running app'
+        '${replaced.isEmpty ? '' : ' (${replaced.join(', ')})'}',
+  if (reverted.isNotEmpty)
+    '${reverted.join(', ')} back on the code the app launched with',
+].join('; ');
 
 /// Whether this verdict stopped the command before it compiled anything.
 bool _refusedForNativeLibs(NativeLibsVerdict? verdict) =>

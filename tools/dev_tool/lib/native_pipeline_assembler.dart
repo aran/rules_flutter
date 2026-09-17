@@ -36,8 +36,10 @@ import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/session_reloader.dart';
 import 'hot_reload/workspace.dart';
 import 'logging.dart';
+import 'native_hot_patcher.dart';
 import 'native_libs_fingerprint.dart';
 import 'native_libs_relauncher.dart';
+import 'native_patch_delivery.dart';
 import 'native_libs_watch.dart';
 import 'package_roots.dart';
 import 'reload_pipeline.dart';
@@ -793,6 +795,7 @@ class NativePipelineAssembler {
     // loose native libraries skip all of this and keep the instant restart path.
     final fingerprint = await nativeLibsFingerprint(launched.appFile);
     if (fingerprint.isEmpty) return;
+    final hotPatcher = await _armHotPatcher(launched, nativeLibs);
     final relauncher = Relauncher(
       appFile: launched.appFile,
       rebuild: _bundleRebuild.run,
@@ -803,8 +806,85 @@ class NativePipelineAssembler {
       logger: logger,
       liveFingerprint: fingerprint,
       nativeLibs: nativeLibs,
+      patchedLibs: hotPatcher == null
+          ? null
+          : () => hotPatcher.livePatchedLibraries,
+      afterRelaunch: hotPatcher == null
+          ? null
+          : () => _rebaselineHotPatcher(hotPatcher),
     );
     pipeline.relaunchIfNativeLibsChanged = relauncher.relaunchIfNeeded;
+  }
+
+  /// Arm native hot reload for the libraries the launched app bundles, if any
+  /// declares a `flutter_native_library.hot_patch`.
+  ///
+  /// A failure to arm is said at launch, in the builder's or the matcher's own
+  /// words, and the run goes on without it: the app is fine, a hot restart still
+  /// delivers a native edit, and the reader learns now rather than on the first
+  /// edit that a reload will not.
+  Future<NativeHotPatcher?> _armHotPatcher(
+    NativeLaunch launched,
+    NativeLibsWatch? nativeLibs,
+  ) async {
+    final scratch = await createTempDir('flutter_hot_patch_');
+    await host.teardown.add(() => deleteTempDir(scratch));
+    final NativeHotPatcher? armed;
+    try {
+      armed = await NativeHotPatcher.arm(
+        workspace: workspace,
+        build: () => host.bazel.buildAspectOutputs(
+          target,
+          workspace: workspace,
+          aspect: hotPatchAspect,
+          outputGroup: hotPatchOutputGroup,
+          compilationMode: 'dbg',
+          extraArgs: _launchArgs,
+        ),
+        appFile: launched.appFile,
+        targets: () => [
+          for (final session in host.sessions)
+            if (session.vmClient != null) _SessionPatchTarget(session),
+        ],
+        logger: logger,
+        scratch: scratch,
+      );
+    } on Exception catch (e) {
+      _warnHotPatchUnavailable(e);
+      return null;
+    }
+    if (armed == null) return null;
+    final patcher = armed;
+    pipeline.patchNativeLibs = patcher.patchIfMoved;
+    pipeline.patchableNativeLibs = () => patcher.libraries;
+    pipeline.markNativeLibsPatched = nativeLibs?.markPatched;
+    pipeline.reassembleNativePatched = patcher.reassembleChanged;
+    return patcher;
+  }
+
+  /// Re-snapshot after a relaunch. A failure leaves the run patching nothing —
+  /// said, not swallowed: a restart still delivers native edits.
+  Future<void> _rebaselineHotPatcher(NativeHotPatcher patcher) async {
+    try {
+      await patcher.rebaseline();
+    } on Exception catch (e) {
+      pipeline.patchNativeLibs = null;
+      _warnHotPatchUnavailable(e);
+    }
+  }
+
+  /// Every way arming can fail ends the same way — the run goes on and native
+  /// edits need a restart — so it is said the same way, in the failure's own
+  /// words: a [DevToolException] is already a sentence, and anything else
+  /// (a zip that would not read, a builder that would not start) is named.
+  void _warnHotPatchUnavailable(Exception e) {
+    logger.warning({
+      'message': 'native_hot_patch_unavailable',
+      'text': e is DevToolException
+          ? e.message
+          : 'Native hot reload is unavailable in this run, so native edits '
+                'need a hot restart: $e',
+    });
   }
 
   /// The dev package_config, repointed off Bazel's per-command execroot forest.
@@ -962,5 +1042,33 @@ class NativePipelineAssembler {
     });
     pipeline.ready.signalUnavailable(reason);
     pipeline.strategy = configDevice.createReloadStrategy();
+  }
+}
+
+/// One session as the native hot patcher addresses it.
+class _SessionPatchTarget implements NativePatchTarget {
+  final DeviceSession session;
+
+  _SessionPatchTarget(this.session);
+
+  @override
+  String get appId => session.appId;
+
+  @override
+  NativePatchDelivery? get delivery => session.device.nativePatchDelivery;
+
+  @override
+  Future<Map<String, dynamic>?> callExtension(
+    String method,
+    Map<String, String> args,
+  ) {
+    final client = session.vmClient;
+    if (client == null) {
+      throw DevToolException(
+        '$appId has no VM service connection, so no patch can be loaded into '
+        'it.',
+      );
+    }
+    return client.callServiceExtension(method, args: args);
   }
 }

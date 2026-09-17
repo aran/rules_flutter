@@ -146,6 +146,20 @@ class NativeLibsWatch {
     return NativeCodeStale(movedLibs);
   }
 
+  /// Record that the process now runs the on-disk code of the libraries named
+  /// [fileNames] — a native hot patch delivered it without a new process.
+  ///
+  /// Their contracts are not advanced: a patch is only delivered when the
+  /// bindings did not move, so there is nothing about them to record.
+  Future<void> markPatched(Set<String> fileNames) async {
+    final patched = [
+      for (final library in contracts.keys)
+        if (fileNames.contains(library.split('/').last)) library,
+    ];
+    if (patched.isEmpty) return;
+    _live = {..._live, ...await _read(patched)};
+  }
+
   /// Record that the process now runs the libraries on disk.
   ///
   /// Only a relaunch earns this, and for the same reason `Relauncher` advances its

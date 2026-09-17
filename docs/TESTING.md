@@ -473,6 +473,7 @@ When re-running to reproduce, use `--nocache_test_results` and read the
 | `initial_compile_recovery_e2e_test.dart` | macOS | A session whose **first** compile failed still reloads. Breaks `hello_world/lib/main.dart` inside the window the initial compile reads it in — on the `package_roots_stabilized` log line, after the launch build and before the compile — then fixes it and requires the watcher-driven reload to land and the app to render the fix. Also pins the reload in between as *answering* with the compiler's diagnostics, and `initial_compile_failed` as carrying `recoverable: true` (JSON mode drops the human `text`, so that field is all a machine client gets). Without the fix, the reload afterwards fails with `Initial compile failed; hot reload is unavailable.` |
 | `dev_build_recovery_e2e_test.dart` | macOS | A session whose **launch-time `bazel build`** failed still reloads — one step earlier than the row above, on the wider window. The assembler builds the flutter_application (whose `DefaultInfo` carries the app kernel under `is_debug`) before it starts any compiler, so a source that does not compile fails it; between `run`'s own launch build and this one sits an entire app launch, which is the window a developer saving a typo while the app comes up actually lands in. Breaks `hello_world/lib/main.dart` on the `resolving_toolchain` log line — the last thing logged before the cquery and the build, and **not** the build's own `bazel_command` record, since an edit racing bazel's file read is a coin flip whose lost half lands in the *other* recovery path. Asserts `dev_build_failed` carrying `recoverable: true` (JSON mode drops the human `text`), that it does not name the frontend server, and that the fix reloads and renders. Every edit is derived from the pristine file and asserted to have changed something, so a no-op edit cannot pass |
 | `native_libs_reload_e2e_test.dart` | macOS | Both directions of a hot reload whose **own rebuild** moved a native library. Over `e2e/codegen`, the one workspace that is source-assembled (so a reload runs `bazel build`) *and* bundles a `dlopen`ed library — through a `flutter_native_library` wrapper declaring the C header as its binding contract, which is what makes both directions drivable from one fixture: editing `native_add.c` moves the library alone, editing `native_add.h` moves both. Case A (code only) asserts the reload **succeeds**, the window shows the new Dart, and `nativeLibsStale` names the library anyway — then that a restart relaunches and the reload after it is clean, which is the guard against a relaunch that failed to re-baseline and would report the library stale forever. Case B (contract too) asserts the reload is **withheld** and the window still shows case A's Dart, which is what makes `runningCode: unchanged` checkable rather than self-reported. Waits for `frontend_server_ready` before editing, because an edit inside the assembler's own build window is compiled into the baseline (see `NativeLibsWatch.of`). A second group does the same two verdicts over **Chrome**, against a `native_modules` entry on `codegen`'s web bundle (an eight-byte wasm header plus a text contract — the tool compares bytes and parses neither), and ends by asserting that a web *restart* re-baselines: the page re-runs `main()` and re-fetches the module, so the reload after it must report nothing stale |
+| `native_hot_patch_e2e_test.dart` | macOS | A native edit **patched into the running app** by a hot reload, over `ffi_example`'s hand-written C `hot_patch` (`native/mul_hot_patch.c`, `tools/c_patch_tool.dart`). `ffi_example` is not source-assembled, so the only thing that can notice the edit is the patcher's stat of the manifest's `sources`. Asserts, in one run: an edit to `native/mul.c` answers `nativePatched` and the `live 3 × 4` line shows the new value (which also pins the reassemble a reload with no Dart delta needs), the value `main` computed at launch is still on screen (no restart), a reload with nothing new says nothing native, an edit to `native/mul.h` is withheld with the app unchanged, and undoing the edit answers `nativeReverted` and shows the launched value again. Waits for `native_hot_patch_armed` before editing, because the snapshot is taken at assembly |
 | `relaunch_e2e_test.dart` | macOS | `app.restart`'s **relaunch** branch: edits `ffi_example/native/mul.c` so the rebuilt dylib differs, then asserts the HTTP control channel survives the process swap and the relaunched app answers on it. The only test that reaches this branch — it needs a real native-library change |
 | `stop_during_build_e2e_test.dart` | macOS | Stopping a run **while its launch build is running** stops the build: `SIGTERM` and `SIGINT` to the tool's pid alone (exit `143`/`130`), `daemon.shutdown` (answered, exit `0`), and `SIGINT` to `flutter_bazel build` (exit `130`). Each forces a real build with a `--dart-define` no earlier run used and stops it on bazel's `Analyzed target` line, then asserts bazel's own `Bazel caught terminate signal`, that nothing of the command's process group is left, that `bazel --noblock_for_lock info` answers at once, and that no `command_failed` was reported. Signalling bazelisk's pid instead of its group fails it: the build runs on to `Build completed successfully` |
 | `plugin_example_e2e_test.dart` | macOS/iOS-sim/Android/Chrome | Plugin apps render non-blank frames; Dart plugin registration survives `app.restart` (macOS); web plugins register in both DDC and `--wasm` dev mode (Chrome) |
@@ -1233,6 +1234,7 @@ script's own package requires ≥ 3.12.
 | dev_tool (e2e) | `dart run tools/dev_tool/tool/e2e.dart` — needs a Dart ≥3.12 on `PATH`, see § 2 |
 | dev_tool reload paths (`run_command.dart`, `vm_service_client.dart`, `hot_reload/**`, `session.dart`, `reload_pipeline.dart`) | dev_tool unit + e2e **and** manual hot reload **and** hot restart — see "Hot reload / hot restart (manual)" |
 | dev_tool native-library checks (`native_libs_watch.dart`, `native_libs_verdict.dart`, `native_libs_fingerprint.dart`, `native_libs_relauncher.dart`, `flutter_native_library`, the `nativeLibs` / `nativeLibContracts` fields of `_dev_config.json`) | `native_libs_reload_e2e_test.dart` (a reload delivered and a reload withheld) **and** `relaunch_e2e_test.dart` (a restart relaunching) — the halves of one contract, and no unit test can reach any of them |
+| Native hot patching (`native_hot_patcher.dart`, `native_hot_patch_tool.dart`, `native_patch_delivery.dart`, `native_image_identity.dart`, `flutter/native_hot_patch.bzl`, `flutter_native_library.hot_patch`, `agent_extensions/native_patch.dart`) | dev_tool unit **and** `native_hot_patch_e2e_test.dart` (macOS) **and** `relaunch_e2e_test.dart` **and** the manual device check — a native edit patched into the app on the iOS simulator, an iOS device and Android, see "Native hot patch on devices (manual)" |
 | dev_tool app-output forwarding (`app_log.dart`, `app_log_sink.dart`, `cdp_console.dart`, `vm_service_logs.dart`, `device.dart` launch paths) | dev_tool unit + e2e **and** the manual per-platform checks below |
 | dev_tool iOS device paths (`mdns_vm_service_discovery.dart`, `IOSDevice` in `device.dart`) | dev_tool unit **and** manual hot reload + hot restart on hardware, **wired and wireless** — see "iOS hardware (manual)" |
 | New or changed `dart_analyze_test` coverage (an operand's `srcs` glob or `main`) | Root `//...` **and** the non-vacuity probe — see § 1 |
@@ -1352,6 +1354,50 @@ entirely, so their absence looks like normal operation.
 Finally, check the pipe-pressure case: run an app that prints continuously well
 past 64 KB and confirm it neither stalls nor dies. An unread pipe is the failure
 mode that only shows up under sustained logging.
+
+### Native hot patch on devices (manual)
+
+`native_hot_patch_e2e_test.dart` covers macOS. On a device the same reload
+also signs the patch (iOS device), copies it through `simctl`'s shared
+filesystem, `devicectl` or `adb`, and loads it from the app's own container, and
+none of that is reachable from the host test. Check it by hand whenever
+`native_patch_delivery.dart`, `agent_extensions/native_patch.dart` or a device's
+`nativePatchDelivery` changes.
+
+The fixture is `e2e/ffi_example`'s patchable `mul`: `native/mul.c`,
+`native/mul_body.h`, `native/mul_hot_patch.c`, `c_hot_patch.bzl`,
+`tools/c_patch_tool.dart`, and the `mul_*` targets in its `BUILD.bazel`. The
+iOS simulator runs it in place:
+
+```sh
+cd e2e/ffi_example
+flutter_bazel run -t //:ffi_ios -d ios-simulator
+```
+
+For Android and a physical iPhone, copy those files and targets into a copy of
+`e2e/android_example` or `e2e/ios_example` (`//:app_device`), add
+`:mul_native` to the app's `native_deps`, and render `mul(3, 4)` in a widget's
+`build` with `DynamicLibrary.open('libmul.so')` (Android) or
+`DynamicLibrary.open('mul.framework/mul')` (iOS).
+
+On each: wait for `native_hot_patch_armed` in the log, read the `mul` line,
+change `return a * b;` to `return a * b + 1000;`, press `r`, and confirm:
+
+- the reply names `nativePatched` and the line reads 1012 **on screen**
+  (`app.getText` on an iOS device, where a screenshot needs the tunnel daemon);
+- the reload took about a second — measured 0.43 s on the iOS simulator, 0.47 s
+  on the Android emulator, 1.2 s on an iPhone 12 Pro over USB (signing and the
+  `devicectl` copy), against a relaunch of 16 s and 27 s on the last two;
+- undoing the edit and pressing `r` brings back 12 (`nativeReverted`; on the
+  Android emulator the fixture answered with a fresh `nativePatched` instead,
+  because its rebuilt patch library did not compare equal to the launch copy —
+  the value is still 12);
+- editing `native/mul.h` withholds the reload, and `R` relaunches.
+
+On an iPhone the patch is signed with the certificate that signed the app, read
+out of the installed `.app`. A signing failure answers `nativePatchFailed` with
+`codesign`'s own message; an unsigned or ad-hoc signed patch is what the device
+refuses with "missing code signature".
 
 ### iOS hardware (manual)
 

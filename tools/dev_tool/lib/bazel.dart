@@ -89,6 +89,111 @@ class BazelBuildResult {
 /// Bounded, and deliberately small: the whole stream already reaches the user
 /// (text mode) and a machine client (`subprocess_output` records) line by line
 /// as it arrives. This exists only so a failure record can name its own cause.
+/// What [Bazel.buildAspectOutputs] built.
+class BazelAspectOutputs {
+  final int exitCode;
+
+  /// Every file in the requested group, absolute.
+  final List<String> files;
+
+  /// The directory the build ran actions in, which paths an aspect's manifests
+  /// name are relative to. Null when the build failed, or when the group held
+  /// no built file to locate it by.
+  final String? executionRoot;
+
+  /// The tail of the build's output when it failed.
+  final String stderr;
+
+  const BazelAspectOutputs({
+    required this.exitCode,
+    required this.files,
+    required this.executionRoot,
+    required this.stderr,
+  });
+
+  bool get success => exitCode == 0;
+}
+
+/// The files [aspect] put in [outputGroup], read from a build's JSON event
+/// stream (`--build_event_json_file`).
+///
+/// An aspect's completion names its output groups by file-set id, and a file
+/// set lists files plus further sets, so the files are the closure of those
+/// ids. The execution root comes from a built file's `uri`: the event gives the
+/// path under it (`pathPrefix` + `name`) as well as the absolute location, and
+/// the difference is the root. Source files carry no prefix and live elsewhere,
+/// so only a built file can answer.
+BazelAspectOutputs aspectOutputsFromBuildEvents(
+  String events, {
+  required String aspect,
+  required String outputGroup,
+}) {
+  final sets = <String, Map<String, Object?>>{};
+  final roots = <String>[];
+  for (final line in LineSplitter.split(events)) {
+    if (line.trim().isEmpty) continue;
+    final event = jsonDecode(line) as Map<String, Object?>;
+    final id = event['id'] as Map<String, Object?>? ?? const {};
+    final namedSet = id['namedSet'] as Map<String, Object?>?;
+    if (namedSet != null) {
+      sets[namedSet['id'] as String] =
+          event['namedSetOfFiles'] as Map<String, Object?>? ?? const {};
+      continue;
+    }
+    final completed = id['targetCompleted'] as Map<String, Object?>?;
+    // Matched on the aspect's own name: the event spells the repository in
+    // its canonical form (`@@rules_flutter+//…`), which is not what was passed.
+    final completedAspect = completed?['aspect'] as String?;
+    if (completedAspect == null ||
+        completedAspect.split('%').last != aspect.split('%').last) {
+      continue;
+    }
+    final groups =
+        (event['completed'] as Map<String, Object?>?)?['outputGroup']
+            as List? ??
+        const [];
+    for (final group in groups.cast<Map<String, Object?>>()) {
+      if (group['name'] != outputGroup) continue;
+      for (final set in (group['fileSets'] as List? ?? const [])) {
+        roots.add((set as Map<String, Object?>)['id'] as String);
+      }
+    }
+  }
+
+  final files = <String>{};
+  String? executionRoot;
+  final seen = <String>{};
+  final pending = [...roots];
+  while (pending.isNotEmpty) {
+    final setId = pending.removeLast();
+    if (!seen.add(setId)) continue;
+    final set = sets[setId] ?? const {};
+    for (final file in (set['files'] as List? ?? const [])) {
+      final entry = file as Map<String, Object?>;
+      final uri = entry['uri'] as String?;
+      if (uri == null || !uri.startsWith('file://')) continue;
+      final path = Uri.parse(uri).toFilePath();
+      files.add(path);
+      final prefix = (entry['pathPrefix'] as List? ?? const []).cast<String>();
+      if (executionRoot == null && prefix.isNotEmpty) {
+        final relative = [...prefix, entry['name'] as String].join('/');
+        if (path.endsWith('/$relative')) {
+          executionRoot = path.substring(0, path.length - relative.length - 1);
+        }
+      }
+    }
+    for (final nested in (set['fileSets'] as List? ?? const [])) {
+      pending.add((nested as Map<String, Object?>)['id'] as String);
+    }
+  }
+  return BazelAspectOutputs(
+    exitCode: 0,
+    files: files.toList()..sort(),
+    executionRoot: executionRoot,
+    stderr: '',
+  );
+}
+
 class _TailedOutput extends SubprocessOutput {
   static const _maxLines = 40;
 
@@ -382,6 +487,99 @@ class Bazel {
       'workspace': workspace,
     });
 
+    final built = await _streamed(args, workspace);
+    if (built.exitCode != 0) {
+      return BazelBuildResult(
+        exitCode: built.exitCode,
+        outputFiles: [],
+        stderr: built.tail,
+      );
+    }
+
+    // Query for output files with the same flags used for build.
+    final cqueryArgs = ['cquery', target, '--output=files'];
+    if (compilationMode != null) {
+      cqueryArgs.addAll(['-c', compilationMode]);
+    }
+    cqueryArgs.addAll(extraArgs);
+    final cqueryResult = await run(cqueryArgs, workingDirectory: workspace);
+    final outputFiles = _absolutizeCqueryPaths(
+      cqueryResult.stdout as String,
+      workspace,
+    );
+
+    return BazelBuildResult(
+      exitCode: built.exitCode,
+      outputFiles: outputFiles,
+      stderr: cqueryResult.stderr as String,
+    );
+  }
+
+  /// Build one output group an [aspect] adds to [target], and return its files.
+  ///
+  /// The files come from the build's own event stream, not from a cquery: a
+  /// cquery lists a target's outputs and never an aspect's, and it re-runs
+  /// analysis with options of its own. The stream also carries where each
+  /// output sits under the execution root, which is the one directory an
+  /// aspect's consumers can resolve every path it hands them against.
+  ///
+  /// Throws [BazelCancelled] if [close] stopped it.
+  Future<BazelAspectOutputs> buildAspectOutputs(
+    String target, {
+    required String workspace,
+    required String aspect,
+    required String outputGroup,
+    String? compilationMode,
+    List<String> extraArgs = const [],
+  }) async {
+    final events = await Directory.systemTemp.createTemp('flutter_bep_');
+    try {
+      final eventFile = '${events.path}/events.json';
+      // Not [bazelBuildArgs]: the group replaces the default outputs rather
+      // than adding to them (`--output_groups=<name>`, no `+`), and the dev
+      // files aspect stays off. Either would make this build the launch
+      // target's own bundle and the app's kernel — on Android an APK repackage
+      // — when all that was asked for is what the aspect collects.
+      final args = [
+        'build',
+        target,
+        if (compilationMode != null) ...['-c', compilationMode],
+        ...extraArgs,
+        '--aspects=$aspect',
+        '--output_groups=$outputGroup',
+        '--build_event_json_file=$eventFile',
+      ];
+      _logger.info({
+        'message': 'bazel_command',
+        'text': 'Running: bazel ${args.join(' ')}',
+        'args': args,
+        'workspace': workspace,
+      });
+      final built = await _streamed(args, workspace);
+      if (built.exitCode != 0) {
+        return BazelAspectOutputs(
+          exitCode: built.exitCode,
+          files: const [],
+          executionRoot: null,
+          stderr: built.tail,
+        );
+      }
+      return aspectOutputsFromBuildEvents(
+        await File(eventFile).readAsString(),
+        aspect: aspect,
+        outputGroup: outputGroup,
+      );
+    } finally {
+      await events.delete(recursive: true);
+    }
+  }
+
+  /// Run a build to completion with both of bazel's streams relayed as they
+  /// arrive, and keep the tail of stderr for a failure to quote.
+  Future<({int exitCode, String tail})> _streamed(
+    List<String> args,
+    String workspace,
+  ) async {
     final command = await _start(args, workspace);
     // Both of bazel's streams, each labelled, so a JSON consumer can tell them
     // apart.
@@ -411,31 +609,7 @@ class Bazel {
     // failure has to be able to say what bazel said, and the streamed copy
     // above is gone by then — scrolled past in a terminal, and thousands of
     // records back in a machine client's log.
-    if (exitCode != 0) {
-      return BazelBuildResult(
-        exitCode: exitCode,
-        outputFiles: [],
-        stderr: err.tail,
-      );
-    }
-
-    // Query for output files with the same flags used for build.
-    final cqueryArgs = ['cquery', target, '--output=files'];
-    if (compilationMode != null) {
-      cqueryArgs.addAll(['-c', compilationMode]);
-    }
-    cqueryArgs.addAll(extraArgs);
-    final cqueryResult = await run(cqueryArgs, workingDirectory: workspace);
-    final outputFiles = _absolutizeCqueryPaths(
-      cqueryResult.stdout as String,
-      workspace,
-    );
-
-    return BazelBuildResult(
-      exitCode: exitCode,
-      outputFiles: outputFiles,
-      stderr: cqueryResult.stderr as String,
-    );
+    return (exitCode: exitCode, tail: err.tail);
   }
 
   /// Returns the label of the `flutter_application` target within [target]'s

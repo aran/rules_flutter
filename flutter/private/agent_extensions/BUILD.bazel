@@ -9,7 +9,10 @@ to each app's kernel-compile srcs directly so it resolves
 load("@rules_dart//dart:defs.bzl", "dart_format_test")
 
 exports_files(
-    ["agent.dart"],
+    [
+        "agent.dart",
+        "native_patch.dart",
+    ],
     visibility = ["//flutter:__subpackages__"],
 )
 

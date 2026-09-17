@@ -9,11 +9,13 @@ library;
 import 'hot_reload/app_instance.dart';
 import 'hot_reload/reload_orchestrator.dart';
 import 'native_libs_verdict.dart';
+import 'native_patch_outcome.dart';
 import 'relaunch_outcome.dart';
 import 'reload_strategy.dart';
 import 'running_code.dart';
 
 export 'native_libs_verdict.dart';
+export 'native_patch_outcome.dart';
 export 'relaunch_outcome.dart';
 export 'running_code.dart';
 
@@ -130,6 +132,15 @@ class CommandReport {
   /// renderer composes every sentence from it — see `NativeLibsVerdict`.
   final NativeLibsVerdict? nativeLibs;
 
+  /// What patching the running app's native code did, or null for a run with
+  /// nothing that can be patched.
+  ///
+  /// Beside [nativeLibs] rather than folded into it: that verdict is about
+  /// whether the *bindings* still match and is decided first, and this is
+  /// about the *code* — delivered, or withheld with the reason a restart is
+  /// needed. A patched library is one [nativeLibs] no longer calls stale.
+  final NativePatchOutcome? nativePatch;
+
   /// Set when the command replaced the app's process instead of restarting its
   /// isolate, because the rebuilt bundle's native libraries differ from the
   /// ones the running process had already `dlopen`ed.
@@ -177,6 +188,7 @@ class CommandReport {
     this.unavailable,
     this.sourceRebuildFailed,
     this.nativeLibs,
+    this.nativePatch,
     this.relaunch,
     this.relaunchFailed,
     this.elapsed,
@@ -196,6 +208,7 @@ class CommandReport {
         nativeLibs is NativeLibsUnverifiable) {
       return false;
     }
+    if (nativePatchWithheld) return false;
     if (assets.rebuildFailed != null) return false;
     if (assets.delivery case final d? when !d.isSuccess) return false;
     if (strategy case final s? when !s.isSuccess) return false;
@@ -204,6 +217,14 @@ class CommandReport {
       ReloadCompileFailed() || ReloadApplyFailed() => false,
     };
   }
+
+  /// Whether patching native code stopped the command before the Dart half ran.
+  bool get nativePatchWithheld => switch (nativePatch) {
+    NativePatchNeedsRestart() ||
+    NativePatchBuildFailed() ||
+    NativePatchLoadFailed() => true,
+    _ => false,
+  };
 
   /// What the app is running now — see [RunningCode].
   ///
@@ -220,7 +241,17 @@ class CommandReport {
         nativeLibs is NativeLibsUnverifiable) {
       return RunningCode.unchanged;
     }
+    // Withheld before the Dart half ran; what the native half left behind is
+    // all there is to say.
+    if (nativePatchWithheld) {
+      return switch (nativePatch) {
+        NativePatchLoadFailed(:final applied) when applied.isNotEmpty =>
+          RunningCode.updated,
+        _ => RunningCode.unchanged,
+      };
+    }
     return _leastCertain([
+      if (nativePatch is NativePatched) RunningCode.updated,
       // A new process running a freshly built bundle. Certain in a way no
       // apply is: there is no delivery to have half-landed.
       if (relaunch != null) RunningCode.updated,

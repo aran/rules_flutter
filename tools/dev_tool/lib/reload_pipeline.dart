@@ -22,6 +22,8 @@ library;
 
 import 'dart:async';
 
+import 'package:path/path.dart' as p;
+
 import 'frontend_server.dart';
 import 'hot_reload/app_instance.dart';
 import 'hot_reload/applied_versions.dart';
@@ -115,6 +117,32 @@ class ReloadPipeline {
   /// that asked the authoritative question would have to rebuild the app's launch
   /// configuration, which is a bundle build on every `r`.
   Future<NativeLibsVerdict> Function()? nativeLibsVerdict;
+
+  /// Patches the running app's native code when a patchable library's code
+  /// moved — see `NativeHotPatcher`. Null for a run with nothing patchable, which
+  /// is every run whose app declares no `flutter_native_library.hot_patch` and
+  /// every `attach`.
+  ///
+  /// Asked by a hot reload only, after [nativeLibsVerdict] and before anything
+  /// is compiled: a moved binding contract has already withheld the reload by
+  /// then, and an increment that calls new native code must not reach the app
+  /// before that code does. A restart relaunches instead — it is the reset, and
+  /// a patched process is exactly what it resets.
+  Future<NativePatchOutcome> Function({Set<String> movedLibraries})?
+  patchNativeLibs;
+
+  /// The file names of the libraries [patchNativeLibs] patches. After it answers
+  /// without refusing, every one of them runs the code on disk, so none is
+  /// stale.
+  List<String> Function()? patchableNativeLibs;
+
+  /// Rebuild the widgets of the apps a native patch just changed, for a reload
+  /// that had no Dart increment to end in a reassemble of its own.
+  Future<void> Function()? reassembleNativePatched;
+
+  /// Record that the running app now runs the on-disk code of the named
+  /// libraries, so [nativeLibsVerdict] stops calling them stale.
+  Future<void> Function(Set<String> libraries)? markNativeLibsPatched;
 
   /// Record that the app has picked up the native modules on disk. Web only, and
   /// called by [restart].
@@ -407,17 +435,22 @@ class ReloadPipeline {
   /// `attach`). A hot reload always gets here, because replacing the process is
   /// the one thing it may not do — it exists to keep the app's state, and a
   /// relaunch is how that state is lost.
-  Future<({Map<String, dynamic>? refusal, NativeLibsVerdict? verdict})>
+  Future<
+    ({
+      Map<String, dynamic>? refusal,
+      NativeLibsVerdict? verdict,
+      NativePatchOutcome? patch,
+    })
+  >
   _checkNativeLibs(
     String verb,
     List<String> addressed,
-    AssetOutcome assets,
-  ) async {
-    final verdict = await nativeLibsVerdict?.call();
-    return switch (verdict) {
-      null || NativeLibsCurrent() => (refusal: null, verdict: verdict),
-      NativeCodeStale() => (refusal: null, verdict: verdict),
-      NativeBindingsMoved() || NativeLibsUnverifiable() => (
+    AssetOutcome assets, {
+    bool patch = false,
+  }) async {
+    var verdict = await nativeLibsVerdict?.call();
+    if (verdict is NativeBindingsMoved || verdict is NativeLibsUnverifiable) {
+      return (
         refusal: toWire(
           CommandReport(
             verb: verb,
@@ -427,8 +460,47 @@ class ReloadPipeline {
           ),
         ),
         verdict: verdict,
-      ),
-    };
+        patch: null,
+      );
+    }
+
+    final patcher = patch ? patchNativeLibs : null;
+    if (patcher == null) return (refusal: null, verdict: verdict, patch: null);
+
+    final outcome = await patcher(
+      movedLibraries: switch (verdict) {
+        NativeCodeStale(:final libs) => {for (final l in libs) p.basename(l)},
+        _ => const <String>{},
+      },
+    );
+    final report = CommandReport(
+      verb: verb,
+      appIds: addressed,
+      nativeLibs: verdict,
+      nativePatch: outcome,
+      assets: assets,
+    );
+    if (report.nativePatchWithheld) {
+      return (refusal: toWire(report), verdict: verdict, patch: outcome);
+    }
+    // Patched, reverted, unchanged or unmoved: whichever it was, every library
+    // the patcher answers for now runs the code on disk.
+    final current = {...?patchableNativeLibs?.call()};
+    var moved = outcome is NativePatched;
+    if (verdict case NativeCodeStale(:final libs)) {
+      final stale = [
+        for (final lib in libs)
+          if (!current.contains(p.basename(lib))) lib,
+      ];
+      if (stale.length != libs.length) {
+        moved = true;
+        verdict = stale.isEmpty
+            ? const NativeLibsCurrent()
+            : NativeCodeStale(stale);
+      }
+    }
+    if (moved) await markNativeLibsPatched?.call(current);
+    return (refusal: null, verdict: verdict, patch: outcome);
   }
 
   /// The orchestrator apps a request addresses: all of them when it names no
@@ -736,9 +808,17 @@ class ReloadPipeline {
       // library can still serve. When it is, the reload goes through and the
       // stale machine code is reported; when nothing says it is, the increment
       // is withheld rather than injected over code that cannot serve it.
-      final native = await _checkNativeLibs('Hot reload', addressed, assets);
+      final native = await _checkNativeLibs(
+        'Hot reload',
+        addressed,
+        assets,
+        patch: true,
+      );
       if (native.refusal case final refusal?) return refusal;
       final outcome = await orch.reload(declared: declared, targets: targets);
+      if (native.patch is NativePatched && outcome is ReloadNoChange) {
+        await reassembleNativePatched?.call();
+      }
       return toWire(
         CommandReport(
           verb: 'Hot reload',
@@ -746,6 +826,7 @@ class ReloadPipeline {
           outcome: outcome,
           assets: assets,
           nativeLibs: native.verdict,
+          nativePatch: native.patch,
         ),
       );
     }

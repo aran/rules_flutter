@@ -171,6 +171,10 @@ _UNIT_TESTS = {
     "logging_test": {},
     "machine_protocol_test": {"fakes": True},
     "mdns_vm_service_discovery_test": {"fakes": True},
+    "native_hot_patch_tool_test": {},
+    "native_hot_patcher_test": {"deps": ["@dev_tool_deps//:vm_service"]},
+    "native_image_identity_test": {},
+    "native_patch_delivery_test": {},
     "native_libs_fingerprint_test": {},
     "native_libs_watch_test": {},
     "native_libs_relauncher_test": {

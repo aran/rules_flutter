@@ -16,6 +16,7 @@ load(":linux_sysroot_link_test.bzl", "linux_sysroot_link_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
 load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
 load(":native_assets_test.bzl", "bridge_probe", "native_assets_test_suite")
+load(":native_hot_patch_test.bzl", "native_hot_patch_test_suite")
 load(":platform_bundle_test.bzl", "platform_bundle_test_suite")
 load(":plist_merge_test.bzl", "plist_merge_test_suite")
 load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
@@ -76,6 +77,8 @@ toolchains_repo_test_suite(name = "toolchains_repo_test")
 flutter_application_test_suite(name = "flutter_application_test")
 
 native_assets_test_suite(name = "native_assets_test")
+
+native_hot_patch_test_suite(name = "native_hot_patch_test")
 
 bridge_probe(
     name = "dart_code_asset_bridge_probe",

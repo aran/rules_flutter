@@ -7,7 +7,57 @@ import 'package:test/test.dart';
 
 import 'fakes.dart';
 
+/// A real `--build_event_json_file` stream, trimmed to the events the parser
+/// reads: `bazel build //:ffi_macos -c dbg` with the hot patch aspect over
+/// `e2e/ffi_example`, output base and workspace paths scrubbed.
+const _hotPatchBuildEvents = [
+  r'''{"id":{"targetCompleted":{"label":"//:ffi_macos","configuration":{"id":"ded4a48995378b6e91c665930388fd27a68bc9ae052e68bda3b10a50d5a2def7"}}},"completed":{"success":true,"tag":["manual"]}}''',
+  r'''{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{"files":[{"name":"mul_hot_patch.hot_patch.json","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b","bin"],"digest":"e816d563bb00d826870d8b5fac4b1cdb6bb96713d6e157d403cd0c1f1bf39710","length":"360"},{"name":"c_patch_tool","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool","pathPrefix":["bazel-out","darwin_arm64-opt-exec","bin"],"digest":"5917a8f9c6437120fcaae3c1aaeba7fa9febd97e7bac28780c7df71d672fe520","length":"5878880"},{"name":"libmul_patch.dylib","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b","bin"],"digest":"c2a500134cb6a6ebd92e1b00b67acec836d10503b50f89c422240b43b104f33e","length":"16992"},{"name":"native/mul.h","uri":"file:///workspace/native/mul.h","digest":"56b8a1f81413ba96dfada5d7eb1d5b71075c00170177a83b97be02deaa4398c7","length":"422"}]}}''',
+  r'''{"id":{"targetCompleted":{"label":"//:ffi_macos","aspect":"@@rules_flutter+//flutter:native_hot_patch.bzl%flutter_native_hot_patch_aspect","configuration":{"id":"ded4a48995378b6e91c665930388fd27a68bc9ae052e68bda3b10a50d5a2def7"}}},"completed":{"success":true,"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"0"}]}]}}''',
+];
+
 void main() {
+  group('aspectOutputsFromBuildEvents', () {
+    const aspect =
+        '@rules_flutter//flutter:native_hot_patch.bzl%'
+        'flutter_native_hot_patch_aspect';
+
+    test('reads the files an aspect put in a group, and the execution root', () {
+      final outputs = aspectOutputsFromBuildEvents(
+        _hotPatchBuildEvents.join('\n'),
+        aspect: aspect,
+        outputGroup: 'flutter_native_hot_patch',
+      );
+      expect(outputs.executionRoot, '/output_base/execroot/_main');
+      expect(outputs.files, [
+        '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib',
+        '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json',
+        '/output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool',
+        '/workspace/native/mul.h',
+      ]);
+    });
+
+    test('ignores another aspect\'s group and follows nested file sets', () {
+      final events = [
+        '{"id":{"namedSet":{"id":"1"}},"namedSetOfFiles":{"files":[{"name":"b.json","uri":"file:///x/root/bazel-out/k/bin/b.json","pathPrefix":["bazel-out","k","bin"]}]}}',
+        '{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{"files":[{"name":"a.json","uri":"file:///x/root/bazel-out/k/bin/a.json","pathPrefix":["bazel-out","k","bin"]}],"fileSets":[{"id":"1"}]}}',
+        '{"id":{"namedSet":{"id":"2"}},"namedSetOfFiles":{"files":[{"name":"other","uri":"file:///x/root/other"}]}}',
+        '{"id":{"targetCompleted":{"label":"//:app","aspect":"@@rules_flutter+//flutter:dev_files.bzl%flutter_dev_files"}},"completed":{"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"2"}]}]}}',
+        '{"id":{"targetCompleted":{"label":"//:app","aspect":"@@rules_flutter+//flutter:native_hot_patch.bzl%flutter_native_hot_patch_aspect"}},"completed":{"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"0"}]}]}}',
+      ];
+      final outputs = aspectOutputsFromBuildEvents(
+        events.join('\n'),
+        aspect: aspect,
+        outputGroup: 'flutter_native_hot_patch',
+      );
+      expect(outputs.files, [
+        '/x/root/bazel-out/k/bin/a.json',
+        '/x/root/bazel-out/k/bin/b.json',
+      ]);
+      expect(outputs.executionRoot, '/x/root');
+    });
+  });
+
   group('BazelBuildResult', () {
     test('success is true when exitCode is 0', () {
       final result = BazelBuildResult(

@@ -249,6 +249,33 @@ With that declared, a reload has three outcomes:
 | The library's code, but not its contract | Delivers the edit and reports that the native code in the process is stale. |
 | The contract | Withholds the edit. Restart to pick up the new library. |
 
+#### Patching native code into a running app
+
+A process cannot replace a library it has loaded, but it can load a second one and send calls there. If the toolchain that builds your library can build such a patch, and the library routes its calls so that a patch can take them over, a hot reload delivers a native edit into the running app the way it delivers a Dart edit: state kept, no relaunch. Name the target that builds patches as `hot_patch`:
+
+```starlark
+flutter_native_library(
+    name = "bridge",
+    library = "@my_bridge//bridge:bridge_shared",
+    binding_contract = ["@my_bridge//bridge:codegen.ir"],
+    hot_patch = "@my_bridge//bridge:bridge_hot_patch",
+)
+```
+
+On each hot reload the dev tool checks the source files that target declares. When none moved, that is a `stat` per file and nothing else. When one did, it builds the patch for the configuration the app is running in, puts it where the app can load it (signed with the app's own identity on an iOS device), has the app load it, and then applies the Dart half of the edit. A widget that shows a native result is rebuilt, so the new answer appears even when no Dart changed.
+
+| What changed | What the reload does |
+|---|---|
+| A function body | Patches it into the running app. The reply names the library and what was patched. |
+| The contract, or anything the patch builder says a patch cannot carry (a struct's layout, say) | Withholds the edit and says why. Restart to pick it up. |
+| An edit undone after it was patched | Sends calls back to the code the app launched with. |
+
+A restart (`R`) is still the reset: if any patch is live, or the rebuilt bundle differs from the launched one, it relaunches the app.
+
+What a `hot_patch` target builds, and what the library exports, is a small contract documented on the attribute in `flutter/private/flutter_native_library.bzl`. `e2e/ffi_example` implements it by hand for a C library (`native/mul_hot_patch.c` and `tools/c_patch_tool.dart`), and its `live 3 × 4` line changes on screen when you edit `native/mul.c` and press `r`. Anything created before a patch keeps the code it was created with, as with Dart closures.
+
+Patches reach apps on macOS, the iOS simulator, iOS devices and Android. Linux, Windows and web apps report the edit the way they did before: stale until restart.
+
 On the web the same wrapper goes in `flutter_web_bundle`'s `native_modules`, which both serves the `.wasm` module and declares it. The situation is the same: the page instantiates the module once and a hot reload does not re-run `main()`. A web hot restart does re-run `main()`, so it re-fetches the module with no relaunch.
 
 ## Building for each platform
@@ -1284,7 +1311,7 @@ In terminal mode, press `r` to reload and `R` to restart, or just save a file. A
 
 A restart can go one step further. Dart code can be swapped into a running process, but a native library the process has already loaded cannot. So when a rebuild changes one of the app's native libraries (`native_deps` or Native Assets, including the `.framework` each becomes on iOS), `app.restart` relaunches the process instead of restarting the isolate, and says so in its response. If the replacement cannot launch, for example because the device has no room for the new install, the restart fails with the reason and the run ends, since the old process is already gone. The HTTP channel, its token, and the `appId` stay the same across a relaunch. Only the log buffer starts over.
 
-A hot reload cannot relaunch anything, because replacing the process is exactly the state loss a reload exists to avoid. When a reload rebuilds a native library, what happens depends on whether the bindings changed with it, which is what `flutter_native_library`'s `binding_contract` tells the tool. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). Without that declaration, the reload is withheld and a restart picks up the library. This check only arises for apps whose reload goes through a Bazel rebuild, which are apps with generated sources. A plain Dart edit takes the fast path and never touches Bazel.
+A hot reload cannot relaunch anything, because replacing the process is exactly the state loss a reload exists to avoid. When a reload rebuilds a native library, what happens depends on whether the bindings changed with it, which is what `flutter_native_library`'s `binding_contract` tells the tool. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). Without that declaration, the reload is withheld and a restart picks up the library. This check only arises for apps whose reload goes through a Bazel rebuild, which are apps with generated sources, and for libraries with a `hot_patch`, whose declared sources every reload checks. A plain Dart edit takes the fast path and never touches Bazel.
 
 ### App output
 
@@ -1490,6 +1517,16 @@ With the bindings changed, or nothing declaring them, the edit is withheld:
 ```
 
 Nothing is compiled and nothing is sent, so the app keeps the code and the library it launched with, and `app.restart` picks up the new one. `nativeLibsStale` means the same thing in both replies, and `succeeded` says whether the edit landed. The check costs no Bazel of its own: a `stat` per declared file, and a content hash only for a file the build rewrote.
+
+A reload that patched native code into the app says what it patched, and `nativeReverted` lists libraries sent back to their launched code:
+
+```json
+{"succeeded":true,"runningCode":"updated",
+ "nativePatched":{"libmul.dylib":["mul_body"]},
+ "message":"Hot reload successful. Patched libmul.dylib in the running app (mul_body)"}
+```
+
+A patch that cannot be delivered withholds the reload with the patch builder's reasons in `nativePatchRestart`, and one that did not load names the apps in `nativePatchFailed` and `nativePatchApplied`.
 
 #### How a command says no
 

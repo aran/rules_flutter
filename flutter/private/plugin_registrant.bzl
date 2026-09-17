@@ -5,7 +5,7 @@ at application startup, and native registrant source files for method channel
 plugins (pluginClass) on desktop platforms.
 """
 
-def make_registrant_content(plugins, target_platform = None, agent_import = None):
+def make_registrant_content(plugins, target_platform = None, agent_import = None, native_agent_import = None):
     """Generate Dart source content for plugin registration.
 
     Two output shapes depending on `target_platform`:
@@ -18,7 +18,8 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
       `<PluginClass>.registerWith(webPluginRegistrar);`. Called by the web
       bootstrap wrapper's main (there is no engine pre-main hook on web).
       The `fileName` override (from `flutter.plugin.platforms.web.fileName`)
-      is honored. `agent_import` is ignored — no agent surface on web.
+      is honored. `agent_import` and `native_agent_import` are ignored — no
+      agent surface on web.
     - **Other platforms (or `None`)**: the upstream engine-invocable shape —
       `@pragma('vm:entry-point') class _PluginRegistrant` with a static
       `register()` that calls each `dartPluginClass`'s `registerWith()`
@@ -38,6 +39,9 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
             library; when set, `register()` calls
             `registerRulesFlutterAgentExtensions()` before the plugins and a
             registrant is generated even with zero Dart plugins.
+        native_agent_import: Optional relative import for the staged native-only
+            agent extensions (`dart:ffi`, so never on web); when set, `register()`
+            also calls `registerRulesFlutterNativeAgentExtensions()`.
 
     Returns:
         String of Dart source code, or empty string if there are no Dart
@@ -73,12 +77,14 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
                     ))
                     break
 
-    if not dart_plugins and not agent_import:
+    if not dart_plugins and not agent_import and not native_agent_import:
         return ""
 
     lines = ["// GENERATED — do not edit.", "// ignore_for_file: depend_on_referenced_packages"]
     if agent_import:
         lines.append("import '%s' as agent;" % agent_import)
+    if native_agent_import:
+        lines.append("import '%s' as native_agent;" % native_agent_import)
     for p in dart_plugins:
         lines.append("import 'package:%s/%s';" % (p.package, p.dart_file_name))
     lines.append("")
@@ -88,6 +94,8 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
     lines.append("  static void register() {")
     if agent_import:
         lines.append("    agent.registerRulesFlutterAgentExtensions();")
+    if native_agent_import:
+        lines.append("    native_agent.registerRulesFlutterNativeAgentExtensions();")
     for p in dart_plugins:
         # Non-web Dart plugins use the no-arg `registerWith()` signature
         # (e.g. PathProviderFoundation, UrlLauncherMacOS). Web plugins use
@@ -515,7 +523,7 @@ def generate_native_plugin_registrant(ctx, plugins, target_platform):
 # `flutter_application_test.bzl` asserts they agree.
 DEV_REGISTRANT_PLATFORMS = ("android", "ios", "linux", "macos", "windows")
 
-def generate_dev_plugin_registrants(ctx, plugins, agent_import = None):
+def generate_dev_plugin_registrants(ctx, plugins, agent_import = None, native_agent_import = None):
     """Generate one dev-loop Dart plugin registrant per native platform.
 
     The dev tool obtains its inputs from a bare build of the
@@ -541,6 +549,7 @@ def generate_dev_plugin_registrants(ctx, plugins, agent_import = None):
         plugins: List of plugin structs.
         agent_import: Optional relative import for the staged agent-extensions
             library (the files are declared next to it, so a basename works).
+        native_agent_import: The same, for the native-only agent extensions.
 
     Returns:
         Dict of platform string → generated .dart File, or None for a
@@ -552,6 +561,7 @@ def generate_dev_plugin_registrants(ctx, plugins, agent_import = None):
             plugins,
             target_platform = platform,
             agent_import = agent_import,
+            native_agent_import = native_agent_import,
         )
         if not content:
             registrants[platform] = None
@@ -563,7 +573,7 @@ def generate_dev_plugin_registrants(ctx, plugins, agent_import = None):
         registrants[platform] = out
     return registrants
 
-def generate_dart_plugin_registrant(ctx, plugins, target_platform = None, agent_import = None):
+def generate_dart_plugin_registrant(ctx, plugins, target_platform = None, agent_import = None, native_agent_import = None):
     """Generate a Dart plugin registrant source file via ctx.actions.write.
 
     Args:
@@ -572,12 +582,18 @@ def generate_dart_plugin_registrant(ctx, plugins, target_platform = None, agent_
         target_platform: Optional platform string to filter plugins by.
         agent_import: Optional relative import for the staged agent-extensions
             library, registered from the registrant (debug builds).
+        native_agent_import: The same, for the native-only agent extensions.
 
     Returns:
         File: The generated registrant .dart file, or None if there are no
         Dart plugins and no agent to register.
     """
-    content = make_registrant_content(plugins, target_platform = target_platform, agent_import = agent_import)
+    content = make_registrant_content(
+        plugins,
+        target_platform = target_platform,
+        agent_import = agent_import,
+        native_agent_import = native_agent_import,
+    )
     if not content:
         return None
     registrant = ctx.actions.declare_file(ctx.label.name + "_plugin_registrant.dart")

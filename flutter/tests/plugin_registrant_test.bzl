@@ -203,6 +203,27 @@ def _plugins_and_agent_test_impl(ctx):
     )
     return unittest.end(env)
 
+def _native_agent_registrant_test_impl(ctx):
+    """The native-only agent is imported and registered after the shared one."""
+    env = unittest.begin(ctx)
+    result = make_registrant_content(
+        [],
+        target_platform = "android",
+        agent_import = "app.agent_extensions.dart",
+        native_agent_import = "app.native_agent_extensions.dart",
+    )
+    asserts.true(env, "import 'app.native_agent_extensions.dart' as native_agent;" in result)
+    asserts.true(env, "native_agent.registerRulesFlutterNativeAgentExtensions();" in result)
+    asserts.true(
+        env,
+        result.index("agent.registerRulesFlutterAgentExtensions") < result.index("native_agent.registerRulesFlutterNativeAgentExtensions"),
+    )
+
+    # `dart:ffi` does not exist on web, so the native half never reaches it.
+    web = make_registrant_content([], target_platform = "web", native_agent_import = "app.native_agent_extensions.dart")
+    asserts.true(env, "native_agent" not in web)
+    return unittest.end(env)
+
 def _plugins_without_agent_test_impl(ctx):
     """Without an agent import (release/profile), no agent reference appears."""
     env = unittest.begin(ctx)
@@ -246,6 +267,7 @@ _t10_test = unittest.make(_platform_no_match_returns_empty_test_impl)
 _t11_test = unittest.make(_plugins_and_agent_test_impl)
 _t12_test = unittest.make(_plugins_without_agent_test_impl)
 _t13_test = unittest.make(_web_registrant_keeps_function_shape_test_impl)
+_t14_test = unittest.make(_native_agent_registrant_test_impl)
 
 def plugin_registrant_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test, _t14_test)

@@ -15,7 +15,7 @@ load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
 flutter_plugin(
     name = "mul_plugin",
     srcs = ["lib/mul_plugin.dart"],
-    native_deps = ["//:mul"],
+    native_deps = ["//:mul_native"],
     platforms = [
         "ios",
         "macos",
