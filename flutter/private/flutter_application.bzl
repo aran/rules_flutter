@@ -19,6 +19,7 @@ load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONS
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
+load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
 
 def _flutter_application_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
@@ -249,6 +250,21 @@ def _flutter_application_impl(ctx):
                 for f in pair.contract
             ]
 
+    # And what each is built from, on the same keys, so a reload can tell that a
+    # library went stale in an app that runs no build of its own.
+    native_lib_sources = {path: [] for path in bundled_native_libs}
+    for pair in collect_native_source_pairs(ctx.attr.native_deps) + [
+        p
+        for dep in ctx.attr.deps
+        if FlutterInfo in dep
+        for p in dep[FlutterInfo].native_lib_sources.to_list()
+    ]:
+        if pair.library.path in native_lib_sources:
+            native_lib_sources[pair.library.path] = [
+                f.path
+                for f in pair.sources
+            ]
+
     # The code-asset libraries join `default_files` with the manifest that names
     # them. Declaring an output is what makes its path true: the manifest is
     # built here and the dev tool reads these files back off this target, and a
@@ -325,6 +341,11 @@ def _flutter_application_impl(ctx):
                 # see `NativeLibsWatch` in the dev tool. Empty list: nothing
                 # declared, so the reload cannot know and will not guess.
                 "nativeLibContracts": binding_contracts,
+                # Per library, the first-party sources it is built from, so a
+                # reload can see a native edit in an app that runs no build of
+                # its own — every app without generated sources. Stat-ed on each
+                # reload; see `native_sources.bzl`.
+                "nativeLibSources": native_lib_sources,
                 # First-party source packages (app + local deps) the dev tool
                 # maps live edits back to via its PackageUriResolver. libRoot is
                 # workspace-relative.

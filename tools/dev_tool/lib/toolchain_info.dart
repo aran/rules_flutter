@@ -300,6 +300,14 @@ class DevConfig {
   /// library withhold a reload, the second would mean there is nothing to check.
   final Map<String, List<String>> nativeLibContracts;
 
+  /// Per library in [nativeLibs], the first-party sources it is built from,
+  /// workspace-relative.
+  ///
+  /// What lets a reload see a native edit in an app that runs no build of its
+  /// own. Empty for a library whose sources all live in other repositories — a
+  /// pub package's prebuilt — which no edit between reloads can move.
+  final Map<String, List<String>> nativeLibSources;
+
   /// First-party source packages (app + local deps) as `{name, libRoot}`, where
   /// `libRoot` is workspace-relative. Drives the [PackageUriResolver] so a live
   /// edit in any of these packages maps to its `package:` URI. Empty for web
@@ -403,6 +411,7 @@ class DevConfig {
     this.generatedSourceUris = const [],
     this.nativeLibs = const [],
     this.nativeLibContracts = const {},
+    this.nativeLibSources = const {},
     this.sourcePackages = const [],
     this.dartDefines = const [],
     this.dartPluginRegistrants = const {},
@@ -469,6 +478,12 @@ class DevConfig {
       nativeLibContracts: {
         for (final entry
             in ((json['nativeLibContracts'] as Map?) ?? const {}).entries)
+          entry.key as String: ((entry.value as List?) ?? const [])
+              .cast<String>(),
+      },
+      nativeLibSources: {
+        for (final entry
+            in ((json['nativeLibSources'] as Map?) ?? const {}).entries)
           entry.key as String: ((entry.value as List?) ?? const [])
               .cast<String>(),
       },
@@ -587,15 +602,17 @@ DevConfig parseDevConfig(String path) {
         json[key] = [for (final v in list.cast<String>()) abs(v)];
       }
     }
-    // Keys *and* values: the keys are the same library paths `nativeLibs`
-    // carries and are matched against them, and the values are paths the watch
-    // stats. A contract that is a source file rather than a build output is
-    // exec-relative the same way — the execroot symlinks it, so the same join
-    // reaches it.
-    final contracts = json['nativeLibContracts'] as Map?;
-    if (contracts != null) {
-      json['nativeLibContracts'] = {
-        for (final entry in contracts.entries)
+    // Keys *and* values, for both per-library maps: the keys are the same
+    // library paths `nativeLibs` carries and are matched against them — and
+    // against each other, so a map left relative here would look up nothing.
+    // The values are paths the watch stats; a contract or a source file is
+    // exec-relative the same way a build output is, because the execroot
+    // symlinks the workspace into itself.
+    for (final key in ['nativeLibContracts', 'nativeLibSources']) {
+      final byLibrary = json[key] as Map?;
+      if (byLibrary == null) continue;
+      json[key] = {
+        for (final entry in byLibrary.entries)
           abs(entry.key as String): [
             for (final v in (entry.value as List).cast<String>()) abs(v),
           ],
@@ -637,6 +654,9 @@ void requireDeclaredFilesExist(DevConfig config) {
     if (!File(path).existsSync()) missing.add('nativeLibs: $path');
   }
 
+  // Sources are not checked here: they are the app's own files, and one deleted
+  // between the build and this read is the user's edit in flight, not a build
+  // that lied about what it wrote. The watch reports it as a moved source.
   for (final entry in config.nativeLibContracts.entries) {
     for (final path in entry.value) {
       if (!File(path).existsSync()) missing.add('nativeLibContracts: $path');

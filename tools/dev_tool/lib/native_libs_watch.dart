@@ -65,6 +65,23 @@ class _Image {
 }
 
 class NativeLibsWatch {
+  /// Per library, the first-party sources it is built from.
+  ///
+  /// The only thing that can see a native edit in an app whose reload runs no
+  /// build of its own, which is every app without generated sources. Nothing
+  /// rebuilds those libraries between reloads, so comparing the libraries alone
+  /// answered "current" to a `.c` or `.rs` edit and the increment went in over
+  /// machine code from before it, silently.
+  ///
+  /// Per library, on the same keys as [contracts]: an app bundles libraries from
+  /// several places, and an edit to one says nothing about the others. A shared
+  /// list withheld reloads over a library nobody had touched.
+  ///
+  /// Empty for a library whose sources are all in other repositories — a pub
+  /// package's prebuilt, say — which is not something an edit between reloads
+  /// can move.
+  final Map<String, List<String>> sources;
+
   /// Every native library the app bundles, each mapped to the files its bindings
   /// were generated from — empty for a library whose build declared no contract,
   /// which is every app that has not asked for the faster reload.
@@ -80,7 +97,7 @@ class NativeLibsWatch {
   /// keeps running the old code.
   Map<String, _Image> _live;
 
-  NativeLibsWatch._(this.contracts, this._live);
+  NativeLibsWatch._(this.contracts, this.sources, this._live);
 
   /// A watch over [contracts], baselined at what those files are on disk now.
   ///
@@ -105,8 +122,16 @@ class NativeLibsWatch {
   /// itself, which is exact by construction, so the first `R` after the window
   /// relaunches the process and re-baselines this watch through [markLive].
   static Future<NativeLibsWatch> of(
-    Map<String, List<String>> contracts,
-  ) async => NativeLibsWatch._(contracts, await _read(_allFiles(contracts)));
+    Map<String, List<String>> contracts, {
+    Map<String, List<String>> sources = const {},
+  }) async => NativeLibsWatch._(
+    contracts,
+    sources,
+    await _read([
+      ..._allFiles(contracts),
+      ...sources.values.expand((files) => files),
+    ]),
+  );
 
   /// What this command may do about the native libraries — see [NativeLibsVerdict].
   ///
@@ -132,7 +157,17 @@ class NativeLibsWatch {
       );
     }
 
-    final movedLibs = await _moved(contracts.keys);
+    // A library is behind either because a build moved it, or because one of
+    // its own sources moved and nothing rebuilt it — which is the only signal
+    // there is in an app whose reload runs no build.
+    final movedSources = await _moved(
+      sources.values.expand((files) => files),
+    );
+    final movedLibs = {
+      ...await _moved(contracts.keys),
+      for (final entry in sources.entries)
+        if (entry.value.any(movedSources.contains)) entry.key,
+    }.toList()..sort();
     if (movedLibs.isEmpty) return const NativeLibsCurrent();
 
     final unverifiable = [
@@ -150,14 +185,21 @@ class NativeLibsWatch {
   /// [fileNames] — a native hot patch delivered it without a new process.
   ///
   /// Their contracts are not advanced: a patch is only delivered when the
-  /// bindings did not move, so there is nothing about them to record.
+  /// bindings did not move, so there is nothing about them to record. Their
+  /// sources are, because those are what said the library was behind.
   Future<void> markPatched(Set<String> fileNames) async {
     final patched = [
       for (final library in contracts.keys)
         if (fileNames.contains(library.split('/').last)) library,
     ];
     if (patched.isEmpty) return;
-    _live = {..._live, ...await _read(patched)};
+    _live = {
+      ..._live,
+      ...await _read([
+        ...patched,
+        for (final library in patched) ...?sources[library],
+      ]),
+    };
   }
 
   /// Record that the process now runs the libraries on disk.
@@ -165,7 +207,7 @@ class NativeLibsWatch {
   /// Only a relaunch earns this, and for the same reason `Relauncher` advances its
   /// own fingerprint only after a successful swap: a build moves the files, and
   /// nothing but a new process moves what the app has loaded.
-  Future<void> markLive() async => _live = await _read(_allFiles(contracts));
+  Future<void> markLive() async => _live = await _read(_watched);
 
   Iterable<String> get _allContracts =>
       contracts.values.expand((files) => files);
@@ -173,6 +215,11 @@ class NativeLibsWatch {
   static Iterable<String> _allFiles(Map<String, List<String>> contracts) => [
     ...contracts.keys,
     ...contracts.values.expand((files) => files),
+  ];
+
+  Iterable<String> get _watched => [
+    ..._allFiles(contracts),
+    ...sources.values.expand((files) => files),
   ];
 
   /// The watched files among [paths] whose bytes differ from the ones the running

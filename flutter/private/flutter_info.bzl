@@ -45,6 +45,7 @@ def flutter_info(
         shader_srcs = [],
         plugins = [],
         native_libs = [],
+        native_lib_sources = [],
         binding_contracts = [],
         apple_plugin_libraries = [],
         linux_plugin_libraries = [],
@@ -74,6 +75,9 @@ def flutter_info(
         name against the dependencies' plugins, this target's first.
       native_libs: Shared libraries this target contributes, typically from a
         plugin's `native_deps`.
+      native_lib_sources: `struct(library, sources)` pairs this target
+        contributes — the first-party sources each of its native libraries is
+        built from.
       binding_contracts: `struct(library, contract)` pairs this target
         contributes, one per `flutter_native_library` in its `native_deps`.
       apple_plugin_libraries: Apple plugin library structs this target
@@ -113,6 +117,10 @@ def flutter_info(
         transitive_native_libs = depset(
             direct = native_libs,
             transitive = [info.transitive_native_libs for info in dep_infos],
+        ),
+        native_lib_sources = depset(
+            direct = native_lib_sources,
+            transitive = [info.native_lib_sources for info in dep_infos],
         ),
         binding_contracts = depset(
             direct = binding_contracts,

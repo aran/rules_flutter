@@ -21,11 +21,12 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "dart_info", "derive_lib_root", "derive_package_name")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
-load("//flutter:providers.bzl", "FlutterDataAssetInfo", "FlutterNativeAssetInfo")
+load("//flutter:providers.bzl", "FlutterDataAssetInfo", "FlutterInfo", "FlutterNativeAssetInfo")
 load("//flutter/private:common.bzl", "collect_binding_contracts", "collect_native_libs")
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo", "FlutterWindowsPluginInfo")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
 load("//flutter/private:flutter_library.bzl", "build_pub_contributions")
+load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "native_sources_aspect")
 
 def build_plugin_struct(name, plugin_platforms):
     """Build a plugin metadata struct from per-platform metadata.
@@ -74,6 +75,15 @@ def _flutter_plugin_impl(ctx):
     # so. Carried to the app rather than used here: a plugin bundles nothing, and
     # the app is where the dev config that a reload reads is written.
     binding_contracts = collect_binding_contracts(ctx.attr.native_deps)
+
+    # `native_deps` and the Native Assets alike: an asset's own rule pairs the
+    # library it declares with its sources, on its `FlutterInfo`.
+    native_lib_sources = collect_native_source_pairs(ctx.attr.native_deps) + [
+        pair
+        for dep in ctx.attr.native_assets
+        if FlutterInfo in dep
+        for pair in dep[FlutterInfo].native_lib_sources.to_list()
+    ]
 
     # Pull CcInfo + SwiftInfo from the per-platform Apple plugin libraries
     # so the runner aggregator can merge them into the runner's
@@ -194,6 +204,7 @@ def _flutter_plugin_impl(ctx):
             plugins = [plugin],
             native_libs = native_libs,
             binding_contracts = binding_contracts,
+            native_lib_sources = native_lib_sources,
             apple_plugin_libraries = extra_apple_plugin_libraries,
             linux_plugin_libraries = extra_linux_plugin_libraries,
             windows_plugin_libraries = extra_windows_plugin_libraries,
@@ -242,6 +253,7 @@ flutter_plugin = rule(
         ),
         "native_deps": attr.label_list(
             doc = "Native dependencies. Use select() for platform-conditional deps.",
+            aspects = [native_sources_aspect],
         ),
         "code_assets": attr.label_list(
             doc = "`dart_code_asset` targets standing in for this package's " +

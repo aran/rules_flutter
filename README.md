@@ -221,7 +221,9 @@ If you would rather bind with `@Native(assetId: ...)` and let the Dart VM find t
 
 #### Hot reload across a native rebuild
 
-A running process cannot pick up a rebuilt native library; it keeps the one it already loaded. So when a hot reload rebuilds a library, the dev tool has to decide whether the Dart it is about to inject still matches that library. Without more information it withholds the reload, and a pending native change blocks your Dart edits until you restart.
+A running process cannot pick up a rebuilt native library; it keeps the one it already loaded. So when a native library goes stale under a hot reload, the dev tool has to decide whether the Dart it is about to inject still matches that library. Without more information it withholds the reload, and a pending native change blocks your Dart edits until you restart.
+
+The build tells it which files each native library is built from, so a reload notices an edit to a `.c` or `.rs` file even in an app that runs no build of its own — the reload stats those files, and nothing more. Before that, such an app reported a reload as successful while it went on running the machine code it launched with.
 
 You can tell it what the bindings were generated from, and then it can decide:
 
@@ -1311,7 +1313,7 @@ In terminal mode, press `r` to reload and `R` to restart, or just save a file. A
 
 A restart can go one step further. Dart code can be swapped into a running process, but a native library the process has already loaded cannot. So when a rebuild changes one of the app's native libraries (`native_deps` or Native Assets, including the `.framework` each becomes on iOS), `app.restart` relaunches the process instead of restarting the isolate, and says so in its response. If the replacement cannot launch, for example because the device has no room for the new install, the restart fails with the reason and the run ends, since the old process is already gone. The HTTP channel, its token, and the `appId` stay the same across a relaunch. Only the log buffer starts over.
 
-A hot reload cannot relaunch anything, because replacing the process is exactly the state loss a reload exists to avoid. When a reload rebuilds a native library, what happens depends on whether the bindings changed with it, which is what `flutter_native_library`'s `binding_contract` tells the tool. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). Without that declaration, the reload is withheld and a restart picks up the library. This check only arises for apps whose reload goes through a Bazel rebuild, which are apps with generated sources, and for libraries with a `hot_patch`, whose declared sources every reload checks. A plain Dart edit takes the fast path and never touches Bazel.
+A hot reload cannot relaunch anything, because replacing the process is exactly the state loss a reload exists to avoid. When a reload rebuilds a native library, what happens depends on whether the bindings changed with it, which is what `flutter_native_library`'s `binding_contract` tells the tool. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). Without that declaration, the reload is withheld and a restart picks up the library. A plain Dart edit takes the fast path: the check costs a `stat` per declared file and reaches Bazel only when one of them moved.
 
 ### App output
 

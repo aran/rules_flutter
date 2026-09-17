@@ -620,6 +620,49 @@ void main() {
       tmpDir.deleteSync(recursive: true);
     });
 
+    test('absolutizes both per-library maps on the same keys', () {
+      // The keys of the two maps are matched against each other: the watch
+      // looks a moved library's contract up by the key its sources came back
+      // under. One map left relative found nothing there, and a hot reload
+      // answered "Null check operator used on a null value".
+      final tmpDir = Directory.systemTemp.createTempSync('test_dev_cfg_src_');
+      final resolvedTmpDir = tmpDir.resolveSymbolicLinksSync();
+      final execRoot = '$resolvedTmpDir/execroot/_main';
+      final binDir = Directory('$execRoot/bazel-out/cfg/bin');
+      binDir.createSync(recursive: true);
+      addTearDown(() => tmpDir.deleteSync(recursive: true));
+
+      final configFile = File('${binDir.path}/app_dev_config.json');
+      configFile.writeAsStringSync(
+        jsonEncode({
+          'engineRevision': 'abc',
+          'flutterVersion': '3.41.2',
+          'dartSdkRoot': '/sdk',
+          'dartaotruntime': '/bin/dartaotruntime',
+          'frontendServer': '/tools/fs.snapshot',
+          'patchedSdkRoot': '/patched',
+          'appEntrypoint': 'package:my_app/main.dart',
+          'nativeLibs': ['bazel-out/cfg/bin/libbridge.dylib'],
+          'nativeLibContracts': {
+            'bazel-out/cfg/bin/libbridge.dylib': ['bridge/codegen.ir'],
+          },
+          'nativeLibSources': {
+            'bazel-out/cfg/bin/libbridge.dylib': ['bridge/bridge.c'],
+          },
+        }),
+      );
+
+      final config = parseDevConfig(configFile.path);
+      final library = '$execRoot/bazel-out/cfg/bin/libbridge.dylib';
+      expect(config.nativeLibs.map(p.split), [p.split(library)]);
+      expect(config.nativeLibContracts.keys.map(p.split), [p.split(library)]);
+      expect(config.nativeLibSources.keys.map(p.split), [p.split(library)]);
+      expect(
+        config.nativeLibSources[config.nativeLibs.single]!.map(p.split),
+        [p.split('$execRoot/bridge/bridge.c')],
+      );
+    });
+
     test('absolutizes dartPluginRegistrants against the exec root', () {
       // Unlike dartDefines, the registrants ARE paths — the dev tool turns
       // the chosen one into a file:// URI for the frontend_server

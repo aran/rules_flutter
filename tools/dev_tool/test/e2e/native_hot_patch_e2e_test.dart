@@ -21,6 +21,11 @@
 ///  4. **A signature change is withheld**, with the app left exactly as it was.
 ///  5. **An undone edit goes back to the launched code**, which the builder
 ///     answers as `unchanged` and only the dev tool knows is still patched.
+///  6. **A library with no patch builder is reported, not ignored.** `add` has
+///     neither a `hot_patch` nor a binding contract, and nothing rebuilds it
+///     between reloads, so an edit to `native/add.c` is visible only through the
+///     sources the build declared — the gap that let a reload report success
+///     over machine code from before the edit.
 library;
 
 import 'dart:async';
@@ -129,6 +134,23 @@ void main() {
         expect(reverted['succeeded'], isTrue, reason: '$reverted');
         expect(reverted['nativeReverted'], ['libmul.dylib']);
         await _expectRendered(dt, appId, 'live 3 × 4 = 12');
+
+        // ---- 6: a library nothing can patch -----------------------------------
+        final addSource = ws.file('native/add.c');
+        final addOriginal = addSource.readAsStringSync();
+        addSource.writeAsStringSync('$addOriginal// edited\n');
+        final unverifiable = await _reload(dt, appId);
+        expect(unverifiable['succeeded'], isFalse, reason: '$unverifiable');
+        expect(unverifiable['runningCode'], 'unchanged');
+        expect(
+          '${unverifiable['nativeLibsStale']}',
+          contains('libadd.dylib'),
+          reason: 'the reload must name the library it is about',
+        );
+
+        // And undoing it leaves the run where it was.
+        addSource.writeAsStringSync(addOriginal);
+        expect((await _reload(dt, appId))['succeeded'], isTrue);
       },
       timeout: const Timeout(Duration(minutes: 10)),
     );

@@ -15,6 +15,7 @@ load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
+load("//flutter/private:native_sources.bzl", "native_sources_aspect")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant", "generate_dev_plugin_registrants")
 load("//flutter/private:validation.bzl", "validate_dart_defines")
 
@@ -1067,6 +1068,7 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
     ),
     "native_deps": attr.label_list(
         doc = "cc_library targets providing shared libraries for dart:ffi.",
+        aspects = [native_sources_aspect],
     ),
     "profile": attr.bool(
         doc = "If True, compile in profile mode (AOT like release, but unstripped and with service extensions for profiling). Overrides the default compilation mode mapping.",

@@ -177,6 +177,87 @@ void main() {
     expect(await watch.verdict(), isA<NativeCodeStale>());
   });
 
+  group('an app whose reload runs no build', () {
+    // The silent shape this closes: nothing rebuilds the library between
+    // reloads, so comparing libraries alone answered "current" to a native
+    // edit and the increment went in over the machine code the app launched
+    // with.
+    test('reports the libraries when a native source moved', () async {
+      final lib = file('libbridge.dylib', [1]);
+      final contract = file('bridge.h', [10]);
+      final source = file('bridge.c', [20]);
+      final watch = await NativeLibsWatch.of(
+        {
+          lib.path: [contract.path],
+        },
+        sources: {
+          lib.path: [source.path],
+        },
+      );
+
+      expect(await watch.verdict(), isA<NativeLibsCurrent>());
+      source.writeAsBytesSync([21]);
+      expect(
+        await watch.verdict(),
+        isA<NativeCodeStale>().having((v) => v.libs, 'libs', [lib.path]),
+        reason: 'the library is not rebuilt, so only its source can say this',
+      );
+      // And keeps saying it: only a new process, or a patch, changes what the
+      // app is running.
+      expect(await watch.verdict(), isA<NativeCodeStale>());
+
+      await watch.markLive();
+      expect(await watch.verdict(), isA<NativeLibsCurrent>());
+    });
+
+    test('a source rewritten with the same bytes is not a change', () async {
+      final lib = file('libbridge.dylib', [1]);
+      final source = file('bridge.c', [20]);
+      final watch = await NativeLibsWatch.of(
+        {
+          lib.path: const [],
+        },
+        sources: {
+          lib.path: [source.path],
+        },
+      );
+
+      source.writeAsBytesSync([20]);
+      expect(await watch.verdict(), isA<NativeLibsCurrent>());
+    });
+
+    test('answers for the library whose source moved, and no other', () async {
+      final patched = file('libbridge.dylib', [1]);
+      final other = file('libother.dylib', [2]);
+      final bridgeSource = file('bridge.c', [20]);
+      final otherSource = file('other.c', [30]);
+      final watch = await NativeLibsWatch.of(
+        {
+          patched.path: const [],
+          other.path: const [],
+        },
+        sources: {
+          patched.path: [bridgeSource.path],
+          other.path: [otherSource.path],
+        },
+      );
+
+      bridgeSource.writeAsBytesSync([21]);
+      expect(
+        await watch.verdict(),
+        isA<NativeLibsUnverifiable>().having((v) => v.libs, 'libs', [
+          patched.path,
+        ]),
+        reason: 'an edit to one library says nothing about the other',
+      );
+
+      // A patch delivered that library's code, so its source goes live with it:
+      // the app runs what the source says now.
+      await watch.markPatched({'libbridge.dylib'});
+      expect(await watch.verdict(), isA<NativeLibsCurrent>());
+    });
+  });
+
   test(
     'a native hot patch clears the library it delivered, and only that',
     () async {

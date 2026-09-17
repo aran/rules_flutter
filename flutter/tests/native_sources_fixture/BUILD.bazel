@@ -1,0 +1,36 @@
+"""Sources for `native_sources_test`: a native library built from checked-in
+files, one of its dependencies, and one generated file the aspect must leave
+out."""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+
+package(default_visibility = ["//flutter/tests:__pkg__"])
+
+genrule(
+    name = "generated",
+    outs = ["generated.c"],
+    cmd = "echo 'int generated(void) { return 3; }' > $@",
+)
+
+cc_library(
+    name = "helper",
+    srcs = ["helper.c"],
+)
+
+cc_library(
+    name = "bridge_cc",
+    srcs = [
+        "bridge.c",
+        # A build output: nothing edits it between reloads, and the build that
+        # writes it is what the library comparison already sees.
+        ":generated",
+    ],
+    hdrs = ["bridge.h"],
+    deps = [":helper"],
+)
+
+cc_shared_library(
+    name = "bridge",
+    deps = [":bridge_cc"],
+)
