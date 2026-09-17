@@ -787,6 +787,14 @@ class ReloadPipeline {
       final targets = resolved.targets!;
       // See `restart` above: reported from the resolved set, not from params.
       final addressed = [for (final t in targets) t.id];
+      // Started here rather than around the inject alone, because this is the
+      // wait a caller is actually timing: a codegen rebuild, a native patch
+      // built and delivered to a device, and the compile. On this path the
+      // patch is most of it — a Rust edit reaching a phone is seconds of
+      // build and delivery and milliseconds of inject — so timing the inject
+      // would report a number that is true and useless. The other paths
+      // measure compile-and-apply because that is all they do.
+      final elapsed = Stopwatch()..start();
       // Assets go to every session even when the Dart half is targeted: the
       // bundle is one shared tree and the rebuild has already changed it
       // under every app, so an eviction withheld from an untargeted app would
@@ -819,6 +827,7 @@ class ReloadPipeline {
       if (native.patch is NativePatched && outcome is ReloadNoChange) {
         await reassembleNativePatched?.call();
       }
+      elapsed.stop();
       return toWire(
         CommandReport(
           verb: 'Hot reload',
@@ -827,6 +836,7 @@ class ReloadPipeline {
           assets: assets,
           nativeLibs: native.verdict,
           nativePatch: native.patch,
+          elapsed: elapsed.elapsed,
         ),
       );
     }

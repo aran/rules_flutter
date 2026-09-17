@@ -292,6 +292,22 @@ void main() {
       );
     });
 
+    // The one number a caller can cite instead of quoting a measurement
+    // somebody took once. The web path reported it and this one did not,
+    // which is backwards: this is the path that builds and delivers a native
+    // patch to a device, so it is the path whose cost varies and the path
+    // people ask about.
+    test('a reload reports how long it took', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.pipeline.ready.signalReady();
+
+      final response = await h.hotReload();
+
+      expect(response['elapsedMs'], isA<int>());
+      expect(response['elapsedMs'], greaterThanOrEqualTo(0));
+    });
+
     // A pipeline whose bazel build failed is armed rather than settled: the
     // request that finds it is the event that builds again. Nothing here is on
     // a timer — the tests below drive it with requests, which is all production
@@ -469,6 +485,9 @@ void main() {
         // infer from an absent field.
         'appIds': ['app1'],
         'message': 'Hot reload successful (no changes detected)',
+        // Reported even when nothing changed: how long the question took to
+        // answer is the same question either way.
+        'elapsedMs': isA<int>(),
       });
     });
 
