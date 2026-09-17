@@ -325,6 +325,49 @@ void main() {
       expect(installCall.$2.last, isNot(endsWith('.ipa')));
     });
 
+    test(
+      'installs the extracted bundle with fresh modification times',
+      () async {
+        // Bazel writes every file into the .ipa with the same fixed 1980 mtime.
+        // The simulator's installer keeps an already-installed file whose size
+        // and mtime both match, so a rebuilt native library that kept its size
+        // was silently left at the old machine code. Measured on an iOS 27
+        // simulator: `simctl install` of the new bundle left the old `add`, and
+        // the same install after a `touch` replaced it.
+        final fakeLog = FakeProcess();
+        DateTime? mtimeAtInstall;
+        late String extractedLib;
+
+        final device = IOSSimulatorDevice(
+          udid: 'TEST-UDID',
+          bundleId: 'com.example.test',
+          runProcess: (exe, args) async {
+            if (exe == 'unzip') {
+              final dest = args.last;
+              extractedLib =
+                  '$dest/Payload/app.app/Frameworks/add.framework/add';
+              File(extractedLib)
+                ..createSync(recursive: true)
+                ..writeAsBytesSync([1, 2, 3])
+                ..setLastModifiedSync(DateTime.utc(1980));
+            }
+            if (exe == 'xcrun' && args.contains('install')) {
+              mtimeAtInstall = File(extractedLib).lastModifiedSync();
+            }
+            return ProcessResult(0, 0, '', '');
+          },
+          startProcess: (exe, args) async => fakeLog,
+        );
+
+        unawaited(fakeLog.outputAttached.then((_) => fakeLog.complete(0)));
+        final before = DateTime.now().subtract(const Duration(seconds: 5));
+        await device.launch('/path/to/app.ipa');
+
+        expect(mtimeAtInstall, isNotNull);
+        expect(mtimeAtInstall!.isAfter(before), isTrue);
+      },
+    );
+
     test('discovers VM service URI from log stream', () async {
       // launch() starts two `log stream` processes: a discovery stream
       // matching only the VM-service announcement, then the app's own output

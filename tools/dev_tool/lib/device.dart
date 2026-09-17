@@ -2077,6 +2077,17 @@ class IOSSimulatorDevice extends Device {
       if (apps.isEmpty) {
         throw StateError('No .app found in IPA Payload directory');
       }
+      // Bazel writes every archived file with the same fixed 1980 mtime, and
+      // the simulator's installer keeps an installed file whose size and mtime
+      // both match the new one. A rebuilt native library that kept its size
+      // would install as the old machine code, so stamp everything now.
+      final now = DateTime.now();
+      await for (final entity in tempDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is File) await entity.setLastModified(now);
+      }
       return (appPath: apps.first.path, dir: tempDir);
     } catch (_) {
       // Nothing usable came out of the archive; the half-unpacked copy is only
