@@ -449,7 +449,12 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
   if (element != null) {
     await Scrollable.ensureVisible(element, duration: duration);
     await _settle(params);
-    return _ok({'iterations': 0, 'reachable': _reachable(element)});
+    final asleep = _notRendering();
+    return _ok({
+      'iterations': 0,
+      'reachable': _reachable(element),
+      if (asleep != null) 'notRendering': asleep,
+    });
   }
 
   // Slow path: target hasn't been built yet (lazy ListView). Drag the
@@ -488,7 +493,12 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
     if (element != null) {
       await Scrollable.ensureVisible(element, duration: duration);
       await _settle(params);
-      return _ok({'iterations': i, 'reachable': _reachable(element)});
+      final asleep = _notRendering();
+      return _ok({
+        'iterations': i,
+        'reachable': _reachable(element),
+        if (asleep != null) 'notRendering': asleep,
+      });
     }
   }
   return _err(
@@ -562,7 +572,12 @@ Future<ServiceExtensionResponse> _handleEnterText(
     SelectionChangedCause.keyboard,
   );
   await _settle(params);
-  return _ok({'enteredText': text, 'into': target});
+  final asleep = _notRendering();
+  return _ok({
+    'enteredText': text,
+    'into': target,
+    if (asleep != null) 'notRendering': asleep,
+  });
 }
 
 Future<ServiceExtensionResponse> _handleGetText(
@@ -680,7 +695,8 @@ Future<ServiceExtensionResponse> _handlePageBack(
   if (nav == null) return _err('no Navigator found in widget tree');
   final popped = await nav.maybePop();
   await _settle(params);
-  return _ok({'popped': popped});
+  final asleep = _notRendering();
+  return _ok({'popped': popped, if (asleep != null) 'notRendering': asleep});
 }
 
 /// Resolve the target element via the selector params, fetch its RenderBox
@@ -710,8 +726,38 @@ Future<ServiceExtensionResponse> _withRect(
     final miss = _pointerWouldMiss(element!, rect.center, sel.label);
     if (miss != null) return _err(miss);
   }
-  return _ok(await body(rect));
+  final answer = await body(rect);
+  // Said on a successful command: the input landed, and what it changed is not
+  // on screen or in any read until the app is resumed.
+  if (dispatchesPointer) {
+    final asleep = _notRendering();
+    if (asleep != null) answer['notRendering'] = asleep;
+  }
+  return _ok(answer);
 }
+
+/// What an input command owes the caller when the app is not rendering, or
+/// null when it is.
+///
+/// Frames stop when the OS backgrounds an app, which on a phone is the ordinary
+/// state of a locked screen. The input still reaches the framework and its
+/// handler still runs — the counter really does increment — but nothing
+/// rebuilds and nothing paints, so a `getText` straight afterwards answers with
+/// the tree as it was. Measured on a locked Pixel 9a: `app.tap` answered with
+/// the point it tapped and the label it drives did not move; it moves when the
+/// device is unlocked.
+///
+/// Said rather than refused. The command did what it was asked, and refusing it
+/// would break the one case where this is routine and harmless: a desktop
+/// window minimized while a script drives it, which `agent_e2e_test`'s occluded
+/// tap covers — the tap lands, and the restored window's next frame shows it.
+String? _notRendering() => SchedulerBinding.instance.framesEnabled
+    ? null
+    : 'the app is not rendering: the OS has backgrounded it, which on a device '
+          'is what a locked screen does. The input was delivered and its '
+          'handler ran, but nothing rebuilds or repaints until the app is '
+          'resumed — so a read now answers with the tree as it was, not with '
+          'what this changed.';
 
 /// Why a pointer event at [point] would not reach [el], or null when it does.
 ///
