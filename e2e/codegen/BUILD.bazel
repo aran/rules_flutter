@@ -111,13 +111,30 @@ flutter_application(
 # =============================================================================
 
 # The native library the app bundles, plus what its bindings are generated from.
-# A C library's contract is its header: editing `native_add.c` changes the code
-# and not the contract, editing `native_add.h` changes both. That is what lets
-# `native_libs_reload_e2e_test.dart` drive a reload that is delivered and one
-# that is withheld from one fixture.
+#
+# The contract is *generated*, which is the shape a real binding generator has:
+# it reads the library's own source of truth and emits an interface description
+# beside the bindings. Here that is one line per exported declaration, extracted
+# from the header — so editing `native_add.c` moves the library alone, editing a
+# comment in the header moves the library and not the contract, and editing a
+# signature moves both. Those are the three cases
+# `native_libs_reload_e2e_test.dart` drives.
+#
+# Generated rather than the header itself (which would also be a valid contract
+# for a hand-written binding, and is what `ffi_example` declares) because only a
+# generated one exercises the part that can break: a contract is an input to no
+# action of the app, so the app target has to declare it as an output or the dev
+# tool is pointed at a path nothing writes. See `flutter_application`.
+genrule(
+    name = "native_add_ir",
+    srcs = ["//native_add:native/native_add.h"],
+    outs = ["native_add.ir"],
+    cmd = "grep -E '^NATIVE_ADD_EXPORT ' $< > $@",
+)
+
 flutter_native_library(
     name = "native_add_lib",
-    binding_contract = ["//native_add:native/native_add.h"],
+    binding_contract = [":native_add_ir"],
     library = "//native_add:native_add_shared",
 )
 

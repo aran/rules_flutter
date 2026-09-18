@@ -238,6 +238,7 @@ def _flutter_application_impl(ctx):
     # tool has to tell "nothing describes this one" from "this one is not
     # bundled", and they mean opposite things for a reload.
     binding_contracts = {path: [] for path in bundled_native_libs}
+    contract_files = []
     for pair in collect_binding_contracts(ctx.attr.native_deps) + [
         p
         for dep in ctx.attr.deps
@@ -249,6 +250,7 @@ def _flutter_application_impl(ctx):
                 f.path
                 for f in pair.contract
             ]
+            contract_files.extend(pair.contract)
 
     # And what each is built from, on the same keys, so a reload can tell that a
     # library went stale in an app that runs no build of its own.
@@ -371,6 +373,19 @@ def _flutter_application_impl(ctx):
         # the action, and a cache hit runs none. Declaring them is what makes
         # the paths in the config true.
         default_files.extend(compilation.dev_generated_source_files)
+
+        # And the binding contracts, which have it worse than the generated
+        # sources: a contract is an input to no action of this target at all.
+        # Nothing but the dev tool ever reads its bytes, so a *generated*
+        # contract is written only if some other action happens to produce it —
+        # a bridge generator that emits its interface description beside the
+        # Dart it also emits does, and a rule that emits the description alone
+        # does not. The first case works by luck and the second one names a
+        # path in the config that this build never writes, which the dev tool
+        # reports at launch as a build that declared a file it did not write.
+        # Declaring them is what makes the paths true, and what makes the
+        # reload's own rebuild refresh them.
+        default_files.extend(contract_files)
 
     output_groups = {
         "native_assets_manifest": depset([native_assets_manifest_file]),

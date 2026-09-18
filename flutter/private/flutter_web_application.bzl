@@ -1141,6 +1141,14 @@ def _flutter_web_bundle_impl(ctx):
         if registrant:
             ddc_files.append(registrant)
 
+        # And the declared modules' binding contracts, which are an input to no
+        # action here at all — nothing but the dev tool reads their bytes. A
+        # *generated* contract is otherwise a path in the config that this build
+        # never writes, unless some other action happens to produce it. See
+        # `flutter_application`, which declares them for the same reason.
+        for contracts in native_module_contracts.values():
+            ddc_files.extend(contracts)
+
         return [DefaultInfo(files = depset([output_dir] + ddc_files)), output_groups, analyzable_info]
 
     return [DefaultInfo(files = depset([output_dir])), output_groups, analyzable_info]
