@@ -145,6 +145,18 @@ void main() {
           reason: 'Meta+A selected everything, and typing replaced it',
         );
 
+        // The apostrophe, the one key whose physical and logical debug names
+        // disagree: pairing them by name pressed ⌘" instead, and the app's
+        // ⌘' shortcut (bound by `LogicalKeyboardKey.quoteSingle`) never fired.
+        final quote = await press(dt, appId, 'Meta+Quote', route: 'framework');
+        expect(quote['handled'], isTrue, reason: '$quote');
+        expect(
+          await textOf(dt, appId, 'agent_test_echo'),
+          "echo: z | submitted: aXbcY | shortcut: ⌘'",
+          reason:
+              "Meta+Quote reaches a shortcut bound to ⌘', and types nothing",
+        );
+
         await dt.sendCommand(1, 'daemon.shutdown');
       },
       timeout: const Timeout(Duration(minutes: 5)),

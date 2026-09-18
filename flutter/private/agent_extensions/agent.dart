@@ -992,10 +992,23 @@ final Map<String, LogicalKeyboardKey> _logicalByName = {
     if (k.debugName case final name?) name: k,
 };
 
+/// The logical key for a DOM `code` whose physical key's debug name names a
+/// different logical key.
+///
+/// Flutter calls the US apostrophe key's physical key "Quote", and "Quote" is
+/// also the name of the logical key for `"` — the apostrophe is "Quote Single".
+/// Pairing by name pressed ⌘' as ⌘", which a shortcut bound to `quoteSingle`
+/// never answers (reported by rainstorm, whose Block Quote is ⌘'). Checked
+/// against the SDK's key tables for every key in the dev tool's US layout: this
+/// is the only one the names pair wrongly.
+const Map<String, LogicalKeyboardKey> _logicalForCode = {
+  'Quote': LogicalKeyboardKey.quoteSingle,
+};
+
 /// The key a DOM `code` names, or null if Flutter has none.
 _FlutterKey? _keyForCode(String code) {
   final physical = kWebToPhysicalKey[code];
-  final logical = _logicalByName[physical?.debugName];
+  final logical = _logicalForCode[code] ?? _logicalByName[physical?.debugName];
   if (physical == null || logical == null) return null;
   return _FlutterKey(physical, logical);
 }

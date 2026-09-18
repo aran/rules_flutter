@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:hello_world/common_widgets.dart';
 
 void main() {
@@ -44,6 +45,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _doubleTapCount = 0;
   final _agentEchoController = TextEditingController();
   String _submitted = '';
+  String _shortcut = '';
 
   @override
   void initState() {
@@ -83,20 +85,35 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: _incrementCounter,
               child: const Text('Increment (agent)'),
             ),
-            SizedBox(
-              width: 200,
-              child: TextField(
-                key: const ValueKey('agent_test_field'),
-                controller: _agentEchoController,
-                onSubmitted: (value) => setState(() => _submitted = value),
+            // ⌘' is bound the way an app binds a punctuation shortcut: by the
+            // logical key. press_key_e2e_test.dart presses it, because the
+            // apostrophe is the one key whose physical and logical debug
+            // names disagree, and pairing them by name sent ⌘".
+            CallbackShortcuts(
+              bindings: {
+                const SingleActivator(
+                  LogicalKeyboardKey.quoteSingle,
+                  meta: true,
+                ): () =>
+                    setState(() => _shortcut = "⌘'"),
+              },
+              child: SizedBox(
+                width: 200,
+                child: TextField(
+                  key: const ValueKey('agent_test_field'),
+                  controller: _agentEchoController,
+                  onSubmitted: (value) => setState(() => _submitted = value),
+                ),
               ),
             ),
-            // What Enter submitted rides on the echo line rather than a row of
-            // its own, so the layout the other agent tests measure is
-            // unchanged until press_key_e2e_test.dart submits something.
+            // What Enter submitted, and which shortcut fired, ride on the echo
+            // line rather than rows of their own, so the layout the other
+            // agent tests measure is unchanged until press_key_e2e_test.dart
+            // sets them.
             Text(
               'echo: ${_agentEchoController.text}'
-              '${_submitted.isEmpty ? '' : ' | submitted: $_submitted'}',
+              '${_submitted.isEmpty ? '' : ' | submitted: $_submitted'}'
+              '${_shortcut.isEmpty ? '' : ' | shortcut: $_shortcut'}',
               key: const ValueKey('agent_test_echo'),
             ),
             // An app that never goes idle, on request.
