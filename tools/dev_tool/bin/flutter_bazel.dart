@@ -17,9 +17,12 @@ import '../lib/build_command.dart';
 import '../lib/cli_args.dart';
 import '../lib/logging.dart';
 import '../lib/run_command.dart' show RunCommand, DevToolException;
+import '../lib/runfiles_helper.dart' show pinProcessLocation;
 import '../lib/tunnel_command.dart';
 
 void main(List<String> args) async {
+  // Before anything can move the path this was launched through.
+  pinProcessLocation();
   initLogging();
   // Handle ios-tunnel as a special case — it's a long-running daemon that
   // takes over the process, so we intercept it before ArgParser.

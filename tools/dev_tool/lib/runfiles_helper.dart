@@ -28,6 +28,51 @@ const String _runfilesSourceRepository = String.fromEnvironment(
   defaultValue: '',
 );
 
+/// Pin what this process knows about where it runs from, while the path it
+/// was launched through still leads there. Called first thing in `main`.
+///
+/// Launched as `./bazel-bin/.../flutter_bazel` — the usual build-then-run
+/// form — that path goes through the `bazel-bin` convenience symlink, and the
+/// run's own `-c dbg` app build repoints `bazel-bin` at a tree with no
+/// flutter_bazel in it. Two things read the launch path lazily, and both broke
+/// once it had moved:
+///
+///  * `Platform.resolvedExecutable`, which dart:io resolves on first read and
+///    keeps only once a read succeeds. DDS reads it for every websocket client
+///    it accepts (the debug adapter it hosts per client), so its first read
+///    came after the repoint and threw `type 'Null' is not a subtype of type
+///    'String'` inside DDS's error zone, which swallows it. Every client hung,
+///    this tool's own VM service connection first: five 30-second attempts,
+///    then "No VM service connection on macOS".
+///  * The runfiles lookups below, which probed next to `Platform.executable`
+///    on every call and found nothing once it had moved: "Could not find
+///    bundled macOS screenshot tool".
+///
+/// Both are read here once and kept. The runfiles resolver keeps working
+/// after a move because it resolves through the runfiles manifest, whose
+/// entries are real paths. A runfiles tree without a manifest
+/// (`--nobuild_runfile_manifests`) resolves through the directory beside the
+/// launch path, and so still breaks when that path moves.
+void pinProcessLocation() {
+  Platform.resolvedExecutable.length;
+  _runfiles;
+  _manifestPath;
+}
+
+/// This process's runfiles, created once: on the first lookup, or in
+/// [pinProcessLocation] before anything can move. Null outside a runfiles tree
+/// (`dart run` from a source checkout).
+final Runfiles? _runfiles = () {
+  try {
+    return Runfiles.create(sourceRepository: _runfilesSourceRepository);
+  } on StateError {
+    return null;
+  }
+}();
+
+/// [_activeManifestPath], found once for the same reason as [_runfiles].
+final String? _manifestPath = _activeManifestPath();
+
 /// Result of resolving a runfile alongside the manifest path used to
 /// resolve it.
 class ResolvedRunfile {
@@ -51,14 +96,7 @@ String? resolveRunfile(String path) => resolveRunfileWithManifest(path)?.path;
 ///    part of that world, and its absence is not an error.
 ///  * **Runfiles present, entry missing.** A declared `data` dependency did
 ///    not make it into the tree. That is a build defect and should be fatal.
-bool get hasRunfilesContext {
-  try {
-    Runfiles.create(sourceRepository: _runfilesSourceRepository);
-    return true;
-  } on StateError {
-    return false;
-  }
-}
+bool get hasRunfilesContext => _runfiles != null;
 
 /// Resolve a runfile path and return both the resolved path and the
 /// manifest path (when one is in use). The manifest path is needed when
@@ -77,15 +115,11 @@ ResolvedRunfile? resolveRunfileWithManifest(String path) {
       ? ['$path.exe', path]
       : [path];
 
-  final Runfiles r;
-  try {
-    r = Runfiles.create(sourceRepository: _runfilesSourceRepository);
-  } on StateError {
-    // Not running inside a Bazel runfiles tree (e.g. `dart run`).
-    return null;
-  }
+  // Null when not running inside a Bazel runfiles tree (e.g. `dart run`).
+  final r = _runfiles;
+  if (r == null) return null;
 
-  final manifestPath = _activeManifestPath();
+  final manifestPath = _manifestPath;
   for (final key in keys) {
     final resolved = r.rlocation(key);
     if (File(resolved).existsSync()) {
