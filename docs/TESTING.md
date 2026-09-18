@@ -799,6 +799,8 @@ bazel test :verify_macos_app_test --test_tag_filters= --strategy=TestRunner=stan
 
 **When to run:** After any change to macOS runner code (`flutter/private/runners/macos/`) or to what the macOS bundle carries (`flutter_macos_application.bzl`).
 
+**`System Events reports no windows for any process` can be the Bazel server, not your grant.** The test reads windows through System Events, which answers only a client macOS trusts with Accessibility. Measured 2026-09-18: in a workspace whose Bazel server had first been started by `flutter_bazel run`, the test failed this way while `osascript -e 'tell application "System Events" to count processes'` answered from the same terminal. After `bazel shutdown` and a rerun from the terminal it passed. So check the `osascript` line first: if it answers, restart the server; if it does not, grant the terminal Accessibility.
+
 ### FFI runtime tests (iOS simulator, macOS, Linux, Windows)
 
 Behavioral verification that both native-library mechanisms work at runtime:
