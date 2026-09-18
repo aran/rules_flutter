@@ -5,10 +5,11 @@ root, and under what library URI" concern.
 
 Hot-reload correctness depends on the running (Bazel-built) kernel keying
 the app's libraries under the *same* URIs the dev tool's incremental
-compiler uses. The dev tool resolves the app's main to
-`package:<name>/main.dart` (via the package_config app entry that
-`flutter_compile_kernel` writes), so the user's `main` is always the
-compilation root under that `package:` URI. Pre-main setup (plugin
+compiler uses. A `main` under its package's `lib/` is compiled as its
+`package:` URI (via the package_config app entry that
+`flutter_compile_kernel` writes); one outside it — `flutter run -t` allows
+any — as `org-dartlang-app:///<workspace path>`, with the same file-system
+root mounted on both sides (`app_main_location`). Pre-main setup (plugin
 registrant, agent extensions) is NOT interposed here — it lives in the
 generated registrant library the engine invokes before `main()` on every
 root-isolate launch (see plugin_registrant.bzl), which is what keeps it
@@ -16,6 +17,76 @@ alive across hot restart.
 """
 
 load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config")
+
+# The file-system scheme a file with no `package:` URI is compiled under — a
+# `main` outside its package's `lib/`, and the generated plugin registrant. One
+# name for the build's kernel compile and the dev loop's compiler alike, which
+# is what lets the running kernel and a hot reload agree on a library's URI.
+# rules_dart's dev package config mounts a source-assembled package under the
+# same scheme, and a frontend_server mounts one scheme at a time, so there is no
+# second name to choose.
+APP_SCHEME = "org-dartlang-app"
+
+def app_scheme_location(file):
+    """Where `file` sits under `APP_SCHEME`, and the root it sits under.
+
+    rules_dart's `generate_dev_package_config` convention: the path is the
+    file's workspace-relative one (a file in another repository sits under
+    `external/<repo>/`), and the root is the exec root for a source file or its
+    output directory for a generated one. Both halves mean the same thing in the
+    build's sandbox and in the dev loop, which is the point — a source file's
+    exec path is a sandbox path, and naming a library by it gives the dev loop a
+    URI it can never compile again.
+
+    Args:
+        file: A `File`.
+
+    Returns:
+        struct(uri, root): `org-dartlang-app:///<path>`, and the
+        exec-root-relative directory to mount for it (`""` for the exec root).
+    """
+    rel = file.short_path
+    if rel.startswith("../"):
+        rel = "external/" + rel[len("../"):]
+    if not file.path.endswith(rel):
+        fail("%s: cannot place %s under a file-system root: its path does not end in %s" % (file.owner, file.path, rel))
+    root = file.path[:len(file.path) - len(rel)].rstrip("/")
+    return struct(uri = "%s:///%s" % (APP_SCHEME, rel), root = root)
+
+def with_root(roots, root):
+    """`roots` with `root` appended unless it is None or already there.
+
+    Args:
+        roots: Exec-root-relative directories (`""` for the exec root).
+        root: One more, or None.
+
+    Returns:
+        A new list.
+    """
+    if root == None or root in roots:
+        return list(roots)
+    return list(roots) + [root]
+
+def app_main_location(package_name, lib_root, main):
+    """The URI the app's `main` is compiled under, everywhere it is compiled.
+
+    Its `package:` URI when it has one (`app_main_package_uri`), which needs
+    no file-system root. Otherwise — a `main` outside the package's `lib/`, as
+    `flutter run -t test_driver/app.dart` allows, or an app with no
+    `package_name` — its `app_scheme_location`.
+
+    Args:
+        package_name: The app's Dart package name, or `""`.
+        lib_root: The app's library root, from `derive_lib_root`.
+        main: The app's `main` `File`.
+
+    Returns:
+        struct(uri, root): `root` is None for a `package:` URI.
+    """
+    package_uri = app_main_package_uri(package_name, lib_root, main.short_path)
+    if package_uri:
+        return struct(uri = package_uri, root = None)
+    return app_scheme_location(main)
 
 def package_lib_prefix(lib_root):
     """The `short_path` prefix holding a package's `package:`-reachable files.
@@ -263,6 +334,41 @@ def app_main_package_uri(package_name, lib_root, main_short_path):
         return None
     return "package:%s/%s" % (package_name, rel)
 
+def app_scheme_sources(package_name, lib_root, main, srcs):
+    """The files the dev loop reloads under `APP_SCHEME`, by workspace path.
+
+    Empty for a `main` with a `package:` URI. Otherwise the `main` and every
+    first-party source in `srcs` outside the package's `lib/` — the only files
+    outside a package the app can read, since the build's compile sees nothing
+    it does not declare. The dev loop keys an edit to one of them by this URI;
+    without the list, an edit to a file outside every `lib/` maps to nothing
+    and a reload drops it.
+
+    Only source files in this repository: a generated file is rewritten by a
+    build, not edited, and a file in another repository is not in the
+    workspace the dev loop watches.
+
+    Args:
+        package_name: The app's Dart package name, or `""`.
+        lib_root: The app's library root, from `derive_lib_root`.
+        main: The app's `main` `File`.
+        srcs: The app's own `srcs` `File`s.
+
+    Returns:
+        A list of `{"path": <workspace-relative path>, "uri": <APP_SCHEME URI>}`.
+    """
+    if app_main_package_uri(package_name, lib_root, main.short_path):
+        return []
+    prefix = package_lib_prefix(lib_root)
+    out = []
+    for f in [main] + [s for s in srcs if s != main]:
+        if not f.is_source or f.short_path.startswith("../"):
+            continue
+        if package_name and f.short_path.startswith(prefix):
+            continue
+        out.append({"path": f.short_path, "uri": app_scheme_location(f).uri})
+    return out
+
 def resolve_kernel_entrypoint(ctx, package_name, lib_root):
     """Resolve the application kernel entrypoint: the user's own `main`.
 
@@ -275,15 +381,16 @@ def resolve_kernel_entrypoint(ctx, package_name, lib_root):
     Returns:
         struct(
             file: File — the entrypoint compiled into the kernel,
-            uri: str — what frontend_server uses as the compilation root:
-                the main's `package:` URI (sandbox-independent, identical
-                to the dev tool's incremental compile root — hot-reload
-                URI parity), or its exec path when the app is packageless
-                or its `main` sits outside the package's `lib/`.
+            uri: str — what frontend_server uses as the compilation root, from
+                `app_main_location`: identical to the dev tool's incremental
+                compile root (hot-reload URI parity) wherever `main` sits,
+            root: str or None — the exec-root-relative directory `uri` needs
+                mounted under `APP_SCHEME`, or None for a `package:` URI.
         )
     """
-    app_pkg_uri = app_main_package_uri(package_name, lib_root, ctx.file.main.short_path)
+    location = app_main_location(package_name, lib_root, ctx.file.main)
     return struct(
         file = ctx.file.main,
-        uri = app_pkg_uri or ctx.file.main.path,
+        uri = location.uri,
+        root = location.root,
     )

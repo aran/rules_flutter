@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_format_test")
+load(":app_entrypoint_test.bzl", "app_entrypoint_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
 load(":common_test.bzl", "common_test_suite")
@@ -71,6 +72,8 @@ platform_bundle_test_suite(name = "platform_bundle_test")
 linux_sysroot_link_test_suite(name = "linux_sysroot_link_test")
 
 language_version_test_suite(name = "language_version_test")
+
+app_entrypoint_test_suite(name = "app_entrypoint_test")
 
 pub_lock_sdks_test_suite(name = "pub_lock_sdks_test")
 

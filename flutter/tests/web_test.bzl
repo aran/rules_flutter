@@ -508,30 +508,44 @@ _dev_config_test = analysistest.make(
     attrs = {"expect_entrypoint": attr.string(mandatory = True)},
 )
 
-def _no_package_uri_refused_test_impl(ctx):
-    """A `main` outside the package's `lib/` stops a dbg build instead of guessing.
+def _main_outside_lib_test_impl(ctx):
+    """A `main` outside the package's `lib/` reaches the dev loop by its path.
 
-    There is no `package:` URI for such a file, and the dev loop's synthetic
-    entrypoint imports the app by package URI or not at all. The rule used to
-    fabricate `package:<name>/main.dart` here — a library that, resolved
-    against the app's own record, was some *other* app's entrypoint. The run
-    then booted that program and reported nothing, which is the failure this
-    refusal replaces.
+    It has no `package:` URI, so the dev config names it under the app scheme
+    — the same `org-dartlang-app:///<workspace path>` the dev tool's compiler
+    resolves through `--filesystem-root` — and carries the root that makes it
+    resolve: the exec root, for a source file. `flutter run -t` accepts a
+    `main` anywhere, and so does this.
+
+    The rule used to refuse this shape in `-c dbg` only, so a bundle built green
+    in every other mode and failed on the first `flutter_bazel run`; before
+    that it fabricated `package:<name>/main.dart`, which could name another
+    app's entrypoint.
     """
     env = analysistest.begin(ctx)
+    config = written_json(env, "_dev_config.json")
+    if config == None:
+        return analysistest.end(env)
+    asserts.equals(
+        env,
+        "org-dartlang-app:///flutter/tests/web_fixture_main.dart",
+        config["appEntrypoint"],
+    )
+    asserts.equals(env, [""], config["filesystemRoots"])
+    asserts.equals(env, "org-dartlang-app", config["filesystemScheme"])
 
-    # Named by path, so the message identifies the file rather than the rule.
-    asserts.expect_failure(env, "web_fixture_main.dart")
-
-    # And the message has to say where the file belongs, or it reads as
-    # "unsupported" rather than "move it".
-    asserts.expect_failure(env, "flutter/tests/lib/")
+    # And the dev loop is told which workspace file carries that URI, so an
+    # edit to it reloads instead of mapping to no package and being dropped.
+    asserts.equals(
+        env,
+        [{"path": "flutter/tests/web_fixture_main.dart", "uri": "org-dartlang-app:///flutter/tests/web_fixture_main.dart"}],
+        config["appSources"],
+    )
     return analysistest.end(env)
 
-_no_package_uri_refused_test = analysistest.make(
-    _no_package_uri_refused_test_impl,
+_main_outside_lib_test = analysistest.make(
+    _main_outside_lib_test_impl,
     config_settings = {"//command_line_option:compilation_mode": "dbg"},
-    expect_failure = True,
 )
 
 def _dev_config_overrides_test_impl(ctx):
@@ -1228,9 +1242,8 @@ def _setup_web_fixtures():
     )
 
     # A `main` beside the package's `lib/` rather than inside it, which has no
-    # `package:` URI at all. The dev loop's synthetic entrypoint can only
-    # import the app by package URI, so a `-c dbg` build of this shape has to
-    # stop; `_no_package_uri_refused_test` pins that it does.
+    # `package:` URI at all; `_main_outside_lib_test` pins how the dev loop
+    # reaches it instead.
     flutter_web_bundle(
         name = "_web_pkg_root_main_fixture",
         package_name = "web_fixture",
@@ -1422,8 +1435,8 @@ def web_test_suite(name):
         target_under_test = ":_web_fixture",
         expect_entrypoint = "package:web_fixture/web_fixture_main.dart",
     )
-    _no_package_uri_refused_test(
-        name = name + "_no_package_uri_refused",
+    _main_outside_lib_test(
+        name = name + "_main_outside_lib",
         target_under_test = ":_web_pkg_root_main_fixture",
     )
     _wasm_source_map_test(

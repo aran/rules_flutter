@@ -5,6 +5,8 @@ Flutter compilation differs from vanilla Dart in that it uses:
 - The frontend_server_aot.dart.snapshot instead of `dart compile kernel`
 """
 
+load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
+
 def flutter_kernel_compile_action(
         ctx,
         dartaotruntime,
@@ -21,7 +23,8 @@ def flutter_kernel_compile_action(
         extra_flags = [],
         target = "flutter",
         native_assets_manifest = None,
-        dart_plugin_registrant_uri = None):
+        dart_plugin_registrant_uri = None,
+        filesystem_roots = []):
     """Creates a Flutter kernel compilation action.
 
     Invokes the frontend_server via dartaotruntime to compile Dart sources
@@ -60,8 +63,8 @@ def flutter_kernel_compile_action(
             to the frontend_server via `--native-assets`. The frontend
             server embeds the manifest into the resulting kernel so the
             engine can resolve `package:` Native Assets at runtime.
-        dart_plugin_registrant_uri: Optional `org-dartlang-root:///<exec
-            path>` URI of the generated plugin registrant. When set, the
+        dart_plugin_registrant_uri: Optional `APP_SCHEME` URI of the
+            generated plugin registrant (`app_scheme_location`). When set, the
             registrant is compiled into the kernel as an extra source and
             advertised via `-Dflutter.dart_plugin_registrant=` so the
             engine invokes `_PluginRegistrant.register()` before main() on
@@ -69,6 +72,10 @@ def flutter_kernel_compile_action(
             multi-root scheme keeps the library's importUri identical to
             the define regardless of sandbox location — the engine matches
             them by exact string equality.
+        filesystem_roots: Exec-root-relative directories (`""` for the exec
+            root) mounted under `APP_SCHEME`, for every `APP_SCHEME` URI
+            above — the registrant's and, for a `main` with no `package:`
+            URI, [entrypoint_uri]'s.
     """
     args = ctx.actions.args()
     args.add(frontend_server)
@@ -103,11 +110,13 @@ def flutter_kernel_compile_action(
     for d in defines:
         args.add("-D" + d)
 
+    if filesystem_roots:
+        # The action's cwd is the exec root, so `""` mounts it as `.`.
+        for root in filesystem_roots:
+            args.add("--filesystem-root", root or ".")
+        args.add("--filesystem-scheme", APP_SCHEME)
+
     if dart_plugin_registrant_uri:
-        # Root the multi-root scheme at the action cwd (the execroot) so the
-        # registrant's exec path resolves and its importUri equals the -D.
-        args.add("--filesystem-root", ".")
-        args.add("--filesystem-scheme", "org-dartlang-root")
         args.add("--source", dart_plugin_registrant_uri)
         args.add("--source", "package:flutter/src/dart_plugin_registrant.dart")
         args.add("-Dflutter.dart_plugin_registrant=" + dart_plugin_registrant_uri)

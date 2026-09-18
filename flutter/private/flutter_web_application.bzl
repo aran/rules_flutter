@@ -24,11 +24,15 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_pac
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
+    "APP_SCHEME",
+    "app_main_location",
     "app_main_package_uri",
+    "app_scheme_sources",
     "compile_package_config",
     "package_lib_prefix",
     "resolve_wrapper_main_import",
     "synthesize_app_package",
+    "with_root",
 )
 load(
     "//flutter/private:common.bzl",
@@ -341,9 +345,15 @@ def _flutter_web_bundle_impl(ctx):
     dev_source_packages = []
     if is_debug:
         dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
-        dev_pc = generate_dev_package_config(packages, all_srcs + [ctx.file.main], dev_package_config)
+        dev_pc = generate_dev_package_config(packages, all_srcs + [ctx.file.main], dev_package_config, scheme = APP_SCHEME)
         ctx.actions.write(dev_package_config, dev_pc.content)
-        dev_filesystem_roots = dev_pc.filesystem_roots
+
+        # A `main` with no `package:` URI is imported by the dev loop's
+        # synthetic entrypoint under the app scheme, from this root.
+        dev_filesystem_roots = with_root(
+            dev_pc.filesystem_roots,
+            app_main_location(ctx.attr.package_name, lib_root, ctx.file.main).root,
+        )
         dev_filesystem_scheme = dev_pc.scheme
         dev_generated_source_paths = dev_pc.generated_source_paths
         dev_generated_source_uris = dev_pc.generated_source_uris
@@ -1003,42 +1013,18 @@ def _flutter_web_bundle_impl(ctx):
         # .../dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js → .../dart-sdk
         dart_sdk_root = ctx.file._ddc_module_loader_js.path.rsplit("/lib/", 1)[0]
 
-        # The synthetic-main entrypoint the dev tool imports, as a `package:`
-        # URI backed by the record `synthesize_app_package` wrote above —
-        # `app_main_package_uri`, not arithmetic of its own. The arithmetic it
-        # replaces got both branches wrong: it stripped `ctx.label.package +
-        # "/lib/"`, which is `"/lib/"` for a workspace-rooted app and so never
-        # matched, and its `else` then *fabricated* `package:<name>/main.dart`
-        # for any main it could not place. That fallback was right only when
-        # the entrypoint happened to be the workspace root's `lib/main.dart`;
-        # for anything else it named a library belonging to another app, and
-        # the dev loop booted that program instead with nothing reporting a
-        # mismatch.
+        # The synthetic-main entrypoint the dev tool imports: the `main`'s
+        # `package:` URI, backed by the record `synthesize_app_package` wrote
+        # above, or — for a `main` outside the package's `lib/`, which
+        # `flutter run -t` allows — its app-scheme URI, which the dev loop
+        # resolves through the root `dev_filesystem_roots` carries for it.
         #
-        # A `main` outside the package's own `lib/` has no `package:` URI, so
-        # the run stops here rather than inventing one. The bundle path can
-        # still express that shape (the wrapper falls back to a relative
-        # import), but the dev loop's synthetic entrypoint is compiled under
-        # `org-dartlang-app:` from a staging directory and can only reach the
-        # app by package URI.
-        app_entrypoint = app_main_package_uri(
-            ctx.attr.package_name,
-            lib_root,
-            ctx.file.main.short_path,
-        )
-        if not app_entrypoint:
-            fail(
-                ("%s: `main` is `%s`, which is outside this package's `%s`, " +
-                 "so it has no `package:` URI for the dev loop's synthetic " +
-                 "entrypoint to import. Move `main` under `%s` (a debug web " +
-                 "build is a `flutter_bazel run` build), or build this " +
-                 "target in a non-debug configuration.") % (
-                    ctx.label,
-                    ctx.file.main.short_path,
-                    package_lib_prefix(lib_root),
-                    package_lib_prefix(lib_root),
-                ),
-            )
+        # Never a URI derived any other way. An earlier version fabricated
+        # `package:<name>/main.dart` for a `main` it could not place, which
+        # named some other app's entrypoint whenever the workspace root held
+        # one, and the dev loop booted that program with nothing reporting a
+        # mismatch.
+        app_entrypoint = app_main_location(ctx.attr.package_name, lib_root, ctx.file.main).uri
 
         dev_config_content = json.encode({
             "engineRevision": flutter_sdk_info.engine_revision,
@@ -1117,12 +1103,22 @@ def _flutter_web_bundle_impl(ctx):
                 for f, contracts in native_module_contracts.items()
             },
             # First-party source packages (app + local deps) the dev tool maps
-            # live edits back to via its PackageUriResolver. libRoot is
+            # live edits back to via its SourceUriResolver. libRoot is
             # workspace-relative.
             "sourcePackages": [
                 {"name": sp[0], "libRoot": sp[1]}
                 for sp in dev_source_packages
             ],
+            # The sources outside every package the app compiles under the app
+            # scheme — a `main` outside its package's `lib/` and the `srcs`
+            # beside it — with the URI the compiler keys each by. Empty for a
+            # `main` with a `package:` URI.
+            "appSources": app_scheme_sources(
+                ctx.attr.package_name,
+                lib_root,
+                ctx.file.main,
+                ctx.files.srcs,
+            ),
         })
         dev_config = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
         ctx.actions.write(dev_config, dev_config_content)

@@ -9,7 +9,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs", "derive_lib_root", "generate_dev_package_config")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
-load("//flutter/private:app_entrypoint.bzl", "app_main_package_uri", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package")
+load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "app_main_location", "app_scheme_location", "app_scheme_sources", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package", "with_root")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -317,13 +317,20 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     dev_generated_source_uris = []
     dev_generated_source_files = []
     dev_source_packages = []
-    app_entrypoint_uri = app_main_package_uri(app_pkg_name, app_lib_root, ctx.file.main.short_path) if ctx.file.main else None
+    dev_app_sources = []
+    main_location = app_main_location(app_pkg_name, app_lib_root, ctx.file.main) if ctx.file.main else None
+    app_entrypoint_uri = main_location.uri if main_location else None
     if emit_dev_config:
         dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
-        dev_pc = generate_dev_package_config(packages, colocate_inputs, dev_package_config)
+        dev_pc = generate_dev_package_config(packages, colocate_inputs, dev_package_config, scheme = APP_SCHEME)
         ctx.actions.write(dev_package_config, dev_pc.content)
-        dev_filesystem_roots = dev_pc.filesystem_roots
+
+        # A `main` with no `package:` URI is compiled under the app scheme,
+        # and the dev loop's compiler has to mount the same root to name it
+        # the same way.
+        dev_filesystem_roots = with_root(dev_pc.filesystem_roots, main_location.root if main_location else None)
         dev_filesystem_scheme = dev_pc.scheme
+        dev_app_sources = app_scheme_sources(app_pkg_name, app_lib_root, ctx.file.main, ctx.files.srcs) if ctx.file.main else []
         dev_generated_source_paths = dev_pc.generated_source_paths
         dev_generated_source_uris = dev_pc.generated_source_uris
         dev_source_packages = dev_pc.source_packages
@@ -387,7 +394,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         agent_import = staged_agent.basename if staged_agent else None,
         native_agent_import = staged_native_agent.basename if staged_native_agent else None,
     )
-    registrant_uri = "org-dartlang-root:///" + registrant.path if registrant else None
+    registrant_location = app_scheme_location(registrant) if registrant else None
 
     # Dev-loop registrants, one per platform (debug only). The dev tool reads
     # these from a HOST-configuration build while the app can be running on a
@@ -468,7 +475,11 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         target = frontend_server_target,
         extra_flags = extra_frontend_flags,
         native_assets_manifest = native_assets_manifest,
-        dart_plugin_registrant_uri = registrant_uri,
+        dart_plugin_registrant_uri = registrant_location.uri if registrant_location else None,
+        filesystem_roots = with_root(
+            with_root([], registrant_location.root if registrant_location else None),
+            entrypoint_info.root,
+        ),
     )
     return struct(
         kernel_dill = kernel_dill,
@@ -491,6 +502,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         dev_generated_source_uris = dev_generated_source_uris,
         dev_generated_source_files = dev_generated_source_files,
         dev_source_packages = dev_source_packages,
+        dev_app_sources = dev_app_sources,
     )
 
 def collect_sdk_shader_srcs(deps):
