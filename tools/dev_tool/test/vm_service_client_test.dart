@@ -476,6 +476,33 @@ void main() {
       });
     });
 
+    test('a restart never writes the kernel the app is running from', () async {
+      // The VM replaces a devFS file by deleting it first, and Windows will not
+      // delete a mapped one: the kernel of the last restart, which the engine
+      // is still running.
+      final fake = FakeVmService(
+        isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+      );
+      final client = await connected(fake);
+
+      final scripts = <String>[];
+      for (var i = 0; i < 3; i++) {
+        expect(await client.hotRestart(dillPath), isA<VerdictApplied>());
+        scripts.add(
+          fake.methodCalls
+                  .lastWhere((c) => c.method == '_flutter.runInView')
+                  .args?['mainScript']
+              as String,
+        );
+      }
+
+      expect(scripts, [
+        devFS.fileAt('main.dart.dill').uri.toString(),
+        devFS.fileAt('main.dart.swap.dill').uri.toString(),
+        devFS.fileAt('main.dart.dill').uri.toString(),
+      ]);
+    });
+
     test('methods throw StateError when not connected', () {
       final client = VmServiceClient(
         connector: (_) async => FakeVmService(),

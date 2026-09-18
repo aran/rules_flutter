@@ -1775,6 +1775,22 @@ class VmServiceClient {
     await File(outputPath).writeAsBytes(bytes);
   }
 
+  /// The devFS kernel the app was last restarted from, which the engine keeps
+  /// memory-mapped for as long as that isolate runs; null before the first
+  /// restart, when it runs the kernel it was built with.
+  ///
+  /// The VM writes a devFS file by deleting it and writing it anew
+  /// (`writeStreamFileCallback` in the SDK's `vmservice_io.dart`), and Windows
+  /// will not delete a file that is mapped — so a restart that reused one name
+  /// would fail its upload from the second restart on. Each restart writes the
+  /// name the app is not running from, the two alternating as `flutter_tools`'
+  /// do (`_swap` in `run_hot.dart`). Not reset when the devFS is recreated: the
+  /// new directory holds neither name, so either is safe there.
+  String? _runningKernel;
+
+  /// The two devFS names a restart's kernel alternates between.
+  static const _restartKernels = ('main.dart.dill', 'main.dart.swap.dill');
+
   /// Perform a hot restart — re-run `main()` in a fresh isolate.
   ///
   /// Unlike [hotReload] (which swaps code into the running isolate via
@@ -1802,8 +1818,11 @@ class VmServiceClient {
     try {
       final verdict = await _applyAndVerify(
         () async {
-          // Upload the full kernel to devFS as the new main.
-          const entryPath = 'main.dart.dill';
+          // Upload the full kernel to devFS as the new main — under whichever
+          // name the app is not running from; see [_runningKernel].
+          final entryPath = _runningKernel == _restartKernels.$1
+              ? _restartKernels.$2
+              : _restartKernels.$1;
           final devFSUri = await _uploadToDevFS(dillPath, entryPath);
           if (devFSUri == null) return _devFSUploadRefusal;
           mainUri = devFSUri.toString();
@@ -1811,6 +1830,7 @@ class VmServiceClient {
           views = await _listViews();
           if (views.isEmpty) return 'the app has no Flutter view to restart';
           await _restartView(views.first, mainUri);
+          _runningKernel = entryPath;
           return null;
         },
         codeAfterDelivery: RunningCode.updated,
