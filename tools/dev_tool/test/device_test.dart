@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/device.dart';
+import 'package:flutter_bazel_dev_tool/key_press.dart';
 import 'package:flutter_bazel_dev_tool/toolchain_info.dart';
 import 'package:flutter_bazel_dev_tool/web_module_server.dart';
 import 'package:flutter_bazel_dev_tool/web_options.dart';
@@ -471,6 +472,114 @@ void main() {
       // Just verifies it doesn't throw.
       final result = findChrome();
       expect(result, anyOf(isNull, isA<String>()));
+    });
+  });
+
+  group('pressKeyOverCdp', () {
+    const appUrl = 'http://localhost:8080';
+
+    /// A browser's DevTools endpoint with the app's page on it: `/json` lists
+    /// the page, and the page's socket records what it is sent and answers
+    /// the focus probe with [pageState].
+    Future<(HttpServer, List<Map<String, dynamic>>)> fakeBrowser(
+      Map<String, Object> pageState,
+    ) async {
+      final received = <Map<String, dynamic>>[];
+      final server = await HttpServer.bind('127.0.0.1', 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        if (request.uri.path == '/json') {
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            json.encode([
+              {
+                'type': 'page',
+                'url': 'about:blank',
+                'webSocketDebuggerUrl': 'ws://blank',
+              },
+              {
+                'type': 'page',
+                'url': '$appUrl/',
+                'webSocketDebuggerUrl': 'ws://127.0.0.1:${server.port}/page',
+              },
+            ]),
+          );
+          await request.response.close();
+          return;
+        }
+        final socket = await WebSocketTransformer.upgrade(request);
+        socket.listen((data) {
+          final message = json.decode(data as String) as Map<String, dynamic>;
+          received.add(message);
+          socket.add(
+            json.encode({
+              'id': message['id'],
+              'result': message['method'] == 'Runtime.evaluate'
+                  ? {
+                      'result': {'value': pageState},
+                    }
+                  : <String, Object>{},
+            }),
+          );
+        });
+      });
+      return (server, received);
+    }
+
+    test('reads the focus first, then sends the chord in order on the app '
+        'page', () async {
+      final (server, received) = await fakeBrowser({
+        'focus': 'flutter-view > input',
+        'editable': true,
+        'visible': true,
+      });
+
+      final press = await pressKeyOverCdp(
+        cdpPort: server.port,
+        appUrl: appUrl,
+        chord: KeyChord.parse('Control+K', controlOrMetaIsMeta: true),
+        macCommands: true,
+      );
+
+      expect(received.first['method'], 'Runtime.evaluate');
+      final keys = received.skip(1).toList();
+      expect(
+        keys.map((m) => m['method']),
+        everyElement('Input.dispatchKeyEvent'),
+      );
+      expect(
+        keys.map((m) => '${m['params']['type']} ${m['params']['code']}'),
+        [
+          'rawKeyDown ControlLeft',
+          'rawKeyDown KeyK',
+          'keyUp KeyK',
+          'keyUp ControlLeft',
+        ],
+      );
+      expect(keys[1]['params']['commands'], ['deleteToEndOfParagraph']);
+      expect(press.sent, [for (final m in keys) m['params']]);
+      expect(press.focus, 'flutter-view > input');
+      expect(press.focusIsEditable, isTrue);
+      expect(press.pageVisible, isTrue);
+    });
+
+    test('reports a page with no field focused, and a hidden page', () async {
+      final (server, _) = await fakeBrowser({
+        'focus': 'flutter-view',
+        'editable': false,
+        'visible': false,
+      });
+
+      final press = await pressKeyOverCdp(
+        cdpPort: server.port,
+        appUrl: appUrl,
+        chord: KeyChord.parse('a', controlOrMetaIsMeta: true),
+        macCommands: false,
+      );
+
+      expect(press.focusIsEditable, isFalse);
+      expect(press.pageVisible, isFalse);
+      expect(press.sent.first['commands'], isEmpty);
     });
   });
 

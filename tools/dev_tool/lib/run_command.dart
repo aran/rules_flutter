@@ -366,6 +366,9 @@ class RunCommand {
       if (plan.hasAgentSurface) {
         host.registerAgentCommands();
       } else {
+        // Keys go to the browser over CDP, which needs no VM service, so a
+        // run without the agent surface still has a keyboard.
+        host.registerPressKey();
         // Said once, at the top of the run, rather than left to be discovered
         // one refused command at a time. The absence is structural and known
         // here; what a client gets otherwise is `Unknown command: app.getText`,
@@ -377,7 +380,8 @@ class RunCommand {
           'text':
               'This run has no VM service, so the app.* agent commands (tap, '
               'enterText, getText, waitFor, dumpWidgetTree, …) are not offered: '
-              '${absent.because} What still works: the app console '
+              '${absent.because} What still works: app.pressKey (real key '
+              'events in the browser), the app console '
               '(GET /sessions/{appId}/logs), a browser screenshot '
               '(GET /sessions/{appId}/screenshot/native) and app.restart. To '
               'drive the widget tree, run the DDC dev loop instead — the same '

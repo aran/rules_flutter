@@ -50,6 +50,7 @@ import 'app_log.dart';
 import 'cdp_console.dart';
 import 'compiler_config.dart';
 import 'host_tools.dart';
+import 'key_press.dart';
 import 'logging.dart';
 import 'mdns_vm_service_discovery.dart';
 import 'native_patch_delivery.dart';
@@ -3976,6 +3977,28 @@ class WebDevice extends Device {
     await _cdpScreenshot(_cdpPort!, outputPath, appUrl: _appUrl);
   }
 
+  /// Press [chord] in the app's page — `app.pressKey`'s browser route. See
+  /// [pressKeyOverCdp].
+  Future<BrowserKeyPress> pressKey(
+    KeyChord chord, {
+    required bool macCommands,
+  }) async {
+    final port = _cdpPort;
+    final url = _appUrl;
+    if (port == null || url == null) {
+      throw StateError(
+        'This web run has no browser to press keys in yet: its DevTools '
+        'port has not been discovered, so the page cannot be reached.',
+      );
+    }
+    return pressKeyOverCdp(
+      cdpPort: port,
+      appUrl: url,
+      chord: chord,
+      macCommands: macCommands,
+    );
+  }
+
   /// Re-lay the running app out at [viewport] — what `app.setViewport` does.
   ///
   /// The same override `--web-viewport` applies at launch, sent again to the
@@ -4163,25 +4186,176 @@ Future<Map<String, dynamic>> _sendCdpToPage(
   String method,
   Map<String, dynamic> params,
 ) async {
-  final ws = await WebSocket.connect(
-    await resolveCdpPageTarget(cdpPort, appUrl: appUrl),
-  );
+  final page = await CdpPageConnection.open(cdpPort, appUrl: appUrl);
   try {
-    final reply = Completer<Map<String, dynamic>>();
-    ws.listen((data) {
-      final msg = json.decode(data as String) as Map<String, dynamic>;
-      if (msg['id'] == 1 && !reply.isCompleted) reply.complete(msg);
-    });
-    ws.add(json.encode({'id': 1, 'method': method, 'params': params}));
+    return await page.send(method, params);
+  } finally {
+    await page.close();
+  }
+}
+
+/// One connection to the app page's CDP endpoint, for commands that have to
+/// arrive in order on the same session — a key chord's downs and ups.
+///
+/// The target is resolved when the connection opens and not after, so hold
+/// one only for a single operation: see [pickCdpPageTarget].
+class CdpPageConnection {
+  final WebSocket _ws;
+  final _pending = <int, Completer<Map<String, dynamic>>>{};
+  var _nextId = 1;
+  Object? _closedBy;
+
+  CdpPageConnection._(this._ws) {
+    _ws.listen(
+      (data) {
+        final msg = json.decode(data as String) as Map<String, dynamic>;
+        final id = msg['id'];
+        if (id is int) _pending.remove(id)?.complete(msg);
+      },
+      // A page that navigates away or a browser that exits closes the socket;
+      // every command still waiting would otherwise spend its whole timeout
+      // to report the same thing.
+      onDone: () => _fail(StateError('the page\'s CDP connection closed')),
+      onError: _fail,
+    );
+  }
+
+  void _fail(Object error) {
+    _closedBy ??= error;
+    for (final c in _pending.values) {
+      c.completeError(error);
+    }
+    _pending.clear();
+  }
+
+  /// Connect to the page serving [appUrl] on [cdpPort].
+  static Future<CdpPageConnection> open(
+    int cdpPort, {
+    required String appUrl,
+  }) async => CdpPageConnection._(
+    await WebSocket.connect(
+      await resolveCdpPageTarget(cdpPort, appUrl: appUrl),
+    ),
+  );
+
+  /// Send [method] and return the whole reply; a CDP error is a [StateError]
+  /// naming the method.
+  ///
+  /// Bounded: a browser that stops answering would otherwise hold the
+  /// command pool's only slot for the rest of the run.
+  Future<Map<String, dynamic>> send(
+    String method,
+    Map<String, dynamic> params, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (_closedBy case final error?) throw error;
+    final id = _nextId++;
+    final reply = _pending[id] = Completer<Map<String, dynamic>>();
+    _ws.add(json.encode({'id': id, 'method': method, 'params': params}));
     final response = await reply.future.timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => throw StateError('CDP $method did not answer'),
+      timeout,
+      onTimeout: () {
+        _pending.remove(id);
+        throw StateError(
+          'CDP $method did not answer within ${timeout.inSeconds}s',
+        );
+      },
     );
     final error = response['error'];
     if (error != null) throw StateError('CDP $method failed: $error');
     return response;
+  }
+
+  Future<void> close() => _ws.close();
+}
+
+/// What pressing a key chord in the browser did: the events it sent, and the
+/// two facts about the page that decide what they could reach.
+class BrowserKeyPress {
+  /// The `Input.dispatchKeyEvent` parameters, in the order sent.
+  final List<Map<String, Object>> sent;
+
+  /// What had the browser's focus when the keys went in, as the path of tag
+  /// names through any shadow roots, e.g. `flutter-view > input`.
+  final String focus;
+
+  /// Whether that element takes typed text: an `<input>`, a `<textarea>` or
+  /// an editable element. Flutter's web engine gives its focused text field
+  /// a real one, so this is what says typing will land.
+  final bool focusIsEditable;
+
+  /// Whether the page was visible. A hidden page draws no frames, so what the
+  /// keys changed does not repaint until it is shown.
+  final bool pageVisible;
+
+  const BrowserKeyPress({
+    required this.sent,
+    required this.focus,
+    required this.focusIsEditable,
+    required this.pageVisible,
+  });
+}
+
+/// Page state [pressKeyOverCdp] reads before dispatching: the focused element
+/// through shadow roots, whether it is editable, and the page's visibility.
+const _focusProbe = '''
+(() => {
+  let e = document.activeElement;
+  const path = [];
+  let editable = false;
+  while (e) {
+    path.push(e.tagName.toLowerCase());
+    editable = e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' ||
+        e.isContentEditable;
+    e = e.shadowRoot ? e.shadowRoot.activeElement : null;
+  }
+  return {
+    focus: path.join(' > ') || 'nothing',
+    editable,
+    visible: document.visibilityState === 'visible',
+  };
+})()''';
+
+/// Press [chord] in the page serving [appUrl]: real, trusted key events,
+/// dispatched by the browser to whatever has its focus.
+///
+/// [macCommands] attaches the Cocoa editing commands a Mac browser would —
+/// see [macEditingCommandsFor], and the measurement there: without them
+/// Control+K deletes nothing.
+///
+/// Everything goes over one connection, in order, and the focus and
+/// visibility are read on it first. Coordinates are never involved: the
+/// browser routes a key to the focused element, which is what makes this safe
+/// to run against a page whose size changed since launch.
+Future<BrowserKeyPress> pressKeyOverCdp({
+  required int cdpPort,
+  required String appUrl,
+  required KeyChord chord,
+  required bool macCommands,
+}) async {
+  final page = await CdpPageConnection.open(cdpPort, appUrl: appUrl);
+  try {
+    final probe = await page.send('Runtime.evaluate', {
+      'expression': _focusProbe,
+      'returnByValue': true,
+    });
+    final state = probe['result']?['result']?['value'];
+    final sent = <Map<String, Object>>[];
+    for (final stroke in chord.strokes) {
+      final params = stroke.cdpParams(
+        macCommands: macCommands ? macEditingCommandsFor(stroke) : const [],
+      );
+      await page.send('Input.dispatchKeyEvent', params);
+      sent.add(params);
+    }
+    return BrowserKeyPress(
+      sent: sent,
+      focus: state is Map ? '${state['focus']}' : 'unknown',
+      focusIsEditable: state is Map && state['editable'] == true,
+      pageVisible: state is! Map || state['visible'] != false,
+    );
   } finally {
-    await ws.close();
+    await page.close();
   }
 }
 

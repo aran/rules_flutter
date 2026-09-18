@@ -11,11 +11,14 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:vm_service/vm_service.dart';
 
 import 'command_failure.dart';
 import 'command_runner.dart';
+import 'device.dart';
+import 'key_press.dart';
 import 'session.dart';
 import 'vm_service_client.dart';
 
@@ -88,6 +91,247 @@ void setUpAgentCommands(
       ),
     );
   }
+  registerPressKeyCommand(
+    cr,
+    findSession,
+    canSettle: true,
+    dispatchMargin: dispatchMargin,
+    pauseReadBound: pauseReadBound,
+  );
+}
+
+/// How `app.pressKey` reaches the app on [device].
+enum KeyRoute {
+  /// Real input in the browser, over the DevTools protocol: the events a
+  /// person's keyboard would produce, seen by the browser and by Flutter's web
+  /// engine alike.
+  browser,
+
+  /// Simulated inside the app through the framework's key and text-input
+  /// channels. Reaches shortcuts, focus and text editing; skips the OS and
+  /// its input method.
+  framework,
+}
+
+/// The route `app.pressKey` takes on [device].
+///
+/// A browser takes real input wherever it runs, so every web run — the DDC dev
+/// loop, `--wasm`, a static bundle — gets the browser route whether or not it
+/// has a VM service. Nothing on a native device can inject OS-level key events
+/// portably, so those get the framework's own path.
+KeyRoute keyRouteFor(Device device) =>
+    device is WebDevice ? KeyRoute.browser : KeyRoute.framework;
+
+/// Whether `ControlOrMeta` means Meta on [device]'s route.
+///
+/// Playwright's rule — Meta on Apple platforms — applied to whichever
+/// platform receives the keys: the machine running the browser for the
+/// browser route, the app's own OS for the framework route.
+/// [browserHostIsMac] is the first of those.
+bool controlOrMetaIsMetaFor(Device device, {required bool browserHostIsMac}) =>
+    switch (keyRouteFor(device)) {
+      KeyRoute.browser => browserHostIsMac,
+      KeyRoute.framework =>
+        device is MacOSDevice ||
+            device is IOSDevice ||
+            device is IOSSimulatorDevice,
+    };
+
+/// Offer `app.pressKey`.
+///
+/// Registered with the rest of the agent surface for every run that has one,
+/// and on its own for a web run that does not (`--wasm`, `--profile`): the
+/// browser route needs no VM service, so a keyboard is the one thing those
+/// runs can be driven with. [canSettle] says whether the app can be asked to
+/// go idle afterwards, which only a run with a VM service can answer.
+///
+/// [browserHostIsMac] decides whether browser key events carry the Cocoa
+/// editing commands a Mac browser attaches (see `macEditingCommandsFor`); a
+/// test names it rather than inheriting the host's.
+void registerPressKeyCommand(
+  CommandRunner cr,
+  DeviceSession? Function(String? appId) findSession, {
+  required bool canSettle,
+  bool? browserHostIsMac,
+  Duration dispatchMargin = _dispatchMargin,
+  Duration pauseReadBound = _pauseReadBound,
+}) {
+  final mac = browserHostIsMac ?? Platform.isMacOS;
+  cr.register('app.pressKey', (params) async {
+    final session = findSession(params['appId'] as String?);
+    if (session == null) {
+      throw CommandFailure.notFound('unknown appId: ${params['appId']}');
+    }
+    final spec = params['key'];
+    if (spec is! String) {
+      throw CommandFailure.badRequest(
+        'app.pressKey needs "key", the key to press, as a string — for '
+        'example {"key": "Enter"} or {"key": "Control+K"}. It presses '
+        'whatever has focus and takes no widget selector: focus a field '
+        'first with app.tap, or with Tab.',
+      );
+    }
+    final KeyChord chord;
+    try {
+      chord = KeyChord.parse(
+        spec,
+        controlOrMetaIsMeta: controlOrMetaIsMetaFor(
+          session.device,
+          browserHostIsMac: mac,
+        ),
+      );
+    } on KeyChordException catch (e) {
+      throw CommandFailure.badRequest(e.message);
+    }
+    // Strict, as the app's own `settle` is: a typo would otherwise pick the
+    // opposite behaviour in silence. Checked here so the browser route, which
+    // never asks the app to parse it, refuses it the same way.
+    if (params['settle'] case final Object s
+        when '$s' != 'true' && '$s' != 'false') {
+      throw CommandFailure.badRequest(
+        'settle must be "true" or "false", not "$s"',
+      );
+    }
+    return switch (keyRouteFor(session.device)) {
+      KeyRoute.browser => _pressKeyInBrowser(
+        session,
+        chord,
+        params,
+        mac: mac,
+        settle: canSettle
+            ? () => _call(
+                findSession,
+                {
+                  'appId': session.appId,
+                  if (params['timeoutMs'] case final t?) 'timeoutMs': t,
+                },
+                'ext.rules_flutter.settle',
+                dispatchMargin: dispatchMargin,
+                pauseReadBound: pauseReadBound,
+              )
+            : null,
+      ),
+      KeyRoute.framework => _pressKeyInFramework(
+        findSession,
+        session,
+        chord,
+        params,
+        dispatchMargin: dispatchMargin,
+        pauseReadBound: pauseReadBound,
+      ),
+    };
+  });
+}
+
+/// The browser route: dispatch [chord] to the app's page, then wait for the
+/// app to go idle where the run can say when it has.
+///
+/// The keys are delivered however the wait ends, so a wait that fails is
+/// reported on the reply — `settled: "no"` and why — rather than as a
+/// refusal, which would read as keys that were never pressed. `settled` and
+/// `settleDetail` mean what the screenshot endpoints' `X-Settled` headers
+/// mean.
+Future<Map<String, dynamic>> _pressKeyInBrowser(
+  DeviceSession session,
+  KeyChord chord,
+  Map<String, dynamic> params, {
+  required bool mac,
+  required Future<Map<String, dynamic>> Function()? settle,
+}) async {
+  final device = session.device as WebDevice;
+  final BrowserKeyPress press;
+  try {
+    press = await device.pressKey(chord, macCommands: mac);
+  } on StateError catch (e) {
+    throw CommandFailure.failed(e.message);
+  } on IOException catch (e) {
+    // A browser that has exited refuses the connection, and one that closes
+    // it mid-chord ends the socket: both are a browser that is gone, not a
+    // fault in this tool.
+    throw CommandFailure.failed(
+      'could not reach the browser\'s DevTools endpoint to press '
+      '"${chord.spec}": $e',
+    );
+  }
+
+  final notes = <String>[];
+  if (chord.pressedKey.text.isNotEmpty && !press.focusIsEditable) {
+    notes.add(
+      'The browser\'s focus is on ${press.focus}, not in a text field, so '
+      'the text this key types reached no field. Focus the field first: '
+      'app.tap on it, or Tab to it.',
+    );
+  }
+  final (settled, settleDetail) = switch ('${params['settle']}') {
+    'false' => ('skipped', 'the caller asked not to wait'),
+    _ when !press.pageVisible => (
+      'no',
+      'the page is hidden — its window is minimized, hidden or covered — so '
+          'it draws no frames: the key was delivered, and nothing repaints '
+          'until the page is visible. --web-run-headless keeps it visible.',
+    ),
+    _ when settle == null => (
+      'skipped',
+      'this run has no VM service, so the app cannot be asked whether it is '
+          'idle; take a screenshot to see what the key did',
+    ),
+    _ => await _settleAfterKeys(settle),
+  };
+  return {
+    'route': KeyRoute.browser.name,
+    'key': chord.spec,
+    'sent': press.sent,
+    'focus': press.focus,
+    'settled': settled,
+    if (settleDetail != null) 'settleDetail': settleDetail,
+    if (notes.isNotEmpty) 'warning': notes.join(' '),
+  };
+}
+
+Future<(String, String?)> _settleAfterKeys(
+  Future<Map<String, dynamic>> Function() settle,
+) async {
+  try {
+    final json = await settle();
+    return json['settled'] == true
+        ? ('yes', null)
+        : ('no', json['reason']?.toString());
+  } on CommandFailure catch (e) {
+    return ('no', e.message);
+  }
+}
+
+/// The framework route: hand the app [chord]'s keys by DOM `code`, for
+/// `ext.rules_flutter.pressKey` to press through the framework's own key and
+/// text-input channels.
+Future<Map<String, dynamic>> _pressKeyInFramework(
+  DeviceSession? Function(String?) findSession,
+  DeviceSession session,
+  KeyChord chord,
+  Map<String, dynamic> params, {
+  required Duration dispatchMargin,
+  required Duration pauseReadBound,
+}) async {
+  final pressed = chord.pressedKey;
+  final result = await _call(
+    findSession,
+    {
+      'appId': session.appId,
+      'code': pressed.code,
+      'modifiers': chord.held.map((k) => k.code).join(','),
+      'text': pressed.text,
+      if (params['timeoutMs'] case final t?) 'timeoutMs': t,
+      if (params['settle'] case final s?) 'settle': s,
+    },
+    'ext.rules_flutter.pressKey',
+    dispatchMargin: dispatchMargin,
+    pauseReadBound: pauseReadBound,
+  );
+  return {
+    'route': KeyRoute.framework.name,
+    'key': chord.spec,
+    ...result,
+  };
 }
 
 /// Offer `app.buildInfo`, which only some runs can answer.

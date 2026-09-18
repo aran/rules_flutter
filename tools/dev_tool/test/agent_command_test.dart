@@ -715,4 +715,214 @@ void main() {
       });
     });
   });
+
+  group('app.pressKey', () {
+    /// A session on [device] whose app has the pressKey extension and the
+    /// binding up, answering the extension with [answer].
+    Future<(FakeVmService, DeviceSession)> ready(
+      Device device, {
+      Map<String, dynamic> answer = const {'handled': false},
+    }) async {
+      final fake =
+          FakeVmService(
+              isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+            )
+            ..extensionRPCs = [
+              'ext.rules_flutter.pressKey',
+              'ext.flutter.reassemble',
+            ]
+            ..extensionResponses['ext.rules_flutter.pressKey'] = answer;
+      final client = VmServiceClient(connector: (_) async => fake);
+      await client.connect(Uri.parse('http://127.0.0.1:8181/'));
+      final session = DeviceSession(
+        device: device,
+        appInstance: AppInstance(process: FakeProcess()),
+        vmClient: client,
+        appId: 'app',
+      )..drivable.signalReady();
+      return (fake, session);
+    }
+
+    test('is part of the agent surface, and can be offered alone', () {
+      final surface = CommandRunner();
+      setUpAgentCommands(surface, (_) => null);
+      expect(surface.hasCommand('app.pressKey'), isTrue);
+
+      // A web run with no VM service offers it and nothing else of app.*.
+      final alone = CommandRunner();
+      registerPressKeyCommand(alone, (_) => null, canSettle: false);
+      expect(alone.describe().map((c) => c['name']), ['app.pressKey']);
+    });
+
+    test('takes the browser route on a browser and the framework route on '
+        'every native device', () {
+      expect(keyRouteFor(WebDevice()), KeyRoute.browser);
+      for (final device in <Device>[
+        MacOSDevice(),
+        LinuxDevice(),
+        WindowsDevice(),
+        AndroidDevice(),
+        IOSSimulatorDevice(udid: 'SIM'),
+        IOSDevice(udid: 'PHONE'),
+      ]) {
+        expect(keyRouteFor(device), KeyRoute.framework, reason: '$device');
+      }
+    });
+
+    test('resolves ControlOrMeta for the platform that receives the keys', () {
+      expect(
+        controlOrMetaIsMetaFor(MacOSDevice(), browserHostIsMac: false),
+        isTrue,
+      );
+      expect(
+        controlOrMetaIsMetaFor(
+          IOSSimulatorDevice(udid: 'SIM'),
+          browserHostIsMac: false,
+        ),
+        isTrue,
+      );
+      expect(
+        controlOrMetaIsMetaFor(AndroidDevice(), browserHostIsMac: true),
+        isFalse,
+      );
+      expect(
+        controlOrMetaIsMetaFor(LinuxDevice(), browserHostIsMac: true),
+        isFalse,
+      );
+      // A browser follows the machine it runs on, not any app platform.
+      expect(
+        controlOrMetaIsMetaFor(WebDevice(), browserHostIsMac: true),
+        isTrue,
+      );
+      expect(
+        controlOrMetaIsMetaFor(WebDevice(), browserHostIsMac: false),
+        isFalse,
+      );
+    });
+
+    test(
+      'hands the app the chord by DOM code and names the framework route',
+      () async {
+        final (fake, session) = await ready(
+          MacOSDevice(),
+          answer: {
+            'sent': [
+              {'type': 'down', 'key': 'Control Left'},
+            ],
+            'handled': false,
+            'textInput': {
+              'selectors': ['deleteToEndOfParagraph:'],
+            },
+          },
+        );
+        final cr = CommandRunner();
+        setUpAgentCommands(cr, (_) => session);
+
+        final result = await cr
+            .run('app.pressKey', {'appId': 'app', 'key': 'ControlOrMeta+K'})
+            .timeout(const Duration(seconds: 5));
+
+        final call = fake.extensionCalls.singleWhere(
+          (c) => c.method == 'ext.rules_flutter.pressKey',
+        );
+        // ControlOrMeta is Meta for a macOS app.
+        expect(call.args, containsPair('code', 'KeyK'));
+        expect(call.args, containsPair('modifiers', 'MetaLeft'));
+        expect(call.args, containsPair('text', ''));
+        expect(result['route'], 'framework');
+        expect(result['key'], 'ControlOrMeta+K');
+        expect(result['textInput'], {
+          'selectors': ['deleteToEndOfParagraph:'],
+        });
+      },
+    );
+
+    test('sends what a key types, with Shift applied', () async {
+      final (fake, session) = await ready(AndroidDevice());
+      final cr = CommandRunner();
+      setUpAgentCommands(cr, (_) => session);
+
+      await cr
+          .run('app.pressKey', {'appId': 'app', 'key': 'Shift+Digit1'})
+          .timeout(const Duration(seconds: 5));
+
+      final call = fake.extensionCalls.singleWhere(
+        (c) => c.method == 'ext.rules_flutter.pressKey',
+      );
+      expect(call.args, containsPair('code', 'Digit1'));
+      expect(call.args, containsPair('modifiers', 'ShiftLeft'));
+      expect(call.args, containsPair('text', '!'));
+    });
+
+    test('refuses an unknown key by name, and presses nothing', () async {
+      final (fake, session) = await ready(MacOSDevice());
+      final cr = CommandRunner();
+      setUpAgentCommands(cr, (_) => session);
+
+      final failure = await cr
+          .run('app.pressKey', {'appId': 'app', 'key': 'Ctrl+K'})
+          .then<CommandFailure?>(
+            (_) => null,
+            onError: (Object e) => e as CommandFailure,
+          );
+      expect(failure?.kind, CommandFailureKind.badRequest);
+      expect(failure?.message, contains('Unknown key "Ctrl"'));
+      expect(failure?.message, contains('Did you mean "Control"?'));
+      expect(
+        fake.extensionCalls.where(
+          (c) => c.method == 'ext.rules_flutter.pressKey',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('refuses a missing key and a settle it cannot read', () async {
+      final (_, session) = await ready(MacOSDevice());
+      final cr = CommandRunner();
+      setUpAgentCommands(cr, (_) => session);
+
+      expect(
+        await refusalFrom(cr.run('app.pressKey', {'appId': 'app'})),
+        contains('needs "key"'),
+      );
+      expect(
+        await refusalFrom(
+          cr.run('app.pressKey', {'appId': 'app', 'key': 'a', 'settle': 'no'}),
+        ),
+        contains('settle must be "true" or "false"'),
+      );
+    });
+
+    test('on a browser that has not launched, says so rather than sending '
+        'the keys to the app', () async {
+      final session = DeviceSession(
+        device: WebDevice(),
+        appInstance: AppInstance(process: FakeProcess()),
+        vmClient: null,
+        appId: 'app',
+      );
+      final cr = CommandRunner();
+      registerPressKeyCommand(cr, (_) => session, canSettle: false);
+
+      expect(
+        await refusalFrom(cr.run('app.pressKey', {'appId': 'app', 'key': 'a'})),
+        contains('no browser to press keys in yet'),
+      );
+    });
+
+    test('refuses an unknown appId', () async {
+      final cr = CommandRunner();
+      registerPressKeyCommand(cr, (_) => null, canSettle: false);
+      await expectLater(
+        cr.run('app.pressKey', {'appId': 'nope', 'key': 'a'}),
+        throwsA(
+          isA<CommandFailure>().having(
+            (e) => e.kind,
+            'kind',
+            CommandFailureKind.notFound,
+          ),
+        ),
+      );
+    });
+  });
 }

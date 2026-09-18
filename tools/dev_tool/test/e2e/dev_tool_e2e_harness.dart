@@ -1651,6 +1651,57 @@ class DecodedPng {
 
 /// Decode enough of [bytes] to answer [DecodedPng.isUniform].
 DecodedPng decodePngForBlankness(List<int> bytes) {
+  final distinct = <int>{};
+  final (:width, :height) = _walkPngRows(bytes, (line, channels) {
+    for (var i = 0; i + channels <= line.length; i += channels) {
+      // Pack the channels into one int so "distinct pixel" is one comparison.
+      var pixel = 0;
+      for (var c = 0; c < channels; c++) {
+        pixel = (pixel << 8) | line[i + c];
+      }
+      distinct.add(pixel);
+      // Two is the whole answer; there is no reason to walk a 2.6-megapixel
+      // capture once it has been given.
+      if (distinct.length > 1) return false;
+    }
+    return true;
+  });
+  return DecodedPng._(width, height, distinct);
+}
+
+/// The most separate runs of [matches] pixels on any one row of [bytes].
+///
+/// How a screenshot is read where there is no text to read: a fixture that
+/// draws one marker square per item, in a colour nothing else uses, shows its
+/// count as runs along a row — and the count holds at any device pixel ratio,
+/// where a pixel total would not. [matches] is handed each pixel's red, green
+/// and blue.
+int countColourRuns(
+  List<int> bytes,
+  bool Function(int r, int g, int b) matches,
+) {
+  var most = 0;
+  _walkPngRows(bytes, (line, channels) {
+    var runs = 0;
+    var inRun = false;
+    for (var i = 0; i + channels <= line.length; i += channels) {
+      final hit = matches(line[i], line[i + 1], line[i + 2]);
+      if (hit && !inRun) runs++;
+      inRun = hit;
+    }
+    if (runs > most) most = runs;
+    return true;
+  });
+  return most;
+}
+
+/// Walk [bytes]' scanlines, un-filtered, handing each to [row] with the
+/// number of channels per pixel, until [onRow] answers false. Answers the
+/// image's dimensions.
+({int width, int height}) _walkPngRows(
+  List<int> bytes,
+  bool Function(Uint8List line, int channels) onRow,
+) {
   const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
   if (bytes.length < 8 ||
       List.generate(8, (i) => bytes[i]).indexed.any(
@@ -1700,7 +1751,6 @@ DecodedPng decodePngForBlankness(List<int> bytes) {
   final channels = colorType == 6 ? 4 : 3;
   final raw = Uint8List.fromList(ZLibDecoder().convert(idat.takeBytes()));
   final stride = width * channels;
-  final distinct = <int>{};
   // The previous scanline, un-filtered — every filter but None refers to it.
   var previous = Uint8List(stride);
   var pos = 0;
@@ -1733,22 +1783,10 @@ DecodedPng decodePngForBlankness(List<int> bytes) {
           0xff;
     }
     pos += stride;
-    for (var i = 0; i + channels <= stride; i += channels) {
-      // Pack the channels into one int so "distinct pixel" is one comparison.
-      var pixel = 0;
-      for (var c = 0; c < channels; c++) {
-        pixel = (pixel << 8) | line[i + c];
-      }
-      distinct.add(pixel);
-      // Two is the whole answer; there is no reason to walk a 2.6-megapixel
-      // capture once it has been given.
-      if (distinct.length > 1) {
-        return DecodedPng._(width, height, distinct);
-      }
-    }
+    if (!onRow(line, channels)) break;
     previous = line;
   }
-  return DecodedPng._(width, height, distinct);
+  return (width: width, height: height);
 }
 
 /// PNG's Paeth predictor (RFC 2083 §6.6).

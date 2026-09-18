@@ -1436,7 +1436,7 @@ The endpoints speak plain HTTP/1.1, so `curl -s "$URI/..."` works. If your `curl
 
 #### Which commands are available
 
-The set of commands is not fixed when a client connects. It grows through the run and describes this run rather than the tool. A web run gains `app.setViewport` once the browser is up and never offers `app.buildInfo`, because only a `-c dbg` native build carries the record that command reads. The widget-driving commands are offered once the tool knows the run has a VM service, which is every native run and the DDC dev loop on the web, and they answer once that service exists, which on the web and on an iPhone is well after `app.started`. So re-read `/commands` rather than caching the first answer. `longRunning` marks commands that rebuild or recompile before answering; those deserve a generous timeout and are the ones `app.progress` events are emitted for.
+The set of commands is not fixed when a client connects. It grows through the run and describes this run rather than the tool. A web run gains `app.setViewport` once the browser is up and never offers `app.buildInfo`, because only a `-c dbg` native build carries the record that command reads. The widget-driving commands are offered once the tool knows the run has a VM service, which is every native run and the DDC dev loop on the web, and they answer once that service exists, which on the web and on an iPhone is well after `app.started`. `app.pressKey` is offered at the same point on every run, since a web run without a VM service can still take keys through the browser. So re-read `/commands` rather than caching the first answer. `longRunning` marks commands that rebuild or recompile before answering; those deserve a generous timeout and are the ones `app.progress` events are emitted for.
 
 A `--machine` client does not need the endpoint. It receives the list in `daemon.connected` and again in every `daemon.commandsChanged`. `daemon.connected` also carries `protocolVersion`. The protocol stream is also the only place for things the channel cannot push: `app.devTools` carries the DevTools URL, `app.debugPort` the VM service's `port`, `wsUri`, and `baseUri`, and `app.webLaunchUrl` the address a web run is served at. The browser the tool launches uses a scratch profile and may be headless, so that URL is how you open the page in your own browser. The full event list is the header comment of `tools/dev_tool/lib/machine_protocol.dart`.
 
@@ -1445,12 +1445,13 @@ A `--machine` client does not need the endpoint. It receives the list in `daemon
 The commands, once the app is up:
 
 - **Widget driving:** `app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`, `app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`, `app.waitFor`, `app.waitForAbsent`, `app.pageBack`, `app.settle`. These are served by extensions the app registers before `main()` on every launch, so they survive hot restart.
+- **Keys:** `app.pressKey`, on every run, including `--wasm` and `--profile` web runs. See [Pressing keys](#pressing-keys).
 - **Lifecycle:** `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
 - **Run-specific:** `app.buildInfo` on native debug runs, `app.setViewport` on web runs.
 
 `app.stop` stops the one app its `appId` names, as upstream's does. A run driving two devices carries on with the other. A bare `app.stop` with no `appId` is refused rather than read as "all of them". `daemon.shutdown` ends the run: every app, the browser, the compiler, and the tool itself.
 
-**A web run without a VM service offers no widget driving.** `--wasm`, `--profile`, and `--no-hot` serve a bundle built by dart2wasm or dart2js, where `registerExtension` is a stub and there is no service to dispatch through. The commands are absent from `/commands` rather than present and refusing, and the run says so once at startup as an `agent_surface_unavailable` log record. Such a run can still serve `/logs`, `screenshot/native`, and `app.restart`. To drive the widget tree on the web, run the DDC dev loop: neither `--wasm` nor `--profile`.
+**A web run without a VM service offers no widget driving.** `--wasm`, `--profile`, and `--no-hot` serve a bundle built by dart2wasm or dart2js, where `registerExtension` is a stub and there is no service to dispatch through. The commands are absent from `/commands` rather than present and refusing, and the run says so once at startup as an `agent_surface_unavailable` log record. Such a run can still serve `app.pressKey`, `/logs`, `screenshot/native`, and `app.restart`. To drive the widget tree on the web, run the DDC dev loop: neither `--wasm` nor `--profile`.
 
 **Commands issued early wait.** `app.started` means `main()` has begun, which is what upstream's protocol means by it, and an app that has begun running has not built a widget tree yet. On `-d chrome` the gap is DWDS, which holds `main()` until the browser has connected. On an iPhone the gap is the app's own start, measured at 61 seconds after `app.started` for a debug build. A command sent in that window waits it out rather than failing, so you can fire on `app.started` without a readiness poll. The wait is reported as an `app.progress` pair — "Waiting for the app to render its first frame" opening it, and what the wait found closing it, so a client reading the stream can tell a frame that arrived from one that never did. An app that never paints is refused with a reason rather than a bare timeout. Waiting for a specific widget is still yours to ask for, with `app.waitFor`.
 
@@ -1517,6 +1518,43 @@ Some apps never go idle: a spinner, a progress indicator, any perpetual `Animati
 **Reaching the widget.** Being in the tree is not the same as being where a pointer can land. A child of a scroll view that is scrolled off screen is laid out outside the viewport, and a widget behind a dialog is covered. A selector still finds it and it still has a rect, so `tap`, `longPress`, `doubleTap`, and `drag` hit-test the point first and refuse when nothing there resolves to the target. The refusal says which case it is and what to do: scroll it into view, or move what covers it. This is `WidgetController`'s `warnIfMissed` with the fatal choice made, on the view that a success response for an event nobody received is worse than an error. `requireHit: "false"` dispatches at the point anyway, for a caller who means it.
 
 `app.scrollIntoView` is the way through, and its `reachable` field answers whether a tap would now land. `iterations` counts drag-scrolls of a lazy list; `0` means the target was already built and `Scrollable.ensureVisible` was used.
+
+#### Pressing keys
+
+`app.pressKey` presses one key, or one key with modifiers held, in whatever has focus:
+
+```sh
+curl -s -X POST "$URI/command?token=$T" \
+  -d '{"method":"app.pressKey","params":{"appId":"'$APP'","key":"Control+K"}}'
+```
+
+Keys are named the way Playwright's `keyboard.press` names them, since that is what agents already know: a character (`a`, `A`, `!`), a `KeyboardEvent` key or code (`Enter`, `Tab`, `Backspace`, `ArrowDown`, `Escape`, `KeyA`, `Digit1`, `Space`), and modifiers joined with `+` (`Control+K`, `Shift+Tab`, `Meta+A`). `ControlOrMeta` is Meta on Apple platforms and Control elsewhere. An unknown name is refused by name, with the spelling it probably meant: `Ctrl` gets "did you mean `Control`". Two Playwright details carry over: a single character is case-sensitive, and `Shift+a` types `a`, so write `A` or `Shift+KeyA` for a capital. One difference: only modifiers can be held, so `a+b` is refused. Send one command per key.
+
+It takes no selector. Focus the field first, with `app.tap` on it or by pressing `Tab`.
+
+How the key reaches the app depends on the device, and the reply names the route in `route`:
+
+| `route` | Devices | What happens | What it reaches |
+|---|---|---|---|
+| `browser` | Chrome: the DDC dev loop, `--wasm`, `--profile` | Real, trusted input sent to the app's page over the DevTools protocol (`Input.dispatchKeyEvent`). | What a keyboard reaches in that browser: the browser's own text editing, and the key events Flutter's web engine sees. |
+| `framework` | macOS, iOS, Android, Linux, Windows | Simulated inside the app, modeled on `flutter_test`'s key simulator: each key as a `ui.KeyData` plus the legacy `flutter/keyevent` message the engine sends. A key the framework leaves unhandled then goes where the platform's input method would take it: typed text into the focused field, Return to the field's action (which is what fires `onSubmitted`), and on macOS the Cocoa editing selectors AppKit would produce, sent as `TextInputClient.performSelectors`. | Shortcuts, focus traversal and text editing. Not the OS and not its input method: IMEs, dead keys, system shortcuts and OS key remapping are never involved. |
+
+A pass on the framework route is not evidence about OS-level input, which is why every reply says which route ran.
+
+The reply also says what was sent:
+
+- **browser:** `sent` is the CDP events, in order. `focus` is what had the browser's focus, as tag names through shadow roots; a focused Flutter text field reads `flutter-view > input`. When the key types text and the focus is not in a text field, `warning` says the text reached nothing.
+- **framework:** `sent` lists each key event and whether the framework handled it, `handled` is the answer for the main key, and `textInput` is what went to the field: `{"inserted":"a"}`, `{"selectors":["moveDown:"]}`, `{"action":"TextInputAction.done"}`, or `{"skipped":"<why>"}`.
+
+```json
+{"route":"framework","key":"ArrowDown","handled":false,
+ "sent":[{"type":"down","key":"Arrow Down","handled":false},{"type":"up","key":"Arrow Down"}],
+ "textInput":{"selectors":["moveDown:"]}}
+```
+
+**Mac editing keys in a browser.** On a Mac, a browser edits text through the Cocoa command AppKit attaches to a key, and CDP input enters below AppKit. So the browser route attaches the command a Mac would, from Playwright's `macEditingCommands` table. We measured the difference on a Flutter web text field: `Control+K` deletes to the end of the line only when it carries `deleteToEndOfParagraph`, while Backspace, the arrow keys and Enter worked with or without their commands. Enter carries `insertNewline` anyway, and in a textarea it inserted exactly one newline either way.
+
+**Waiting.** The framework route waits for the app to go idle before answering, like the other input commands, with the same `timeoutMs` and `settle`. The browser route waits too on the DDC dev loop, and reports the outcome in `settled` and `settleDetail` with the values the screenshot headers use: `yes`, `no` or `skipped`. The keys were delivered in every case. A `--wasm` or `--profile` run has no VM service to ask, so it answers `skipped`; take a screenshot to see what the key did. A page in a hidden, minimized or covered window draws no frames, so the key's effect does not show until the page is visible again. The reply says `no` with that reason, and `--web-run-headless` avoids the problem.
 
 #### Reload and restart responses
 

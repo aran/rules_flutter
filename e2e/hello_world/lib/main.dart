@@ -43,6 +43,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _longPressCount = 0;
   int _doubleTapCount = 0;
   final _agentEchoController = TextEditingController();
+  String _submitted = '';
 
   @override
   void initState() {
@@ -87,10 +88,15 @@ class _MyHomePageState extends State<MyHomePage> {
               child: TextField(
                 key: const ValueKey('agent_test_field'),
                 controller: _agentEchoController,
+                onSubmitted: (value) => setState(() => _submitted = value),
               ),
             ),
+            // What Enter submitted rides on the echo line rather than a row of
+            // its own, so the layout the other agent tests measure is
+            // unchanged until press_key_e2e_test.dart submits something.
             Text(
-              'echo: ${_agentEchoController.text}',
+              'echo: ${_agentEchoController.text}'
+              '${_submitted.isEmpty ? '' : ' | submitted: $_submitted'}',
               key: const ValueKey('agent_test_echo'),
             ),
             // An app that never goes idle, on request.

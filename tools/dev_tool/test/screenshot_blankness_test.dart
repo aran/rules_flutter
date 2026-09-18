@@ -267,6 +267,39 @@ void main() {
       );
     });
 
+    test('counts marker runs along the busiest row, through every filter', () {
+      // Three magenta squares, 2px wide with 2px gaps, on the middle rows of a
+      // grey image: how press_key_e2e_test.dart reads a `--wasm` screenshot.
+      const magenta = [255, 0, 255, 255];
+      const grey = [240, 240, 240, 255];
+      const width = 16, height = 6;
+      final pixels = <int>[];
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          final square = y >= 2 && y < 4 && x < 12 && (x ~/ 2).isEven;
+          pixels.addAll(square ? magenta : grey);
+        }
+      }
+      bool isMagenta(int r, int g, int b) => r > 240 && g < 20 && b > 240;
+      for (var filter = 0; filter <= 4; filter++) {
+        final png = encodePng(
+          pixels,
+          width: width,
+          height: height,
+          channels: 4,
+          filter: filter,
+        );
+        expect(countColourRuns(png, isMagenta), 3, reason: 'filter $filter');
+      }
+      final none = encodePng(
+        uniform(width, height, grey),
+        width: width,
+        height: height,
+        channels: 4,
+      );
+      expect(countColourRuns(none, isMagenta), 0);
+    });
+
     test('refuses something that is not a PNG at all', () {
       expect(
         () => decodePngForBlankness(ascii.encode('<html>not a png</html>')),

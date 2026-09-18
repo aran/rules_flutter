@@ -18,11 +18,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' show Tooltip;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart' show SemanticsBinding, SemanticsHandle;
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// Keeps the semantics tree compiled so the `semanticsLabel` finder can read
@@ -51,6 +54,7 @@ void registerRulesFlutterAgentExtensions() {
     _guard(_handleWaitForAbsent),
   );
   registerExtension('ext.rules_flutter.pageBack', _guard(_handlePageBack));
+  registerExtension('ext.rules_flutter.pressKey', _guard(_handlePressKey));
 
   // Deliberately NOT wrapped in `_guard`: this one answers from a compile-time
   // constant and touches no binding, so it must stay answerable pre-main —
@@ -698,6 +702,851 @@ Future<ServiceExtensionResponse> _handlePageBack(
   final asleep = _notRendering();
   return _ok({'popped': popped, if (asleep != null) 'notRendering': asleep});
 }
+
+// ---------------------------------------------------------------------------
+// Keys.
+//
+// `app.pressKey`'s framework route: what a native embedder does with a
+// hardware key, reproduced from inside the app. Modeled on flutter_test's
+// `KeyEventSimulator` (event_simulation.dart) and
+// `MacOSTestTextInputKeyHandler` (test_text_input_key_handler.dart), which this
+// file cannot import. It reaches everything the framework does with a key —
+// shortcuts, focus traversal, text editing — and skips the OS and its input
+// method, which is why the dev tool names the route in its reply. On the web
+// the dev tool presses keys in the browser itself, over CDP, and never calls
+// this.
+//
+// The dev tool parses the chord (Playwright's vocabulary) and sends each key
+// by its DOM `code`; `kWebToPhysicalKey` turns that into Flutter's own key, so
+// both routes read one table.
+// ---------------------------------------------------------------------------
+
+/// Press a key chord: `code` is the key's DOM `KeyboardEvent.code`,
+/// `modifiers` the comma-separated codes held while it is pressed, `text` what
+/// the key types (empty for a named key or a shortcut).
+///
+/// Each key goes through both halves of the path an embedder uses: a
+/// `ui.KeyData` through `PlatformDispatcher.onKeyData`, then the legacy
+/// `flutter/keyevent` message, whose reply says whether the framework handled
+/// it. The framework holds the first until the second arrives, so neither
+/// works alone. A key the framework left alone then goes where the platform's
+/// input method would take it — see [_deliverToTextInput].
+Future<ServiceExtensionResponse> _handlePressKey(
+  String method,
+  Map<String, String> params,
+) async {
+  if (kIsWeb) {
+    return _err(
+      'on the web, app.pressKey presses keys in the browser itself over the '
+      'DevTools protocol, and never reaches this extension. Reaching it means '
+      'something called ext.rules_flutter.pressKey directly.',
+    );
+  }
+  final keymap = _rawKeymap();
+  if (keymap == null) {
+    return _err(
+      'pressKey has no key simulation for $defaultTargetPlatform: it knows '
+      'the key messages of macOS, iOS, Android, Linux and Windows.',
+    );
+  }
+  final code = params['code'];
+  if (code == null) {
+    return _err(
+      'missing required param: code (the DOM KeyboardEvent.code of the key '
+      'to press). The dev tool fills this in from app.pressKey\'s "key".',
+    );
+  }
+  final keys = <_FlutterKey>[];
+  for (final c in [
+    ...(params['modifiers'] ?? '').split(',').where((c) => c.isNotEmpty),
+    code,
+  ]) {
+    final key = _keyForCode(c);
+    if (key == null) {
+      return _err('Flutter has no keyboard key for the DOM code "$c".');
+    }
+    keys.add(key);
+  }
+  final alreadyDown = [
+    for (final k in keys)
+      if (HardwareKeyboard.instance.physicalKeysPressed.contains(k.physical))
+        k.name,
+  ];
+  if (alreadyDown.isNotEmpty) {
+    // A second down for a key the framework thinks is held is an assertion
+    // inside the key pipeline, and the key would be left in a state nothing
+    // releases.
+    return _err(
+      '${alreadyDown.join(' and ')} ${alreadyDown.length == 1 ? 'is' : 'are'} '
+      'already held down — by a real keyboard, or by a key press that did '
+      'not finish — so pressing it again would be a second down without an '
+      'up. Release it and try again.',
+    );
+  }
+  final text = params['text'] ?? '';
+  // Every key's message is built once before anything is sent, so a key this
+  // platform has no code for is refused whole — throwing half way would leave
+  // the framework holding the keys already pressed.
+  for (final k in keys) {
+    _rawKeyMessage(keymap, k, down: true, character: null, pressed: const {});
+  }
+  final mainKey = keys.removeLast();
+
+  final presser = _KeyPresser(keymap);
+  final bool handled;
+  final Map<String, Object?> textInput;
+  try {
+    for (final k in keys) {
+      await presser.press(k, down: true);
+    }
+    handled = await presser.press(
+      mainKey,
+      down: true,
+      character: _types(text) ? text : null,
+    );
+    textInput = handled
+        ? {
+            'skipped':
+                'the framework handled the key, so the platform input method '
+                'never sees it',
+          }
+        : await _deliverToTextInput(mainKey, presser, text);
+  } finally {
+    // Released even when something above threw: a key left down is a key
+    // the framework believes is held for the rest of the run.
+    await presser.releaseAll();
+  }
+  await _settle(params);
+  final asleep = _notRendering();
+  return _ok({
+    'sent': presser.sent,
+    'handled': handled,
+    'textInput': textInput,
+    if (asleep != null) 'notRendering': asleep,
+  });
+}
+
+/// Whether [text] is something a key types, as opposed to a control
+/// character such as Enter's `"\r"`.
+bool _types(String text) => text.isNotEmpty && text.codeUnitAt(0) >= 0x20;
+
+/// The `keymap` the legacy key message names on this platform, or null where
+/// there is none to imitate.
+///
+/// Read from [defaultTargetPlatform], so an app that overrides it for testing
+/// gets the overridden platform's messages.
+String? _rawKeymap() => switch (defaultTargetPlatform) {
+  TargetPlatform.macOS => 'macos',
+  TargetPlatform.iOS => 'ios',
+  TargetPlatform.android => 'android',
+  TargetPlatform.linux => 'linux',
+  TargetPlatform.windows => 'windows',
+  TargetPlatform.fuchsia => null,
+};
+
+/// One key as Flutter knows it.
+class _FlutterKey {
+  const _FlutterKey(this.physical, this.logical);
+  final PhysicalKeyboardKey physical;
+  final LogicalKeyboardKey logical;
+
+  String get name =>
+      physical.debugName ?? '0x${physical.usbHidUsage.toRadixString(16)}';
+}
+
+/// Flutter's logical keys by debug name.
+///
+/// flutter_test pairs a logical key with its physical one by debug name
+/// (`_findPhysicalKey`); this is the same pairing read the other way. Debug
+/// names exist only where asserts run, which is every build this file is
+/// compiled into.
+final Map<String, LogicalKeyboardKey> _logicalByName = {
+  for (final k in LogicalKeyboardKey.knownLogicalKeys)
+    if (k.debugName case final name?) name: k,
+};
+
+/// The key a DOM `code` names, or null if Flutter has none.
+_FlutterKey? _keyForCode(String code) {
+  final physical = kWebToPhysicalKey[code];
+  final logical = _logicalByName[physical?.debugName];
+  if (physical == null || logical == null) return null;
+  return _FlutterKey(physical, logical);
+}
+
+/// Sends key events the way the platform's embedder would, and keeps track of
+/// what is held so nothing is left down.
+class _KeyPresser {
+  _KeyPresser(this.keymap);
+
+  final String keymap;
+  final List<_FlutterKey> _down = [];
+
+  /// What was dispatched, for the reply.
+  final List<Map<String, Object?>> sent = [];
+
+  bool _held(LogicalKeyboardKey left, LogicalKeyboardKey right) =>
+      _down.any((k) => k.logical == left || k.logical == right);
+
+  bool get shift =>
+      _held(LogicalKeyboardKey.shiftLeft, LogicalKeyboardKey.shiftRight);
+  bool get control =>
+      _held(LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.controlRight);
+  bool get alt =>
+      _held(LogicalKeyboardKey.altLeft, LogicalKeyboardKey.altRight);
+  bool get meta =>
+      _held(LogicalKeyboardKey.metaLeft, LogicalKeyboardKey.metaRight);
+
+  /// Send [key] down or up, and answer whether the framework handled it.
+  Future<bool> press(
+    _FlutterKey key, {
+    required bool down,
+    String? character,
+  }) async {
+    if (down) {
+      _down.add(key);
+    } else {
+      _down.remove(key);
+    }
+    final onKeyData = ui.PlatformDispatcher.instance.onKeyData;
+    if (onKeyData == null) {
+      throw StateError(
+        'PlatformDispatcher.onKeyData is not set, so the framework has no key '
+        'pipeline to deliver to.',
+      );
+    }
+    final dataHandled = onKeyData(
+      ui.KeyData(
+        timeStamp: _now(),
+        type: down ? ui.KeyEventType.down : ui.KeyEventType.up,
+        physical: key.physical.usbHidUsage,
+        logical: key.logical.keyId,
+        character: down ? character : null,
+        synthesized: false,
+      ),
+    );
+    final message = _rawKeyMessage(
+      keymap,
+      key,
+      down: down,
+      character: character ?? _keyLabel(key.logical),
+      pressed: {for (final k in _down) k.logical},
+    );
+    final reply = Completer<bool>();
+    ui.channelBuffers.push(
+      SystemChannels.keyEvent.name,
+      SystemChannels.keyEvent.codec.encodeMessage(message),
+      (data) {
+        final decoded = data == null
+            ? null
+            : SystemChannels.keyEvent.codec.decodeMessage(data);
+        reply.complete(decoded is Map && decoded['handled'] == true);
+      },
+    );
+    final handled = await reply.future || dataHandled;
+    sent.add({
+      'type': down ? 'down' : 'up',
+      'key': key.name,
+      if (down && character != null) 'character': character,
+      if (down) 'handled': handled,
+    });
+    return handled;
+  }
+
+  /// Release whatever is still down, last pressed first.
+  Future<void> releaseAll() async {
+    for (final k in _down.reversed.toList()) {
+      await press(k, down: false);
+    }
+  }
+}
+
+/// flutter_test's `_keyLabel`: a one-character label, lowercased, or null.
+String? _keyLabel(LogicalKeyboardKey key) {
+  final label = key.keyLabel;
+  return label.length == 1 ? label.toLowerCase() : null;
+}
+
+/// The legacy `flutter/keyevent` message for [key], in [keymap]'s shape —
+/// flutter_test's `KeyEventSimulator.getKeyData`.
+///
+/// Every field is what that function puts there, including its choice of the
+/// GLFW shape on Linux. The modifier flags are the framework's
+/// `RawKeyEventData*` constants written out: those classes are deprecated,
+/// and the values are what the embedders send regardless.
+Map<String, Object?> _rawKeyMessage(
+  String keymap,
+  _FlutterKey key, {
+  required bool down,
+  required String? character,
+  required Set<LogicalKeyboardKey> pressed,
+}) {
+  final chars = character ?? '';
+  final physical = key.physical.usbHidUsage;
+  int? reverse<T>(Map<int, T> map, bool Function(T) matches) {
+    for (final entry in map.entries) {
+      if (matches(entry.value)) return entry.key;
+    }
+    return null;
+  }
+
+  int require(int? code, String what) {
+    if (code == null) {
+      throw FormatException(
+        'Flutter has no $keymap $what for ${key.name}, so the key message '
+        'this platform sends for it cannot be built.',
+      );
+    }
+    return code;
+  }
+
+  bool held(LogicalKeyboardKey k) => pressed.contains(k);
+  final message = <String, Object?>{
+    'type': down ? 'keydown' : 'keyup',
+    'keymap': keymap,
+  };
+  switch (keymap) {
+    case 'macos' || 'ios':
+      message['keyCode'] = require(
+        reverse(
+          keymap == 'macos' ? kMacOsToPhysicalKey : kIosToPhysicalKey,
+          (p) => p.usbHidUsage == physical,
+        ),
+        'key code',
+      );
+      if (chars.isNotEmpty || keymap == 'ios') {
+        message['characters'] = chars;
+        message['charactersIgnoringModifiers'] = chars;
+      }
+      var flags = 0;
+      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x02 | 0x20000;
+      if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x04 | 0x20000;
+      if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x08 | 0x100000;
+      if (held(LogicalKeyboardKey.metaRight)) flags |= 0x10 | 0x100000;
+      if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x01 | 0x40000;
+      if (held(LogicalKeyboardKey.controlRight)) flags |= 0x2000 | 0x40000;
+      if (held(LogicalKeyboardKey.altLeft)) flags |= 0x20 | 0x80000;
+      if (held(LogicalKeyboardKey.altRight)) flags |= 0x40 | 0x80000;
+      if (pressed.any(_functionKeys.contains)) flags |= 0x800000;
+      if (pressed.any(kMacOsNumPadMap.values.contains)) flags |= 0x200000;
+      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10000;
+      message['modifiers'] = flags;
+    case 'android':
+      message['keyCode'] = require(
+        reverse(kAndroidToLogicalKey, (l) => l.keyId == key.logical.keyId),
+        'key code',
+      );
+      message['scanCode'] = require(
+        reverse(kAndroidToPhysicalKey, (p) => p.usbHidUsage == physical),
+        'scan code',
+      );
+      if (chars.isNotEmpty) {
+        message['codePoint'] = chars.codeUnitAt(0);
+        message['character'] = chars;
+      }
+      var flags = 0;
+      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x40 | 0x01;
+      if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x80 | 0x01;
+      if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x20000 | 0x10000;
+      if (held(LogicalKeyboardKey.metaRight)) flags |= 0x40000 | 0x10000;
+      if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x2000 | 0x1000;
+      if (held(LogicalKeyboardKey.controlRight)) flags |= 0x4000 | 0x1000;
+      if (held(LogicalKeyboardKey.altLeft)) flags |= 0x10 | 0x02;
+      if (held(LogicalKeyboardKey.altRight)) flags |= 0x20 | 0x02;
+      if (held(LogicalKeyboardKey.fn)) flags |= 0x08;
+      if (held(LogicalKeyboardKey.scrollLock)) flags |= 0x400000;
+      if (held(LogicalKeyboardKey.numLock)) flags |= 0x200000;
+      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x100000;
+      message['metaState'] = flags;
+    case 'linux':
+      message['toolkit'] = 'glfw';
+      message['keyCode'] = require(
+        reverse(kGlfwToLogicalKey, (l) => l.keyId == key.logical.keyId),
+        'key code',
+      );
+      message['scanCode'] = require(
+        reverse(kLinuxToPhysicalKey, (p) => p.usbHidUsage == physical),
+        'scan code',
+      );
+      var flags = 0;
+      if (held(LogicalKeyboardKey.shiftLeft) ||
+          held(LogicalKeyboardKey.shiftRight)) {
+        flags |= 0x01;
+      }
+      if (held(LogicalKeyboardKey.controlLeft) ||
+          held(LogicalKeyboardKey.controlRight)) {
+        flags |= 0x02;
+      }
+      if (held(LogicalKeyboardKey.altLeft) ||
+          held(LogicalKeyboardKey.altRight)) {
+        flags |= 0x04;
+      }
+      if (held(LogicalKeyboardKey.metaLeft) ||
+          held(LogicalKeyboardKey.metaRight)) {
+        flags |= 0x08;
+      }
+      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10;
+      message['modifiers'] = flags;
+      message['unicodeScalarValues'] = chars.isEmpty ? 0 : chars.codeUnitAt(0);
+    case 'windows':
+      message['keyCode'] = require(
+        reverse(kWindowsToLogicalKey, (l) => l.keyId == key.logical.keyId),
+        'key code',
+      );
+      message['scanCode'] = require(
+        reverse(kWindowsToPhysicalKey, (p) => p.usbHidUsage == physical),
+        'scan code',
+      );
+      if (chars.isNotEmpty) message['characterCodePoint'] = chars.codeUnitAt(0);
+      var flags = 0;
+      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 1 << 0 | 1 << 1;
+      if (held(LogicalKeyboardKey.shiftRight)) flags |= 1 << 0 | 1 << 2;
+      if (held(LogicalKeyboardKey.controlLeft)) flags |= 1 << 3 | 1 << 4;
+      if (held(LogicalKeyboardKey.controlRight)) flags |= 1 << 3 | 1 << 5;
+      if (held(LogicalKeyboardKey.altLeft)) flags |= 1 << 6 | 1 << 7;
+      if (held(LogicalKeyboardKey.altRight)) flags |= 1 << 6 | 1 << 8;
+      if (held(LogicalKeyboardKey.metaLeft)) flags |= 1 << 9;
+      if (held(LogicalKeyboardKey.metaRight)) flags |= 1 << 10;
+      if (held(LogicalKeyboardKey.capsLock)) flags |= 1 << 11;
+      if (held(LogicalKeyboardKey.numLock)) flags |= 1 << 12;
+      if (held(LogicalKeyboardKey.scrollLock)) flags |= 1 << 13;
+      message['modifiers'] = flags;
+  }
+  return message;
+}
+
+/// The keys whose press sets the macOS and iOS "function" modifier, as
+/// flutter_test's simulator sets it.
+final Set<LogicalKeyboardKey> _functionKeys = {
+  LogicalKeyboardKey.f1,
+  LogicalKeyboardKey.f2,
+  LogicalKeyboardKey.f3,
+  LogicalKeyboardKey.f4,
+  LogicalKeyboardKey.f5,
+  LogicalKeyboardKey.f6,
+  LogicalKeyboardKey.f7,
+  LogicalKeyboardKey.f8,
+  LogicalKeyboardKey.f9,
+  LogicalKeyboardKey.f10,
+  LogicalKeyboardKey.f11,
+  LogicalKeyboardKey.f12,
+  LogicalKeyboardKey.f13,
+  LogicalKeyboardKey.f14,
+  LogicalKeyboardKey.f15,
+  LogicalKeyboardKey.f16,
+  LogicalKeyboardKey.f17,
+  LogicalKeyboardKey.f18,
+  LogicalKeyboardKey.f19,
+  LogicalKeyboardKey.f20,
+  LogicalKeyboardKey.f21,
+};
+
+/// Hand a key the framework did not handle to where the platform's input
+/// method would take it, and say what that was.
+///
+/// Only while a text field has focus: with none, no input method is attached
+/// and the embedder drops the key after the framework declines it.
+///
+/// * **Return**, on every platform, is the field's own: a newline where the
+///   field takes one (multiline with the newline action), then the field's
+///   input action — `TextInputClient.performAction`, which is what fires
+///   `onSubmitted`. That is what each engine does with it rather than
+///   anything an input method decides; macOS's `insertNewline:` in
+///   particular never reaches the framework as a selector.
+/// * **Editing commands** on macOS: AppKit's standard key bindings turn a key
+///   into Cocoa selectors (`moveDown:`, `deleteBackward:`), which the engine
+///   forwards as `TextInputClient.performSelectors`. That is the only way
+///   those keys edit on macOS — the framework deliberately leaves them
+///   unhandled there so the input method can have them. iOS does the same for
+///   Backspace and Delete, whose deletions its engine performs; the framework
+///   maps the same selectors to the same deletions.
+/// * **Text**, anywhere else: the character goes into the field at the
+///   selection, as the engine's input model would put it there.
+///
+/// The text-input messages carry client id -1, which the framework accepts
+/// from any caller in a debug build — the only build this file is in — so they
+/// reach whichever field is attached, as the engine's own would.
+Future<Map<String, Object?>> _deliverToTextInput(
+  _FlutterKey key,
+  _KeyPresser presser,
+  String text,
+) async {
+  final field = FocusManager.instance.primaryFocus?.context
+      ?.findAncestorStateOfType<EditableTextState>();
+  if (field == null) {
+    return {
+      'skipped':
+          'no text field has focus, so no input method is attached to take '
+          'the key',
+    };
+  }
+  if (field.widget.readOnly) {
+    return {'skipped': 'the focused text field is read-only'};
+  }
+  final enter =
+      key.logical == LogicalKeyboardKey.enter ||
+      key.logical == LogicalKeyboardKey.numpadEnter;
+  if (enter && !presser.control && !presser.alt && !presser.meta) {
+    final config = field.textInputConfiguration;
+    final newline =
+        config.inputType == TextInputType.multiline &&
+        config.inputAction == TextInputAction.newline;
+    if (newline) _insertText(field, '\n');
+    final action = config.inputAction.toString();
+    await _sendTextInput('TextInputClient.performAction', [-1, action]);
+    return {if (newline) 'inserted': '\n', 'action': action};
+  }
+  final selectors = _selectorsFor(key.logical, presser);
+  if (selectors != null) {
+    await _sendTextInput('TextInputClient.performSelectors', [-1, selectors]);
+    return {'selectors': selectors};
+  }
+  if (_types(text)) {
+    _insertText(field, text);
+    return {'inserted': text};
+  }
+  return {
+    'skipped':
+        'the key types nothing, and $defaultTargetPlatform\'s input method '
+        'has no editing command for it',
+  };
+}
+
+/// Put [text] into [field] in place of its selection, the way a typed
+/// character arrives.
+///
+/// Through the field's own `userUpdateTextEditingValue`, so its formatters,
+/// `maxLength` and `onChanged` see it as they would a keystroke, and so the
+/// field tells the engine the new value — an update that bypassed it would
+/// leave the engine's model of the text behind, and the next real keystroke
+/// would be applied to the old text.
+///
+/// The caret lands after what was typed. `TextEditingValue.replaced` alone
+/// would carry a selection across the replacement and leave the typed text
+/// selected — measured: Meta+A then `Q` showed a highlighted "Q".
+void _insertText(EditableTextState field, String text) {
+  final value = field.textEditingValue;
+  final selection = value.selection.isValid
+      ? value.selection
+      : TextSelection.collapsed(offset: value.text.length);
+  field.userUpdateTextEditingValue(
+    TextEditingValue(
+      text: value.text.replaceRange(selection.start, selection.end, text),
+      selection: TextSelection.collapsed(
+        offset: selection.start + text.length,
+      ),
+    ),
+    SelectionChangedCause.keyboard,
+  );
+}
+
+/// Deliver a `flutter/textinput` method call to the framework as the engine
+/// does, and wait for its answer.
+Future<void> _sendTextInput(String method, List<Object?> args) {
+  final done = Completer<void>();
+  ui.channelBuffers.push(
+    SystemChannels.textInput.name,
+    SystemChannels.textInput.codec.encodeMethodCall(MethodCall(method, args)),
+    (_) => done.complete(),
+  );
+  return done.future;
+}
+
+/// The Cocoa selectors the platform's input method sends for [key] with what
+/// [presser] holds, or null when it sends none.
+List<String>? _selectorsFor(LogicalKeyboardKey key, _KeyPresser presser) {
+  final platform = defaultTargetPlatform;
+  if (platform != TargetPlatform.macOS && platform != TargetPlatform.iOS) {
+    return null;
+  }
+  for (final (activator, selectors) in _macSelectors) {
+    if (activator.trigger == key &&
+        activator.shift == presser.shift &&
+        activator.alt == presser.alt &&
+        activator.meta == presser.meta &&
+        activator.control == presser.control) {
+      // iOS hands only its deletions to the input method; every other key in
+      // this table is handled by the framework's own shortcuts there.
+      if (platform == TargetPlatform.iOS &&
+          key != LogicalKeyboardKey.backspace &&
+          key != LogicalKeyboardKey.delete) {
+        return null;
+      }
+      return selectors;
+    }
+  }
+  return null;
+}
+
+/// flutter_test's `_macOSActivatorToSelectors`: the selectors
+/// NSStandardKeyBindingResponding produces for each chord.
+///
+/// Copied as it is there, with two corrections: `deleteToEndOfParagraph:` and
+/// `centerSelectionInVisibleArea:` carry the trailing colon every Cocoa action
+/// selector has, which the flutter_test table leaves off.
+final List<(SingleActivator, List<String>)> _macSelectors = [
+  for (final shift in const [true, false]) ...[
+    (
+      SingleActivator(LogicalKeyboardKey.backspace, shift: shift),
+      ['deleteBackward:'],
+    ),
+    (
+      SingleActivator(LogicalKeyboardKey.backspace, alt: true, shift: shift),
+      ['deleteWordBackward:'],
+    ),
+    (
+      SingleActivator(LogicalKeyboardKey.backspace, meta: true, shift: shift),
+      ['deleteToBeginningOfLine:'],
+    ),
+    (
+      SingleActivator(
+        LogicalKeyboardKey.backspace,
+        control: true,
+        shift: shift,
+      ),
+      ['deleteBackwardByDecomposingPreviousCharacter:'],
+    ),
+    (
+      SingleActivator(LogicalKeyboardKey.delete, shift: shift),
+      ['deleteForward:'],
+    ),
+    (
+      SingleActivator(LogicalKeyboardKey.delete, alt: true, shift: shift),
+      ['deleteWordForward:'],
+    ),
+    (
+      SingleActivator(LogicalKeyboardKey.delete, meta: true, shift: shift),
+      ['deleteToEndOfLine:'],
+    ),
+  ],
+  (const SingleActivator(LogicalKeyboardKey.arrowLeft), ['moveLeft:']),
+  (const SingleActivator(LogicalKeyboardKey.arrowRight), ['moveRight:']),
+  (const SingleActivator(LogicalKeyboardKey.arrowUp), ['moveUp:']),
+  (const SingleActivator(LogicalKeyboardKey.arrowDown), ['moveDown:']),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true),
+    ['moveLeftAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true),
+    ['moveRightAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true),
+    ['moveUpAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true),
+    ['moveDownAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true),
+    ['moveWordLeft:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true),
+    ['moveWordRight:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true),
+    ['moveBackward:', 'moveToBeginningOfParagraph:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true),
+    ['moveForward:', 'moveToEndOfParagraph:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true, shift: true),
+    ['moveWordLeftAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(
+      LogicalKeyboardKey.arrowRight,
+      alt: true,
+      shift: true,
+    ),
+    ['moveWordRightAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true, shift: true),
+    ['moveParagraphBackwardAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true, shift: true),
+    ['moveParagraphForwardAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, meta: true),
+    ['moveToLeftEndOfLine:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowRight, meta: true),
+    ['moveToRightEndOfLine:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowUp, meta: true),
+    ['moveToBeginningOfDocument:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowDown, meta: true),
+    ['moveToEndOfDocument:'],
+  ),
+  (
+    const SingleActivator(
+      LogicalKeyboardKey.arrowLeft,
+      meta: true,
+      shift: true,
+    ),
+    ['moveToLeftEndOfLineAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(
+      LogicalKeyboardKey.arrowRight,
+      meta: true,
+      shift: true,
+    ),
+    ['moveToRightEndOfLineAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.arrowUp, meta: true, shift: true),
+    ['moveToBeginningOfDocumentAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(
+      LogicalKeyboardKey.arrowDown,
+      meta: true,
+      shift: true,
+    ),
+    ['moveToEndOfDocumentAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyA, control: true, shift: true),
+    ['moveToBeginningOfParagraphAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyA, control: true),
+    ['moveToBeginningOfParagraph:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyB, control: true, shift: true),
+    ['moveBackwardAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyB, control: true),
+    ['moveBackward:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyE, control: true, shift: true),
+    ['moveToEndOfParagraphAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyE, control: true),
+    ['moveToEndOfParagraph:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyF, control: true, shift: true),
+    ['moveForwardAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyF, control: true),
+    ['moveForward:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyK, control: true),
+    ['deleteToEndOfParagraph:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyL, control: true),
+    ['centerSelectionInVisibleArea:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyN, control: true),
+    ['moveDown:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyN, control: true, shift: true),
+    ['moveDownAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyO, control: true),
+    ['insertNewlineIgnoringFieldEditor:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyP, control: true),
+    ['moveUp:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyP, control: true, shift: true),
+    ['moveUpAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyT, control: true),
+    ['transpose:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyV, control: true),
+    ['pageDown:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyV, control: true, shift: true),
+    ['pageDownAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.keyY, control: true),
+    ['yank:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.quoteSingle, control: true),
+    ['insertSingleQuoteIgnoringSubstitution:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.quote, control: true),
+    ['insertDoubleQuoteIgnoringSubstitution:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.home),
+    ['scrollToBeginningOfDocument:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.end),
+    ['scrollToEndOfDocument:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.home, shift: true),
+    ['moveToBeginningOfDocumentAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.end, shift: true),
+    ['moveToEndOfDocumentAndModifySelection:'],
+  ),
+  (const SingleActivator(LogicalKeyboardKey.pageUp), ['scrollPageUp:']),
+  (const SingleActivator(LogicalKeyboardKey.pageDown), ['scrollPageDown:']),
+  (
+    const SingleActivator(LogicalKeyboardKey.pageUp, shift: true),
+    ['pageUpAndModifySelection:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.pageDown, shift: true),
+    ['pageDownAndModifySelection:'],
+  ),
+  (const SingleActivator(LogicalKeyboardKey.escape), ['cancelOperation:']),
+  (
+    const SingleActivator(LogicalKeyboardKey.enter, alt: true),
+    ['insertNewlineIgnoringFieldEditor:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.enter, control: true),
+    ['insertLineBreak:'],
+  ),
+  (const SingleActivator(LogicalKeyboardKey.tab), ['insertTab:']),
+  (
+    const SingleActivator(LogicalKeyboardKey.tab, alt: true),
+    ['insertTabIgnoringFieldEditor:'],
+  ),
+  (
+    const SingleActivator(LogicalKeyboardKey.tab, shift: true),
+    ['insertBacktab:'],
+  ),
+];
 
 /// Resolve the target element via the selector params, fetch its RenderBox
 /// rect, run [body] with it, and wrap the result in `_ok`. Shared by tap,

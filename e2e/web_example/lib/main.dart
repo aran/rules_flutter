@@ -37,11 +37,19 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
+  final _keysController = TextEditingController();
+  String _submitted = '';
 
   void _incrementCounter() {
     setState(() {
       _counter++;
     });
+  }
+
+  @override
+  void dispose() {
+    _keysController.dispose();
+    super.dispose();
   }
 
   @override
@@ -71,6 +79,36 @@ class _MyHomePageState extends State<MyHomePage> {
                 snapshot.data?.trim() ?? '',
                 key: const ValueKey('e2e_asset_label'),
               ),
+            ),
+            // Typed into with real browser key events by
+            // press_key_e2e_test.dart. What Enter submitted is shown twice:
+            // as text, for app.getText on the DDC dev loop, and as one
+            // magenta square per character, for a screenshot on --wasm,
+            // which has no VM service to read text through.
+            SizedBox(
+              width: 240,
+              child: TextField(
+                key: const ValueKey('keys_field'),
+                controller: _keysController,
+                onSubmitted: (value) => setState(() => _submitted = value),
+              ),
+            ),
+            Text(
+              'submitted: $_submitted',
+              key: const ValueKey('keys_submitted'),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < _submitted.length; i++)
+                  const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: ColoredBox(
+                      color: Color(0xFFFF00FF),
+                      child: SizedBox.square(dimension: 16),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),

@@ -250,6 +250,15 @@ class SessionHost {
   void registerAgentCommands() =>
       setUpAgentCommands(commandRunner, findSession);
 
+  /// Offer `app.pressKey` on its own, for a web run with no agent surface.
+  ///
+  /// The one `app.*` command such a run can answer: its keys go to the
+  /// browser over the DevTools protocol, which needs no VM service. With no
+  /// VM service there is nothing to ask whether the app has gone idle
+  /// afterwards, so it answers without waiting and says so.
+  void registerPressKey() =>
+      registerPressKeyCommand(commandRunner, findSession, canSettle: false);
+
   /// Offer `app.buildInfo` for a run whose app actually carries the record.
   ///
   /// Not in [registerLifecycleCommands] because whether it can be answered is
