@@ -249,7 +249,7 @@ With that declared, a reload has three outcomes:
 |---|---|
 | Nothing native | Ordinary reload. |
 | The library's code, but not its contract | Delivers the edit and reports that the native code in the process is stale. |
-| The contract | Withholds the edit. Restart to pick up the new library. |
+| The contract | Withholds the edit. Restart to pick up the new library — unless the library declares a `hot_patch` builder, which is asked instead (below). |
 
 #### Patching native code into a running app
 
@@ -269,7 +269,8 @@ On each hot reload the dev tool checks the source files that target declares. Wh
 | What changed | What the reload does |
 |---|---|
 | A function body | Patches it into the running app. The reply names the library and what was patched. |
-| The contract, or anything the patch builder says a patch cannot carry (a struct's layout, say) | Withholds the edit and says why. Restart to pick it up. |
+| The contract | Asks the patch builder, which is the half that holds both interfaces. A patch that carries the new surface — a bridged function added, say — is delivered like any other. |
+| Anything the builder says a patch cannot carry (a struct's layout, say) | Withholds the edit and says why, in the builder's words. Restart to pick it up. |
 | An edit undone after it was patched | Sends calls back to the code the app launched with. |
 
 A restart (`R`) is still the reset: if any patch is live, or the rebuilt bundle differs from the launched one, it relaunches the app.
