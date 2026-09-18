@@ -236,10 +236,15 @@ class CommandReport {
     if (unavailable != null) return RunningCode.unchanged;
     if (relaunchFailed != null) return RunningCode.unknown;
     // Withheld before the snapshot, so no compiler and no device was touched —
-    // the strongest form of `unchanged` this type has.
+    // the strongest form of `unchanged` this type has. Unless a native patch
+    // landed first, which is a different library's answer arriving before this
+    // one's: the process runs code it did not launch with, and calling that
+    // `unchanged` is the kind of certainty this enum exists to withhold.
     if (nativeLibs is NativeBindingsMoved ||
         nativeLibs is NativeLibsUnverifiable) {
-      return RunningCode.unchanged;
+      return nativePatch is NativePatched
+          ? RunningCode.updated
+          : RunningCode.unchanged;
     }
     // Withheld before the Dart half ran; what the native half left behind is
     // all there is to say.

@@ -1366,7 +1366,27 @@ void main() {
           return outcome;
         };
         h.pipeline.patchableNativeLibs = () => ['libbridge.dylib'];
-        h.pipeline.markNativeLibsPatched = (libs) async => marked.add(libs);
+        h.pipeline.markNativeLibsPatched = (libs) async {
+          marked.add(libs);
+          // What `NativeLibsWatch.markPatched` does with this, because the
+          // pipeline asks for the verdict again afterwards rather than working
+          // out for itself what the patch left behind: a library the patcher
+          // answered for runs the code on disk, contract and all, so the next
+          // verdict does not name it.
+          h.nativeLibs = switch (h.nativeLibs) {
+            NativeCodeStale(libs: final stale) => switch ([
+              for (final lib in stale)
+                if (!libs.contains(lib.split('/').last)) lib,
+            ]) {
+              [] => const NativeLibsCurrent(),
+              final left => NativeCodeStale(left),
+            },
+            // Only reached when every library it named was patchable: the
+            // pipeline refuses before asking the builder otherwise.
+            NativeBindingsMoved() => const NativeLibsCurrent(),
+            final other => other,
+          };
+        };
         h.pipeline.reassembleNativePatched = () async => reassembled.add(1);
         return (asked: asked, marked: marked, reassembled: reassembled);
       }
@@ -1512,6 +1532,153 @@ void main() {
         await h.restart();
         expect(patch.asked, isEmpty);
       });
+
+      // Moved bindings over a library a builder can patch. The refusal above
+      // exists because nothing could put the new native code into the running
+      // process; a builder is that thing, and it answers the same question with
+      // both interfaces in hand. Adding a bridged function necessarily moves
+      // the contract, so refusing on the contract alone made that whole class
+      // of edit undeliverable however well the builder could have served it.
+      group('when the bindings moved', () {
+        void bindingsMoved(_Harness h, {String lib = 'libbridge.dylib'}) {
+          h.nativeLibs = NativeBindingsMoved(
+            libs: ['bazel-out/bin/$lib'],
+            contracts: const ['bazel-out/bin/codegen.ir'],
+          );
+        }
+
+        test('the builder is asked instead of refused, and what it '
+            'patched is delivered', () async {
+          final h = await _Harness.create();
+          addTearDown(h.dispose);
+          h.writeSource('main.dart', 'void main() {}');
+          bindingsMoved(h);
+          h.seedApplied();
+          h.writeSource('main.dart', 'void main() { print(1); }');
+          final patch = wirePatch(
+            h,
+            const NativePatched(
+              functions: {
+                'libbridge.dylib': ['bridge::shout'],
+              },
+            ),
+          );
+          h.pipeline.ready.signalReady();
+
+          final result = await h.hotReload();
+          expect(patch.asked.single, {'libbridge.dylib'});
+          expect(result['succeeded'], isTrue, reason: '${result['error']}');
+          expect(result['runningCode'], 'updated');
+          expect(result['nativePatched'], {
+            'libbridge.dylib': ['bridge::shout'],
+          });
+          // The increment went in, over an image that now carries the surface
+          // it was compiled against.
+          expect(h.compiler.recompileCalls, hasLength(1));
+          expect(h.app.calls, hasLength(1));
+          // And the contract is settled: the next reload must not read the same
+          // moved bytes and withhold over an image that has caught up.
+          expect(patch.marked.single, {'libbridge.dylib'});
+          expect(result['nativeLibsStale'], isNull);
+        });
+
+        test('a builder that cannot serve the new surface withholds it, in '
+            'the builder\'s words', () async {
+          final h = await _Harness.create();
+          addTearDown(h.dispose);
+          h.writeSource('main.dart', 'void main() {}');
+          bindingsMoved(h);
+          h.seedApplied();
+          h.writeSource('main.dart', 'void main() { print(1); }');
+          wirePatch(
+            h,
+            const NativePatchNeedsRestart({
+              'libbridge.dylib': ['`bridge::Point` changed shape.'],
+            }),
+          );
+          h.pipeline.ready.signalReady();
+
+          final result = await h.hotReload();
+          expect(result['succeeded'], isFalse);
+          expect(result['runningCode'], 'unchanged');
+          // The builder's reason, not "the contract moved" — it was asked
+          // because the contract moved, and it is the half that knows what
+          // about it.
+          expect(result['error'], contains('`bridge::Point` changed shape.'));
+          expect(result['nativePatchRestart'], {
+            'libbridge.dylib': ['`bridge::Point` changed shape.'],
+          });
+          expect(result['nativeLibsStale'], ['bazel-out/bin/libbridge.dylib']);
+          expect(h.compiler.recompileCalls, isEmpty);
+          expect(h.app.calls, isEmpty);
+        });
+
+        test('a library no builder covers is still refused, and no patch is '
+            'built', () async {
+          final h = await _Harness.create();
+          addTearDown(h.dispose);
+          h.writeSource('main.dart', 'void main() {}');
+          // `wirePatch` arms a builder for libbridge.dylib only.
+          bindingsMoved(h, lib: 'libplain.dylib');
+          h.seedApplied();
+          h.writeSource('main.dart', 'void main() { print(1); }');
+          final patch = wirePatch(h, const NativePatchNotNeeded());
+          h.pipeline.ready.signalReady();
+
+          final result = await h.hotReload();
+          expect(result['succeeded'], isFalse);
+          expect(result['runningCode'], 'unchanged');
+          expect(result['message'], contains('withheld'));
+          expect(
+            patch.asked,
+            isEmpty,
+            reason:
+                'the builder cannot answer for this library, so asking it '
+                'would spend a build on a question it has no way to settle',
+          );
+          expect(h.compiler.recompileCalls, isEmpty);
+        });
+
+        test('a library nothing describes is refused even with a builder '
+            'armed', () async {
+          final h = await _Harness.create();
+          addTearDown(h.dispose);
+          h.writeSource('main.dart', 'void main() {}');
+          // Unreachable through the rules — a `hot_patch` wrapper must declare
+          // a contract — and the pipeline refuses rather than rely on that: a
+          // patch overturns "the image cannot serve these bindings", and here
+          // nothing said what the bindings are.
+          h.nativeLibs = const NativeLibsUnverifiable(['libbridge.dylib']);
+          h.seedApplied();
+          h.writeSource('main.dart', 'void main() { print(1); }');
+          final patch = wirePatch(h, const NativePatchNotNeeded());
+          h.pipeline.ready.signalReady();
+
+          final result = await h.hotReload();
+          expect(result['succeeded'], isFalse);
+          expect(result['message'], contains('withheld'));
+          expect(patch.asked, isEmpty);
+        });
+      });
+    });
+
+    test('moved bindings with no builder at all are still refused', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['libbridge.dylib'],
+        contracts: ['codegen.ir'],
+      );
+      h.seedApplied();
+      h.writeSource('main.dart', 'void main() { print(1); }');
+      h.pipeline.ready.signalReady();
+
+      final result = await h.hotReload();
+      expect(result['succeeded'], isFalse);
+      expect(result['runningCode'], 'unchanged');
+      expect(result['message'], contains('withheld'));
+      expect(h.compiler.recompileCalls, isEmpty);
     });
 
     test('a restart whose bindings held restarts, and says so', () async {

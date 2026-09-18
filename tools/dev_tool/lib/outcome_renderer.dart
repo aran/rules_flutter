@@ -25,17 +25,52 @@ Map<String, dynamic> toWire(CommandReport report) {
     return {..._verdict(report), 'error': reason};
   }
 
+  // Returning outright, like the refusal below: the native half stopped the
+  // command before anything was compiled.
+  //
+  // Ahead of the verdict's own refusal, in the one case where both have
+  // something to say — a moved binding contract whose library has a patch
+  // builder, which is asked instead of refused. The builder was asked *because*
+  // the contract moved, and it answers the same question with more to go on:
+  // which differences it cannot serve, in its own words. Leading with "the
+  // contract moved" there would bury the sentence that says what about it.
+  if (_nativePatchRefusal(report) case final refusal?) {
+    return {
+      ..._verdict(report),
+      ...refusal,
+      'message': '${report.verb} withheld: ${refusal['error']}',
+      if (_refusedForNativeLibs(report.nativeLibs))
+        'nativeLibsStale': _staleLibs(report.nativeLibs)!,
+    };
+  }
+
   // Before the outcome switch and returning outright on a refusal: the command
   // stopped before the snapshot, so there is no outcome and no asset diff to
   // fold in — and falling through would reach the `null` outcome arm and call a
   // withheld increment a success.
   if (_refusedForNativeLibs(report.nativeLibs)) {
-    return {
+    final refusal = {
       ..._verdict(report),
       'error': _nativeLibsReason(report)!,
       'message': _nativeLibsSentence(report)!,
       'nativeLibsStale': _staleLibs(report.nativeLibs)!,
     };
+    // A patch can land before this refusal, because they are about different
+    // libraries: the one whose contract moved had a builder to ask, and the one
+    // nothing describes did not. What it delivered belongs in the reply — the
+    // process is no longer the one the command started against, and a refusal
+    // that said only "withheld" would leave someone looking for native code
+    // that is already live.
+    if (report.nativePatch case NativePatched(
+      :final functions,
+      :final reverted,
+    )) {
+      if (functions.isNotEmpty) refusal['nativePatched'] = functions;
+      if (reverted.isNotEmpty) refusal['nativeReverted'] = reverted;
+      refusal['message'] =
+          '${refusal['message']}. ${_patchedClause(functions, reverted)}';
+    }
+    return refusal;
   }
 
   // Returning outright, like the refusal above: the native half stopped the
@@ -311,21 +346,33 @@ String? _nativeLibsReason(CommandReport report) => switch (report.nativeLibs) {
     '${libs.join(', ')} changed, and so did what its bindings are generated '
         'from (${contracts.join(', ')}) — so the increment would be injected '
         'over a library that cannot serve it, and a process cannot replace a '
-        'library it has already loaded. Nothing was compiled and nothing was '
-        'sent: the app is still running the Dart code and the library it '
-        'launched with. Only a new process picks both up, which a restart (R, '
-        'or `app.restart`) relaunches when this run launched the app.',
+        'library it has already loaded. ${_stillRunning(report)} Only a new '
+        'process picks both up, which a restart (R, or `app.restart`) '
+        'relaunches when this run launched the app.',
   NativeLibsUnverifiable(:final libs) =>
     '${libs.join(', ')} changed, and nothing declares what its bindings are '
         'generated from — so whether the increment still matches it is not '
         'knowable here, and a process cannot replace a library it has already '
-        'loaded. Nothing was compiled and nothing was sent: the app is still '
-        'running the Dart code and the library it launched with. A restart (R, '
-        'or `app.restart`) relaunches it; declaring the library through '
+        'loaded. ${_stillRunning(report)} A restart (R, or `app.restart`) '
+        'relaunches it; declaring the library through '
         '`flutter_native_library(binding_contract = …)` is what lets a reload '
         'through when only its code changed.',
   _ => null,
 };
+
+/// What the app is on after a verdict withheld the increment.
+///
+/// "The library it launched with" is the usual answer and stops being true when
+/// a patch landed earlier in the same command — a different library, with a
+/// builder to ask. Saying it anyway would contradict the patch clause printed
+/// beside it, and the contradiction is the reader's problem to resolve.
+String _stillRunning(CommandReport report) =>
+    report.nativePatch is NativePatched
+    ? 'Nothing was compiled and nothing was sent: the app is still running the '
+          'Dart code it launched with, over whatever native code the patch '
+          'below left it on.'
+    : 'Nothing was compiled and nothing was sent: the app is still running the '
+          'Dart code and the library it launched with.';
 
 /// The one-line form, which leads with the verb so the terminal line reads as an
 /// answer to the key that was pressed.

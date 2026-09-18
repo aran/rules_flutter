@@ -184,9 +184,14 @@ class NativeLibsWatch {
   /// Record that the process now runs the on-disk code of the libraries named
   /// [fileNames] — a native hot patch delivered it without a new process.
   ///
-  /// Their contracts are not advanced: a patch is only delivered when the
-  /// bindings did not move, so there is nothing about them to record. Their
-  /// sources are, because those are what said the library was behind.
+  /// Their contracts are advanced with them, and that is the whole of what this
+  /// records: the running image serves what its own source describes. A patch
+  /// is asked for when a library's code moved *including* when its declared
+  /// bindings moved with it — the builder is the one thing that can put a new
+  /// surface into a process, and this is only called once it has said it did.
+  /// A contract left un-advanced would make the next reload read the same moved
+  /// bytes and withhold over an image that caught up long before, and that next
+  /// reload need not have touched anything native at all.
   Future<void> markPatched(Set<String> fileNames) async {
     final patched = [
       for (final library in contracts.keys)
@@ -198,6 +203,7 @@ class NativeLibsWatch {
       ...await _read([
         ...patched,
         for (final library in patched) ...?sources[library],
+        for (final library in patched) ...?contracts[library],
       ]),
     };
   }

@@ -281,6 +281,27 @@ void main() {
     },
   );
 
+  test('a native hot patch clears the contract it was asked about', () async {
+    final bridge = file('libbridge.dylib', [1]);
+    final contract = file('codegen.ir', [10]);
+    final watch = await NativeLibsWatch.of({
+      bridge.path: [contract.path],
+    });
+    // The shape a bridged function being added makes: the library moved and so
+    // did what its bindings are generated from. The pipeline asks the patch
+    // builder about exactly this, and only calls markPatched once the builder
+    // has said it served it.
+    bridge.writeAsBytesSync([2]);
+    contract.writeAsBytesSync([11]);
+    expect(await watch.verdict(), isA<NativeBindingsMoved>());
+
+    await watch.markPatched({'libbridge.dylib'});
+    // Not still `NativeBindingsMoved`: the next reload reads the same moved
+    // contract bytes, and withholding over an image that caught up an edit ago
+    // would take the rest of the run with it.
+    expect(await watch.verdict(), isA<NativeLibsCurrent>());
+  });
+
   test('a declared file the build never wrote is loud', () async {
     final lib = file('liba.dylib', [1]);
     final watch = await NativeLibsWatch.of({lib.path: const []});

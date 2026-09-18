@@ -119,14 +119,18 @@ the image it `dlopen`ed — so the dev tool's question is narrower: are the
 bindings about to be injected still ones that library can serve? An unchanged
 contract answers yes, and the reload is delivered with the stale native code
 reported. A changed contract answers no, and the increment is withheld rather
-than injected over machine code that cannot decode it.
+than injected over machine code that cannot decode it — unless `hot_patch` names
+a builder for the library, which is then asked whether it can serve the new
+surface instead of the reload being refused on the contract alone.
 
 Both targets must be visible to this rule: a contract in another package or
 module needs that package's `visibility` to include it, like any other label.
 
 `hot_patch` goes further: it lets a hot reload deliver the library's new *code*
-into the running process, where a bare contract can only report it stale. See the
-attribute for what the named target has to build.
+into the running process, where a bare contract can only report it stale — and
+with it, edits that move the contract, because a patch is the one thing that can
+put the surface the new bindings call into a process that cannot reload a
+library. See the attribute for what the named target has to build.
 """,
     attrs = {
         "library": attr.label(
@@ -146,6 +150,11 @@ equivalent from any generator that has one), or the C header a hand-written FFI
 binding is written against. The dev tool compares these bytes and nothing else —
 it never parses them — so what matters is that every wire-affecting change
 reaches them, and that changes which do not affect the wire do not.
+
+With `hot_patch`, these files are also what the *builder* has to compare: moved
+bytes stop being a refusal and become a question for it, and a builder that
+looks at less than has been declared here would answer for a change it never
+saw.
 """,
             allow_files = True,
             mandatory = True,

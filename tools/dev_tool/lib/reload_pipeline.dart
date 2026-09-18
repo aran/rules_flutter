@@ -449,7 +449,39 @@ class ReloadPipeline {
     bool patch = false,
   }) async {
     var verdict = await nativeLibsVerdict?.call();
-    if (verdict is NativeBindingsMoved || verdict is NativeLibsUnverifiable) {
+    final patcher = patch ? patchNativeLibs : null;
+
+    // Bindings the running images cannot be known to serve. On its own that is
+    // the end of the command — but it is the end only because nothing can put
+    // the code those bindings are for into the running process, and a patch
+    // builder is exactly the thing that can. A patch installs whole new
+    // dispatch tables, so bindings injected over a patched image are the ones
+    // its own source generated.
+    //
+    // So a moved contract is a question for the library's builder wherever
+    // there is one for every library it named. It is asked whole, never per
+    // change: the builder holds both the launch interface and the new one and
+    // decides which differences it can serve, and a second implementation of
+    // that judgement here — reading the same contract bytes this file makes a
+    // point of never parsing — is a disagreement waiting to happen.
+    //
+    // A library nothing describes is refused whatever is armed. The premise
+    // that a patch overturns is "the running image cannot serve these
+    // bindings"; here there is no premise, because nothing said what the
+    // bindings are. (The rules cannot produce this state for a patchable
+    // library — a `hot_patch` wrapper must declare a contract — and not relying
+    // on that is what keeps the safe answer the default.)
+    final withheld = switch (verdict) {
+      NativeBindingsMoved(:final libs) => libs,
+      _ => const <String>[],
+    };
+    final patchable = {...?patchableNativeLibs?.call()};
+    final unservable = [
+      for (final lib in withheld)
+        if (!patchable.contains(p.basename(lib))) lib,
+    ];
+    if (verdict is NativeLibsUnverifiable ||
+        (withheld.isNotEmpty && (patcher == null || unservable.isNotEmpty))) {
       return (
         refusal: toWire(
           CommandReport(
@@ -464,12 +496,13 @@ class ReloadPipeline {
       );
     }
 
-    final patcher = patch ? patchNativeLibs : null;
     if (patcher == null) return (refusal: null, verdict: verdict, patch: null);
 
     final outcome = await patcher(
       movedLibraries: switch (verdict) {
-        NativeCodeStale(:final libs) => {for (final l in libs) p.basename(l)},
+        NativeCodeStale(:final libs) || NativeBindingsMoved(:final libs) => {
+          for (final l in libs) p.basename(l),
+        },
         _ => const <String>{},
       },
     );
@@ -484,22 +517,44 @@ class ReloadPipeline {
       return (refusal: toWire(report), verdict: verdict, patch: outcome);
     }
     // Patched, reverted, unchanged or unmoved: whichever it was, every library
-    // the patcher answers for now runs the code on disk.
-    final current = {...?patchableNativeLibs?.call()};
-    var moved = outcome is NativePatched;
-    if (verdict case NativeCodeStale(:final libs)) {
-      final stale = [
-        for (final lib in libs)
-          if (!current.contains(p.basename(lib))) lib,
-      ];
-      if (stale.length != libs.length) {
-        moved = true;
-        verdict = stale.isEmpty
-            ? const NativeLibsCurrent()
-            : NativeCodeStale(stale);
-      }
+    // the patcher answers for now runs the code on disk — including its
+    // declared bindings, which is what the builder was asked about.
+    final answered =
+        withheld.isNotEmpty ||
+        switch (verdict) {
+          NativeCodeStale(:final libs) => libs.any(
+            (lib) => patchable.contains(p.basename(lib)),
+          ),
+          _ => false,
+        };
+    if (outcome is NativePatched || answered) {
+      await markNativeLibsPatched?.call(patchable);
+      // Read again rather than subtract what was patched from what moved. The
+      // watch owns the step from files to a verdict, and only it can answer for
+      // the libraries this command has not heard about yet: a moved contract is
+      // reported before anything else is looked at, so a library that went
+      // stale beside it was never in the first verdict at all.
+      verdict = await nativeLibsVerdict?.call() ?? verdict;
     }
-    if (moved) await markNativeLibsPatched?.call(current);
+    // And if what that turned up is itself a refusal — a library nothing
+    // describes, behind the contract that answered first — it is one. The patch
+    // is live and reported either way; what must not happen is the increment
+    // going in over the library the new verdict names.
+    if (verdict is NativeBindingsMoved || verdict is NativeLibsUnverifiable) {
+      return (
+        refusal: toWire(
+          CommandReport(
+            verb: verb,
+            appIds: addressed,
+            nativeLibs: verdict,
+            nativePatch: outcome,
+            assets: assets,
+          ),
+        ),
+        verdict: verdict,
+        patch: outcome,
+      );
+    }
     return (refusal: null, verdict: verdict, patch: outcome);
   }
 
