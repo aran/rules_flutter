@@ -226,6 +226,16 @@ dart run tools/dev_tool/tool/e2e.dart --plain-name="macOS"
 dart run tools/dev_tool/tool/e2e.dart test/e2e/agent_e2e_test.dart
 ```
 
+**Give the suite the workspace to itself.** Every case builds and launches a real
+app with deadlines in minutes, and a `bazel` in this workspace takes the same
+lock the suite's builds need. Running anything else here while it goes — a
+`bazel test`, a `bazel build`, or a **`git commit`, which fires three bazel
+invocations through this repo's hooks** — pushes cases over their `app.started`
+and control-channel timeouts. Measured 2026-09-17: the same tree gave **53
+passed / 20 failed** with commits landing alongside it and **73 passed / 0
+failed** on a quiet machine, ~40 minutes apart. The failures name nothing about
+their cause, so the temptation is to go hunting in the change.
+
 ### Why a runner rather than a bare `dart test`
 
 Because `dart test` has a way of finishing without running the suite that looks
