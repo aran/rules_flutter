@@ -200,9 +200,13 @@ $_simpleLoaderScript
     if (window.\$dartStackTraceUtility &&
         !window.\$dartStackTraceUtility.ready) {
       window.\$dartStackTraceUtility.ready = true;
+      // Module names are paths relative to the directory this script was
+      // served from, so that is what comes off a frame's URL. Upstream strips
+      // the origin instead, which is the same thing only for a page at `/`:
+      // under a `<base href>` every frame kept the base path in its name,
+      // found no source map, and printed as a JavaScript location.
       window.\$dartStackTraceUtility.setSourceMapProvider(function(url) {
-        const baseUrl = window.location.protocol + '//' + window.location.host;
-        url = url.replace(baseUrl + '/', '');
+        url = url.replace(_currentDirectory, '');
         if (url == 'dart_sdk.js') {
           return dartDevEmbedder.debugger.getSourceMap('dart_sdk');
         }
