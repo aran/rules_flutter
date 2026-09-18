@@ -817,7 +817,7 @@ Unlike the other platforms, the web macro takes `main` and `deps` directly rathe
 |---|---|
 | `package_name` | The Dart package name, same as `pubspec.yaml`. Required. |
 | `deps` | `dart_library` or `flutter_library` targets. Required. |
-| `main` | The entry point. Defaults to `"lib/main.dart"`. |
+| `main` | The entry point. Defaults to `"lib/main.dart"`. It can sit outside the package's `lib/`; list any file it imports by relative path in `srcs`. |
 | `app_name` | Used for the HTML title and manifest. Defaults to the target name. |
 | `base_href` | Substituted for `$FLUTTER_BASE_HREF` in `web/index.html`. Defaults to `"/"`. `flutter_bazel run -d chrome` serves the app under it, as `flutter run` does. |
 | `extra_web_assets` | Extra files copied into the bundle root, for generated files the `web/` glob cannot see. |
@@ -1012,9 +1012,9 @@ flutter_application(
 
 | Attribute | Description |
 |---|---|
-| `main` | The entry point. Required. |
+| `main` | The entry point. Required. It can sit outside the package's `lib/`, as `flutter run -t` allows: `test_driver/app.dart`, say. See [Hot reload and hot restart](#hot-reload-and-hot-restart). |
 | `package_name` | The Dart package name, the same as `pubspec.yaml`'s `name:`. Required. It keys the compiled libraries under stable `package:` URIs, which hot reload matches against, and resolves `package:<self>/...` imports. |
-| `srcs` | Other Dart sources in the app package, including generated ones. |
+| `srcs` | Other Dart sources in the app package, including generated ones. List here any file a `main` outside `lib/` imports by relative path. |
 | `deps` | `dart_library` or `flutter_library` targets. Add `@rules_flutter//flutter:material_icons` to bundle the Material icon font. |
 | `assets` | Asset files for the bundle. |
 | `native_deps` | Shared libraries to bundle for `dart:ffi`. |
@@ -1332,6 +1332,8 @@ For `-d ios`, the tool lists attached devices with `devicectl` and ignores devic
 ### Hot reload and hot restart
 
 In terminal mode, press `r` to reload and `R` to restart, or just save a file. A reload compiles only the changed libraries and injects them into the running isolate, keeping app state. A restart re-runs `main()`, so it also reflects changes to code that runs only at startup.
+
+An app whose `main` sits outside its package's `lib/` reloads and restarts the same way, like `flutter run -t test_driver/app.dart`. Such a file has no `package:` URI, so the build and the dev loop both compile it as `org-dartlang-app:///<its workspace path>`. Edits to it, and to the files it imports by relative path, are picked up because the build lists them: its compile can read only the `main` and the `srcs` you declare, so declare the siblings in `srcs`. As in any Dart program, reach code under `lib/` through `package:` imports, not `../lib/...`. A relative import there loads a second copy of that library, and its types stop matching the originals.
 
 A restart can go one step further. Dart code can be swapped into a running process, but a native library the process has already loaded cannot. So when a rebuild changes one of the app's native libraries (`native_deps` or Native Assets, including the `.framework` each becomes on iOS), `app.restart` relaunches the process instead of restarting the isolate, and says so in its response. If the replacement cannot launch, for example because the device has no room for the new install, the restart fails with the reason and the run ends, since the old process is already gone. The HTTP channel, its token, and the `appId` stay the same across a relaunch. Only the log buffer starts over.
 

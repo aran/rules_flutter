@@ -117,6 +117,26 @@ flutter_application(
     deps = _APP_DEPS,
 )
 
+# An app whose `main` sits outside the package's `lib/` — the shape
+# `flutter run -t test_driver/app.dart` runs. It has no `package:` URI, so the
+# build and the dev loop both name it under the app scheme; hot reload of it,
+# and of the sibling it imports by relative path, is what this pair is for.
+flutter_application(
+    name = "driver_flutter",
+    package_name = "macos_example",
+    srcs = ["test_driver/banner.dart"],
+    main = "test_driver/app.dart",
+    deps = ["@deps//:flutter"],
+)
+
+flutter_macos_app(
+    name = "driver_app",
+    app_name = "Driver App",
+    application = ":driver_flutter",
+    bundle_id = "com.example.flutterapp.driver",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
 # =============================================================================
 # Shared macOS targets (used by approaches 2 & 3)
 # =============================================================================

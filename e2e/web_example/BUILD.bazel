@@ -43,6 +43,21 @@ flutter_web_app(
     ],
 )
 
+# An app whose `main` sits outside the package's `lib/` — the shape
+# `flutter run -t test_driver/app.dart` runs. The dev loop's generated
+# entrypoint imports it by its app-scheme URI instead of a `package:` one, and a
+# hot reload has to deliver edits to it and to the sibling it imports.
+flutter_web_app(
+    name = "app_test_driver",
+    package_name = "web_example",
+    srcs = ["test_driver/banner.dart"],
+    main = "test_driver/app.dart",
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
 # =============================================================================
 # Approach 2: Tier 2 — flutter_web_bundle (explicit control)
 # JS build (dart2js + canvaskit) — legacy, wider browser support
