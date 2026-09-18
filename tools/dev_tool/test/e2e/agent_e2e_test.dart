@@ -765,10 +765,13 @@ void main() {
 
           expect(await label(), 'count: 0');
 
-          // The default path still refuses — the guarantee is real and this
-          // app cannot give it — but the refusal names the count, which is
-          // what separates "something is animating" from "the app was
-          // backgrounded and no frame came", and names the way out.
+          // The default path waits for idle, which this app never reaches. The
+          // tap still landed — the wait only begins once it has — so the reply
+          // is a success that says the wait ran out, never an error. As an
+          // error it read as "nothing happened", and a caller that retried
+          // tapped twice. The detail names the count, which separates
+          // "something is animating" from "the app was backgrounded and no
+          // frame came", and says not to send the command again.
           final timedOut = await dt.httpCommand('app.tap', {
             'appId': appId,
             'key': 'agent_test_button',
@@ -776,21 +779,28 @@ void main() {
           });
           expect(
             timedOut['error'],
+            isNull,
+            reason: 'a tap that landed is not a failure: ${timedOut['error']}',
+          );
+          final waited = timedOut['result'] as Map<String, dynamic>;
+          expect(waited['settled'], 'no');
+          expect(
+            waited['settleDetail'],
             allOf(
               contains('still in flight'),
+              contains('twice'),
               contains('"settle": "false"'),
             ),
-            reason: 'timeout must name what it waited on: ${timedOut['error']}',
+            reason: 'the detail must name what it waited on: $waited',
           );
 
-          // The refusal is about the *wait*, not the action: the input was
-          // dispatched before it. A caller that retried on this error would
-          // tap twice, so the error has to be read as "I cannot promise the
-          // result is observable yet", never as "nothing happened".
+          // Exactly one tap, which is the whole point.
           expect(
             await label(),
             'count: 1',
-            reason: 'a settle that timed out must not un-tap the button',
+            reason:
+                'a settle that timed out must neither un-tap the button '
+                'nor invite a second tap',
           );
 
           // And the way out works. flutter_driver calls this
@@ -801,6 +811,7 @@ void main() {
             'settle': 'false',
           });
           expect(tap['error'], isNull, reason: 'tap: ${tap['error']}');
+          expect(tap['result']?['settled'], 'skipped');
 
           // Read back through `app.waitFor`, not a bare `getText`. Skipping
           // the settle gives up the one thing it guarantees — that the frame

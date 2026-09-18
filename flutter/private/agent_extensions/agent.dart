@@ -124,7 +124,7 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
       // a hidden application both kept producing frames at ~8/s. That is one
       // host and one OS version, so read the desktop half as unmeasured
       // elsewhere; the lifecycle mechanism above is from the source and holds
-      // everywhere. `_settle` below guards on the same flag for the same
+      // everywhere. `_settleAfterInput` below guards on the same flag for the same
       // reason, and neither guard becomes dead code merely because this Mac
       // cannot produce the state.
       //
@@ -151,25 +151,12 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
       // in silence.
       return _err(e.message);
     } on TimeoutException catch (e) {
-      // Not a frames-off app: `_settle` returns early for that instead of
-      // timing out. What reaches here is an app that never went idle — an
-      // animation still in flight when the deadline passed — or one the OS
-      // backgrounded after the frames-enabled check, so the frame being
-      // awaited never came.
-      //
-      // The count separates those two: zero means nothing was animating, so
-      // the frame simply never came; non-zero names the wait for what it is.
-      // It is read here
-      // rather than captured at the deadline because a callback that outlived
-      // the bound is still registered now — that is the whole condition.
-      final animating = SchedulerBinding.instance.transientCallbackCount;
+      // Only a wait that is the command itself reaches here — `app.settle`.
+      // A wait that follows delivered input is reported on that command's
+      // reply instead ([_settleAfterInput]): the input landed, and an error
+      // would read as input that never happened.
       return _err(
-        'timed out after ${e.duration?.inMilliseconds}ms waiting for the app '
-        'to settle: ${animating == 0 ? 'nothing was animating, so the app was '
-                  'backgrounded mid-command and the frame being waited on never '
-                  'arrived' : '$animating animation'
-                  '${animating == 1 ? ' was' : 's were'} still in flight, so it '
-                  'never went idle'}. An app that animates perpetually never '
+        '${_whyNotSettled(e)} An app that animates perpetually never '
         'settles: pass "settle": "false" to act without waiting, and '
         'app.waitFor to resynchronise afterwards.',
       );
@@ -280,42 +267,93 @@ Future<void> _dispatchDrag(Offset start, Offset end, Duration duration) async {
   );
 }
 
-/// Settle after an action so a follow-up getRect/getText observes the result,
-/// using the caller's optional `timeoutMs` (default 10s).
+/// Settle after input that has already been delivered, and say how the wait
+/// ended, so a follow-up getRect/getText observes the result. Bounded by the
+/// caller's optional `timeoutMs` (default 10s).
 ///
-/// The input was already dispatched synchronously. When `framesEnabled` is
-/// false there is no frame to wait for: the flag tracks the app *lifecycle*
-/// (`hidden`/`paused`/`detached`), not window visibility — see the longer note
-/// in [_guard] — so the app is backgrounded, and nothing will schedule a frame
-/// until it comes back. Returning straight away spends none of the caller's
-/// `timeoutMs` on a frame that cannot arrive, and reports no failure for a
-/// state that is not one.
+/// Returns the reply fields the browser route of `app.pressKey` and the
+/// screenshot endpoints' `X-Settled` headers already use: `settled` is `yes`,
+/// `no` or `skipped`, and `settleDetail` says why when it is not `yes`.
 ///
-/// What stops a hang is the bound inside [_waitUntilSettled], not this check —
-/// frames can stop after it. Otherwise we wait for the pending frame to render
-/// and the app to go idle (see [_waitUntilSettled]).
+/// A wait that runs out is `no`, never an error. It used to throw, and the
+/// command answered with an error whose advice read as though nothing had
+/// happened — on an app that animates constantly, `app.tap` tapped and then
+/// reported failure, so a caller that retried tapped twice, and a retried
+/// `app.pressKey` of Enter submitted twice. The input landed before the wait
+/// began; what timed out is only the promise that its effect is visible.
+///
+/// When `framesEnabled` is false there is no frame to wait for: the flag
+/// tracks the app *lifecycle* (`hidden`/`paused`/`detached`), not window
+/// visibility — see the longer note in [_guard] — so the app is backgrounded,
+/// and nothing will schedule a frame until it comes back. That is `skipped`,
+/// and the reply's `notRendering` says the rest. What stops a hang is the
+/// bound inside [_waitUntilSettled], not this check — frames can stop after
+/// it.
 ///
 /// `settle: "false"` skips the wait entirely — flutter_driver's
 /// `runUnsynchronized`, under a name that says what it turns off. Some apps
 /// never go idle: a spinner, a progress indicator, a hand-rolled caret, any
 /// perpetual `AnimationController` holds a transient callback for as long as
-/// it runs, and every command on such an app spends its whole `timeoutMs` and
-/// then fails. Without this they could not be driven at all. The cost is the
-/// guarantee the wait exists for — a follow-up `getText` may read the state
-/// from before the action — so `app.waitFor` is how a caller resynchronises.
+/// it runs. Without it every command on such an app would wait out its whole
+/// `timeoutMs`. The cost is the guarantee the wait exists for — a follow-up
+/// `getText` may read the state from before the action — so `app.waitFor` is
+/// how a caller resynchronises.
 ///
 /// Parsed strictly, unlike the numeric parameters around it, which fall back
 /// to their defaults. A number that fails to parse is a slower command; a
 /// `settle` that fails to parse is the opposite behaviour, chosen silently.
-Future<void> _settle(Map<String, String> params) {
+Future<Map<String, Object?>> _settleAfterInput(
+  Map<String, String> params,
+) async {
   if (!_boolParam(params, 'settle', ifAbsent: true)) {
-    return Future<void>.value();
+    return {
+      'settled': 'skipped',
+      'settleDetail': 'the caller asked not to wait',
+    };
+  }
+  if (!SchedulerBinding.instance.framesEnabled) {
+    return {
+      'settled': 'skipped',
+      'settleDetail':
+          'the app is backgrounded, so no frame is coming and there is '
+          'nothing to wait for',
+    };
   }
   final timeout = Duration(
     milliseconds: int.tryParse(params['timeoutMs'] ?? '10000') ?? 10000,
   );
-  if (!SchedulerBinding.instance.framesEnabled) return Future<void>.value();
-  return _waitUntilSettled(timeout);
+  try {
+    await _waitUntilSettled(timeout);
+    return {'settled': 'yes'};
+  } on TimeoutException catch (e) {
+    return {
+      'settled': 'no',
+      'settleDetail':
+          '${_whyNotSettled(e)} The input was delivered and its handler ran, '
+          'so sending this command again would do it twice. A read now may '
+          'answer with the state from before it finished: resynchronise with '
+          'app.waitFor on the value you expect, or pass "settle": "false" to '
+          'skip this wait on an app that never goes idle.',
+    };
+  }
+}
+
+/// What a settle wait that ran out found, as the start of a sentence.
+///
+/// The count of transient callbacks separates the two ways a wait runs out:
+/// zero means nothing was animating, so the app was backgrounded mid-command
+/// and the frame being waited on never came; non-zero names the animations
+/// that kept it from going idle. Read now rather than captured at the
+/// deadline, because a callback that outlived the bound is still registered —
+/// that is the whole condition.
+String _whyNotSettled(TimeoutException e) {
+  final animating = SchedulerBinding.instance.transientCallbackCount;
+  return 'timed out after ${e.duration?.inMilliseconds}ms waiting for the app '
+      'to settle: ${animating == 0 ? 'nothing was animating, so the app was '
+                'backgrounded mid-command and the frame being waited on never '
+                'arrived' : '$animating animation'
+                '${animating == 1 ? ' was' : 's were'} still in flight, so it '
+                'never went idle'}.';
 }
 
 /// Read a boolean parameter, or [ifAbsent] when the caller did not pass one.
@@ -372,9 +410,9 @@ Future<ServiceExtensionResponse> _handleTap(
   Map<String, String> params,
 ) => _withRect(dispatchesPointer: true, params, (rect) async {
   _dispatchTapAt(rect.center);
-  await _settle(params);
   return {
     'tappedAt': {'x': rect.center.dx, 'y': rect.center.dy},
+    ...await _settleAfterInput(params),
   };
 });
 
@@ -386,10 +424,10 @@ Future<ServiceExtensionResponse> _handleLongPress(
     milliseconds: int.tryParse(params['durationMs'] ?? '500') ?? 500,
   );
   await _dispatchLongPressAt(rect.center, hold);
-  await _settle(params);
   return {
     'pressedAt': {'x': rect.center.dx, 'y': rect.center.dy},
     'heldMs': hold.inMilliseconds,
+    ...await _settleAfterInput(params),
   };
 });
 
@@ -398,9 +436,9 @@ Future<ServiceExtensionResponse> _handleDoubleTap(
   Map<String, String> params,
 ) => _withRect(dispatchesPointer: true, params, (rect) async {
   await _dispatchDoubleTapAt(rect.center);
-  await _settle(params);
   return {
     'tappedAt': {'x': rect.center.dx, 'y': rect.center.dy},
+    ...await _settleAfterInput(params),
   };
 });
 
@@ -420,11 +458,11 @@ Future<ServiceExtensionResponse> _handleDrag(
     final start = rect.center;
     final end = start + Offset(dx, dy);
     await _dispatchDrag(start, end, duration);
-    await _settle(params);
     return {
       'from': {'x': start.dx, 'y': start.dy},
       'to': {'x': end.dx, 'y': end.dy},
       'durationMs': duration.inMilliseconds,
+      ...await _settleAfterInput(params),
     };
   });
 }
@@ -447,16 +485,37 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
   final dy = double.tryParse(params['dy'] ?? '-50') ?? -50;
   final maxIterations = int.tryParse(params['maxIterations'] ?? '40') ?? 40;
 
+  // One command, many inputs. Once a wait for idle has run out, the rest are
+  // skipped — an app that did not go idle within `timeoutMs` will not in the
+  // next wait either, and 40 drags would each spend it — and the reply reports
+  // the wait that ran out. The next frame is still awaited, bounded, because
+  // that is what builds the children a drag scrolled into a lazy list.
+  Map<String, Object?>? ranOut;
+  Future<Map<String, Object?>> settle() async {
+    final earlier = ranOut;
+    if (earlier != null) {
+      await SchedulerBinding.instance.endOfFrame.timeout(
+        _semanticsFrameBound,
+        onTimeout: () {},
+      );
+      return earlier;
+    }
+    final outcome = await _settleAfterInput(params);
+    if (outcome['settled'] == 'no') ranOut = outcome;
+    return outcome;
+  }
+
   // Fast path: target is already in the element tree → use the framework
   // helper to scroll any ancestor Scrollable into the right offset.
   var element = _findElementWhere(sel.test);
   if (element != null) {
     await Scrollable.ensureVisible(element, duration: duration);
-    await _settle(params);
+    final settled = await settle();
     final asleep = _notRendering();
     return _ok({
       'iterations': 0,
       'reachable': _reachable(element),
+      ...settled,
       if (asleep != null) 'notRendering': asleep,
     });
   }
@@ -492,15 +551,16 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
       scrollableRect.center + delta,
       duration,
     );
-    await _settle(params);
+    await settle();
     element = _findElementWhere(sel.test);
     if (element != null) {
       await Scrollable.ensureVisible(element, duration: duration);
-      await _settle(params);
+      final settled = await settle();
       final asleep = _notRendering();
       return _ok({
         'iterations': i,
         'reachable': _reachable(element),
+        ...settled,
         if (asleep != null) 'notRendering': asleep,
       });
     }
@@ -533,6 +593,10 @@ Future<ServiceExtensionResponse> _handleEnterText(
 
   final EditableTextState field;
   final String target;
+  // The wait after focusing the field, when it ran out. Focusing is input
+  // too: it already happened, so the text goes in regardless, and the second
+  // wait is skipped because it would run out the same way.
+  Map<String, Object?>? focusRanOut;
   if (_selectorNames.any(params.containsKey)) {
     final _Selector sel;
     try {
@@ -553,7 +617,8 @@ Future<ServiceExtensionResponse> _handleEnterText(
     field = state;
     target = sel.label;
     field.requestKeyboard();
-    await _settle(params);
+    final focused = await _settleAfterInput(params);
+    if (focused['settled'] == 'no') focusRanOut = focused;
   } else {
     final focused = FocusManager.instance.primaryFocus?.context
         ?.findAncestorStateOfType<EditableTextState>();
@@ -575,11 +640,12 @@ Future<ServiceExtensionResponse> _handleEnterText(
     ),
     SelectionChangedCause.keyboard,
   );
-  await _settle(params);
+  final settled = focusRanOut ?? await _settleAfterInput(params);
   final asleep = _notRendering();
   return _ok({
     'enteredText': text,
     'into': target,
+    ...settled,
     if (asleep != null) 'notRendering': asleep,
   });
 }
@@ -625,7 +691,7 @@ Future<ServiceExtensionResponse> _handleGetRect(
 /// wrong bug theories were built on exactly that.
 ///
 /// Reports rather than assumes when there is nothing to wait for: a
-/// backgrounded app has no frame coming (see [_settle]), and answering
+/// backgrounded app has no frame coming (see [_settleAfterInput]), and answering
 /// `settled: true` there would be a claim about a frame that was never
 /// scheduled. A wait that runs out throws, and [_guard] renders it with the
 /// number of animations still in flight.
@@ -698,9 +764,13 @@ Future<ServiceExtensionResponse> _handlePageBack(
   final nav = _findNavigator();
   if (nav == null) return _err('no Navigator found in widget tree');
   final popped = await nav.maybePop();
-  await _settle(params);
+  final settled = await _settleAfterInput(params);
   final asleep = _notRendering();
-  return _ok({'popped': popped, if (asleep != null) 'notRendering': asleep});
+  return _ok({
+    'popped': popped,
+    ...settled,
+    if (asleep != null) 'notRendering': asleep,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -816,12 +886,13 @@ Future<ServiceExtensionResponse> _handlePressKey(
     // the framework believes is held for the rest of the run.
     await presser.releaseAll();
   }
-  await _settle(params);
+  final settled = await _settleAfterInput(params);
   final asleep = _notRendering();
   return _ok({
     'sent': presser.sent,
     'handled': handled,
     'textInput': textInput,
+    ...settled,
     if (asleep != null) 'notRendering': asleep,
   });
 }
