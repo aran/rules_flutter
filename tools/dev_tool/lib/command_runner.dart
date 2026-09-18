@@ -96,6 +96,14 @@ class CommandRunner {
       {'name': name, 'longRunning': _slow.contains(name)},
   ];
 
+  /// Whether [name] is a command this run offers.
+  ///
+  /// Asked where a structural absence and a transient one look alike: the
+  /// `app.*` surface is registered for every run that has a VM service to reach
+  /// and for none that does not, so its presence answers "will this app ever be
+  /// askable" without anyone re-deriving it from the run's shape.
+  bool knows(String name) => _handlers.containsKey(name);
+
   /// Record the current surface as already communicated.
   ///
   /// Called after `daemon.connected` carries the list, so the next

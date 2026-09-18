@@ -170,9 +170,21 @@ class DeviceSession {
     }
     waited.stop();
 
+    // What the wait found, not what it was for. The closing event repeated the
+    // opening one's "Waiting for the app to render its first frame", so a
+    // progress item named `first_frame_*` finishing read as the frame having
+    // arrived — while this method was about to refuse every drivable command
+    // for the rest of the run. A client watching the stream had no way to tell
+    // the two endings apart, and the one that costs time is the one that looks
+    // like success.
     protocol.appProgress(
       appId,
-      message,
+      rendered
+          ? '$appId rendered its first frame'
+          : _stopDrivableWait.isCompleted
+          ? 'the run ended before $appId rendered its first frame'
+          : '$appId did not render a frame within '
+                '${waited.elapsed.inSeconds}s',
       progressId: progressId,
       finished: true,
     );

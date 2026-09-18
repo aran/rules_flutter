@@ -183,17 +183,17 @@ void main() {
       await dt.waitForEvent('app.started');
       final http = await dt.waitForHttpControl();
       expect(http, isNotNull);
-      await Future<void>.delayed(const Duration(seconds: 5));
 
-      final outputPath = '${Directory.systemTemp.path}/web_wasm_e2e.png';
-      await dt.httpScreenshotToFile(dt.appId!, outputPath);
-
-      final file = File(outputPath);
-      expect(file.existsSync(), isTrue);
-      final bytes = file.readAsBytesSync();
-      expect(bytes.length, greaterThan(100));
-      expect(bytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
-      file.deleteSync();
+      // Asked the instant the channel is up, with no sleep in front of it —
+      // which is when an agent acting on `app.started` asks, and the moment the
+      // endpoint has to get right. A browser's VM service is handed over by
+      // DWDS *after* that event, so the settle has to wait for the handover
+      // rather than read the field once and capture a page that has not
+      // painted. A 200 and a valid PNG say nothing about that: the picture
+      // comes back either way.
+      final shot = await dt.httpNativeScreenshotReply(dt.appId!);
+      expect(shot.settled, 'yes', reason: shot.detail);
+      expectRendered(shot.bytes, what: 'the WASM app captured on app.started');
 
       await dt.sendCommand(1, 'daemon.shutdown');
     });
@@ -208,8 +208,15 @@ void main() {
       await dt.waitForEvent('app.started');
       final http = await dt.waitForHttpControl();
       expect(http, isNotNull);
-      await Future<void>.delayed(const Duration(seconds: 5));
 
+      // Deliberately *not* asserting that this one rendered, unlike the case
+      // above. `//:app_js` declares `base_href = "/web_example_js/"` and the
+      // dev server serves at `/`, so its page comes up blank with DWDS never
+      // attaching — a fixture limitation this test cannot paper over and does
+      // not cover. What it does cover is the endpoint answering for a dart2js
+      // run at all. A dart2js dev loop that *does* render is
+      // `web_define_e2e_test.dart`, over `//:app_dev_boot`, which has no
+      // base_href and asserts a rendered capture.
       final outputPath = '${Directory.systemTemp.path}/web_js_e2e.png';
       await dt.httpScreenshotToFile(dt.appId!, outputPath);
 

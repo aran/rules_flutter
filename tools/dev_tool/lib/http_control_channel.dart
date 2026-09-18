@@ -13,6 +13,7 @@ import 'package:http_multi_server/http_multi_server.dart';
 
 import 'command_failure.dart';
 import 'command_runner.dart';
+import 'device.dart';
 import 'machine_protocol.dart';
 import 'session.dart';
 
@@ -380,7 +381,25 @@ class HttpControlChannel {
     if (raw == 'false') {
       return (state: 'skipped', detail: 'the caller asked not to wait');
     }
-    if (session.vmClient == null) {
+    // Whether this app can be asked anything at all. Two ways it cannot: the
+    // run offers no `app.*` surface (a wasm or static web bundle has no VM
+    // service behind it, and no flag changes that), or a native session has no
+    // client — native owns one from the moment the session exists, so null
+    // there is permanent.
+    //
+    // Deliberately not `vmClient == null` on its own, which is what this read.
+    // On web that field is null for the first seconds of *every* run: DWDS
+    // hands the connection over after `app.started`, which is exactly when an
+    // agent acting on that event asks for its first picture. Sampling it once
+    // called a healthy run "no VM service" and captured a page that had not
+    // painted — a 200, a valid PNG of a blank viewport, and the only sign
+    // anything was skipped in a header. `app.settle` waits for the handover
+    // itself (see `DeviceSession.debugReady`), the way every other agent
+    // command does, so asking it is what tells "not yet" from "never".
+    final askable =
+        _commandRunner.knows('app.settle') &&
+        (session.device is WebDevice || session.vmClient != null);
+    if (!askable) {
       return (
         state: 'skipped',
         detail:
