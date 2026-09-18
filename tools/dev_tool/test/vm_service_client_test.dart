@@ -2101,6 +2101,41 @@ void main() {
       expect(await waiting, isFalse);
     });
 
+    // A restart that runs out of time drops the connection so the next
+    // command can dial afresh (`reload_strategy.dart`). The app is untouched —
+    // still running, its extensions still registered — so the next wait has
+    // to re-dial and read them. It used to answer "not registered" off the
+    // dropped connection, and every agent command after the timeout reported
+    // "The app never brought it up — if the run is --start-paused…" for an
+    // app that was up the whole time.
+    test(
+      're-dials after a forced disconnect instead of answering no',
+      () async {
+        // A fresh service per dial, as a real re-dial gets: the dropped one
+        // is disposed and refuses every call.
+        var dials = 0;
+        final client = VmServiceClient(
+          connector: (_) async {
+            dials++;
+            return FakeVmService(
+              isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+            )..extensionRPCs = [getText];
+          },
+        );
+        await client.connect(serviceUri);
+        await client.forceDisconnect();
+
+        expect(
+          await client.waitForServiceExtension(
+            getText,
+            timeout: const Duration(seconds: 2),
+          ),
+          isTrue,
+        );
+        expect(dials, 2, reason: 'the answer has to come from a fresh socket');
+      },
+    );
+
     test('says so rather than hanging when it never registers', () async {
       final fake = FakeVmService(
         isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],

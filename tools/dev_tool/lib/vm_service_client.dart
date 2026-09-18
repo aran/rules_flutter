@@ -738,12 +738,23 @@ class VmServiceClient {
   /// start there is none, and that is a moment to wait through rather than an
   /// answer: the start that ends it is what [_onIsolateEvent] adopts, and the
   /// registrations follow on the same stream.
+  ///
+  /// Nor is a live connection. A restart or reload that runs out of time drops
+  /// it on purpose ([forceDisconnect]), so that the next command dials afresh
+  /// instead of queueing behind a socket nothing is coming back on — and the
+  /// next command is usually an agent command, which asks this first. The app
+  /// is untouched by the drop, its extensions still registered, so the answer
+  /// is a re-dial and a read, inside the same budget. Answering `false` off
+  /// the dropped connection sent every command after such a timeout back as
+  /// "the app never brought it up", for an app that was up the whole time.
   Future<bool> waitForServiceExtension(
     String method, {
     Duration? timeout,
   }) async {
-    if (_service == null) return false;
-    if (_extensionRpcs.contains(method)) return true;
+    // Never connected at all: nothing to re-dial, and nothing registered that
+    // this client could know of.
+    if (_httpAddress == null) return false;
+    if (_service != null && _extensionRpcs.contains(method)) return true;
 
     // One budget for the whole question, spent by the seed read first and by
     // the wait with whatever is left. The seed needs a bound of its own: it is
@@ -773,14 +784,23 @@ class VmServiceClient {
       // [_seedExtensionRpcs] rethrows rather than swallows — and reporting
       // that as "not registered" names the wrong cause.
       try {
-        await _seedExtensionRpcs().timeout(left());
+        await (() async {
+          // The re-dial is what re-learns the main isolate: a dropped
+          // connection forgot it, and [_seedExtensionRpcs] reads nothing
+          // without one.
+          if (_service == null) await _reconnect(_connectAttempt);
+          await _seedExtensionRpcs();
+        })().timeout(left());
       } on TimeoutException {
         // Re-thrown carrying the whole budget rather than the slice that was
         // left of it, because the slice is an implementation detail of how the
         // budget was spent and the caller reports this number to a human.
         throw TimeoutException(
-          'reading $_mainIsolateId to learn which extensions it has '
-          'registered',
+          _service == null
+              ? 're-dialling the VM service to learn which extensions the app '
+                    'has registered'
+              : 'reading $_mainIsolateId to learn which extensions it has '
+                    'registered',
           budget,
         );
       }
