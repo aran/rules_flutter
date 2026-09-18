@@ -439,6 +439,84 @@ SecurityContext _securityContext(WebServerOptions options) {
   return context;
 }
 
+/// The path a bundle's page is served under, read off its `index.html`.
+///
+/// A page's `<base href>` decides where the browser resolves every relative
+/// URL it loads — `flutter_bootstrap.js`, the modules, the assets. A server
+/// that ignores it serves the page at `/` and then 404s every file the page
+/// asks for under `/<base>/`, so the page loads and stays blank; on the DDC
+/// loop DWDS never attaches either, and nothing says why. Upstream reads the
+/// same tag for the same reason (`WebTemplate.baseHref`) and serves under it.
+///
+/// Returned without its bracketing slashes — `web_example_js` for
+/// `<base href="/web_example_js/">` — the shape DWDS's [AssetReader.basePath]
+/// takes. Empty when the page is served from the root: `href="/"`, no `<base>`
+/// at all, an unsubstituted `$FLUTTER_BASE_HREF` (which upstream reads as the
+/// root too), or no `index.html` in [bundleDir] to declare anything.
+///
+/// Throws [DevToolException] for an href that is not an absolute path ending
+/// in `/`: the browser would resolve the page's files somewhere other than
+/// where the bundle lays them out.
+String basePathOf(String bundleDir) {
+  final index = File(p.join(bundleDir, 'index.html'));
+  if (!index.existsSync()) return '';
+  // Comments first: a commented-out `<base>` is not the page's base.
+  final html = index.readAsStringSync().replaceAll(_htmlComment, '');
+  for (final tag in _baseTag.allMatches(html)) {
+    final href = _hrefAttribute.firstMatch(tag[0]!);
+    // The first `<base>` carrying an href is the one a browser honours.
+    if (href == null) continue;
+    final value = href[1] ?? href[2] ?? href[3]!;
+    if (value == r'$FLUTTER_BASE_HREF' || value == '/') return '';
+    // `//host/` is not a path at all but a scheme-relative URL.
+    if (!value.startsWith('/') ||
+        value.startsWith('//') ||
+        !value.endsWith('/')) {
+      throw DevToolException(
+        'The base href in ${index.path} is "$value", which is not an '
+        'absolute path starting and ending with "/".\n'
+        'The dev server serves the page under its base href, and the browser '
+        'resolves every file the page loads against it; a relative or '
+        'unterminated one puts them where the bundle does not. Use e.g. '
+        '<base href="/app/"> (the rules\' `base_href` attribute sets it).',
+      );
+    }
+    return value.substring(1, value.length - 1);
+  }
+  return '';
+}
+
+final _htmlComment = RegExp(r'<!--.*?-->', dotAll: true);
+final _baseTag = RegExp(r'<base\b[^>]*>', caseSensitive: false);
+final _hrefAttribute = RegExp(
+  r'''\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))''',
+  caseSensitive: false,
+);
+
+/// [requestPath] (as shelf gives it, without a leading slash) relative to
+/// [basePath], or null when the request is not under it at all.
+///
+/// Whole segments only: `app2/x` is not under `app`.
+String? pathUnderBase(String requestPath, String basePath) {
+  if (basePath.isEmpty) return requestPath;
+  if (requestPath == basePath) return '';
+  if (requestPath.startsWith('$basePath/')) {
+    return requestPath.substring(basePath.length + 1);
+  }
+  return null;
+}
+
+/// The answer to a request outside the page's base path.
+///
+/// A 404 like upstream's, with a body that names where the app is — the one
+/// such request a person makes is typing the server's root into a browser.
+shelf.Response _outsideBasePath(String requestPath, String basePath) =>
+    shelf.Response.notFound(
+      '/$requestPath is outside /$basePath/, the path this dev server serves '
+      "the app under (its index.html's <base href>).",
+      headers: {'content-type': 'text/plain'},
+    );
+
 /// Serve the file at [requestPath] resolved inside [root].
 ///
 /// 404 for a file that is not there — and for a path that resolves outside
@@ -482,6 +560,9 @@ class StaticWebServer {
 
   HttpServer? _server;
 
+  /// The page's base path, read by [start]. See [basePathOf].
+  String _basePath = '';
+
   StaticWebServer({required this.rootPath, required this.options});
 
   /// The underlying HTTP server, once started.
@@ -489,11 +570,14 @@ class StaticWebServer {
   /// Exposed so a launch can hand it to the instance that owns its lifetime.
   HttpServer? get server => _server;
 
-  /// The base URL of the running server.
-  Uri? get uri => _server == null ? null : options.baseUri(_server!.port);
+  /// The base URL of the running server, under the page's base path.
+  Uri? get uri => _server == null
+      ? null
+      : options.baseUri(_server!.port, basePath: _basePath);
 
   /// Bind where [options] say and start serving.
   Future<Uri> start() async {
+    _basePath = basePathOf(rootPath);
     _server = await bindWebServer(options, _handle);
     return uri!;
   }
@@ -505,8 +589,9 @@ class StaticWebServer {
   }
 
   shelf.Response _handle(shelf.Request request) {
-    final path = request.url.path.isEmpty ? 'index.html' : request.url.path;
-    return serveFileWithin(rootPath, path);
+    final path = pathUnderBase(request.url.path, _basePath);
+    if (path == null) return _outsideBasePath(request.url.path, _basePath);
+    return serveFileWithin(rootPath, path.isEmpty ? 'index.html' : path);
   }
 }
 
@@ -639,8 +724,13 @@ class WebModuleServer implements AssetReader {
     this.nativeNullAssertions = true,
   });
 
-  /// The base URL of the running server.
-  Uri? get uri => _server == null ? null : options.baseUri(_server!.port);
+  /// The base URL of the running server, under the page's base path.
+  Uri? get uri => _server == null
+      ? null
+      : options.baseUri(_server!.port, basePath: _basePath);
+
+  /// The page's base path, read by [start]. See [basePathOf].
+  String _basePath = '';
 
   /// Stream of connected apps from DWDS.
   Stream<AppConnection>? get connectedApps => _dwds?.connectedApps;
@@ -656,11 +746,24 @@ class WebModuleServer implements AssetReader {
 
   // ---- AssetReader implementation ----
 
+  /// The page's base path, which DWDS adds to every server path it derives
+  /// and hands back to the methods below. Answering `''` here while serving
+  /// under a base path would leave DWDS unable to map a single script the
+  /// page loads back to its module.
   @override
-  String get basePath => '';
+  String get basePath => _basePath;
+
+  /// [serverPath] as DWDS hands it over, relative to the base path, or null
+  /// for a path outside it — which names nothing this server has.
+  String? _underBase(String serverPath) => pathUnderBase(
+    serverPath.startsWith('/') ? serverPath.substring(1) : serverPath,
+    _basePath,
+  );
 
   @override
-  Future<String?> dartSourceContents(String serverPath) async {
+  Future<String?> dartSourceContents(String requestedPath) async {
+    final serverPath = _underBase(requestedPath);
+    if (serverPath == null) return null;
     // Check in-memory files first.
     final bytes = _files[serverPath];
     if (bytes != null) return utf8.decode(bytes);
@@ -704,8 +807,8 @@ class WebModuleServer implements AssetReader {
 
   @override
   Future<String?> sourceMapContents(String serverPath) async {
-    var path = serverPath;
-    if (path.startsWith('/')) path = path.substring(1);
+    final path = _underBase(serverPath);
+    if (path == null) return null;
     // Source maps are looked up by their .js path (strip .map).
     if (path.endsWith('.map')) {
       final bytes = _sourcemaps[path];
@@ -716,9 +819,8 @@ class WebModuleServer implements AssetReader {
 
   @override
   Future<String?> metadataContents(String serverPath) async {
-    final path = serverPath.startsWith('/')
-        ? serverPath.substring(1)
-        : serverPath;
+    final path = _underBase(serverPath);
+    if (path == null) return null;
     // DWDS MetadataProvider asks for `main_module.ddc_merged_metadata`.
     if (path == 'main_module.ddc_merged_metadata' &&
         _metadataByModule.isNotEmpty) {
@@ -1134,8 +1236,10 @@ class WebModuleServer implements AssetReader {
       ),
       packageConfigPath: packageConfigPath,
       reloadedSourcesUri: serverUri != null
-          ? serverUri.replace(path: '/reloaded_sources.json')
-          : Uri.parse('/reloaded_sources.json'),
+          ? serverUri.replace(path: '${serverUri.path}/reloaded_sources.json')
+          : Uri.parse(
+              '${_basePath.isEmpty ? '' : '/$_basePath'}/reloaded_sources.json',
+            ),
     );
 
     _dwds = await Dwds.start(
@@ -1224,6 +1328,7 @@ class WebModuleServer implements AssetReader {
     if (!File(_flutterJsPath).existsSync()) {
       throw DevToolException(_noFlutterJs('$_flutterJsPath does not exist'));
     }
+    _basePath = basePathOf(buildOutputDir);
 
     // Use an indirection so we can swap the handler after DWDS init.
     _server = await bindWebServer(
@@ -1348,7 +1453,11 @@ class WebModuleServer implements AssetReader {
 
   /// Shelf handler for all asset requests.
   Future<shelf.Response> _shelfHandler(shelf.Request request) async {
-    final path = request.url.path.isEmpty ? 'index.html' : request.url.path;
+    final underBase = pathUnderBase(request.url.path, _basePath);
+    if (underBase == null) {
+      return _outsideBasePath(request.url.path, _basePath);
+    }
+    final path = underBase.isEmpty ? 'index.html' : underBase;
 
     try {
       // 0. The boot chain, before anything else can answer for it.

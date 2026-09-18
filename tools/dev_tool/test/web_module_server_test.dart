@@ -1236,6 +1236,181 @@ void main() {
     });
   });
 
+  group('basePathOf', () {
+    String basePathFor(String html) {
+      final dir = tempDir();
+      File('${dir.path}/index.html').writeAsStringSync(html);
+      return basePathOf(dir.path);
+    }
+
+    test('reads the base href without its slashes', () {
+      expect(basePathFor('<base href="/web_example_js/">'), 'web_example_js');
+      expect(basePathFor("<BASE HREF='/a/b/'>"), 'a/b');
+      expect(basePathFor('<base target="_top" href=/app/>'), 'app');
+    });
+
+    test('a page served from the root has none', () {
+      expect(basePathFor('<base href="/">'), '');
+      expect(basePathFor('<html><head></head></html>'), '');
+      // Upstream reads an unsubstituted placeholder as the root too.
+      expect(basePathFor(r'<base href="$FLUTTER_BASE_HREF">'), '');
+      expect(basePathOf(tempDir().path), '', reason: 'no index.html at all');
+    });
+
+    test('the first base carrying an href is the one that counts', () {
+      // What a browser does, and a commented-out tag is not a tag.
+      expect(
+        basePathFor(
+          '<!-- <base href="/old/"> --><base target="_self">'
+          '<base href="/new/"><base href="/ignored/">',
+        ),
+        'new',
+      );
+    });
+
+    test('refuses an href the bundle cannot be served under', () {
+      for (final href in ['app/', '/app', '//cdn.example/', 'https://x/']) {
+        expect(
+          () => basePathFor('<base href="$href">'),
+          throwsA(
+            isA<DevToolException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('index.html'), contains('"$href"')),
+            ),
+          ),
+          reason: href,
+        );
+      }
+    });
+  });
+
+  group('pathUnderBase', () {
+    test('strips whole segments and nothing else', () {
+      expect(pathUnderBase('app/main.dart.js', 'app'), 'main.dart.js');
+      expect(pathUnderBase('app', 'app'), '');
+      expect(pathUnderBase('app/', 'app'), '');
+      expect(pathUnderBase('a/b/x.js', 'a/b'), 'x.js');
+      expect(pathUnderBase('app2/x.js', 'app'), isNull);
+      expect(pathUnderBase('x.js', 'app'), isNull);
+      expect(pathUnderBase('', 'app'), isNull);
+    });
+
+    test('a root-served page takes every path as is', () {
+      expect(pathUnderBase('', ''), '');
+      expect(pathUnderBase('assets/x.txt', ''), 'assets/x.txt');
+    });
+  });
+
+  // A page's `<base href>` sends every request it makes under that path. A
+  // server answering from `/` instead leaves the page loading and blank, which
+  // is what `-d chrome` did for any bundle with a non-default `base_href`.
+  group('serving under the page base href', () {
+    Future<({int status, String body})> getUrl(Uri url) async {
+      final client = HttpClient();
+      try {
+        final response = await (await client.getUrl(url)).close();
+        final body = await response.transform(utf8.decoder).join();
+        return (status: response.statusCode, body: body);
+      } finally {
+        client.close();
+      }
+    }
+
+    const index = '<html><head><base href="/app/"></head></html>';
+
+    test('the static server answers under it and nowhere else', () async {
+      final dir = tempDir();
+      File('${dir.path}/index.html').writeAsStringSync(index);
+      File('${dir.path}/main.dart.mjs').writeAsStringSync('// main');
+      final server = StaticWebServer(
+        rootPath: dir.path,
+        options: const WebServerOptions(crossOriginIsolation: false),
+      );
+      await server.start();
+      addTearDown(server.stop);
+
+      final base = server.uri!;
+      expect(base.path, '/app');
+      expect((await getUrl(Uri.parse('$base/'))).body, index);
+      expect((await getUrl(base)).body, index);
+      expect((await getUrl(Uri.parse('$base/main.dart.mjs'))).body, '// main');
+
+      final root = await getUrl(base.replace(path: '/main.dart.mjs'));
+      expect(root.status, HttpStatus.notFound);
+      expect(root.body, contains('/app/'));
+    });
+
+    test('the module server answers under it and nowhere else', () async {
+      final dir = tempDir();
+      writeBootFiles(dir.path);
+      File('${dir.path}/index.html').writeAsStringSync(index);
+      final server = serverWith(buildOutputDir: dir.path);
+      await server.start();
+      addTearDown(server.stop);
+      server.updateModules(
+        writeCompile(dir, [
+          Module(
+            'main.lib.js',
+            'main code',
+            metadata: moduleMetadata('main', ['package:app/main.dart']),
+          ),
+        ]),
+        full: true,
+      );
+
+      expect(server.uri!.path, '/app');
+      for (final path in [
+        '/app/',
+        '/app/flutter_bootstrap.js',
+        '/app/main.dart.js',
+        '/app/main.lib.js',
+      ]) {
+        expect((await fetch(server, path)).status, HttpStatus.ok, reason: path);
+      }
+      expect((await fetch(server, '/app/')).body, index);
+      final outside = await fetch(server, '/main.dart.js');
+      expect(outside.status, HttpStatus.notFound);
+      expect(outside.body, contains('/app/'));
+    });
+
+    test(
+      'DWDS is told the base path and its paths are read under it',
+      () async {
+        // DWDS adds [AssetReader.basePath] to every server path it derives and
+        // hands those paths back here; the merged metadata is named after the
+        // page's own bootstrap URL, base path included.
+        final dir = tempDir();
+        writeBootFiles(dir.path);
+        File('${dir.path}/index.html').writeAsStringSync(index);
+        final server = serverWith(buildOutputDir: dir.path);
+        await server.start();
+        addTearDown(server.stop);
+        server.updateModules(
+          writeCompile(dir, [
+            Module(
+              'main.lib.js',
+              'main code',
+              metadata: moduleMetadata('main', ['package:app/main.dart']),
+            ),
+          ]),
+          full: true,
+        );
+
+        expect(server.basePath, 'app');
+        expect(
+          await server.metadataContents('app/main_module.ddc_merged_metadata'),
+          isNotNull,
+        );
+        expect(
+          await server.metadataContents('main_module.ddc_merged_metadata'),
+          isNull,
+          reason: 'outside the base path names nothing this server has',
+        );
+      },
+    );
+  });
+
   group('what the serving options do on the wire', () {
     // Every case here goes through a real bind and a real HTTP request
     // against BOTH servers, because "honoured on the DDC path and silently

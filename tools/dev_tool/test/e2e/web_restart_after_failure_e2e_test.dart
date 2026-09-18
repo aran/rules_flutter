@@ -26,9 +26,7 @@ import 'editable_workspace.dart';
 ///     restarted from the shell.
 ///
 /// `:app_wasm` is the `flutter_web_app` target, and with no `--wasm` flag it is
-/// the DDC dev loop — `:app_js` carries a `base_href` the dev server does not
-/// serve from, so its page never boots and DWDS never attaches (see
-/// `asset_reload_e2e_test.dart`). No `--watch`: a watcher-driven `recompile`
+/// the DDC dev loop. No `--watch`: a watcher-driven `recompile`
 /// clears the compiler's error list, which would mask what is under test.
 void main() {
   group('web restart after failure e2e', () {

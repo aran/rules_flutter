@@ -1088,8 +1088,6 @@ void main() {
       () async {
         final dt = await startDevTool(
           workspace: e2eWorkspace('web_example'),
-          // `:app_wasm` and not `:app_js`: the latter carries a `base_href` the
-          // dev server does not serve from, so the page never reaches DWDS.
           target: ':app_wasm',
           device: 'chrome',
         );

@@ -146,9 +146,6 @@ void main() {
 
         final dt = await startDevTool(
           workspace: ws.root,
-          // The `flutter_web_app` target, not `:app_js`: that one carries a
-          // `base_href` the dev server does not serve from, so the page comes up
-          // blank and DWDS never attaches.
           target: ':app_wasm',
           device: 'chrome',
         );

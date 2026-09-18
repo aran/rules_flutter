@@ -819,7 +819,7 @@ Unlike the other platforms, the web macro takes `main` and `deps` directly rathe
 | `deps` | `dart_library` or `flutter_library` targets. Required. |
 | `main` | The entry point. Defaults to `"lib/main.dart"`. |
 | `app_name` | Used for the HTML title and manifest. Defaults to the target name. |
-| `base_href` | Substituted for `$FLUTTER_BASE_HREF` in `web/index.html`. Defaults to `"/"`. |
+| `base_href` | Substituted for `$FLUTTER_BASE_HREF` in `web/index.html`. Defaults to `"/"`. `flutter_bazel run -d chrome` serves the app under it, as `flutter run` does. |
 | `extra_web_assets` | Extra files copied into the bundle root, for generated files the `web/` glob cannot see. |
 | `pwa` | Ship `flutter_service_worker.js` and register it. Defaults to `True`. The worker adds no offline caching. Like `flutter build web`, which [deprecated its caching worker](https://github.com/flutter/flutter/issues/156910), it unregisters itself and reloads its clients, which frees visitors still holding a caching worker from an older deployment. |
 

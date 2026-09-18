@@ -1,6 +1,5 @@
 @Tags(['e2e'])
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:test/test.dart';
 
@@ -205,27 +204,21 @@ void main() {
         device: 'chrome',
       );
 
+      final launched = await dt.waitForEvent('app.webLaunchUrl');
       await dt.waitForEvent('app.started');
       final http = await dt.waitForHttpControl();
       expect(http, isNotNull);
 
-      // Deliberately *not* asserting that this one rendered, unlike the case
-      // above. `//:app_js` declares `base_href = "/web_example_js/"` and the
-      // dev server serves at `/`, so its page comes up blank with DWDS never
-      // attaching — a fixture limitation this test cannot paper over and does
-      // not cover. What it does cover is the endpoint answering for a dart2js
-      // run at all. A dart2js dev loop that *does* render is
-      // `web_define_e2e_test.dart`, over `//:app_dev_boot`, which has no
-      // base_href and asserts a rendered capture.
-      final outputPath = '${Directory.systemTemp.path}/web_js_e2e.png';
-      await dt.httpScreenshotToFile(dt.appId!, outputPath);
-
-      final file = File(outputPath);
-      expect(file.existsSync(), isTrue);
-      final bytes = file.readAsBytesSync();
-      expect(bytes.length, greaterThan(100));
-      expect(bytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
-      file.deleteSync();
+      // `//:app_js` declares `base_href = "/web_example_js/"`, so this is also
+      // the case that a page served under a base path boots. Every file the
+      // page loads resolves under that path; a server answering from `/`
+      // instead leaves the page blank with DWDS never attaching, which this
+      // test used to accept as a fixture limitation.
+      final url = (launched['params'] as Map<String, dynamic>)['url'] as String;
+      expect(Uri.parse(url).path, '/web_example_js/');
+      final shot = await dt.httpNativeScreenshotReply(dt.appId!);
+      expect(shot.settled, 'yes', reason: shot.detail);
+      expectRendered(shot.bytes, what: 'the JS app served under its base href');
 
       await dt.sendCommand(1, 'daemon.shutdown');
     });

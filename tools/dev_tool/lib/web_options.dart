@@ -111,13 +111,20 @@ class WebServerOptions {
   String get displayHost =>
       hostname == anyHostname ? defaultHostname : hostname;
 
-  /// This server's base URL once [boundPort] is known.
+  /// This server's base URL once [boundPort] is known, under [basePath] — the
+  /// page's `<base href>` without its bracketing slashes (see `basePathOf`).
   ///
-  /// Deliberately path-less: this URL is concatenated with a leading-slash
-  /// path in the module server's `reloaded_sources.json` entries, and a
-  /// trailing slash here would make every one of them a double slash.
-  Uri baseUri(int boundPort) =>
-      Uri(scheme: scheme, host: displayHost, port: boundPort);
+  /// Deliberately without a trailing slash: this URL is concatenated with a
+  /// leading-slash path in the module server's `reloaded_sources.json`
+  /// entries, and a trailing slash here would make every one of them a double
+  /// slash. The page itself is the same URL *with* one — see
+  /// [WebOptions.launchUrlFor].
+  Uri baseUri(int boundPort, {String basePath = ''}) => Uri(
+    scheme: scheme,
+    host: displayHost,
+    port: boundPort,
+    path: basePath.isEmpty ? '' : '/$basePath',
+  );
 }
 
 /// The size a web app should lay out at, whatever size the browser window is.
@@ -286,19 +293,28 @@ class WebOptions {
   /// names that resolve through a VPN or a hosts file. `any` is the value that
   /// says "I know where this server is reachable"; the loopback default, which
   /// is what a run gets without asking, is checked exactly.
+  ///
+  /// A page served under a base path is opened at that path with its trailing
+  /// slash — the URL its `<base href>` names — and a launch URL outside it is
+  /// refused for the same reason as one on another port: the server answers
+  /// nothing there but a 404.
   Uri launchUrlFor(Uri serverBase) {
+    final page = serverBase.path.isEmpty
+        ? serverBase
+        : serverBase.replace(path: '${serverBase.path}/');
     final url = browser.launchUrl;
-    if (url == null) return serverBase;
+    if (url == null) return page;
     final hostMatters = server.hostname != anyHostname;
     if (url.scheme != serverBase.scheme ||
         url.port != serverBase.port ||
-        (hostMatters && url.host != serverBase.host)) {
+        (hostMatters && url.host != serverBase.host) ||
+        !(url.path == serverBase.path || url.path.startsWith(page.path))) {
       throw DevToolException(
         '--web-launch-url $url does not address this run\'s dev server, '
-        'which is serving at $serverBase. The browser would open a page '
+        'which is serving at $page. The browser would open a page '
         'this run does not serve: nothing would load, and on the DDC dev '
         'loop nothing would ever report that.\n'
-        'Point it at $serverBase (a path or fragment on it is fine), or set '
+        'Point it at $page (a path or fragment on it is fine), or set '
         '--web-hostname and --web-port to the address you meant.',
       );
     }

@@ -613,6 +613,45 @@ void main() {
       );
     });
 
+    test('a page under a base path opens at it, trailing slash and all', () {
+      // The URL the page's `<base href>` names. Without the slash a
+      // path-based router is handed `/app` and has to reconcile it with a
+      // base of `/app/`.
+      final underBase = Uri.parse('http://localhost:8080/app');
+      expect(
+        resolveFor([], const DdcWebMode())!.launchUrlFor(underBase).toString(),
+        'http://localhost:8080/app/',
+      );
+      for (final url in [
+        'http://localhost:8080/app/#/settings',
+        'http://localhost:8080/app',
+      ]) {
+        expect(
+          resolveFor([
+            '--web-launch-url=$url',
+          ], const DdcWebMode())!.launchUrlFor(underBase).toString(),
+          url,
+        );
+      }
+    });
+
+    test('refuses a URL outside the base path the page is served under', () {
+      // The server answers nothing there but a 404.
+      final underBase = Uri.parse('http://localhost:8080/app');
+      for (final url in [
+        'http://localhost:8080/',
+        'http://localhost:8080/ap',
+      ]) {
+        expect(
+          () => resolveFor([
+            '--web-launch-url=$url',
+          ], const DdcWebMode())!.launchUrlFor(underBase),
+          throwsDevToolException(contains('http://localhost:8080/app/')),
+          reason: url,
+        );
+      }
+    });
+
     test('refuses anything a browser cannot open', () {
       for (final bad in [
         'file:///tmp/index.html',

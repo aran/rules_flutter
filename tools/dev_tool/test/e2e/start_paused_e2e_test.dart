@@ -111,10 +111,6 @@ void main() {
         // mechanism reaching the same observable.
         final dt = await startDevTool(
           workspace: e2eWorkspace('web_example'),
-          // The `flutter_web_app` target, not `:app_js`: that one is a
-          // `flutter_web_bundle` with `base_href = "/web_example_js/"` while the
-          // dev server serves at `/`, so the page comes up blank and DWDS never
-          // attaches — nothing to pause.
           target: ':app_wasm',
           device: 'chrome',
           extraArgs: ['--start-paused'],
