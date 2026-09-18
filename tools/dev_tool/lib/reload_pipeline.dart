@@ -124,10 +124,15 @@ class ReloadPipeline {
   /// every `attach`.
   ///
   /// Asked by a hot reload only, after [nativeLibsVerdict] and before anything
-  /// is compiled: a moved binding contract has already withheld the reload by
-  /// then, and an increment that calls new native code must not reach the app
-  /// before that code does. A restart relaunches instead — it is the reset, and
-  /// a patched process is exactly what it resets.
+  /// is compiled: an increment that calls new native code must not reach the
+  /// app before that code does. A restart relaunches instead — it is the reset,
+  /// and a patched process is exactly what it resets.
+  ///
+  /// Also what a moved binding contract is *answered by*, where this covers
+  /// every library the verdict named. The refusal in that case rests on nothing
+  /// being able to give the running process the code the new bindings call, and
+  /// this is that thing; it says `patched` or `restart` with both interfaces in
+  /// hand. Where it covers none of them, the refusal stands.
   Future<NativePatchOutcome> Function({Set<String> movedLibraries})?
   patchNativeLibs;
 
@@ -471,17 +476,18 @@ class ReloadPipeline {
     // bindings are. (The rules cannot produce this state for a patchable
     // library — a `hot_patch` wrapper must declare a contract — and not relying
     // on that is what keeps the safe answer the default.)
-    final withheld = switch (verdict) {
+    final movedBindings = switch (verdict) {
       NativeBindingsMoved(:final libs) => libs,
       _ => const <String>[],
     };
     final patchable = {...?patchableNativeLibs?.call()};
-    final unservable = [
-      for (final lib in withheld)
+    final noBuilder = [
+      for (final lib in movedBindings)
         if (!patchable.contains(p.basename(lib))) lib,
     ];
     if (verdict is NativeLibsUnverifiable ||
-        (withheld.isNotEmpty && (patcher == null || unservable.isNotEmpty))) {
+        (movedBindings.isNotEmpty &&
+            (patcher == null || noBuilder.isNotEmpty))) {
       return (
         refusal: toWire(
           CommandReport(
@@ -520,7 +526,7 @@ class ReloadPipeline {
     // the patcher answers for now runs the code on disk — including its
     // declared bindings, which is what the builder was asked about.
     final answered =
-        withheld.isNotEmpty ||
+        movedBindings.isNotEmpty ||
         switch (verdict) {
           NativeCodeStale(:final libs) => libs.any(
             (lib) => patchable.contains(p.basename(lib)),
