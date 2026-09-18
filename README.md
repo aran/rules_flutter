@@ -1497,7 +1497,7 @@ Methods that target a widget (`tap`, `longPress`, `doubleTap`, `drag`, `getRect`
 | Param | Matches |
 |---|---|
 | `key` | A widget whose `ValueKey` value equals the string. |
-| `text` | A `Text` or `EditableText` whose content equals the string. |
+| `text` | A widget whose displayed text equals the string, read the way `getText` reads it: a `Text`, including a `Text.rich` by its spans' plain text, a `RichText`, or a text field's contents. |
 | `tooltip` | A `Tooltip` whose `message` equals the string. |
 | `type` | A widget whose runtime type name equals the string, for example `ElevatedButton`. |
 | `semanticsLabel` | A widget whose semantics label equals the string. |

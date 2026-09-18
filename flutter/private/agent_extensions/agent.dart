@@ -1917,11 +1917,14 @@ _Selector _selector(Map<String, String> params, {bool textIsSelector = true}) {
     return _Selector('ValueKey($key)', _valueKeyTest(key));
   }
   if (text != null) {
-    return _Selector('text "$text"', (el) {
-      final w = el.widget;
-      return (w is Text && w.data == text) ||
-          (w is EditableText && w.controller.text == text);
-    });
+    // The string the widget shows, read the way `getText` reads it. Comparing
+    // `Text.data` alone never matched a `Text.rich`, whose `data` is null —
+    // `getText` read one that `waitFor` and `tap` could not find (reported by
+    // rainstorm). `flutter_test`'s `find.text` matches it the same way.
+    return _Selector(
+      'text "$text"',
+      (el) => _displayedText(el.widget) == text,
+    );
   }
   if (tooltip != null) {
     return _Selector(

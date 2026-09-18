@@ -109,11 +109,19 @@ class _MyHomePageState extends State<MyHomePage> {
             // What Enter submitted, and which shortcut fired, ride on the echo
             // line rather than rows of their own, so the layout the other
             // agent tests measure is unchanged until press_key_e2e_test.dart
-            // sets them.
-            Text(
-              'echo: ${_agentEchoController.text}'
-              '${_submitted.isEmpty ? '' : ' | submitted: $_submitted'}'
-              '${_shortcut.isEmpty ? '' : ' | shortcut: $_shortcut'}',
+            // sets them. Spans rather than one string: `app.waitFor` by text
+            // has to find a `Text.rich` by what it shows, and
+            // press_key_e2e_test.dart checks that it does.
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: 'echo: ${_agentEchoController.text}'),
+                  if (_submitted.isNotEmpty)
+                    TextSpan(text: ' | submitted: $_submitted'),
+                  if (_shortcut.isNotEmpty)
+                    TextSpan(text: ' | shortcut: $_shortcut'),
+                ],
+              ),
               key: const ValueKey('agent_test_echo'),
             ),
             // An app that never goes idle, on request.

@@ -157,6 +157,15 @@ void main() {
               "Meta+Quote reaches a shortcut bound to ⌘', and types nothing",
         );
 
+        // The echo line is a `Text.rich`. `getText` read it above; `waitFor`
+        // by the same string has to find it too.
+        final found = await dt.httpCommand('app.waitFor', {
+          'appId': appId,
+          'text': "echo: z | submitted: aXbcY | shortcut: ⌘'",
+          'timeoutMs': '5000',
+        });
+        expect(found['error'], isNull, reason: 'waitFor a Text.rich: $found');
+
         await dt.sendCommand(1, 'daemon.shutdown');
       },
       timeout: const Timeout(Duration(minutes: 5)),
