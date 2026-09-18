@@ -19,6 +19,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:vm_service/vm_service.dart';
+import 'package:vm_service/vm_service_io.dart';
 
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
@@ -104,9 +106,15 @@ void main() {
           // on every root-isolate launch, including the restarted (dev-tool-
           // compiled) dill. A build-generated wrapper main cannot do that — the
           // restart dill lacks it, platform-interface statics reset on restart,
-          // and path_provider (et al.) break. The keyed Text renders
-          // getApplicationDocumentsDirectory(): a real absolute path means the
-          // Dart registration worked.
+          // and path_provider (et al.) break.
+          //
+          // Read from the line the app prints once its plugin calls resolve,
+          // not from the widget that shows them. The widget needs a frame, and
+          // a window covered after it had been in front draws none — measured
+          // on Darwin 27, where a restart into one leaves the tree at the
+          // spinner `runApp`'s first frame built. That failed this test once
+          // in four runs of a suite someone was working alongside. The line
+          // is printed by the same code with the same values, frames or not.
           final dt = await startDevTool(
             workspace: ws.root,
             target: ':plugin_macos',
@@ -116,32 +124,16 @@ void main() {
           await dt.waitForHttpControl();
           final appId = dt.appId!;
 
-          Future<String> documentsPath(String tag) async {
-            Map<String, dynamic> resp = const {};
-            for (var i = 0; i < 30; i++) {
-              resp = await dt.httpCommand('app.getText', {
-                'appId': appId,
-                'key': 'e2e_documents_path',
-              });
-              // Retry both extension availability and the async
-              // FutureBuilder resolving the plugin results.
-              final text = resp['result']?['text'] as String? ?? '';
-              if (resp['error'] == null && text.startsWith('/')) return text;
-              await Future<void>.delayed(const Duration(milliseconds: 500));
-            }
-            fail(
-              'documentsPath never resolved $tag: '
-              'error=${resp['error']} text=${resp['result']?['text']}',
-            );
-          }
-
-          final before = await documentsPath('at launch');
+          final before = _documentsPath(
+            await _pluginResultsAfter(dt, 0, tag: 'at launch'),
+          );
           expect(
             before,
             startsWith('/'),
             reason: 'path_provider must resolve at launch',
           );
 
+          final printed = _pluginResultLines(dt).length;
           final restart = await dt.sendCommand(
             9,
             'app.restart',
@@ -155,7 +147,9 @@ void main() {
             reason: 'app.restart: ${restart['error']}',
           );
 
-          final after = await documentsPath('after restart');
+          final after = _documentsPath(
+            await _pluginResultsAfter(dt, printed, tag: 'after restart'),
+          );
           expect(
             after,
             before,
@@ -163,6 +157,81 @@ void main() {
                 'path_provider must still resolve after hot restart '
                 '(Dart registrant must re-run)',
           );
+        },
+        timeout: const Timeout(Duration(minutes: 4)),
+      );
+
+      test(
+        'a restart into a hidden window says why nothing changed, and shows '
+        'once the window is back',
+        () async {
+          final ws = await editableWorkspace('plugin_example');
+          final dt = await startDevTool(
+            workspace: ws.root,
+            target: ':plugin_macos',
+            device: 'macos',
+          );
+          await dt.waitForEvent('app.started');
+          await dt.waitForHttpControl();
+          final appId = dt.appId!;
+          final app = await _MacApp.launchedBy(dt);
+          addTearDown(app.dispose);
+
+          Future<Map<String, dynamic>> documentsPathRead() =>
+              dt.httpCommand('app.getText', {
+                'appId': appId,
+                'key': 'e2e_documents_path',
+              });
+
+          // The embedder reports a hidden window only on a change, so the
+          // window has to have been in front first: one covered from the
+          // moment it opened keeps drawing.
+          await app.bringToFront();
+          await app.hide();
+
+          final restart = await dt.sendCommand(
+            9,
+            'app.restart',
+            params: {'appId': appId},
+          );
+          final result = restart['result'] as Map<String, dynamic>? ?? {};
+          expect(result['succeeded'], isTrue, reason: '$restart');
+          // Present only when the app said it could not draw. An app that
+          // said nothing would have waited out the ten seconds and been
+          // reported as giving no reason.
+          expect(
+            (result['notShown'] as Map?)?[appId],
+            allOf(contains('not drawing'), contains('"hidden"')),
+            reason: '$restart',
+          );
+          expect(result['message'], contains('but the app is not drawing'));
+
+          // The restarted tree holds only the first frame's spinner, and the
+          // read has to say why rather than just "not found".
+          expect(
+            (await documentsPathRead())['error'],
+            allOf(contains('no widget matching'), contains('not rendering')),
+          );
+
+          await app.bringToFront();
+          final shown = Stopwatch()..start();
+          Map<String, dynamic> read = const {};
+          while (shown.elapsed < const Duration(seconds: 10)) {
+            read = await documentsPathRead();
+            final text = read['result']?['text'] as String? ?? '';
+            if (text.startsWith('/')) break;
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
+          expect(
+            read['result']?['text'],
+            startsWith('/'),
+            reason:
+                'the restarted app must draw once its window is in front: '
+                '$read',
+          );
+          expect(read['result']?['notRendering'], isNull);
+          // Hand the front back to whoever had it.
+          await app.hide();
         },
         timeout: const Timeout(Duration(minutes: 4)),
       );
@@ -665,4 +734,124 @@ void main() {
     },
     skip: android.skipReason,
   );
+}
+
+/// The `plugin_example_results` lines the app has printed so far.
+List<String> _pluginResultLines(DevToolProcess dt) => [
+  for (final line in dt.appLogLines)
+    if (line.contains('plugin_example_results')) line,
+];
+
+/// The first `plugin_example_results` line printed after the first [seen].
+///
+/// A poll over what the run has recorded, bounded, because the line arrives
+/// on its own schedule: after the app's plugin calls resolve.
+Future<String> _pluginResultsAfter(
+  DevToolProcess dt,
+  int seen, {
+  required String tag,
+}) async {
+  final waited = Stopwatch()..start();
+  while (waited.elapsed < const Duration(seconds: 90)) {
+    final lines = _pluginResultLines(dt);
+    if (lines.length > seen) return lines[seen];
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  fail(
+    'the app printed no plugin_example_results line $tag within 90s. Last '
+    'app output: ${dt.appLogLines.reversed.take(10).toList().reversed}',
+  );
+}
+
+/// The `documentsPath=` value of a `plugin_example_results` line.
+String _documentsPath(String line) =>
+    RegExp(r'documentsPath=(\S+)').firstMatch(line)?.group(1) ??
+    fail('no documentsPath in: $line');
+
+/// The macOS app a run launched, driven the way a person would move windows.
+///
+/// Through AppKit's `NSRunningApplication` in JavaScript for Automation, which
+/// needs no Accessibility or Automation grant — unlike System Events, which
+/// `agent_e2e_test` uses and has to skip without. Bringing an app to the front
+/// goes through `open`, because an app activating another is refused under
+/// macOS's cooperative activation.
+///
+/// Each move waits for the lifecycle state the app reports, not for AppKit:
+/// an app is `active` before its window is on screen, and hiding it in that
+/// window reaches the app as no change at all, so it never stops drawing.
+class _MacApp {
+  final int pid;
+  final String bundlePath;
+  final VmService _vm;
+  _MacApp._(this.pid, this.bundlePath, this._vm);
+
+  Future<void> dispose() => _vm.dispose();
+
+  /// The app [dt] started: the dev tool launches it as a direct child.
+  static Future<_MacApp> launchedBy(DevToolProcess dt) async {
+    final found = await Process.run('pgrep', [
+      '-P',
+      '${dt.process.pid}',
+      '-f',
+      r'\.app/Contents/MacOS/',
+    ]);
+    final pids = '${found.stdout}'.trim().split('\n')
+      ..removeWhere((l) => l.isEmpty);
+    if (pids.length != 1) {
+      fail(
+        'expected the dev tool (pid ${dt.process.pid}) to have one app bundle '
+        'child, found ${pids.isEmpty ? 'none' : pids}',
+      );
+    }
+    final pid = int.parse(pids.single);
+    final path = await _jxa(pid, 'app.bundleURL.path.js');
+    final debugPort = await dt.waitForEvent('app.debugPort');
+    final vm = await vmServiceConnectUri(
+      debugPort['params']?['wsUri'] as String,
+    );
+    return _MacApp._(pid, path, vm);
+  }
+
+  Future<void> bringToFront() async {
+    final opened = await Process.run('open', [bundlePath]);
+    if (opened.exitCode != 0) fail('open $bundlePath: ${opened.stderr}');
+    await _untilLifecycle('resumed');
+  }
+
+  Future<void> hide() async {
+    await _jxa(pid, 'app.hide; String(app.hidden)');
+    await _untilLifecycle('hidden');
+  }
+
+  /// Wait until the app's own lifecycle state is [state], as the rules'
+  /// agent reports it (`ext.rules_flutter.renderState`).
+  Future<void> _untilLifecycle(String state) async {
+    final waited = Stopwatch()..start();
+    Object? last;
+    while (waited.elapsed < const Duration(seconds: 10)) {
+      final vm = await _vm.getVM();
+      final main = vm.isolates!.firstWhere((i) => i.name == 'main');
+      final reply = await _vm.callServiceExtension(
+        'ext.rules_flutter.renderState',
+        isolateId: main.id,
+      );
+      last = reply.json;
+      if (reply.json?['lifecycleState'] == state) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    fail('$bundlePath never reported lifecycle state "$state": $last');
+  }
+
+  static Future<String> _jxa(int pid, String expression) async {
+    final result = await runBounded('osascript', [
+      '-l',
+      'JavaScript',
+      '-e',
+      "ObjC.import('AppKit'); "
+          'const app = \$.NSRunningApplication'
+          '.runningApplicationWithProcessIdentifier($pid); $expression',
+    ], timeout: const Duration(seconds: 10));
+    if (!result.succeeded) fail('osascript on pid $pid: $result');
+    return result.stdout.trim();
+  }
 }

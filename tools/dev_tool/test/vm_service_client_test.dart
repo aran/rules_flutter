@@ -356,6 +356,126 @@ void main() {
       );
     });
 
+    // A backgrounded app — on macOS a window hidden after it was on screen —
+    // draws nothing, and a restarted one inherits that. Measured on the macOS
+    // plugin example: restarts into a hidden window took 11.3s, 10s of it
+    // waiting for a frame that could not come, and answered a plain success
+    // while the screen still showed the old frame.
+    group('an app that is not drawing', () {
+      FakeVmService notDrawing({bool saysWhy = true}) {
+        final fake = FakeVmService(
+          isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+        )..drawsFrames = false;
+        if (saysWhy) {
+          fake.extensionRPCs = [
+            ...fake.extensionRPCs,
+            'ext.rules_flutter.renderState',
+            'ext.flutter.didSendFirstFrameEvent',
+          ];
+          fake.extensionResponses['ext.rules_flutter.renderState'] = {
+            'rendering': false,
+            'lifecycleState': 'hidden',
+            'firstFrameBuilt': true,
+          };
+        }
+        return fake;
+      }
+
+      for (final verb in ['restart', 'reload']) {
+        test(
+          'a $verb answers as soon as the app says so, and says why',
+          () async {
+            final client = await connected(notDrawing());
+            // Long enough that waiting it out could not pass for an answer.
+            client.frameTimeout = const Duration(seconds: 30);
+
+            final took = Stopwatch()..start();
+            final verdict = verb == 'restart'
+                ? await client.hotRestart(dillPath)
+                : await client.hotReload(dillPath);
+
+            expect(took.elapsed, lessThan(const Duration(seconds: 5)));
+            expect(verdict, isA<VerdictApplied>());
+            expect(
+              (verdict as VerdictApplied).notShown,
+              allOf(contains('not drawing'), contains('"hidden"')),
+            );
+          },
+        );
+      }
+
+      test('the question goes to the isolate the restart made', () async {
+        final fake = notDrawing();
+        final client = await connected(fake);
+        // What runInView leaves behind: the old isolate gone, a new one up.
+        fake.isolates
+          ..clear()
+          ..add(IsolateRef(id: 'iso-2', name: 'main', number: '2'));
+
+        await client.hotRestart(dillPath);
+
+        final asked = fake.extensionCalls.where(
+          (c) => c.method == 'ext.rules_flutter.renderState',
+        );
+        expect(asked, isNotEmpty);
+        expect(fake.lastIsolateId, 'iso-2');
+      });
+
+      test('an app that draws is not reported as not showing it', () async {
+        final fake = notDrawing()..drawsFrames = true;
+        fake.extensionResponses['ext.rules_flutter.renderState'] = {
+          'rendering': true,
+        };
+        final client = await connected(fake);
+
+        final verdict = await client.hotRestart(dillPath);
+
+        expect((verdict as VerdictApplied).notShown, isNull);
+      });
+
+      test('an app with nothing to say still gets told apart from one '
+          'that drew', () async {
+        // Attached to an app built without the agent: nobody to ask, so the
+        // bound decides, and the verdict says that is what happened.
+        final client = await connected(notDrawing(saysWhy: false));
+        client.frameTimeout = const Duration(milliseconds: 300);
+
+        final verdict = await client.hotRestart(dillPath);
+
+        expect(
+          (verdict as VerdictApplied).notShown,
+          contains('gave no reason'),
+        );
+      });
+
+      test('an app still starting up is not called hidden', () async {
+        // `framesEnabled` is false until `runApp` attaches the root widget, so
+        // an answer from before the first frame says nothing about being seen,
+        // and the agent declines to give one.
+        final fake = notDrawing();
+        fake.extensionResponses['ext.rules_flutter.renderState'] = {
+          'firstFrameBuilt': false,
+        };
+        final client = await connected(fake);
+        client.frameTimeout = const Duration(milliseconds: 300);
+
+        final verdict = await client.hotRestart(dillPath);
+
+        expect(
+          (verdict as VerdictApplied).notShown,
+          allOf(contains('gave no reason'), isNot(contains('not drawing'))),
+        );
+      });
+
+      test('an error in the frame it did build still wins', () async {
+        final fake = notDrawing()..emitFlutterErrorOnReload = true;
+        final client = await connected(fake);
+        client.frameTimeout = const Duration(seconds: 30);
+
+        expect(await client.hotRestart(dillPath), isA<VerdictAppErrored>());
+      });
+    });
+
     test('methods throw StateError when not connected', () {
       final client = VmServiceClient(
         connector: (_) async => FakeVmService(),

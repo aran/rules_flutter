@@ -443,6 +443,24 @@ void main() {
     );
 
     test(
+      'an app that took the code without drawing it is named on the success',
+      () async {
+        writeFile('main.dart', 'v1');
+        seedApplied();
+        final orchestrator = makeOrchestrator();
+        writeFile('main.dart', 'v2 longer');
+
+        app.nextOutcome = const Applied(notShown: 'not drawing');
+        final outcome = await orchestrator.reload(targets: [app]);
+
+        expect(outcome, isA<ReloadApplied>());
+        expect((outcome as ReloadApplied).notShown, {'app1': 'not drawing'});
+        // Landed, so committed: the app is running it whether or not it shows.
+        expect(compiler.commitCount, 1);
+      },
+    );
+
+    test(
       'reload() returns ReloadApplyFailed when an AppInstance times out',
       () async {
         writeFile('main.dart', 'v1');

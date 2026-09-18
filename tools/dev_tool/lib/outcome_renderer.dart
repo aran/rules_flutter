@@ -136,10 +136,11 @@ Map<String, dynamic> toWire(CommandReport report) {
       // here with something to say — a relaunch, which runs no compiler and so
       // leaves `outcome` null — is not overwritten with a bare "successful".
       map['message'] ??= _headline(report);
-    case ReloadApplied(:final filesRecompiled, :final isEmpty):
+    case ReloadApplied(:final filesRecompiled, :final isEmpty, :final notShown):
       map['message'] = '${report.verb} successful';
       map['filesRecompiled'] = filesRecompiled.toList()..sort();
       map['isEmpty'] = isEmpty;
+      if (notShown.isNotEmpty) map['notShown'] = notShown;
     case ReloadNoChange():
       // A native patch is a change, whatever the Dart half found.
       map['message'] = report.nativePatch is NativePatched
@@ -220,10 +221,33 @@ Map<String, dynamic> toWire(CommandReport report) {
     map['message'] = _withCursorCaveat(report, map['message'] as String);
   }
 
+  // Last, so it finishes whichever sentence the arms above settled on: the
+  // command worked, and this is the part of it the screen does not show yet.
+  if (report.outcome case ReloadApplied(
+    :final notShown,
+  ) when notShown.isNotEmpty) {
+    map['message'] =
+        '${map['message'] ?? _headline(report)}, but '
+        '${_notShownClause(notShown, report.appIds)}';
+  }
+
   if (report.elapsed case final elapsed?) {
     map['elapsedMs'] = elapsed.inMilliseconds;
   }
   return {..._verdict(report), ...map};
+}
+
+/// Which apps are running code they have not drawn, and why.
+///
+/// The app is named only when the command reached more than one, where "the
+/// app" would not say which.
+String _notShownClause(Map<String, String> notShown, List<String>? appIds) {
+  if ((appIds?.length ?? notShown.length) <= 1 && notShown.length == 1) {
+    return notShown.values.single;
+  }
+  return [
+    for (final e in notShown.entries) 'on ${e.key}, ${e.value}',
+  ].join('; ');
 }
 
 /// The two things a client should never have to work out for itself.
@@ -466,7 +490,10 @@ String _messageWithAssets(CommandReport report) =>
     '${_headline(report)} — ${_assetClause(report)}';
 
 Map<String, dynamic> _applyToWire(ApplyOutcome outcome) => switch (outcome) {
-  Applied() => {'status': 'ok'},
+  Applied(:final notShown) => {
+    'status': 'ok',
+    if (notShown != null) 'notShown': notShown,
+  },
   ApplyTimedOut() => {'status': 'timedOut'},
   // Its own status, not `failed`: the code is live on this device, which a
   // client deciding what to do next (re-send? relaunch?) needs to know.

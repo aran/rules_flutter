@@ -25,8 +25,12 @@ sealed class ApplyOutcome {
 }
 
 /// The kernel was uploaded and the VM accepted the reload/restart.
+///
+/// [notShown] is why the change is not on screen yet, or null when the app
+/// drew a frame after it — see [VerdictApplied.notShown].
 class Applied extends ApplyOutcome {
-  const Applied();
+  final String? notShown;
+  const Applied({this.notShown});
 }
 
 /// The VM responded but the reload itself reported failure (or the upload
@@ -113,7 +117,7 @@ class VmServiceAppInstance implements AppInstance {
 
     try {
       return switch (await inner.timeout(rpcTimeout)) {
-        VerdictApplied() => const Applied(),
+        VerdictApplied(:final notShown) => Applied(notShown: notShown),
         VerdictAppErrored(:final error) => AppliedThenThrew(error),
         // The client's own reason, whatever the failing step was. Naming one
         // step here would be a guess about a refusal that may never have got as

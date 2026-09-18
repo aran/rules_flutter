@@ -145,6 +145,51 @@ void main() {
       expect(wire.containsKey('error'), isFalse);
     });
 
+    test('a restart the app has not drawn says so on its success', () {
+      // Not a failure: the VM runs the new code. But "Restart successful" on
+      // its own is what an agent read as its cue to look at a screen that still
+      // showed the frame from before.
+      final report = CommandReport(
+        verb: 'Restart',
+        appIds: const ['app-a'],
+        outcome: const ReloadApplied(
+          filesRecompiled: {'package:app/main.dart'},
+          isEmpty: false,
+          apps: [],
+          notShown: {'app-a': 'the app is not drawing, because the OS says so'},
+        ),
+      );
+      final wire = toWire(report);
+      expect(wire['succeeded'], isTrue);
+      expect(wire['runningCode'], 'updated');
+      expect(wire['notShown'], {
+        'app-a': 'the app is not drawing, because the OS says so',
+      });
+      expect(
+        wire['message'],
+        'Restart successful, but the app is not drawing, because the OS says '
+        'so',
+      );
+      expect(wire.containsKey('error'), isFalse);
+    });
+
+    test('with several apps, the one not drawing is named', () {
+      final report = CommandReport(
+        verb: 'Hot reload',
+        appIds: const ['app-a', 'app-b'],
+        outcome: const ReloadApplied(
+          filesRecompiled: {'package:app/main.dart'},
+          isEmpty: false,
+          apps: [],
+          notShown: {'app-b': 'the app is not drawing'},
+        ),
+      );
+      expect(
+        toWire(report)['message'],
+        'Hot reload successful, but on app-b, the app is not drawing',
+      );
+    });
+
     test('an apply failure names every failing app, not just the first', () {
       final report = reload(
         outcome: const ReloadApplyFailed({

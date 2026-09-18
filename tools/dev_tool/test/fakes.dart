@@ -809,7 +809,7 @@ class FakeVmService implements VmService {
     // `Flutter.Frame` timing event is posted *after* the reassemble RPC
     // response (i.e. a later turn here), so it lands after the client's
     // apply() returns — the success terminator for `_applyAndVerify`.
-    if (method == 'ext.flutter.reassemble') {
+    if (method == 'ext.flutter.reassemble' && drawsFrames) {
       Future<void>(() {
         if (!_extController.isClosed) {
           _extController.add(
@@ -878,6 +878,12 @@ class FakeVmService implements VmService {
 
   /// True once any view was restarted.
   bool get runInViewCalled => runInViewCalls.isNotEmpty;
+
+  /// Whether the app draws the frame a reassemble or a restart owes.
+  ///
+  /// False is a backgrounded app: the engine takes the new code and the
+  /// framework rasterizes nothing, so no `Flutter.Frame` ever arrives.
+  bool drawsFrames = true;
 
   /// The `pauseEvent.kind` [getIsolate] reports.
   ///
@@ -1004,18 +1010,20 @@ class FakeVmService implements VmService {
         );
       }
       // The restarted isolate renders a frame after runInView returns.
-      Future<void>(() {
-        if (!_extController.isClosed) {
-          _extController.add(
-            Event(
-              kind: EventKind.kExtension,
-              extensionKind: 'Flutter.Frame',
-              extensionData: ExtensionData.parse({'number': 1}),
-              timestamp: 0,
-            ),
-          );
-        }
-      });
+      if (drawsFrames) {
+        Future<void>(() {
+          if (!_extController.isClosed) {
+            _extController.add(
+              Event(
+                kind: EventKind.kExtension,
+                extensionKind: 'Flutter.Frame',
+                extensionData: ExtensionData.parse({'number': 1}),
+                timestamp: 0,
+              ),
+            );
+          }
+        });
+      }
       return Response()..json = {};
     }
     return Response()..json = {};

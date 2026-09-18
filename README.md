@@ -1509,9 +1509,9 @@ Put the `Key` on the widget you would point at, such as the `Chip`, the `ListTil
 - **`getText`** returns the text of the first text-bearing descendant of the match, in pre-order (`Text` including `Text.rich`, `RichText`, `EditableText`), and lists all of them in `texts`, so a container with two strings shows as two: `{"text":"Increment","texts":["Increment"]}`.
 - **`enterText`** takes `text` as the string to type, which is why it is the one method that does not accept the `text` selector. With a selector it focuses the first `EditableText` under the match and types into it, with no preceding tap needed, and reports what it typed into: `{"enteredText":"hi","into":"ValueKey(emailField)"}`. With no selector it types into whatever is focused, reporting `"into":"focused"`.
 
-**Settling.** After dispatching input, a method waits until the app is idle before returning, so a follow-up `getRect` or `getText` sees the post-action layout. The wait is bounded by `timeoutMs`, default 10000. Every input command's reply says how that wait ended, in `settled`: `yes`, `no`, or `skipped` (for `settle: "false"`, or an app that is backgrounded). These are the values `app.pressKey`'s browser route and the screenshot headers use. When it is not `yes`, `settleDetail` says why. A wait that runs out is `no` on an otherwise successful reply, not an error. The input was delivered before the wait began, so do not send the command again, or it taps twice. `settleDetail` gives the number of animations still running; zero means the app was backgrounded mid-command. An app that was already backgrounded returns immediately, because backgrounding is what stops frames (minimizing or covering the window does not), so there is nothing to wait for.
+**Settling.** After dispatching input, a method waits until the app is idle before returning, so a follow-up `getRect` or `getText` sees the post-action layout. The wait is bounded by `timeoutMs`, default 10000. Every input command's reply says how that wait ended, in `settled`: `yes`, `no`, or `skipped` (for `settle: "false"`, or an app that is backgrounded). These are the values `app.pressKey`'s browser route and the screenshot headers use. When it is not `yes`, `settleDetail` says why. A wait that runs out is `no` on an otherwise successful reply, not an error. The input was delivered before the wait began, so do not send the command again, or it taps twice. `settleDetail` gives the number of animations still running; zero means the app was backgrounded mid-command. An app that was already backgrounded returns immediately, because backgrounding is what stops frames, so there is nothing to wait for. On macOS a window that has been in front and is then hidden, or fully covered by another app's window, counts as backgrounded; one that was covered from the moment it opened keeps drawing, because the embedder reacts only to a change.
 
-**A backgrounded app takes input, and shows nothing.** An app the OS has backgrounded — a locked screen, on a device — stops producing frames. Input still lands and its handler still runs, but nothing rebuilds, so a `getText` straight afterwards answers with the tree as it was and not with what your tap changed. Every input command says so in that state, with a `notRendering` field on an otherwise successful reply. On a locked Pixel this looked like a tap that did nothing; the value appears when the device is unlocked.
+**A backgrounded app takes input, and shows nothing.** An app the OS has backgrounded stops producing frames: a locked screen on a device, or on macOS a window hidden or covered after it had been in front. Input still lands and its handler still runs, but nothing rebuilds, so a `getText` straight afterwards answers with the tree as it was and not with what your tap changed. Every input command says so in that state, with a `notRendering` field on an otherwise successful reply, and so do `app.getText`, `app.getRect`, `app.waitFor` and `app.waitForAbsent`. When one of those finds nothing, its error carries the same note. That matters most after a restart in that state, when the tree holds only what `runApp`'s first frame built, and a widget the app shows once its data loads is not there yet. On a locked Pixel this looked like a tap that did nothing; the value appears when the device is unlocked.
 
 Some apps never go idle: a spinner, a progress indicator, any perpetual `AnimationController` keeps a frame callback pending for as long as it runs, so every command against such an app spends its whole timeout before answering `settled: "no"`. `settle: "false"` turns the wait off for one command, the equivalent of `flutter_driver`'s `runUnsynchronized`. What you give up is the guarantee: an immediate `getText` after an unsynchronised `tap` races the rebuild and reads the old value about half the time, so resynchronise with `app.waitFor` on the value you expect. `settle` accepts only `"true"` and `"false"`, because a typo would otherwise choose the opposite behaviour in silence.
 
@@ -1557,6 +1557,16 @@ The reply also says what was sent:
 **Waiting.** Both routes wait for the app to go idle before answering, with the same `timeoutMs` and `settle` as the other input commands, and report how the wait ended in `settled` and `settleDetail`: `yes`, `no` or `skipped`, the values the screenshot headers use. The browser route can ask only on the DDC dev loop. The keys were delivered in every case. A `--wasm` or `--profile` run has no VM service to ask, so it answers `skipped`; take a screenshot to see what the key did. A page in a hidden, minimized or covered window draws no frames, so the key's effect does not show until the page is visible again. The reply says `no` with that reason, and `--web-run-headless` avoids the problem.
 
 #### Reload and restart responses
+
+A reload or restart that landed in an app that is not drawing says so. The app is running the new code, so `succeeded` is `true`, and `notShown` says, per app, why the screen does not show it yet:
+
+```json
+{"succeeded":true,"runningCode":"updated",
+ "notShown":{"<appId>":"the app is not drawing, because the OS reports it cannot be seen (lifecycle state \"hidden\": …). It shows the change once it can be seen again"},
+ "message":"Restart successful, but the app is not drawing, because the OS reports it cannot be seen …"}
+```
+
+The reply comes as soon as the app has built its first frame and said it cannot draw, rather than after the ten seconds the tool gives a frame to arrive. On the macOS plugin example, restarts into a window hidden after it had been in front took 11.3 s before this and 1.4 s after. An app that neither draws nor says why, such as one attached to without the rules' agent extensions, still gets the ten seconds, and `notShown` then says only that no frame came.
 
 A restart that relaunched the process because a native library changed says so:
 
@@ -1640,6 +1650,8 @@ the app. The `appId` is in that event.
    Read `succeeded` from the reply. A reload that fails is not done.
 3. After the reload, save a second screenshot and compare it with the first.
    Say in your report what changed on screen, not just what changed in code.
+   A reply with `notShown`, or a read with `notRendering`, means the window
+   is hidden or covered: bring it to the front before trusting the screen.
 4. Check GET /sessions/<appId>/logs for exceptions before moving on.
 
 Stop the app with daemon.shutdown at the end of the session.

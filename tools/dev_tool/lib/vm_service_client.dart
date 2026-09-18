@@ -32,9 +32,17 @@ sealed class ApplyVerdict {
   const ApplyVerdict();
 }
 
-/// The VM took the code and the app rendered the next frame without error.
+/// The VM took the code, and the app reported no error.
+///
+/// [notShown] is null when the app then drew a frame, which is the only
+/// evidence that the change is on screen. Otherwise it says why it is not: the
+/// app's own account when it gave one — a backgrounded app draws nothing, and
+/// says so — or that no frame came within the bound. Still this verdict rather
+/// than a failure, because the VM is running the code either way, and the
+/// layer above records exactly that.
 class VerdictApplied extends ApplyVerdict {
-  const VerdictApplied();
+  final String? notShown;
+  const VerdictApplied({this.notShown});
 }
 
 /// Nothing landed: the VM rejected the kernel, the upload failed, or the
@@ -165,6 +173,11 @@ class VmServiceClient {
   /// short enough that an app which is never going to register says so instead
   /// of leaving the caller wondering.
   Duration serviceExtensionTimeout = const Duration(seconds: 30);
+
+  /// How long a reload, a restart or an asset push waits for the frame that
+  /// shows what it delivered, when the app has not said that frame is not
+  /// coming. See [_applyAndVerify].
+  Duration frameTimeout = const Duration(seconds: 10);
 
   /// The HTTP address of the VM service (for devFS file uploads).
   Uri? _httpAddress;
@@ -865,9 +878,17 @@ class VmServiceClient {
   ///   - `Flutter.Error` → the reload took but the app is now broken;
   ///   - the next `Flutter.Frame` → the rebuilt frame rendered cleanly.
   /// The verdict comes from awaiting the stream directly, so it never
-  /// depends on cross-future microtask ordering. The timeout is only a
-  /// degenerate-case safety net (no frame and no error ever arrive), never
-  /// the success path.
+  /// depends on cross-future microtask ordering.
+  ///
+  /// A third ending covers an app that will draw no frame at all. A
+  /// backgrounded app — on macOS, a window hidden or covered after it was on
+  /// screen — stops rendering, and a restarted one inherits that; waiting
+  /// for its frame used to be the whole of a ten-second command that then
+  /// reported a success nothing on screen showed. [_whyNoFrame] asks the app
+  /// instead, and its answer ends the wait and travels on the verdict as
+  /// [VerdictApplied.notShown]. The timeout is left for an app that neither
+  /// draws nor says why, and that too is said rather than called a clean
+  /// apply.
   ///
   /// The two failures are returned as different values, not as one false: a
   /// [VerdictAppErrored] app is running the code it was just sent, and the
@@ -907,6 +928,7 @@ class VmServiceClient {
     try {
       return await _withReconnect(() async {
         var applied = false;
+        var drew = false;
         FlutterErrorReport? capturedError;
         final settled = Completer<void>();
         void settle() {
@@ -920,6 +942,7 @@ class VmServiceClient {
             capturedError ??= _flutterError(e);
             if (applied) settle();
           } else if (e.extensionKind == 'Flutter.Frame' && applied) {
+            drew = true;
             settle();
           }
         });
@@ -953,13 +976,34 @@ class VmServiceClient {
           // An error may have been reported during reassemble, before
           // `applied` was set; honor it now.
           if (capturedError != null) settle();
-          await settled.future.timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {},
+          // A backgrounded app draws nothing, so for it the bound below would
+          // be the whole answer: ten seconds, then a success nobody saw. Asked
+          // alongside the wait rather than after it, and dropped the moment
+          // the wait ends, so an app that draws pays nothing for the question.
+          String? notRendering;
+          final waitOver = Completer<void>();
+          unawaited(
+            _whyNoFrame(until: waitOver.future).then((reason) {
+              if (reason == null) return;
+              notRendering = reason;
+              settle();
+            }),
           );
+          try {
+            await settled.future.timeout(frameTimeout, onTimeout: () {});
+          } finally {
+            waitOver.complete();
+          }
           final reported = capturedError;
           if (reported != null) return VerdictAppErrored(reported);
-          return const VerdictApplied();
+          if (drew) return const VerdictApplied();
+          return VerdictApplied(
+            notShown:
+                notRendering ??
+                'the app has not drawn a frame since, so nothing on screen '
+                    'shows the change yet: none came within '
+                    '${frameTimeout.inSeconds}s, and the app gave no reason',
+          );
         } finally {
           await sub.cancel();
         }
@@ -969,6 +1013,95 @@ class VmServiceClient {
       // keeps running the code it already had" is true because of this line.
       if (!delivered) rethrow;
       return _deliveredThenLost('$e', codeAfterDelivery, stack);
+    }
+  }
+
+  /// Why the app will not draw the frame a delivery is waiting for, or null
+  /// when it has not said so by the time [until] completes.
+  ///
+  /// Asks `ext.rules_flutter.renderState`, which every rules_flutter debug build
+  /// registers before `main`. An app without it — attached to, and built some
+  /// other way — is never asked, and the wait runs its course as it always did.
+  ///
+  /// Both extensions are awaited on the isolate that is running now, which
+  /// after a restart is the new one: [_restartView] re-reads it. The framework
+  /// registers `ext.flutter.didSendFirstFrameEvent` from the binding's
+  /// constructor, after the binding has read the lifecycle state the engine
+  /// handed the isolate, so once it exists the question has an answer. The
+  /// agent then waits, inside the app, for the one frame a backgrounded app
+  /// still builds — see its doc — so an error in that frame is reported
+  /// before "not rendering" can be.
+  ///
+  /// Failures are logged and answer null: this only ever shortens a wait, so
+  /// a question that could not be asked leaves the wait to decide, as before.
+  Future<String?> _whyNoFrame({required Future<void> until}) async {
+    try {
+      for (final method in const [
+        'ext.rules_flutter.renderState',
+        'ext.flutter.didSendFirstFrameEvent',
+      ]) {
+        if (!await _registeredBefore(method, until)) return null;
+      }
+      final reply = await Future.any<Map<String, dynamic>?>([
+        callServiceExtension(
+          'ext.rules_flutter.renderState',
+          args: {'timeoutMs': '${frameTimeout.inMilliseconds}'},
+        ),
+        until.then((_) => null),
+      ]);
+      // Verbose: asked on every reload, and an answer only matters when it
+      // turns out wrong — which is when this line is the one that says so.
+      _logger.fine({
+        'message': 'render_state',
+        'text':
+            'Asked ${_mainIsolateId ?? 'no isolate'} whether it is rendering: '
+            '$reply',
+        'isolateId': _mainIsolateId,
+        'reply': reply,
+      });
+      if (reply == null || reply['rendering'] != false) return null;
+      return 'the app is not drawing, because the OS reports it cannot be '
+          'seen (lifecycle state "${reply['lifecycleState']}": on macOS a '
+          'window hidden or covered after it was on screen, on a device a '
+          'locked screen). It shows the change once it can be seen again';
+    } catch (e, stack) {
+      _logger.warning({
+        'message': 'render_state_query_failed',
+        'text':
+            'Could not ask the app whether it is rendering: $e. The wait for '
+            'its next frame decides instead.',
+        'error': '$e',
+        'stack': '$stack',
+      });
+      return null;
+    }
+  }
+
+  /// Whether the main isolate registers [method] before [until] completes.
+  ///
+  /// [waitForServiceExtension] without its own deadline: the caller's wait is
+  /// the deadline, and a timer of its own here would outlive that wait and hold
+  /// the run open after `daemon.shutdown`.
+  Future<bool> _registeredBefore(String method, Future<void> until) async {
+    if (_extensionRpcs.contains(method)) return true;
+    final registered = Completer<bool>();
+    final sub = _extensionAdded.stream.listen((rpc) {
+      if (rpc == method && !registered.isCompleted) registered.complete(true);
+    });
+    unawaited(
+      until.then((_) {
+        if (!registered.isCompleted) registered.complete(false);
+      }),
+    );
+    try {
+      // Registrations from before this subscribed are not replayed; the seed
+      // reads them. Raced with [until] because it is a read over a socket that
+      // can go quiet without closing.
+      await Future.any([_seedExtensionRpcs(), until]);
+      if (_extensionRpcs.contains(method)) return true;
+      return await registered.future;
+    } finally {
+      await sub.cancel();
     }
   }
 
@@ -1690,9 +1823,6 @@ class VmServiceClient {
           },
         ),
       );
-      // runInView rotates the root isolate; re-resolve so subsequent
-      // reloads/screenshots target the new live isolate.
-      await _refreshMainIsolate();
       return verdict;
     } catch (e, stack) {
       // Only the delivery half reaches here: the loop's later views answer
@@ -1730,6 +1860,10 @@ class VmServiceClient {
         'assetDirectory': assetDirectory ?? '',
       },
     );
+    // runInView rotates the root isolate. Re-resolved here, before anything
+    // else asks it a question: the wait for the restarted app's first frame
+    // does, and so does every reload and screenshot after it.
+    await _refreshMainIsolate();
   }
 
   /// The Flutter views (`_flutter.listViews`) with their UI isolate ids.

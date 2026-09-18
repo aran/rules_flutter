@@ -48,10 +48,16 @@ class ReloadApplied extends ReloadOutcome {
   /// The apps that actually received a kernel. A target already current is not
   /// listed: it was left alone because it had nothing to receive.
   final List<AppInstance> apps;
+
+  /// By appId, the apps running the new code that have not drawn it, and why.
+  /// Empty when every one of [apps] drew a frame after its apply.
+  final Map<String, String> notShown;
+
   const ReloadApplied({
     required this.filesRecompiled,
     required this.isEmpty,
     required this.apps,
+    this.notShown = const {},
   });
 }
 
@@ -254,6 +260,11 @@ class ReloadOrchestrator {
       filesRecompiled: {for (final u in working) ...work[u]!},
       isEmpty: isEmpty,
       apps: [for (final u in working) u.app],
+      notShown: {
+        for (var i = 0; i < working.length; i++)
+          if (results[i] case Applied(:final notShown?))
+            working[i].id: notShown,
+      },
     );
   }
 }
