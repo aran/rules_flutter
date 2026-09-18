@@ -131,6 +131,14 @@ void main() {
       expect(params['url'], startsWith('http://'));
       expect(params['launched'], isTrue);
       expect(params['appId'], isNotEmpty);
+      // And where to drive the browser from: Chrome picks the port, so this is
+      // the only place a client can learn it.
+      final cdpPort = params['cdpPort'];
+      expect(cdpPort, isA<int>());
+      expect(
+        params['webSocketDebuggerUrl'],
+        startsWith('ws://127.0.0.1:$cdpPort/devtools/page/'),
+      );
 
       await dt.waitForEvent('app.started', timeout: const Duration(minutes: 4));
 

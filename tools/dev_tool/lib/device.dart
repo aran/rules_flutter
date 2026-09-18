@@ -3525,11 +3525,20 @@ class ChromeSession {
   /// page-target lookup matches against.
   final String appUrl;
 
+  /// The app page's CDP WebSocket URL as it was listed when the launch
+  /// finished — what the run announces so a client can drive the page itself.
+  ///
+  /// A snapshot, not a handle anything here keeps using: every consumer in
+  /// this tool re-resolves the target per use, because the listing is not a
+  /// settled fact (see [resolveCdpPageTarget]).
+  final String pageWebSocketDebuggerUrl;
+
   ChromeSession._({
     required this.process,
     required this.userDataDir,
     required this.cdpPort,
     required this.appUrl,
+    required this.pageWebSocketDebuggerUrl,
   });
 
   /// The command line a launch on [url] with [options] runs.
@@ -3613,15 +3622,20 @@ class ChromeSession {
           '${options.debugPort} and announced $cdpPort instead.',
         );
       }
+      // The same wait [resolveAppPage] does, done before the session exists
+      // so the page it found can be part of it.
+      final page = await resolveCdpPageTarget(
+        cdpPort,
+        appUrl: url,
+        timeout: pageTimeout,
+        pollInterval: pollInterval,
+      );
       final session = ChromeSession._(
         process: chrome,
         userDataDir: userDataDir,
         cdpPort: cdpPort,
         appUrl: url,
-      );
-      await session.resolveAppPage(
-        timeout: pageTimeout,
-        pollInterval: pollInterval,
+        pageWebSocketDebuggerUrl: page,
       );
       final viewport = options.viewport;
       if (viewport != null) await session.applyViewport(viewport);
@@ -3695,6 +3709,10 @@ class WebDevice extends Device {
   /// The localhost URL serving the app (used to find the correct CDP tab).
   String? _appUrl;
 
+  /// The app page's CDP WebSocket URL as listed at launch. See
+  /// [ChromeSession.pageWebSocketDebuggerUrl].
+  String? _pageWebSocketDebuggerUrl;
+
   /// Module server for DDC dev mode. Set by RunCommand before launch.
   WebModuleServer? _moduleServer;
 
@@ -3731,6 +3749,12 @@ class WebDevice extends Device {
 
   /// The localhost URL serving the app, if launched.
   String? get appUrl => _appUrl;
+
+  /// The app page's CDP WebSocket URL as it was listed when the browser came
+  /// up, if launched. Announced for clients that drive Chrome themselves;
+  /// nothing in this tool dials it, since every consumer here re-resolves the
+  /// page per use.
+  String? get pageWebSocketDebuggerUrl => _pageWebSocketDebuggerUrl;
 
   @override
   CompilerConfig? createCompilerConfig(
@@ -3820,6 +3844,7 @@ class WebDevice extends Device {
       options: options.browser,
     );
     _cdpPort = session.cdpPort;
+    _pageWebSocketDebuggerUrl = session.pageWebSocketDebuggerUrl;
 
     // No CDP console client here: DDC mode gets the app's output from the DWDS
     // VM service, and running both would print every line twice.
@@ -3861,6 +3886,7 @@ class WebDevice extends Device {
       rethrow;
     }
     _cdpPort = session.cdpPort;
+    _pageWebSocketDebuggerUrl = session.pageWebSocketDebuggerUrl;
     final logs = _newAppLogs(onLog);
 
     // No DWDS on this path (WASM / production JS), so CDP is the only source

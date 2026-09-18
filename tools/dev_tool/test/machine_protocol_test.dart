@@ -281,6 +281,29 @@ void main() {
       });
     });
 
+    // Chrome picks its DevTools port — the tool passes
+    // `--remote-debugging-port=0` — so this event is the only place a client
+    // can learn where to drive the browser from.
+    test('appWebLaunchUrl carries the browser\'s DevTools endpoint', () {
+      final protocol = MachineProtocol(enabled: true, output: sink);
+      protocol.appWebLaunchUrl(
+        'myapp',
+        'http://localhost:51140/',
+        launched: true,
+        cdpPort: 51150,
+        webSocketDebuggerUrl: 'ws://127.0.0.1:51150/devtools/page/ABC',
+      );
+      final decoded =
+          (json.decode(sink.lines.first) as List).first as Map<String, dynamic>;
+      expect(decoded['params'], {
+        'appId': 'myapp',
+        'url': 'http://localhost:51140/',
+        'launched': true,
+        'cdpPort': 51150,
+        'webSocketDebuggerUrl': 'ws://127.0.0.1:51150/devtools/page/ABC',
+      });
+    });
+
     test('appProgress increments progressId each call', () {
       final protocol = MachineProtocol(enabled: true, output: sink);
       protocol.appProgress('myapp', 'Building...');

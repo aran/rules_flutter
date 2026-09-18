@@ -564,6 +564,12 @@ void main() {
         );
         expect(session.cdpPort, cdp.port);
         expect(session.appUrl, appUrl);
+        // What the run announces for a client that drives Chrome itself: the
+        // app's page, not the extension or the blank tab listed beside it.
+        expect(
+          session.pageWebSocketDebuggerUrl,
+          'ws://127.0.0.1:${cdp.port}/page',
+        );
       },
     );
 

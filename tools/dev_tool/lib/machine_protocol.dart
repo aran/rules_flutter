@@ -16,7 +16,10 @@
 ///                        the only announcement of that URL: the browser this
 ///                        tool launches is its own profile — often headless —
 ///                        so someone wanting to look at the page themselves has
-///                        nowhere else to read the address.
+///                        nowhere else to read the address. Also carries
+///                        `cdpPort` and the page's `webSocketDebuggerUrl`, so
+///                        a client can drive the browser over the DevTools
+///                        protocol itself.
 ///   app.devTools       — the DevTools URL for this app, once it can be
 ///                        served. Upstream's event and upstream's `uri` field.
 ///                        Under `--machine` this is the only way it is
@@ -275,11 +278,29 @@ class MachineProtocol {
   /// to do so fails the launch — but sent rather than assumed, because a
   /// client reading upstream's protocol has no other way to learn it and the
   /// field is where it would look.
-  void appWebLaunchUrl(String appId, String url, {required bool launched}) {
+  ///
+  /// [cdpPort] and [webSocketDebuggerUrl] are ours, not upstream's: the
+  /// browser's DevTools port and the app page's CDP WebSocket as it was
+  /// listed at launch. They are what a client needs to drive the browser
+  /// itself — its own `Input.dispatchKeyEvent`, a `Runtime.evaluate`, a trace
+  /// — and nothing else names them: the port is chosen by Chrome when this
+  /// tool passes `--remote-debugging-port=0`. The page URL is a snapshot, so
+  /// a client that loses it re-reads `http://127.0.0.1:<cdpPort>/json`, which
+  /// is what this tool does before every use of its own.
+  void appWebLaunchUrl(
+    String appId,
+    String url, {
+    required bool launched,
+    int? cdpPort,
+    String? webSocketDebuggerUrl,
+  }) {
     sendEvent('app.webLaunchUrl', {
       'appId': appId,
       'url': url,
       'launched': launched,
+      if (cdpPort != null) 'cdpPort': cdpPort,
+      if (webSocketDebuggerUrl != null)
+        'webSocketDebuggerUrl': webSocketDebuggerUrl,
     });
   }
 

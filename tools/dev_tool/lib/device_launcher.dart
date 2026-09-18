@@ -106,13 +106,29 @@ class DeviceLauncher {
           'served or find its tab over CDP.',
         );
       }
+      // The browser's DevTools endpoint goes out with it, for a client that
+      // wants to drive Chrome itself. Chrome picks the port (the tool passes
+      // `--remote-debugging-port=0`), so nothing else can tell a client where
+      // it is.
+      final cdpPort = device.cdpPort;
+      final page = device.pageWebSocketDebuggerUrl;
       plan.logger.info({
         'message': 'web_app_url',
-        'text': 'App served at $url (${device.name})',
+        'text':
+            'App served at $url (${device.name}); browser DevTools protocol '
+            'on port $cdpPort, app page at $page',
         'url': url,
         'device': device.name,
+        'cdpPort': cdpPort,
+        'webSocketDebuggerUrl': page,
       });
-      host.protocol.appWebLaunchUrl(appId, url, launched: true);
+      host.protocol.appWebLaunchUrl(
+        appId,
+        url,
+        launched: true,
+        cdpPort: cdpPort,
+        webSocketDebuggerUrl: page,
+      );
     }
 
     // Connect to VM service (native devices only; web has no VM service).
