@@ -268,6 +268,23 @@ String _withCursorCaveat(CommandReport report, String sentence) =>
     : '$sentence. The control channel keeps its port and token; '
           '/logs cursors do not survive — re-tail.';
 
+/// A patch builder's restart [reasons], as one sentence.
+///
+/// Builders write them either way: rules_flutter's C builder in full sentences,
+/// frustrate's Rust builder in bare phrases. Joined as they came, the phrases
+/// ran together and into the sentence after them ("…has no storage for Nothing
+/// was compiled"). Each reason's own closing stop is dropped, the reasons are
+/// joined with `; `, and the whole ends with one.
+String _oneSentence(List<String> reasons) {
+  final parts = [
+    for (final r in reasons)
+      if (r.trim().replaceFirst(RegExp(r'[.;\s]+$'), '') case final part
+          when part.isNotEmpty)
+        part,
+  ];
+  return '${parts.join('; ')}.';
+}
+
 /// The wire fields of a native patch that stopped the command, or null when it
 /// did not.
 ///
@@ -282,7 +299,7 @@ Map<String, dynamic>? _nativePatchRefusal(
     'error':
         '${reasons.keys.join(', ')} changed in a way that cannot be '
         'patched into the running app: '
-        '${[for (final r in reasons.values) ...r].join(' ')} Nothing was '
+        '${_oneSentence([for (final r in reasons.values) ...r])} Nothing was '
         'compiled and nothing was sent. A restart (R) relaunches the app '
         'on the new code.',
     'nativePatchRestart': reasons,

@@ -61,6 +61,29 @@ void main() {
       expect(wire['error'], contains('restart'));
     });
 
+    test('a builder\'s restart reasons read as one sentence', () {
+      // frustrate's Rust builder writes bare phrases, rules_flutter's C builder
+      // full sentences. Joined as they came, phrases ran into each other and
+      // into the sentence after them.
+      final report = CommandReport(
+        verb: 'Hot reload',
+        nativePatch: const NativePatchNeedsRestart({
+          'libdemo_rust.dylib': [
+            'adds static `demo_rust::api::GREETS`, which the running library '
+                'has no storage for',
+            'changes the signature of `demo_rust::api::greet`.',
+          ],
+        }),
+      );
+      expect(
+        toWire(report)['error'],
+        contains(
+          'has no storage for; changes the signature of '
+          '`demo_rust::api::greet`. Nothing was compiled',
+        ),
+      );
+    });
+
     test('an undeclared library says how to make it knowable', () {
       final report = reload(
         nativeLibs: const NativeLibsUnverifiable(['libsqlite3.dylib']),
