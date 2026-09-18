@@ -1931,6 +1931,14 @@ class IOSSimulatorDevice extends Device {
   final ProcessRunSync _runProcess;
   final ProcessStarter _startProcess;
 
+  /// The bundle the last launch started — [_bundleId] when one was named,
+  /// otherwise the one read out of the app's Info.plist.
+  ///
+  /// [stop] terminates this. Reading [_bundleId] there instead skipped the
+  /// terminate for the usual device, which names none, and the app outlived
+  /// the run.
+  String? _launchedBundleId;
+
   IOSSimulatorDevice({
     required String udid,
     String? bundleId,
@@ -2030,7 +2038,8 @@ class IOSSimulatorDevice extends Device {
     );
 
     // Launch app.
-    final bundleId = _bundleId ?? await _extractBundleId(installPath);
+    final bundleId = _launchedBundleId =
+        _bundleId ?? await _extractBundleId(installPath);
     await _runProcess('xcrun', [
       'simctl', 'launch', udid, bundleId,
       // Anything after the bundle id is passed to the app as argv, which is
@@ -2055,7 +2064,7 @@ class IOSSimulatorDevice extends Device {
     // Read into a local rather than null-asserting the field: whether the
     // field promotes across the check depends on the language version the
     // analyzer is given, and a local is what every version accepts.
-    final bundleId = _bundleId;
+    final bundleId = _launchedBundleId ?? _bundleId;
     if (bundleId != null) {
       await _runProcess('xcrun', ['simctl', 'terminate', udid, bundleId]);
     }

@@ -325,6 +325,46 @@ void main() {
       expect(terminateCall.$2, contains('com.example.test'));
     });
 
+    // The usual device — `-d ios-simulator` names no bundle id — learns it
+    // from the bundle at launch. Stop has to use that one: skipping the
+    // terminate left the app running after the run ended, measured on an
+    // iOS 27 simulator a quarter of an hour after `daemon.shutdown` answered.
+    test(
+      'stop terminates the bundle it launched when none was named',
+      () async {
+        final calls = <List<String>>[];
+        final fakeLog = FakeProcess();
+        final device = IOSSimulatorDevice(
+          udid: 'TEST-UDID',
+          runProcess: (exe, args) async {
+            calls.add([exe, ...args]);
+            if (exe == 'defaults') {
+              return ProcessResult(0, 0, 'com.example.fromplist\n', '');
+            }
+            return ProcessResult(0, 0, '', '');
+          },
+          startProcess: (exe, args) async => fakeLog,
+        );
+        unawaited(fakeLog.outputAttached.then((_) => fakeLog.complete(0)));
+
+        final instance = await device.launch('/path/to/MyApp.app');
+        await device.stop(instance);
+
+        expect(
+          calls,
+          contains(
+            equals([
+              'xcrun',
+              'simctl',
+              'terminate',
+              'TEST-UDID',
+              'com.example.fromplist',
+            ]),
+          ),
+        );
+      },
+    );
+
     test('extracts .app from .ipa before install', () async {
       final calls = <(String, List<String>)>[];
       final fakeLog = FakeProcess();
