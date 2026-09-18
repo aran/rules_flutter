@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -17,12 +17,43 @@ Workspace appWorkspace(
   Map<String, String> generatedFiles = const {},
 }) {
   return Workspace(
-    resolver: PackageUriResolver(workspaceRoot: root, sourcePackages: packages),
+    resolver: SourceUriResolver(workspaceRoot: root, sourcePackages: packages),
     generatedFiles: generatedFiles,
   );
 }
 
 void main() {
+  group('Workspace.snapshot', () {
+    test('stats the declared app sources outside every package', () async {
+      // They sit beside a `main` outside `lib/`, where no package scan looks;
+      // left out of the snapshot, an edit to one is never seen as a change.
+      final tmp = await Directory.systemTemp.createTemp('snapshot_test_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final main = File(p.join(tmp.path, 'test_driver', 'app.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('v1');
+      // Not declared, so not the app's: the snapshot must not grow a key for
+      // it just because it shares the directory.
+      File(
+        p.join(tmp.path, 'test_driver', 'notes.dart'),
+      ).writeAsStringSync('x');
+      const uri = 'org-dartlang-app:///test_driver/app.dart';
+      final workspace = Workspace(
+        resolver: SourceUriResolver(
+          workspaceRoot: tmp.path,
+          sourcePackages: const [],
+          appSources: const [(path: 'test_driver/app.dart', uri: uri)],
+        ),
+      );
+
+      final before = workspace.snapshot();
+      expect(before.fileUris, [uri]);
+      final applied = AppliedVersions()..markApplied(before, files: {uri});
+      main.writeAsStringSync('v2, longer');
+      expect(applied.findChangedFrom(workspace.snapshot()), {uri});
+    });
+  });
+
   group('AppliedVersions', () {
     late Directory tmp;
     late Workspace workspace;

@@ -14,7 +14,7 @@ import 'command_report.dart';
 import 'command_runner.dart';
 import 'device.dart';
 import 'frontend_server.dart';
-import 'hot_reload/package_uri_resolver.dart';
+import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/readiness_gate.dart';
 import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
@@ -629,7 +629,7 @@ Future<void> runInteractiveSession({
   /// whose build failed assembles on a subsequent reload. A captured value
   /// would stay null in that case, so every save after the recovery maps to no
   /// package and the watcher goes on silently doing nothing.
-  PackageUriResolver? Function()? resolver,
+  SourceUriResolver? Function()? resolver,
 
   /// Whether the pipeline still owes an assembly attempt.
   ///
@@ -974,7 +974,7 @@ enum _Wake { key, keyboardClosed, exit }
 /// [SourceWatcher.changes] buffers whatever landed in between.
 StreamSubscription<SourceChange> _watchAndReload({
   required SourceWatcher watcher,
-  required PackageUriResolver? Function() resolver,
+  required SourceUriResolver? Function() resolver,
   required bool Function() awaitingAssembly,
   PathFilter? isAsset,
 
@@ -991,14 +991,16 @@ StreamSubscription<SourceChange> _watchAndReload({
   required void Function(Map<String, dynamic> params) announce,
 }) {
   return watcher.changes.listen((change) async {
-    // Map each changed source path to the `package:` URI the frontend_server
-    // keys it by, via the authoritative build-emitted resolver. A path that
-    // belongs to no first-party source package (e.g. a tool script) resolves
-    // to null and is skipped — never invalidated with a bogus file:// URI.
+    // Map each changed source path to the URI the frontend_server keys it by,
+    // via the authoritative build-emitted resolver — `package:` for a file in
+    // a first-party package, the app scheme for the app's declared sources
+    // outside every package. A path the app compiles nothing from (e.g. a
+    // tool script) resolves to null and is skipped — never invalidated with a
+    // bogus file:// URI.
     final map = resolver();
     final invalidated = [
       for (final f in change.paths)
-        if (map?.toPackageUri(f) case final uri?) uri,
+        if (map?.uriFor(f) case final uri?) uri,
     ];
     // An asset carries no package URI and never will, so an empty
     // `invalidated` does not mean there is nothing to do. The reload command

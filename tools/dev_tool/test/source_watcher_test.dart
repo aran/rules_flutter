@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/source_watcher.dart';
 import 'package:test/test.dart';
 import 'package:watcher/watcher.dart';
@@ -268,13 +268,13 @@ void main() {
       'SourceChange.paths convert to package: URIs via the resolver',
       () async {
         // Documentation test: pinning that the consumer pattern
-        // (watcher → PackageUriResolver.toPackageUri) yields the expected URIs.
-        final resolver = PackageUriResolver(
+        // (watcher → SourceUriResolver.uriFor) yields the expected URIs.
+        final resolver = SourceUriResolver(
           workspaceRoot: '/root',
           sourcePackages: const [(name: 'app', libRoot: '')],
         );
         final change = SourceChange({'/root/lib/foo/bar.dart'});
-        final uris = change.paths.map(resolver.toPackageUri).toSet();
+        final uris = change.paths.map(resolver.uriFor).toSet();
         expect(uris, {'package:app/foo/bar.dart'});
       },
     );

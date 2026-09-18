@@ -11,7 +11,7 @@ import 'editable_workspace.dart';
 /// Reload CORRECTNESS is otherwise verified manually (docs/TESTING.md), but the
 /// watcher path has a specific failure mode this guards: an edit to a
 /// DEPENDENCY package's source must resolve to a `package:` URI through the
-/// build-emitted sourcePackages → `PackageUriResolver`. A path that resolves to
+/// build-emitted sourcePackages → `SourceUriResolver`. A path that resolves to
 /// nothing is skipped by `_watchAndReload`, and the edit then triggers no
 /// reload at all — silently, which is the whole difficulty.
 ///

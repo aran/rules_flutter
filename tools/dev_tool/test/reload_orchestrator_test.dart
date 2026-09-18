@@ -5,7 +5,7 @@ import 'package:flutter_bazel_dev_tool/hot_reload/app_instance.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/compiler.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/flutter_error_report.dart';
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
@@ -38,7 +38,7 @@ void main() {
       tmp = await Directory.systemTemp.createTemp('orchestrator_test_');
       Directory(p.join(tmp.path, 'lib')).createSync();
       workspace = Workspace(
-        resolver: PackageUriResolver(
+        resolver: SourceUriResolver(
           workspaceRoot: tmp.path,
           sourcePackages: const [(name: 'app', libRoot: '')],
         ),
@@ -199,7 +199,7 @@ void main() {
         const genUri = 'package:app/user.g.dart';
 
         final ws = Workspace(
-          resolver: PackageUriResolver(
+          resolver: SourceUriResolver(
             workspaceRoot: tmp.path,
             sourcePackages: const [(name: 'app', libRoot: '')],
           ),

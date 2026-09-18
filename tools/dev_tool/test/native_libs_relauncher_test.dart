@@ -13,7 +13,7 @@ import 'dart:io';
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/device.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/command_report.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
@@ -100,7 +100,7 @@ class _Harness {
       appId: 'app1',
     );
 
-    final resolver = PackageUriResolver(
+    final resolver = SourceUriResolver(
       workspaceRoot: tmp.path,
       sourcePackages: const [(name: 'app', libRoot: '')],
     );

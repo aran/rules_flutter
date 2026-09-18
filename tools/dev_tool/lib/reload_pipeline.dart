@@ -28,7 +28,7 @@ import 'frontend_server.dart';
 import 'hot_reload/app_instance.dart';
 import 'hot_reload/applied_versions.dart';
 import 'hot_reload/asset_bundle.dart';
-import 'hot_reload/package_uri_resolver.dart';
+import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/readiness_gate.dart';
 import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/workspace.dart';
@@ -59,13 +59,16 @@ class ReloadPipeline {
   /// frontend server available` true rather than merely likely.
   FrontendServer? frontendServer;
 
-  /// What the compiler is pointed at: the build-authoritative `package:` URI on
-  /// native, `org-dartlang-app:/web_entrypoint.dart` on web.
+  /// What the compiler is pointed at: the build-authoritative entrypoint URI on
+  /// native — the `main`'s `package:` URI, or its `org-dartlang-app:` one when
+  /// it sits outside its package's `lib/` — and
+  /// `org-dartlang-app:/web_entrypoint.dart` on web.
   String entrypoint = '';
 
-  /// Maps live source paths to `package:` URIs, for snapshot keying and the
-  /// filesystem watcher. Built from the build-emitted sourcePackages.
-  PackageUriResolver? resolver;
+  /// Maps live source paths to the URIs the compiler keys them by, for snapshot
+  /// keying and the filesystem watcher. Built from the build-emitted
+  /// `sourcePackages` and `appSources`.
+  SourceUriResolver? resolver;
 
   /// The source tree as the compiler sees it, snapshot by snapshot.
   Workspace? workspaceView;

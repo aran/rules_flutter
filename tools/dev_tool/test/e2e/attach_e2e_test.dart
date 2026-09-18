@@ -117,7 +117,7 @@ void main() {
 
     // Attach's reload path: the frontend server needs an initial `compile` or
     // the first `recompile` asks for a delta from nothing; the session loop
-    // needs a `PackageUriResolver` or every watched path maps to no package URI
+    // needs a `SourceUriResolver` or every watched path maps to no package URI
     // and the watcher drops it; and `app.hotReload`/`app.restart` have to be
     // registered or a machine client gets `Unknown command` for the one thing
     // attach exists to do after connecting.

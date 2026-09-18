@@ -183,7 +183,7 @@ _UNIT_TESTS = {
     },
     "native_pipeline_assembler_test": {"fakes": True},
     "outcome_renderer_test": {"fakes": True},
-    "package_uri_resolver_test": {"deps": _PATH_DEP},
+    "source_uri_resolver_test": {"deps": _PATH_DEP},
     "readiness_gate_test": {},
     "reload_pipeline_test": {
         "fakes": True,

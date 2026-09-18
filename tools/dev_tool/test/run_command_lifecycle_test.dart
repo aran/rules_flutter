@@ -11,7 +11,7 @@ import 'dart:io';
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/app_instance.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/source_watcher.dart';
@@ -26,7 +26,7 @@ import 'fakes.dart';
 class _Harness {
   final Directory tmp;
   final Workspace workspace;
-  final PackageUriResolver resolver;
+  final SourceUriResolver resolver;
   final AppliedVersions applied;
   final FakeCompiler compiler;
   final FakeAppInstance app;
@@ -79,7 +79,7 @@ class _Harness {
   static Future<_Harness> create() async {
     final tmp = await Directory.systemTemp.createTemp('lifecycle_test_');
     Directory(p.join(tmp.path, 'lib')).createSync();
-    final resolver = PackageUriResolver(
+    final resolver = SourceUriResolver(
       workspaceRoot: tmp.path,
       sourcePackages: const [(name: 'app', libRoot: '')],
     );
@@ -263,7 +263,7 @@ void main() {
             final result = await h.runner.run('app.hotReload', {
               'invalidatedFiles': [
                 for (final p in change.paths)
-                  if (h.resolver.toPackageUri(p) case final uri?) uri,
+                  if (h.resolver.uriFor(p) case final uri?) uri,
               ],
             });
             reloadResults.add(result);

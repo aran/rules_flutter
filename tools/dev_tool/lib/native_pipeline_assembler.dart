@@ -31,7 +31,7 @@ import 'hot_reload/app_instance.dart' as hr;
 import 'hot_reload/applied_versions.dart';
 import 'hot_reload/asset_bundle.dart';
 import 'hot_reload/compiler.dart' as hot_reload;
-import 'hot_reload/package_uri_resolver.dart';
+import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/session_reloader.dart';
 import 'hot_reload/workspace.dart';
@@ -437,21 +437,23 @@ class NativePipelineAssembler {
       // report the dev pipeline's configuration as its launch truth.
       dartDefines: [...devConfig.dartDefines, _info.defineAssignment],
       // A `file://` URI, deliberately, where the build's own kernel compile
-      // names its registrant `org-dartlang-root:///<exec path>`
-      // (`flutter_compile.bzl`). The two never have to agree. The engine reads
+      // names its registrant `org-dartlang-app:///<workspace path>`, mounted
+      // at its output directory (`app_scheme_location`). The two never have to agree. The engine reads
       // `flutter.dart_plugin_registrant` out of whichever dill is *running* and
       // looks that exact string up as a library, so each kernel only has to be
       // internally consistent — and after a hot restart the running dill is
       // always one this compiler produced.
       //
-      // `file://` is the one spelling valid in both configurations this
-      // compiler starts in. A source-assembled (codegen) app mounts
-      // `filesystemRoots` under the `org-dartlang-app` scheme; a plain app has
-      // none — `e2e/macos_example`'s dev config carries `filesystemRoots: []`,
-      // and `NativeCompilerConfig` gates the scheme flag on that list — so a
-      // scheme URI would resolve to nothing there. The build's
-      // `org-dartlang-root` is never mounted in this process, so matching the
-      // build is not an option either.
+      // `file://` is the one spelling valid in every configuration this
+      // compiler starts in. A source-assembled (codegen) app, or one whose
+      // `main` sits outside its package's `lib/`, mounts `filesystemRoots`
+      // under the `org-dartlang-app` scheme; a plain app has none —
+      // `e2e/macos_example`'s `:app_flutter` dev config carries
+      // `filesystemRoots: []`, and `NativeCompilerConfig` gates the scheme flag
+      // on that list — so a scheme URI would resolve to nothing there. The
+      // build's registrant lives under the output directory of the app's own
+      // configuration, which this host-configured compiler never mounts, so
+      // matching the build is not an option either.
       //
       // The front end does not rewrite a `--source` URI into the mounted
       // scheme, so `--source` and the `-D` stay one string and the engine's
@@ -474,8 +476,9 @@ class NativePipelineAssembler {
     pipeline.entrypoint = devConfig.appEntrypoint;
 
     // Seed the per-file applied state. The resolver keys every source file by
-    // its `package:` URI — which is how the frontend_server keys those
-    // libraries — so an invalidation actually hits them, and seeding is what
+    // the URI the frontend_server keys its library by — its `package:` URI, or
+    // for the app's sources outside every package the app-scheme URI the build
+    // declared — so an invalidation actually hits them, and seeding is what
     // makes the first reload send only what has changed since.
     //
     // What it has to describe is the source the running app was built from,
@@ -484,9 +487,10 @@ class NativePipelineAssembler {
     // a file between `app.started` and here — and this snapshot would contain
     // that edit. Hence [builtBefore]: anything stamped after it is left
     // unseeded, so the first reload picks it up.
-    final resolver = pipeline.resolver = PackageUriResolver(
+    final resolver = pipeline.resolver = SourceUriResolver(
       workspaceRoot: workspace,
       sourcePackages: devConfig.sourcePackages,
+      appSources: devConfig.appSources,
     );
     final workspaceView = pipeline.workspaceView = Workspace(
       resolver: resolver,

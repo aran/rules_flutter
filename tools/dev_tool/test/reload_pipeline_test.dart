@@ -15,7 +15,7 @@ import 'package:flutter_bazel_dev_tool/frontend_server.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/app_instance.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/asset_bundle.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/compiler.dart';
-import 'package:flutter_bazel_dev_tool/hot_reload/package_uri_resolver.dart';
+import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
@@ -108,7 +108,7 @@ class _Harness {
     final pipeline = ReloadPipeline(host: host);
     host.registerReloadCommands(pipeline);
 
-    final resolver = PackageUriResolver(
+    final resolver = SourceUriResolver(
       workspaceRoot: tmp.path,
       sourcePackages: const [(name: 'app', libRoot: '')],
     );

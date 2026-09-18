@@ -452,6 +452,39 @@ void main() {
       );
     });
 
+    test('fromJson parses appSources, defaults empty', () {
+      Map<String, dynamic> base() => {
+        'engineRevision': 'abc123',
+        'flutterVersion': '3.41.2',
+        'dartSdkRoot': '/ext/dart-sdk',
+        'dartaotruntime': '/ext/dart-sdk/bin/dartaotruntime',
+        'frontendServer': '/ext/host-tools/fs.snapshot',
+        'patchedSdkRoot': '/ext/patched-sdk/flutter_patched_sdk',
+        'appEntrypoint': 'org-dartlang-app:///test_driver/app.dart',
+      };
+      expect(DevConfig.fromJson(base()).appSources, isEmpty);
+      // Workspace-relative, and left that way: the resolver joins them onto
+      // the workspace, where the edits happen — not the exec root the other
+      // paths here are absolutized against.
+      expect(
+        DevConfig.fromJson({
+          ...base(),
+          'appSources': [
+            {
+              'path': 'test_driver/app.dart',
+              'uri': 'org-dartlang-app:///test_driver/app.dart',
+            },
+          ],
+        }).appSources,
+        [
+          (
+            path: 'test_driver/app.dart',
+            uri: 'org-dartlang-app:///test_driver/app.dart',
+          ),
+        ],
+      );
+    });
+
     test('fromJson parses nativeNullAssertions, defaults true', () {
       // The build's attr default is true, so an absent key means true. A
       // build that turned it off has to reach the dev loop's bootstrap, or

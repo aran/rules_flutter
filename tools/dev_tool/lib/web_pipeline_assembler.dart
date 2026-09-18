@@ -30,7 +30,7 @@ import 'dev_tool_exception.dart';
 import 'device.dart';
 import 'frontend_server.dart';
 import 'hot_reload/asset_bundle.dart';
-import 'hot_reload/package_uri_resolver.dart';
+import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/workspace.dart';
 import 'logging.dart';
 import 'native_libs_watch.dart';
@@ -64,6 +64,14 @@ Uri httpUriFromWebSocketUri(Uri wsUri) {
     path: path,
   );
 }
+
+/// The files the web dev loop generates into its compiler's first file-system
+/// root, beside the entrypoint it compiles.
+const _stagedNames = [
+  'web_entrypoint.dart',
+  'web_plugin_registrant.dart',
+  'agent_extensions.dart',
+];
 
 class WebPipelineAssembler {
   final RunPlan plan;
@@ -170,6 +178,26 @@ class WebPipelineAssembler {
         );
       }
       final packageConfig = devConfig.buildPackageConfig;
+
+      // The generated files below are staged in the compiler's FIRST
+      // `--filesystem-root`, so each one answers its `org-dartlang-app:///`
+      // name ahead of the workspace. An app source outside every package that
+      // sits at the workspace root under one of those names would be shadowed
+      // by it — the dev loop would compile the generated file in its place,
+      // and nothing would say so. Upstream stages the same way; refused here
+      // by name instead of left to surface as the wrong program.
+      for (final source in devConfig.appSources) {
+        for (final staged in _stagedNames) {
+          if (source.uri == 'org-dartlang-app:///$staged') {
+            throw DevToolException(
+              '${source.path} is compiled as ${source.uri}, the name the dev '
+              "loop's generated $staged takes, so the generated file would be "
+              'compiled in its place. Rename it, or move it out of the '
+              'workspace root.',
+            );
+          }
+        }
+      }
 
       // Generate synthetic web_entrypoint.dart with bootstrapEngine() + plugin registrant.
       final syntheticDir = syntheticDirectory = await createTempDir(
@@ -342,10 +370,11 @@ class WebPipelineAssembler {
       // What the page is about to be running, read BEFORE the compile that
       // produces it — which is the whole of the ordering here.
       //
-      // The resolver keys every source file (app + deps) by its `package:` URI
-      // — which is how the frontend_server keys those libraries (the synthetic
-      // web entrypoint imports them via `package:` through the dev
-      // package_config), so an invalidation actually hits them.
+      // The resolver keys every source file (app + deps) by the URI the
+      // frontend_server keys its library by — `package:` through the dev
+      // package_config, or for the app's sources outside every package the
+      // app-scheme URI the build declared — so an invalidation actually hits
+      // them.
       //
       // Deliberately NOT [AppliedVersions.seedFromBuild], which native uses.
       // The two are answering the same question about different moments. On
@@ -367,9 +396,10 @@ class WebPipelineAssembler {
       // compile did pick up being re-sent once. `builtBefore` is not the cutoff
       // for any of this; it governs the asset tree below, which really is
       // bazel-built.
-      final res = pipeline.resolver = PackageUriResolver(
+      final res = pipeline.resolver = SourceUriResolver(
         workspaceRoot: plan.workspace,
         sourcePackages: devConfig.sourcePackages,
+        appSources: devConfig.appSources,
       );
       final ws = pipeline.workspaceView = Workspace(
         resolver: res,

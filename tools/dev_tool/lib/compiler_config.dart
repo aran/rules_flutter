@@ -65,7 +65,7 @@ class NativeCompilerConfig implements CompilerConfig {
   /// root-isolate launch of the dills this compiler produces — which is
   /// what keeps them alive across hot restart.
   ///
-  /// `file://` and not the `org-dartlang-root:///` the build's kernel compile
+  /// `file://` and not the `org-dartlang-app:///` the build's kernel compile
   /// uses, including when [fileSystemRoots] mounts a multi-root file system
   /// around it. The URI has one construction site — the
   /// `dartPluginRegistrantUri:` argument in `native_pipeline_assembler.dart` —

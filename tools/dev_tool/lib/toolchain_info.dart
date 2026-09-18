@@ -309,10 +309,20 @@ class DevConfig {
   final Map<String, List<String>> nativeLibSources;
 
   /// First-party source packages (app + local deps) as `{name, libRoot}`, where
-  /// `libRoot` is workspace-relative. Drives the [PackageUriResolver] so a live
+  /// `libRoot` is workspace-relative. Drives the [SourceUriResolver] so a live
   /// edit in any of these packages maps to its `package:` URI. Empty for web
   /// dev configs only if the build emitted none.
   final List<({String name, String libRoot})> sourcePackages;
+
+  /// The sources outside every package that the app compiles under
+  /// [filesystemScheme], as `{path, uri}` with `path` workspace-relative: a
+  /// `main` outside its package's `lib/`, and the `srcs` beside it.
+  ///
+  /// Declared by the build rather than discovered, because the build's compile
+  /// can read nothing it does not declare — so this is every such file there
+  /// is. Without it an edit to one maps to no package and a reload drops it.
+  /// Empty for an app whose `main` has a `package:` URI.
+  final List<({String path, String uri})> appSources;
 
   /// Merged user defines (target `defines` attr + the extra_dart_defines
   /// flag) the app was built with. Replayed as -D launch flags on the
@@ -413,6 +423,7 @@ class DevConfig {
     this.nativeLibContracts = const {},
     this.nativeLibSources = const {},
     this.sourcePackages = const [],
+    this.appSources = const [],
     this.dartDefines = const [],
     this.dartPluginRegistrants = const {},
     this.webPluginRegistrant = '',
@@ -504,6 +515,10 @@ class DevConfig {
             name: (e as Map)['name'] as String,
             libRoot: e['libRoot'] as String,
           ),
+      ],
+      appSources: [
+        for (final e in (json['appSources'] as List?) ?? const [])
+          (path: (e as Map)['path'] as String, uri: e['uri'] as String),
       ],
     );
   }
