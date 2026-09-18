@@ -62,6 +62,58 @@ void registerRulesFlutterAgentExtensions() {
   // an app paused at its entrypoint never produces. `flutter_bazel attach`
   // reads this before the app is settled, sometimes before it has run at all.
   registerExtension('ext.rules_flutter.buildInfo', _handleBuildInfo);
+
+  // Not wrapped either, and for a reason of the same kind: the dev tool asks
+  // this straight after a reload or a restart, the restart's before `runApp`
+  // may even have run, and it is the one question whose answer must not wait
+  // for a frame.
+  registerExtension('ext.rules_flutter.renderState', _handleRenderState);
+}
+
+/// Whether this app is drawing frames: what the dev tool asks when a reload or
+/// a restart has landed and the frame that would show it has not come.
+///
+/// A backgrounded app draws nothing — `framesEnabled` is false, see [_guard] —
+/// and a restarted one inherits that, because the engine hands the new isolate
+/// the lifecycle state it last sent. Without this the dev tool can only wait
+/// out its bound and then call the reload a success it has not seen, which is
+/// ten seconds of nothing followed by a tree still showing the frame before.
+///
+/// Answers only once the app's first frame has been built. Before that
+/// `framesEnabled` is false for a reason that has nothing to do with being
+/// seen — `WidgetsBinding` holds it false until `runApp` has attached the root
+/// widget — and it is exactly the moment the dev tool asks after a restart.
+/// Waiting is also what keeps a build error ahead of the answer: `runApp` and
+/// `reassemble` both draw a warm-up frame whatever the lifecycle, and an error
+/// in it is reported while it runs. After it, `framesEnabled` follows the
+/// lifecycle alone. `timeoutMs` bounds the wait for an app whose `main` has not
+/// reached `runApp`; that app gets `firstFrameBuilt: false` and no verdict.
+Future<ServiceExtensionResponse> _handleRenderState(
+  String method,
+  Map<String, String> params,
+) async {
+  // Asked before `runApp` has made a binding, there is no lifecycle yet to
+  // read. A debug-only query, like this file.
+  if (BindingBase.debugBindingType() == null) return _ok({'started': false});
+  final binding = WidgetsBinding.instance;
+  if (!binding.debugDidSendFirstFrameEvent) {
+    final built = Completer<void>();
+    binding.addPostFrameCallback((_) {
+      if (!built.isCompleted) built.complete();
+    });
+    await built.future.timeout(
+      Duration(milliseconds: int.tryParse(params['timeoutMs'] ?? '') ?? 5000),
+      onTimeout: () {},
+    );
+  }
+  if (!binding.debugDidSendFirstFrameEvent) {
+    return _ok({'firstFrameBuilt': false});
+  }
+  return _ok({
+    'firstFrameBuilt': true,
+    'rendering': binding.framesEnabled,
+    'lifecycleState': binding.lifecycleState?.name,
+  });
 }
 
 /// The build configuration `flutter_compile_kernel` baked into this app.
@@ -111,22 +163,26 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
       // dev tool's command pool is serialized through one slot, so every
       // command behind it would queue for the life of the run.
       //
-      // What turns frames off is the app lifecycle and nothing else.
+      // Once the app is running, what turns frames off is the app lifecycle.
       // `handleAppLifecycleStateChanged` is the only thing that ever sets
       // `framesEnabled` false (`scheduler/binding.dart:414`) — for `hidden`,
       // `paused` and `detached`, back true for `resumed` and `inactive`; the
       // only other writer is `resetInternalState`, which is
-      // `@visibleForTesting` and only ever sets it true. Window visibility
-      // does not appear in any of it. So the state is routine wherever the OS backgrounds
-      // apps — this file is staged into every *debug* kernel, iOS and Android
-      // included (`AGENT_EXTENSIONS_ATTR` in `common.bzl`) — and hard to reach
-      // on a desktop: measured on macOS (Darwin 25.5), a minimized window and
-      // a hidden application both kept producing frames at ~8/s. That is one
-      // host and one OS version, so read the desktop half as unmeasured
-      // elsewhere; the lifecycle mechanism above is from the source and holds
-      // everywhere. `_settleAfterInput` below guards on the same flag for the same
-      // reason, and neither guard becomes dead code merely because this Mac
-      // cannot produce the state.
+      // `@visibleForTesting` and only ever sets it true. (Before that,
+      // `WidgetsBinding` also holds it false until `runApp` attaches the root
+      // widget; see [_handleRenderState].) The state is routine wherever the
+      // OS backgrounds apps — this file is staged into every *debug* kernel,
+      // iOS and Android included (`AGENT_EXTENSIONS_ATTR` in `common.bzl`) —
+      // and on macOS it follows the window: the embedder sends `hidden` when
+      // `NSApplication.occlusionState` stops being visible (`FlutterEngine.mm`,
+      // `handleDidChangeOcclusionState`). Measured on Darwin 27.0: an app that
+      // had been in front and was then hidden, or fully covered by another
+      // app's window, reports `framesEnabled` false within a second. The
+      // embedder acts only on a *change*, though: a window that had never been
+      // in front kept drawing, fully covered or hidden, which may be how an
+      // earlier measurement (Darwin 25.5, minimized and hidden windows at ~8
+      // frames/s) came to find the state unreachable on a desktop.
+      // `_settleAfterInput` below guards on the same flag for the same reason.
       //
       // The bound is not that same check written twice: frames can stop
       // between the check and the await, and only a deadline closes that
@@ -661,10 +717,10 @@ Future<ServiceExtensionResponse> _handleGetText(
     return _err(e.message);
   }
   final el = _findElementWhere(sel.test);
-  if (el == null) return _err('no widget matching ${sel.label} found');
+  if (el == null) return _readErr('no widget matching ${sel.label} found');
   final texts = _textsUnder(el);
   if (texts.isEmpty) {
-    return _err(
+    return _readErr(
       'no text-bearing widget (Text, RichText, EditableText) in the '
       'subtree of ${sel.label}',
     );
@@ -673,13 +729,13 @@ Future<ServiceExtensionResponse> _handleGetText(
   // and `texts` is always present, so a caller can see that a container held
   // more than one string (a ListTile's title and subtitle, say) instead of
   // silently getting whichever came first.
-  return _ok({'text': texts.first, 'texts': texts});
+  return _readOk({'text': texts.first, 'texts': texts});
 }
 
 Future<ServiceExtensionResponse> _handleGetRect(
   String method,
   Map<String, String> params,
-) => _withRect(params, (rect) async => _rectAsMap(rect));
+) => _withRect(params, (rect) async => _readBody(_rectAsMap(rect)));
 
 /// Wait for the app to go idle, and say whether it did.
 ///
@@ -730,10 +786,10 @@ Future<ServiceExtensionResponse> _handleWaitFor(
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
     final rect = _rectOf(_findElementWhere(sel.test));
-    if (rect != null) return _ok(_rectAsMap(rect));
+    if (rect != null) return _readOk(_rectAsMap(rect));
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
-  return _err('timed out waiting for ${sel.label}');
+  return _readErr('timed out waiting for ${sel.label}');
 }
 
 Future<ServiceExtensionResponse> _handleWaitForAbsent(
@@ -751,10 +807,10 @@ Future<ServiceExtensionResponse> _handleWaitForAbsent(
   );
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
-    if (_rectOf(_findElementWhere(sel.test)) == null) return _ok({});
+    if (_rectOf(_findElementWhere(sel.test)) == null) return _readOk({});
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
-  return _err('timed out waiting for ${sel.label} to disappear');
+  return _readErr('timed out waiting for ${sel.label} to disappear');
 }
 
 Future<ServiceExtensionResponse> _handlePageBack(
@@ -1641,7 +1697,7 @@ Future<ServiceExtensionResponse> _withRect(
   }
   final element = _findElementWhere(sel.test);
   final rect = _rectOf(element);
-  if (rect == null) return _err('no widget matching ${sel.label} found');
+  if (rect == null) return _readErr('no widget matching ${sel.label} found');
   if (dispatchesPointer && _boolParam(params, 'requireHit', ifAbsent: true)) {
     final miss = _pointerWouldMiss(element!, rect.center, sel.label);
     if (miss != null) return _err(miss);
@@ -1660,24 +1716,38 @@ Future<ServiceExtensionResponse> _withRect(
 /// null when it is.
 ///
 /// Frames stop when the OS backgrounds an app, which on a phone is the ordinary
-/// state of a locked screen. The input still reaches the framework and its
-/// handler still runs — the counter really does increment — but nothing
+/// state of a locked screen, and on macOS is a window hidden or covered after
+/// it had been on screen (see [_guard]). The input still reaches the framework
+/// and its handler still runs — the counter really does increment — but nothing
 /// rebuilds and nothing paints, so a `getText` straight afterwards answers with
 /// the tree as it was. Measured on a locked Pixel 9a: `app.tap` answered with
 /// the point it tapped and the label it drives did not move; it moves when the
-/// device is unlocked.
+/// device is unlocked. After a restart the tree is the one `runApp`'s first
+/// frame built, and nothing the app does after that — a `FutureBuilder`
+/// resolving, a `setState` — reaches it.
 ///
 /// Said rather than refused. The command did what it was asked, and refusing it
 /// would break the one case where this is routine and harmless: a desktop
 /// window minimized while a script drives it, which `agent_e2e_test`'s occluded
 /// tap covers — the tap lands, and the restored window's next frame shows it.
-String? _notRendering() => SchedulerBinding.instance.framesEnabled
-    ? null
-    : 'the app is not rendering: the OS has backgrounded it, which on a device '
-          'is what a locked screen does. The input was delivered and its '
-          'handler ran, but nothing rebuilds or repaints until the app is '
-          'resumed — so a read now answers with the tree as it was, not with '
-          'what this changed.';
+/// Reads carry it too, because a stale tree answers them without complaint.
+///
+/// Silent before the first frame: until `runApp` attaches the root widget,
+/// `WidgetsBinding` holds `framesEnabled` false for a reason that has nothing to
+/// do with being seen (see [_handleRenderState]).
+String? _notRendering() {
+  final binding = WidgetsBinding.instance;
+  if (binding.framesEnabled || !binding.debugDidSendFirstFrameEvent) {
+    return null;
+  }
+  final state = binding.lifecycleState?.name ?? 'unknown';
+  return 'the app is not rendering: its lifecycle state is "$state", which is '
+      'how the OS says it cannot be seen — on macOS a window hidden or covered '
+      'after it was on screen, on a device a locked screen or another app in '
+      'front. Nothing rebuilds or repaints until it can be seen again, so the '
+      'widget tree stays as the last frame left it: what a command did has '
+      'happened, and a read shows the state from before it.';
+}
 
 /// Why a pointer event at [point] would not reach [el], or null when it does.
 ///
@@ -1959,3 +2029,24 @@ ServiceExtensionResponse _err(String message) => ServiceExtensionResponse.error(
   ServiceExtensionResponse.invalidParams,
   message,
 );
+
+/// [body] with [_notRendering] added when the tree it was read from is not
+/// being rebuilt.
+Map<String, Object?> _readBody(Map<String, Object?> body) {
+  final asleep = _notRendering();
+  return {...body, if (asleep != null) 'notRendering': asleep};
+}
+
+ServiceExtensionResponse _readOk(Map<String, Object?> body) =>
+    _ok(_readBody(body));
+
+/// A read that found nothing, saying so when the tree it searched is frozen.
+///
+/// The case this exists for: a restart while the app is backgrounded leaves a
+/// tree that `runApp`'s first frame built, so a widget the app shows once its
+/// data loads is not in it, and "no widget matching" alone sends the reader
+/// looking for a bug in the app.
+ServiceExtensionResponse _readErr(String message) {
+  final asleep = _notRendering();
+  return _err(asleep == null ? message : '$message. Note: $asleep');
+}
