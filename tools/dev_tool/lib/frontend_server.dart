@@ -116,6 +116,40 @@ class FrontendServer {
   bool get isRunning => _process != null && !_closing && !_timedOut;
 
   /// Start the persistent frontend_server process.
+  ///
+  /// There is deliberately no `--initialize-from-dill`. Upstream passes one —
+  /// `flutter_tools` seeds the resident compiler from the app dill its *own*
+  /// previous run wrote (`build_system/targets/common.dart`) — and the obvious
+  /// Bazel analogue is `FlutterApplicationInfo.kernel_dill`, which the build
+  /// has already produced. It does not work, and the reason is in the kernel
+  /// itself.
+  ///
+  /// `flutter_kernel_compile_action` runs in a Bazel sandbox, so every
+  /// `package:` library in the dill records a `fileUri` under that action's
+  /// sandbox exec root — `…/<output-base>/sandbox/darwin-sandbox/<n>/execroot/…`
+  /// — a directory deleted the moment the action finished. Seeding from it
+  /// makes the front end compare each library's recorded `fileUri` against what
+  /// this compiler's package config resolves the same import URI to, find every
+  /// one different, and throw `PackageChangedError`
+  /// (`front_end`'s `_InitializationFromUri._initializeFromDill`). That error is
+  /// on the list the catch block deliberately reports nothing for, so the seed
+  /// is discarded whole and the compile restarts from the SDK summary.
+  ///
+  /// Measured on `e2e/macos_example` (5 interleaved runs each, medians): cold
+  /// 4.3s, seeded from the Bazel kernel 5.0s — slower by the cost of reading
+  /// and discarding a 53MB dill, with output byte-identical to the cold
+  /// compile. A seed the front end *accepts* — the compiler's own previous
+  /// output — gives 0.6s, so the mechanism works; the Bazel kernel is just not
+  /// a seed it can take. Web cannot use one at all: `flutter_web_application`
+  /// builds no DDC kernel, only a product-mode `--target=flutter` dill for icon
+  /// tree-shaking analysis.
+  ///
+  /// Cold is also not as expensive as it looks. On native the app launches from
+  /// the Bazel-built binary and this compile runs alongside startup, so it
+  /// delays only when hot reload becomes available, not the first frame. On web
+  /// it does gate the first frame, but the front end is ~5s of a ~13s DDC
+  /// compile; the rest is emitting the whole program's JavaScript, which no
+  /// seed avoids.
   Future<void> start() async {
     final tempDir = _outputDir = await createTempDir('flutter_fs_');
     _outputDillPath = '${tempDir.path}/app.dill';
