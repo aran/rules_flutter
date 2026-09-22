@@ -84,13 +84,35 @@ flutter_ios_app(
     bundle_id = "com.rulesflutter.ios.example",
 )
 
-# A second app in the same package. Regression guard: each app's runner
-# compiles into its own Swift module, so two of them can be built in one
-# invocation. Sharing module_name = "Runner" would make both write
-# <pkg>/Runner.swiftmodule and fail analysis with an action conflict.
+# A second app in the same package, built from a second application.
+#
+# Regression guard for every output the pair would otherwise share: each app's
+# runner compiles into its own Swift module, and each App.framework is written
+# under its own target's directory. Either one hardcoded would make both apps
+# write one path and fail the build with conflicting actions.
+#
+# The second `flutter_application` is what gives the guard its teeth, and costs
+# the second Dart compile it looks like it costs. Pointing both apps at one
+# application gives the two App.frameworks identical inputs, so their actions
+# are identical, and Bazel shares identical actions instead of reporting a
+# conflict — which is exactly how this defect survived here until 2026-09.
+# Differing only in `minimum_os_version` does not work either: that attribute
+# is part of the configuration, so it separates the two into different output
+# directories where nothing can collide.
+flutter_application(
+    name = "app_flutter_second",
+    package_name = "ios_example_second",
+    main = "lib/main.dart",
+    min_os_version = IOS_MINIMUM_OS_VERSION,
+    deps = [
+        "@deps//:flutter",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
 flutter_ios_app(
     name = "app_second",
-    application = ":app_flutter",
+    application = ":app_flutter_second",
     bundle_id = "com.rulesflutter.ios.example.second",
 )
 

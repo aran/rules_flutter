@@ -2,9 +2,9 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:flutter_macos_application.bzl", "flutter_macos_framework", "flutter_macos_native_libs")
 load("//flutter/private:validation.bzl", "is_valid_bundle_id", "minimum_os_version_is_below")
+load(":apple_bundling.bzl", "fake_application", "outputs_under_target_dir_test")
 
 def _valid_bundle_id_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -92,46 +92,6 @@ _t3_test = unittest.make(_minimum_os_version_floor_test_impl)
 # and the native-library staging are each a directory at the package root,
 # named after its target so that two apps in one package cannot both declare
 # it, with the layout the bundle needs inside it.
-
-def _fake_application_impl(ctx):
-    """A release `FlutterApplicationInfo` with placeholder files and no Dart.
-
-    Every file is declared under this target's name, so fakes in one package
-    never share an output. A path named in both `native_libs` and
-    `code_assets` is one File, the shape of one library arriving by both routes.
-    """
-    libs = {}
-    for path in ctx.attr.native_libs + ctx.attr.code_assets:
-        if path not in libs:
-            lib = ctx.actions.declare_file("%s/%s" % (ctx.label.name, path))
-            ctx.actions.write(lib, "%s %s" % (ctx.label, path))
-            libs[path] = lib
-
-    aot_output = ctx.actions.declare_file(ctx.label.name + "/app.so")
-    ctx.actions.write(aot_output, str(ctx.label))
-    flutter_assets = ctx.actions.declare_directory(ctx.label.name + "/flutter_assets")
-    ctx.actions.run_shell(
-        command = 'touch "$1/AssetManifest.bin"',
-        arguments = [flutter_assets.path],
-        outputs = [flutter_assets],
-    )
-
-    return [FlutterApplicationInfo(
-        aot_output = aot_output,
-        kernel_dill = None,
-        is_debug = False,
-        flutter_assets = flutter_assets,
-        native_libs = [libs[path] for path in ctx.attr.native_libs],
-        bundled_code_assets = depset([libs[path] for path in ctx.attr.code_assets]),
-    )]
-
-_fake_application = rule(
-    implementation = _fake_application_impl,
-    attrs = {
-        "code_assets": attr.string_list(),
-        "native_libs": attr.string_list(),
-    },
-)
 
 def _native_libs_staged_test_impl(ctx):
     """Every library is copied to its basename in one package-root directory."""
@@ -221,7 +181,7 @@ def _bundling_tests(name):
       The test target names.
     """
     staged_app = name + "_fake_app"
-    _fake_application(
+    fake_application(
         name = staged_app,
         # `libadd` arrives by both routes. `libsub` is the case the staging
         # exists for: a library that is not at the root of its package.
@@ -242,7 +202,7 @@ def _bundling_tests(name):
         expected_basenames = ["libadd.dylib", "libsub.dylib", "libasset.dylib"],
     )
 
-    _fake_application(
+    fake_application(
         name = name + "_fake_app_empty",
         tags = ["manual"],
     )
@@ -257,7 +217,7 @@ def _bundling_tests(name):
     )
 
     # Two different libraries that would both be Contents/Frameworks/libdup.dylib.
-    _fake_application(
+    fake_application(
         name = name + "_fake_app_duplicate",
         native_libs = ["one/libdup.dylib"],
         code_assets = ["two/libdup.dylib"],
@@ -282,7 +242,7 @@ def _bundling_tests(name):
     # first, any output the two declare under one name conflicts in analysis —
     # which a pair built from the *same* application hides, because identical
     # actions are shared.
-    _fake_application(
+    fake_application(
         name = name + "_fake_app_other",
         native_libs = ["libadd.dylib"],
         tags = ["manual"],
@@ -293,6 +253,10 @@ def _bundling_tests(name):
             application = app,
             tags = ["manual"],
         )
+    outputs_under_target_dir_test(
+        name = name + "_framework_outputs_under_target_dir",
+        target_under_test = staged_app + "_framework",
+    )
     flutter_macos_native_libs(
         name = name + "_native_libs_other",
         application = name + "_fake_app_other",
@@ -309,6 +273,7 @@ def _bundling_tests(name):
     )
 
     return [
+        name + "_framework_outputs_under_target_dir",
         name + "_native_libs_staged",
         name + "_native_libs_nothing_to_bundle",
         name + "_native_libs_duplicate_basename_fails",

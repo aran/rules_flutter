@@ -105,9 +105,31 @@ def _flutter_ios_framework_impl(ctx):
     flutter_assets = app_info.flutter_assets
     minimum_os_version = ctx.attr.minimum_os_version
 
-    # Common: Info.plist and flutter_assets tree artifact.
-    framework_plist = ctx.actions.declare_file("App.framework/Info.plist")
-    framework_assets = ctx.actions.declare_directory("App.framework/flutter_assets")
+    # Every output under a directory named after this target. Without it two
+    # apps in one package would both declare `App.framework/Info.plist` and the
+    # build would fail with conflicting actions — the same defect
+    # `flutter_macos_framework` names its wrapper directory to avoid, and the
+    # shape `flutter_ios_native_frameworks` already uses for its plugin
+    # frameworks.
+    #
+    # The prefix does not reach the bundle: rules_apple groups framework
+    # imports by their deepest `.framework` ancestor and takes the framework's
+    # name from that directory's basename (`group_files_by_directory` in
+    # `apple_framework_import.bzl`), which is `App.framework` either way.
+    #
+    # The binary is declared here rather than once per branch below because
+    # every branch produces one; only the action that writes it differs.
+    framework_dir = "%s/App.framework" % ctx.label.name
+    framework_plist = ctx.actions.declare_file(framework_dir + "/Info.plist")
+    framework_assets = ctx.actions.declare_directory(framework_dir + "/flutter_assets")
+    framework_binary = ctx.actions.declare_file(framework_dir + "/App")
+
+    # Which iOS this binary is for, read from the platform constraints. Both
+    # branches tag their binary with it: gen_snapshot tags an AOT dylib as
+    # macOS (the host it ran on), and the debug stub is built by clang for
+    # whichever SDK this is.
+    is_device = apple_support.target_environment_from_rule_ctx(ctx) == "device"
+    vtool_platform = "ios" if is_device else "iossim"
 
     ctx.actions.write(framework_plist, _APP_FRAMEWORK_INFO_PLIST.format(
         minimum_os_version = minimum_os_version,
@@ -117,15 +139,7 @@ def _flutter_ios_framework_impl(ctx):
         # Release mode: AOT binary + flutter_assets.
         dylib = app_info.aot_output
 
-        # Detect device vs simulator via platform constraints.
-        is_device = apple_support.target_environment_from_rule_ctx(ctx) == "device"
-        vtool_platform = "ios" if is_device else "iossim"
-
-        framework_binary = ctx.actions.declare_file("App.framework/App")
-
-        # Copy the dylib and retag platform with vtool.
-        # gen_snapshot tags output as macOS (the host), but iOS needs the binary
-        # tagged as 'ios' (device) or 'iossim' (simulator) in LC_BUILD_VERSION.
+        # Copy the dylib and rewrite its LC_BUILD_VERSION with vtool.
         ctx.actions.run_shell(
             command = 'cp "$1" "$2" && xcrun vtool -set-build-version "$3" "$4" "$4" -replace -output "$2" "$2"',
             arguments = [dylib.path, framework_binary.path, vtool_platform, minimum_os_version],
@@ -150,10 +164,7 @@ def _flutter_ios_framework_impl(ctx):
         # Debug mode: stub binary + flutter_assets with kernel_blob.bin.
         kernel_dill = app_info.kernel_dill
 
-        is_device = apple_support.target_environment_from_rule_ctx(ctx) == "device"
         sdk = "iphoneos" if is_device else "iphonesimulator"
-        vtool_platform = "ios" if is_device else "iossim"
-        framework_binary = ctx.actions.declare_file("App.framework/App")
 
         # Create a stub dylib — rules_apple's framework processor requires a
         # binary file. bundle_only=True prevents linking so it's never loaded.
