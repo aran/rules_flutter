@@ -244,7 +244,7 @@ resolves, not the `^1.25.0` the pubspec asks for:
 
 | condition | exit | verdict |
 |---|---|---|
-| version solving fails (runner too old) | 65 | loud |
+| version solving fails (a dep cannot resolve) | 65 | loud |
 | nothing selected (`--tags` / `-n` match none) | 79 | loud |
 | **every selected test skipped** | **0** | **silent** |
 
@@ -299,23 +299,29 @@ rules_flutter is the main module (which it is here), and
 
 The unit tests are unaffected — Bazel resolves the toolchain for them.
 
-**A too-old Dart does not exit 0.** `dart test` exits **65** on a
-version-solving failure. What loses that 65 is the *consumer*: a shell reports the tail of a
-pipeline, so `dart test … | tee log` or `| head` leaves `$?` at 0 with
-`PIPESTATUS` at `65 0`. A reader who judges by what scrolled past sees no
-failing test names and calls it green.
-
-`tool/e2e.dart` removes both halves. It checks its own `Platform.version` before
-spawning anything, so the diagnosis is one sentence naming the wrong `dart`:
+**A too-old Dart never reaches the runner.** `tools/dev_tool`'s
+`pubspec.yaml` requires `sdk: ^3.12.0`, so an older SDK refuses to compile any
+library in the package — including the runner itself — and says so before
+`main` runs:
 
 ```
 $ PATH="/path/to/an/old/sdk/bin:$PATH" dart run tools/dev_tool/tool/e2e.dart
-e2e: this suite needs Dart 3.12 or newer, and you are on 3.11.4.
-  the dart that would have run it: …/dart-sdk/bin/dart
+tool/e2e.dart:1:1: Error: The language version 3.12 specified for the package
+'flutter_bazel_dev_tool' is too high. The highest supported language version
+is 3.11.
 ```
 
-and it runs the suite on `Platform.resolvedExecutable`, so `PATH` is never
-consulted for the run itself and cannot disagree with what was checked.
+It exits **254** — loud, so no pipeline or sweep script can read it as a pass
+— but it names the package rather than the fix. If you see it, the fix is the
+`export PATH=…` above. `tool/e2e.dart` used to check `Platform.version` itself
+and print a sentence naming the wrong `dart`; that check became unreachable
+when `pubspec.yaml` was tightened from `^3.0.0` to `^3.12.0`, and was removed
+rather than left promising a message nobody could see. Getting it back means
+moving the runner out of the package, which nothing has needed yet.
+
+The runner still spawns the suite on `Platform.resolvedExecutable`, so `PATH`
+is never consulted for the run itself and cannot disagree with the `dart` named
+in its first line of output.
 
 ### The suite drives the shipped binary
 

@@ -17,7 +17,7 @@
 ///
 /// | condition                                     | exit | verdict    |
 /// |---|---|---|
-/// | version solving fails (runner too old)        | 65   | loud       |
+/// | version solving fails (a dep cannot resolve)  | 65   | loud       |
 /// | nothing selected (`--tags`/`-n` match none)   | 79   | loud       |
 /// | **every selected test skipped**               | **0**| **silent** |
 ///
@@ -35,31 +35,45 @@
 /// It also removes the reason the exit code gets lost in the first place. The
 /// documented recipes are long pipelines (`caffeinate -d dart test … | tee`),
 /// and a shell reports the *tail* of a pipeline: `dart test … | head -3` after
-/// a version-solving failure leaves `$?` at 0 with `PIPESTATUS` at `65 0`. A
-/// reader who judges by what scrolled past sees no failing test names and calls
-/// it green. Here the verdict is the last thing printed, in words.
+/// either loud failure leaves `$?` at 0 with `PIPESTATUS` at `65 0`. A reader
+/// who judges by what scrolled past sees no failing test names and calls it
+/// green. Here the verdict is the last thing printed, in words.
 ///
-/// ## Why it also asserts its own version
+/// ## Too old a `dart` never reaches this script
 ///
 /// The suite is executed by whatever `dart` invoked this script, and that is
-/// not a property of this repo. `tools/dev_tool` depends on `dwds`, which needs
-/// SDK >= 3.12, so an older `dart` cannot run the suite at all. Checking
-/// [Platform.version] up front turns that into one sentence naming the wrong
-/// `dart` and the fix, instead of `package:test`'s version-solving wall.
+/// not a property of this repo. `tools/dev_tool` depends on `dwds`, so
+/// `pubspec.yaml` requires `sdk: ^3.12.0`, and an older SDK refuses to compile
+/// *any* library in the package:
 ///
-/// The suite then runs on [Platform.resolvedExecutable] — this very VM — so the
-/// version that was checked is necessarily the version that runs. `PATH` is
-/// never consulted, so it cannot disagree.
+/// ```
+/// tool/e2e.dart:1:1: Error: The language version 3.12 specified for the
+/// package 'flutter_bazel_dev_tool' is too high. The highest supported
+/// language version is 3.11.
+/// ```
+///
+/// It exits **254**, so it is loud by this file's own standard: no sweep
+/// script, CI job or agent can read it as a pass. What it does not name is the
+/// fix — see `docs/TESTING.md` for the `export PATH=…` that supplies a new
+/// enough `dart`.
+///
+/// That is the whole guard, and it fires before `main` runs. This script used
+/// to check [Platform.version] against the same floor itself, to name the wrong
+/// `dart` and the fix rather than let `package:test` hit a version-solving
+/// wall. The check could not fire once `pubspec.yaml` was tightened from
+/// `^3.0.0` to `^3.12.0` — an SDK below the floor now fails to parse the
+/// package, and one above it passes the check — so it was dead code promising
+/// a message nobody could see, and it is gone. Restoring it would mean moving
+/// this script out of the package so an old SDK can still parse it.
+///
+/// The suite runs on [Platform.resolvedExecutable] — this very VM, the one that
+/// got far enough to run this — so `PATH` is never consulted for the run and
+/// cannot disagree with what is reported in the banner below.
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
-/// The floor `dwds` imposes on the whole package. Read off `pubspec.lock`'s
-/// `dart: ">=3.12.0-307.0.dev <4.0.0"`, which is where the real constraint
-/// lives — `pubspec.yaml` only says `^3.0.0`.
-const _minRunnerVersion = (major: 3, minor: 12);
 
 /// The path used when the caller names none.
 const _defaultPath = 'test/e2e/';
@@ -70,23 +84,6 @@ const _defaultPath = 'test/e2e/';
 const _alwaysArgs = ['--tags=e2e', '--concurrency=1'];
 
 Future<void> main(List<String> args) async {
-  final runner = _RunnerVersion.current();
-  if (!runner.meetsFloor) {
-    _fail(
-      'this suite needs Dart ${_minRunnerVersion.major}.'
-      '${_minRunnerVersion.minor} or newer, and you are on $runner.\n'
-      '  the dart that would have run it: ${Platform.resolvedExecutable}\n'
-      '\n'
-      'tools/dev_tool depends on dwds, which requires SDK >= 3.12, so the '
-      'suite cannot run on this VM at all — `dart test` would have failed '
-      'version solving before loading a single file. Put the pinned Flutter '
-      "toolchain's dart first:\n"
-      '\n'
-      '  export PATH="\$(ls -d "\$(bazel info output_base)"'
-      '/external/*flutter+flutter_*/dart-sdk/bin | head -1):\$PATH"',
-    );
-  }
-
   final packageDir = _packageDir();
   // Forwarded verbatim and in order — splitting flags from positionals would
   // tear `--plain-name occluded` in half, since the value carries no leading
@@ -101,6 +98,9 @@ Future<void> main(List<String> args) async {
     ...args,
   ];
 
+  // `Platform.version` is `<semver> (<channel>) (<date>) on "<os>"`; the
+  // banner wants the semver.
+  final runner = Platform.version.split(' ').first;
   stderr.writeln('e2e: ${Platform.resolvedExecutable} ($runner)');
   stderr.writeln('e2e: ${packageDir.path}\$ dart ${testArgs.join(' ')}');
 
@@ -362,36 +362,6 @@ class Outcome {
     final why = diagnosis;
     if (why != null) _fail(why);
   }
-}
-
-/// The version of the VM executing this script.
-class _RunnerVersion {
-  final int major;
-  final int minor;
-  final String raw;
-
-  _RunnerVersion(this.major, this.minor, this.raw);
-
-  /// [Platform.version] is `<semver> (<channel>) (<date>) on "<os>"`.
-  factory _RunnerVersion.current() {
-    final raw = Platform.version;
-    final match = RegExp(r'^(\d+)\.(\d+)').firstMatch(raw);
-    if (match == null) {
-      _fail('could not read a version out of Platform.version: "$raw".');
-    }
-    return _RunnerVersion(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      raw,
-    );
-  }
-
-  bool get meetsFloor =>
-      major > _minRunnerVersion.major ||
-      (major == _minRunnerVersion.major && minor >= _minRunnerVersion.minor);
-
-  @override
-  String toString() => raw.split(' ').first;
 }
 
 Never _fail(String message) {
