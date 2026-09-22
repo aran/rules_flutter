@@ -22,6 +22,7 @@
 
 module(
     name = "rules_flutter",
+    bazel_compatibility = [">=9.0.0"],
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
@@ -46,8 +47,7 @@ bazel_dep(name = "bazel_lib", version = "3.7.1")
 
 bazel_dep(name = "rules_multitool", version = "1.11.1", dev_dependency = True)
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.4", dev_dependency = True)
-
-bazel_dep(name = "bazelrc-preset.bzl", version = "1.9.2")
+bazel_dep(name = "bazelrc-preset.bzl", version = "1.9.2", dev_dependency = True)
 
 # Register the apple_cc CC toolchain explicitly so rules_swift's
 # xcode_swift_toolchain resolves to a CC toolchain with a valid apple target
@@ -155,7 +155,9 @@ flutter.pub(
 )
 use_repo(flutter, "gen_l10n_deps")
 
-# Python toolchain + pymobiledevice3 for iOS device screenshots.
+# Python toolchain + pymobiledevice3 for iOS device screenshots and the
+# device tunnel. Not dev dependencies: the `flutter_bazel` dev tool that
+# consumers run bundles `//tools/ios_screenshot` as runfiles.
 python = use_extension(
     "@rules_python//python/extensions:python.bzl",
     "python",
@@ -169,19 +171,12 @@ pip = use_extension(
 )
 
 # pymobiledevice3 talks to iOS devices over USB/network from any host, so the
-# screenshot tooling targets every platform; the Windows desktop-capture tooling
-# below is Windows-only. target_platforms controls which platforms' wheels are
-# selectable (see the rules_python pip.parse docs).
+# screenshot tooling targets every platform. target_platforms controls which
+# platforms' wheels are selectable (see the rules_python pip.parse docs).
 #
-# NOTE: the recorded lock facts are still host-specific, but not because of
-# these two hubs — the explicit target_platforms below make their contribution
-# identical everywhere. It is rules_python's own `pip.parse` for
-# `rules_python_publish_deps`, which passes no target_platforms and so resolves
-# against the host. MODULE.bazel.lock is therefore generated on Linux to match
-# CI's runner (ubuntu-latest), `.bazelrc` relaxes `--lockfile_mode` on the hosts
-# that cannot match it, and `//tools/pip_lock_guard:pip_facts_test` checks the
-# recording on every host. See the .bazelrc comment for the full mechanism.
-# Published consumers don't inherit this lock.
+# The lock's pip facts are host-independent under rules_python 2.3.2, and
+# `//tools/pip_lock_guard:pip_facts_test` re-derives them on every host. See the
+# .bazelrc comment. Published consumers don't inherit this lock.
 _IOS_PLATFORMS = [
     "linux_aarch64",
     "linux_x86_64",

@@ -1,12 +1,5 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
-# `//tools/pip_lock_guard:pip_facts_test` re-derives MODULE.bazel.lock's pip
-# facts from this file, so it reads it as data rather than trusting the lock.
-exports_files(
-    ["requirements_lock.txt"],
-    visibility = ["//tools/pip_lock_guard:__pkg__"],
-)
-
 # DXGI desktop capture, native rather than a `py_binary`.
 #
 # A Python version needs dxcam, opencv, Pillow and numpy, which means it needs
