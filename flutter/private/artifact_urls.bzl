@@ -36,7 +36,7 @@ def flutter_source_tarball_url(flutter_version):
     mismatch is a loud, intended failure rather than something to work around.
 
     Args:
-        flutter_version: Flutter release tag (e.g. "3.47.2").
+        flutter_version: Flutter release tag (e.g. "3.47.5").
 
     Returns:
         The full HTTPS URL of the source tarball. Extracting it yields a

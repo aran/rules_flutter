@@ -15,7 +15,7 @@ load("@rules_dart//dart/pub:pub_lock_package.bzl", "derive_language_version")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_deps", "parse_pubspec_sdk_constraint")
 load("//flutter/private:flutter_sdk_package.bzl", "make_flutter_sdk_build_content")
 
-# Verbatim `packages/flutter/pubspec.yaml` from the pinned Flutter 3.47.2.
+# Verbatim `packages/flutter/pubspec.yaml` from the pinned Flutter 3.47.5.
 # Kept whole rather than trimmed to a minimal case: the shapes that break a
 # line-based parser are all here — comments *inside* the dependency block, a
 # nested `sky_engine: {sdk: flutter}` entry, and a `dev_dependencies:` section

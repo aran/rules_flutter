@@ -32,7 +32,7 @@ If `flutter build` works for you, here is what Bazel adds:
 
 | Platform | What you need |
 |---|---|
-| All | Bazel 9 or newer. The rules download Flutter 3.47.2 themselves. |
+| All | Bazel 9 or newer. The rules download Flutter 3.47.5 themselves. |
 | macOS | Xcode, for `rules_apple` and `rules_swift`. |
 | iOS | Xcode. The simulator needs no signing identity. A physical device does; see [Running on an iOS device](#running-on-an-ios-device). |
 | Android | The Android SDK and NDK, with `ANDROID_HOME` and `ANDROID_NDK_HOME` set. See [Android](#android). |
@@ -46,7 +46,7 @@ If `flutter build` works for you, here is what Bazel adds:
 bazel_dep(name = "rules_flutter", version = "<latest from registry.bazel.build/modules/rules_flutter>")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.47.2")
+flutter.toolchain(flutter_version = "3.47.5")
 flutter.pub(
     name = "deps",
     lock = "//:pubspec.lock",
@@ -1208,7 +1208,7 @@ sdk = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
 
 | Field | Type | Description |
 |---|---|---|
-| `version` | `str` | The Flutter SDK version, for example `"3.47.2"`. |
+| `version` | `str` | The Flutter SDK version, for example `"3.47.5"`. |
 | `engine_revision` | `str` | The engine commit hash. |
 | `dart` | `File` | The `dart` executable from the bundled Dart SDK. |
 | `dartaotruntime` | `File` | The runtime for AOT snapshots. |

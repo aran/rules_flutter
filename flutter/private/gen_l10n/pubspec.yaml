@@ -9,7 +9,7 @@ description: >-
   the same split — flutter_tools depends on `intl` to generate, and the app
   depends on `intl` to run.
 
-  Pins match flutter_tools 3.47.2 exactly. Bumping the Flutter version means
+  Pins match flutter_tools 3.47.5 exactly. Bumping the Flutter version means
   re-checking them against that release's `packages/flutter_tools/pubspec.yaml`.
 publish_to: none
 

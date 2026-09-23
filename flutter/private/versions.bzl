@@ -55,6 +55,11 @@ FLUTTER_VERSIONS = {
         material_fonts_url = "flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
         source_sha256 = "b7399d4310fa0dcdf468f6c80955271a97ea72b167e25b8fa994e22850e33ada",
     ),
+    "3.47.5": struct(
+        engine_revision = "af7e796e161ae0bb1ff0758c71a7105418bd9ded",
+        material_fonts_url = "flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
+        source_sha256 = "74ce8acd5d374704bcfb89dc667298053423e86eac7c00075663428f41913139",
+    ),
 }
 
 def flutter_source_sha256(flutter_version):
@@ -67,7 +72,7 @@ def flutter_source_sha256(flutter_version):
     that uses a Flutter SDK package, which is nearly all of them.
 
     Args:
-        flutter_version: Flutter release tag (e.g. "3.47.2"). Must be a key of
+        flutter_version: Flutter release tag (e.g. "3.47.5"). Must be a key of
             FLUTTER_VERSIONS.
 
     Returns:
@@ -361,6 +366,51 @@ ARTIFACT_CHECKSUMS = {
         "ios/artifacts.zip": "049f9b7fa1809700dedfe1eb8909bfdbf9494cd0f4c5e380eff56afa7d6f93b3",
         # C++ client wrapper (Windows — flutter/plugin_registry.h)
         "windows-x64/flutter-cpp-client-wrapper.zip": "aaa3355ffaaf2a8f6e9eacc04ee0c8b6e1363ea75b0b52532deeebdbe42817e5",
+        # Material design fonts (MaterialIcons-Regular.otf, Roboto family)
+        "material_fonts.zip": "e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86",
+    },
+    "3.47.5": {
+        # Patched Dart SDK for Flutter (debug + product)
+        "flutter_patched_sdk.zip": "36563022daedd6cc6b60f36e73a3f9fd52c7a6c1abe842a037ba5c88f91905d0",
+        "flutter_patched_sdk_product.zip": "327401d6abaf81700d3a0c582c4dc16933d31560bc79910e4a06962e4b378671",
+        # Dart SDK sources for the analyzer (dart:ui and friends, via lib/_embedder.yaml)
+        "sky_engine.zip": "bc3d87faf5cb65d1cd5dbc735d51883ef0cb8074a22180bd8cb40dd784fc42b5",
+        # Host Dart SDK (the Flutter-bundled Dart SDK per host platform)
+        "dart-sdk-darwin-arm64.zip": "a1cd3836851d59a65f3c03400b27837d47537c5ff2473fe8e600bdb49c6e828e",
+        "dart-sdk-darwin-x64.zip": "b9ac3373b7bb1b9cd3818a36ef5e0817020f9efba585089cf433cd096a3a1c1d",
+        "dart-sdk-linux-x64.zip": "fe8dac5ad2d90d4bc6d285a3abbcc0e8bc07faee1bb3d4001d588c065e5441c1",
+        "dart-sdk-linux-arm64.zip": "e105fd0eeee0321ad946a5c7d8b670ab067dbe9ee4c7efc002394e7d1da3b303",
+        "dart-sdk-windows-x64.zip": "0f2fd071d69703f2f72db4acf60a889a800c3cc22025e2d373ea5704e00cb4ca",
+        # Host tools (frontend_server, gen_snapshot, icudtl.dat)
+        "darwin-arm64/artifacts.zip": "e2198581a6dfec588932caa4e77d57cd431884307f6ff620d5fe429658a253dd",
+        "darwin-x64/artifacts.zip": "3ff627a2ad3ae65d831dd745425240fd9ff11e284b023793b98361cb7f3a196e",
+        "linux-x64/artifacts.zip": "b2e6e1e6b95866297b77580d04dbebcd45863585ad9f484108101c7c2f427a4a",
+        "linux-arm64/artifacts.zip": "bff980b039963e7fc0b0876703ca007eb6991aeadd5abc95507cdfc4bf915520",
+        "windows-x64/artifacts.zip": "759b5f930962c5c78e7a02ed2157bbe42c88852020b1ee72eb44bde24cb07ca3",
+        # Release host tools (macOS only — product-mode gen_snapshot for AOT builds)
+        "darwin-arm64-release/artifacts.zip": "b2f65e43c06115cf49394b34bcaa267c77d716385b8bd466747f8b633aeed0e5",
+        "darwin-x64-release/artifacts.zip": "d1b7a03d0503c09e452e9892eacfbc5cb089f904e2e8dd26433a78c39437f910",
+        # Font-subset tools (const_finder + font-subset binary for icon tree shaking)
+        "darwin-arm64/font-subset.zip": "db8c29228df6bf001207fce07d4be84149c77a8b2050bb16292680ea8227d0c3",
+        "darwin-x64/font-subset.zip": "63325f91e2f5131938c7d9293a0e940571ec76f4d0f8563093b4593dd4edc6ea",
+        "linux-x64/font-subset.zip": "9b4a1d1b75229d3d788cfbb8edbb42d9616d4ee459de29419c732e8a0327e604",
+        "linux-arm64/font-subset.zip": "d4fd81282c9526eec22552f9f2b243dd65e7f514cba5604bd1fa6cdf4fed1c8a",
+        "windows-x64/font-subset.zip": "18378a60c2b5d0d2b02cb668f7b25037ea9225ea4fc4008306750b24c01a110e",
+        # Flutter web SDK
+        "flutter-web-sdk.zip": "08a83e0d115a9c72ae57355e470a8df149d8862ab95c3d111683e91a5acefc73",
+        # Desktop engine runtime libraries (release mode)
+        "darwin-x64-release/FlutterMacOS.framework.zip": "ba47b10ff58c7dbf20550471ee1e7e2bfb60f8bfdbce77b9d41db03b66933bed",
+        "linux-x64-release/linux-x64-flutter-gtk.zip": "5a6d8366cee62f088cce88d0ca88cb784149667749d94917cce0b5d19b5b5a12",
+        "windows-x64-release/windows-x64-flutter.zip": "6bb419a7641d7030557dab9baa207779f7cb267fd5245a5ec4e4f1cb58c3df88",
+        # Desktop engine runtime libraries (debug mode — JIT, needed for -c dbg)
+        "darwin-x64/FlutterMacOS.framework.zip": "db875bd28b9005242d72a4d4371002f7f5348a741dc1bb33d406a8cb49f58380",
+        "linux-x64-debug/linux-x64-flutter-gtk.zip": "2d292648be8ddad16c3d040798b616e403715dcd38388d7ebcea5513ee4f080a",
+        "windows-x64-debug/windows-x64-flutter.zip": "014af1a13f8b9bf8fbba396d491b9b9a71ea05086afde70db9fcca2faaa300de",
+        # iOS engine (Flutter.xcframework — release for device, debug for simulator)
+        "ios-release/artifacts.zip": "d2f31932154b7fa5153ee17e7be3f82d8b09ea04d5cffc902a01f93b2b5dccde",
+        "ios/artifacts.zip": "121d2056bb0fb1d8157ea68cdb423e4eeaa3b43cc0601ee584aac96039cc8685",
+        # C++ client wrapper (Windows — flutter/plugin_registry.h)
+        "windows-x64/flutter-cpp-client-wrapper.zip": "340bcde89e11d0b8fe7e3433295f8c540436e8485f3864b7c24e39cd5bf52485",
         # Material design fonts (MaterialIcons-Regular.otf, Roboto family)
         "material_fonts.zip": "e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86",
     },
