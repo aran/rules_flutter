@@ -12,6 +12,7 @@ py_binary(
     name = "screenshot",
     srcs = ["screenshot.py"],
     main = "screenshot.py",
+    python_version = "3.13",
     visibility = ["//tools/dev_tool:__pkg__"],
     deps = [requirement("pymobiledevice3")],
 )
@@ -20,6 +21,7 @@ py_binary(
     name = "tunneld",
     srcs = ["tunneld.py"],
     main = "tunneld.py",
+    python_version = "3.13",
     visibility = ["//tools/dev_tool:__pkg__"],
     deps = [requirement("pymobiledevice3")],
 )

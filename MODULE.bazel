@@ -158,11 +158,15 @@ use_repo(flutter, "gen_l10n_deps")
 # Python toolchain + pymobiledevice3 for iOS device screenshots and the
 # device tunnel. Not dev dependencies: the `flutter_bazel` dev tool that
 # consumers run bundles `//tools/ios_screenshot` as runfiles.
+#
+# One version, pinned on the binaries themselves (`python_version` in
+# //tools/ios_screenshot). Only a root module can choose the default Python, so
+# without the pin the helpers would build with whatever default the consumer
+# has, and this hub has wheels for 3.13 only.
 python = use_extension(
     "@rules_python//python/extensions:python.bzl",
     "python",
 )
-python.toolchain(python_version = "3.11")
 python.toolchain(python_version = "3.13")
 
 pip = use_extension(
@@ -185,12 +189,6 @@ _IOS_PLATFORMS = [
     "windows_x86_64",
 ]
 
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.11",
-    requirements_lock = "//tools/ios_screenshot:requirements_lock.txt",
-    target_platforms = _IOS_PLATFORMS,
-)
 pip.parse(
     hub_name = "pip",
     python_version = "3.13",

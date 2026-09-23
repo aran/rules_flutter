@@ -95,13 +95,13 @@ const Set<String> _knownRequirementsLabels = {
   '//tools/ios_screenshot:requirements_lock.txt',
 };
 
-/// How many `pip.parse` calls MODULE.bazel makes: one hub x two Python
-/// versions. Counted as well as matched by label because `pip.parse` can name
+/// How many `pip.parse` calls MODULE.bazel makes: one hub for one Python
+/// version. Counted as well as matched by label because `pip.parse` can name
 /// its requirements through `requirements_by_platform` or the per-OS
 /// `requirements_linux`/`_darwin`/`_windows` attributes, none of which the
 /// label scan above would see — a hub declared that way would otherwise slip
 /// past this guard entirely.
-const int _expectedPipParseCount = 2;
+const int _expectedPipParseCount = 1;
 
 /// The pip extension's id in the lock's `facts` map, minus the canonical repo
 /// name prefix that varies with how rules_python is resolved.
