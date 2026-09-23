@@ -10,6 +10,12 @@ Usage:
 import os
 import sys
 
+# Run as root from inside a Bazel runfiles tree, cached bytecode would land
+# there owned by root, and Bazel could no longer rebuild that tree. The dev
+# tool's ios-tunnel also sets PYTHONDONTWRITEBYTECODE, which covers the
+# interpreter's own startup; this covers a direct `sudo` run of this binary.
+sys.dont_write_bytecode = True
+
 
 def main():
     if os.getuid() != 0:

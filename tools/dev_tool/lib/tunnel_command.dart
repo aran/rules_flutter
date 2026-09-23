@@ -44,6 +44,13 @@ Future<Never> executeTunnelCommand() async {
 
   // Start the long-running daemon, forwarding all I/O.
   // The py_binary needs RUNFILES_MANIFEST_FILE to find its venv.
+  //
+  // PYTHONDONTWRITEBYTECODE for the same reason as the `sudo bazel run`
+  // warning above: running as root, Python would write its `__pycache__`
+  // directories into the runfiles tree, inside the output base, owned by
+  // root. Bazel then cannot rearrange that tree, and a later build that moves
+  // a Python package fails with "Error creating runfiles ... Operation not
+  // permitted" until someone deletes them with sudo.
   final process = await Process.start(
     resolved.path,
     [],
@@ -51,6 +58,7 @@ Future<Never> executeTunnelCommand() async {
     environment: {
       if (resolved.manifestPath != null)
         'RUNFILES_MANIFEST_FILE': resolved.manifestPath!,
+      'PYTHONDONTWRITEBYTECODE': '1',
     },
   );
 
