@@ -48,11 +48,11 @@ const String _runfilesSourceRepository = String.fromEnvironment(
 ///    on every call and found nothing once it had moved: "Could not find
 ///    bundled macOS screenshot tool".
 ///
-/// Both are read here once and kept. The runfiles resolver keeps working
-/// after a move because it resolves through the runfiles manifest, whose
-/// entries are real paths. A runfiles tree without a manifest
-/// (`--nobuild_runfile_manifests`) resolves through the directory beside the
-/// launch path, and so still breaks when that path moves.
+/// Both are read here once and kept. Each has to be found before the move,
+/// because finding it goes through the launch path; once found, each is held
+/// by its real path, so it keeps working after the move: the runfiles
+/// directory by `Runfiles.create` itself, the manifest by
+/// [_activeManifestPath].
 void pinProcessLocation() {
   Platform.resolvedExecutable.length;
   _runfiles;
@@ -149,7 +149,12 @@ String? _activeManifestPath() {
     '$exe.runfiles_manifest',
     '$exe.exe.runfiles_manifest',
   ]) {
-    if (File(candidate).existsSync()) return candidate;
+    // Resolved for the same reason `Runfiles.create` resolves the runfiles
+    // directory: the probe went through the launch path, which can move, and
+    // this path is forwarded to helpers that read it later.
+    if (File(candidate).existsSync()) {
+      return File(candidate).resolveSymbolicLinksSync();
+    }
   }
   return null;
 }
