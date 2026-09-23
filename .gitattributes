@@ -10,6 +10,7 @@
 # adding it here — the whole tree is 12MB against a 1.2MB archive, so the
 # exclusions are what keep the download small.
 /.bcr/ export-ignore
+/.claude/ export-ignore
 /.devcontainer/ export-ignore
 /.github/ export-ignore
 /.gitattributes export-ignore
@@ -30,6 +31,7 @@
 /e2e/android_example/ export-ignore
 /e2e/codegen/ export-ignore
 /e2e/cross_compile_example/ export-ignore
+/e2e/dual_hub/ export-ignore
 /e2e/ffi_example/ export-ignore
 /e2e/ffi_plugin_example/ export-ignore
 /e2e/hello_world/ export-ignore
