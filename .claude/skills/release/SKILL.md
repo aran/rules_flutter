@@ -17,11 +17,13 @@ power through failures, and never file a failure as flaky without evidence.
 
 - **Signed, always.** Commits and the release tag are signed. Commit signing uses the
   automation key from `~/.claude/settings.json`, which does not need 1Password; tag with
-  `git tag -s`. Never pass `--no-gpg-sign` or push anything unsigned.
+  `git tag -s`. Never pass `--no-gpg-sign` or push anything unsigned. The rule covers
+  tags pushed by hand. Tags the daily `tag.yaml` workflow cuts (Phase 4) are exempt: the
+  GitHub Actions account that pushes them has no signing key.
 - **Pushing is separate from signing.** `git push` over SSH authenticates through the
-  1Password SSH agent, which can stop answering mid-session (`communication with agent
-failed`). The objects are already signed, so pushing over HTTPS with the `gh` login is
-  fine:
+  1Password SSH agent, which can stop answering mid-session with
+  `communication with agent failed`. The objects are already signed, so pushing over
+  HTTPS with the `gh` login is fine:
   `git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/aran/rules_flutter.git <ref>`.
 - **Trunk-based.** Commit straight to `main`; no PRs on rules_flutter. The BCR PR is the
   publish mechanism.
@@ -119,10 +121,19 @@ bug to fix before tagging.
 
 ## Phase 4 — Tag and release
 
-1. **Check the auto-tagger.** `gh workflow list --all --repo aran/rules_flutter`. "Tag a
-   Release" (`tag.yaml`, a daily `smlx/ccv` cron) was `disabled_manually` on 2026-09-23.
-   If it is active, check it hasn't already tagged these commits:
-   `git fetch --tags && git tag --sort=-v:refname | grep '^v' | head -1`.
+1. **Know what the auto-tagger will do.** "Tag a Release" (`tag.yaml`) stays enabled by
+   the user's choice. Each day at 15:00 UTC it runs `smlx/ccv`, which tags and releases
+   unreleased `fix:`/`feat:` commits (never a major bump) once the latest `v*` tag is two
+   weeks old. That age is the **tagged commit's** date, not the tag's, so re-pointing a
+   tag at a newer commit resets it. Its tags are created by `github-actions` and are
+   **not signed**. A release that should carry a signed tag is tagged by hand, soon after
+   the push and before the next 15:00 UTC run once the latest tag's commit is two weeks
+   old. First check it hasn't already tagged these commits:
+   `git fetch --tags && git tag --sort=-v:refname | grep '^v' | head -1`. Every BCR PR it
+   opens is a draft that nobody marks ready, so look for one before starting (Phase 5,
+   step 1). While a version's BCR PR is still open, the cron can cut the next version
+   underneath it. Before pushing `fix:`/`feat:` commits, check when the latest tag's
+   commit turns two weeks old.
 2. **Tag signed, annotated**, on the commit CI just passed:
    ```sh
    git tag -s -m "rules_flutter $VERSION" $VERSION origin/main
