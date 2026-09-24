@@ -1,0 +1,48 @@
+# Changelog = the `Changelog:` trailers on commits between version tags.
+# Commits without one are not user-visible and do not appear.
+# Identical in rules_dart, rules_dart_proto, rules_flutter and frustrate;
+# change all four together. See CHANGELOG policy in each repo's AGENTS.md.
+
+[changelog]
+header = "# Changelog\n"
+body = """
+{%- if version %}## {{ version | trim_start_matches(pat="v") }}{% else %}## Unreleased{% endif %}
+{% set_global total = 0 -%}
+{%- for heading in ["Breaking", "Added", "Changed", "Fixed"] -%}
+  {%- set_global items = [] -%}
+  {%- for commit in commits -%}
+    {%- if commit.breaking %}{% set g = "Breaking" %}{% else %}{% set g = commit.group %}{% endif -%}
+    {%- if g == heading and commit.conventional -%}
+      {%- for footer in commit.footers | filter(attribute="token", value="Changelog") -%}
+        {%- if footer.value != "skip" -%}
+          {%- set_global items = items | concat(with=footer.value) -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if items | length > 0 %}
+### {{ heading }}
+{% for item in items %}
+- {{ item }}
+{%- endfor %}
+{% set n = items | length %}{% set_global total = total + n -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- if total == 0 %}
+No user-facing changes.
+{% endif %}
+"""
+footer = ""
+trim = false
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+protect_breaking_commits = true
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = ".*", group = "Changed" },
+]

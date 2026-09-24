@@ -99,6 +99,17 @@ git tag --sort=-v:refname | grep '^v' | head -1     # other tags exist, e.g. pre
 Default: next patch. Minor if the unreleased commits carry a significant feature. Major
 releases are never automatic. Propose it with the alternative and wait for a yes.
 
+Show the user the release notes with the proposal:
+
+```sh
+bazel run //tools/changelog -- --tag $VERSION
+```
+
+They are the `Changelog:` trailers since the last release (AGENTS.md § Changelog), and
+`release_prep.sh` puts the same text in the GitHub release. A user-visible change with no
+entry, or an entry that says how rather than what, is fixed before tagging with a commit
+that carries the missing trailers.
+
 ---
 
 ## Phase 3 — Push and watch CI

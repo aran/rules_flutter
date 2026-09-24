@@ -1,3 +1,5 @@
+@AGENTS.md
+
 ## Verification policy (MANDATORY)
 
 **Never claim work is done without full e2e verification.** `bazel test` / `build_test` passing is necessary but NOT sufficient. You must:

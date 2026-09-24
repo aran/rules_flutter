@@ -27,8 +27,22 @@ chmod +x .git/hooks/pre-commit
 pre-commit install
 ```
 
-This runs the full hook suite including prettier, commitizen, and file
-hygiene checks.
+This runs the full hook suite including prettier, the commit message check
+and file hygiene checks.
+
+## Commit messages
+
+Subjects follow [Conventional Commits](https://www.conventionalcommits.org/),
+and user-visible commits carry a `Changelog:` trailer; see
+[AGENTS.md](AGENTS.md#changelog). `pre-commit install` (Option B) installs the
+check as the `commit-msg` hook. To check a message by hand:
+
+```shell
+bazel run //tools/changelog:check -- <message-file>
+```
+
+`bazel run //tools/changelog` prints the release notes the unreleased commits
+would produce.
 
 ## Using this as a development dependency of other rules
 

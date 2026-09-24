@@ -21,3 +21,14 @@ Add to your \`MODULE.bazel\` file:
 bazel_dep(name = "rules_flutter", version = "${TAG:1}")
 \`\`\`
 EOF
+
+# The notes are the `Changelog:` trailers since the previous release (see
+# AGENTS.md). The release job checks out the tag alone, so fetch the history
+# back to that release first.
+if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+  git fetch --quiet --unshallow --tags origin
+fi
+echo
+bazel run --noshow_progress --ui_event_filters=-info \
+  @multitool//tools/git-cliff:workspace_root -- \
+  --config cliff.toml --current --strip header

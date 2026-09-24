@@ -1,5 +1,41 @@
 {
   "$schema": "https://raw.githubusercontent.com/theoremlp/rules_multitool/main/lockfile.schema.json",
+  "git-cliff": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-aarch64-apple-darwin.tar.gz",
+        "file": "./git-cliff-2.14.2/git-cliff",
+        "sha256": "a0be97e237d440d34c5e508ec21d070b2c85cbb8be48a46a56f9a4e8bd247f05",
+        "os": "macos",
+        "cpu": "arm64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-apple-darwin.tar.gz",
+        "file": "./git-cliff-2.14.2/git-cliff",
+        "sha256": "4e647d2deb152aca1e987f225cf42b080b991dd98f3bce4027ef95446d982ac3",
+        "os": "macos",
+        "cpu": "x86_64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-aarch64-unknown-linux-gnu.tar.gz",
+        "file": "./git-cliff-2.14.2/git-cliff",
+        "sha256": "69e208f6e4baef3a0f9b759d5f44223aa9336b86c691072a3d0c98d35a816e69",
+        "os": "linux",
+        "cpu": "arm64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-unknown-linux-gnu.tar.gz",
+        "file": "./git-cliff-2.14.2/git-cliff",
+        "sha256": "24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
   "typos": {
     "binaries": [
       {
