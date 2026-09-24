@@ -1378,6 +1378,11 @@ class VmServiceClient {
   /// about to be told to treat this directory as an asset bundle.
   static const _devFSAssetsDir = 'flutter_assets';
 
+  /// [_devFSAssetsDir] as a path on the device's filesystem.
+  String get _devFSAssetDirectory => _devFSBaseUri!
+      .resolve('$_devFSAssetsDir/')
+      .toFilePath(windows: devicePathsAreWindows);
+
   /// Whether the engine has already been pointed at the devFS asset directory.
   ///
   /// One `setAssetBundlePath` per devFS is enough — the directory does not
@@ -1460,14 +1465,14 @@ class VmServiceClient {
           step: 'making the app re-read the changed assets',
           run: () async {
             if (!_assetDirectorySent) {
-              final devFSAssets = _devFSBaseUri!
-                  .resolve('$_devFSAssetsDir/')
-                  .toFilePath(windows: devicePathsAreWindows);
               for (final view in views) {
                 await _service!.callMethod(
                   '_flutter.setAssetBundlePath',
                   isolateId: view.isolateId,
-                  args: {'viewId': view.id, 'assetDirectory': devFSAssets},
+                  args: {
+                    'viewId': view.id,
+                    'assetDirectory': _devFSAssetDirectory,
+                  },
                 );
               }
               _assetDirectorySent = true;
@@ -1866,6 +1871,13 @@ class VmServiceClient {
   ///
   /// The engine's runInView interacts with non-thread-safe dart APIs on the UI
   /// thread, so a paused isolate would block it — resume first.
+  ///
+  /// The new asset manager reads the devFS asset directory [reloadAssets]
+  /// uploads into, falling back to the bundle the app shipped with. Not
+  /// [assetDirectory]: that is on this machine, and a device, or a sandboxed
+  /// macOS app, cannot open it, so the engine would drop it and serve what
+  /// shipped. The directory does not exist until an asset has been uploaded,
+  /// and the engine skips it until then.
   Future<void> _restartView(
     ({String id, String? isolateId}) view,
     String mainUri,
@@ -1877,7 +1889,7 @@ class VmServiceClient {
       args: {
         'viewId': view.id,
         'mainScript': mainUri,
-        'assetDirectory': assetDirectory ?? '',
+        'assetDirectory': _devFSAssetDirectory,
       },
     );
     // runInView rotates the root isolate. Re-resolved here, before anything

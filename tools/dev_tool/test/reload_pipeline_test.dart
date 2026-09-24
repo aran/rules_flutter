@@ -697,7 +697,7 @@ void main() {
     );
 
     test(
-      'a targeted restart delivers asset evictions to the untargeted app',
+      'a targeted restart delivers changed assets to every app',
       () async {
         final h = await createTwoApps();
         addTearDown(h.dispose);
@@ -742,13 +742,13 @@ void main() {
         ).writeAsStringSync('version two');
         await h.restart({'appId': 'app1'});
 
-        // app1 re-reads the whole bundle as part of its restart; app2 does not
+        // app1 reads the delivered copy when it restarts; app2 does not
         // restart, so it must be told its cached copy is stale.
         expect(strategy.assetCalls, [
           {'assets/message.txt'},
         ]);
         expect(strategy.assetRecipients, [
-          ['app2'],
+          ['app1', 'app2'],
         ]);
       },
     );
@@ -1102,9 +1102,10 @@ void main() {
       },
     );
 
-    // A restart re-reads the whole bundle by construction, so delivering
-    // individual assets first is work the next step throws away.
-    test('a restart rebuilds the bundle but does not deliver assets', () async {
+    // The restarted app reads its changed assets from where the delivery
+    // uploads them; without it the restart would show what the app shipped
+    // with.
+    test('a restart rebuilds the bundle and delivers what changed', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);
       h.writeSource('main.dart', 'void main() {}');
@@ -1113,7 +1114,12 @@ void main() {
       h.pipeline
         ..assetTracker = await seedBundle(h.tmp, 'v1')
         ..strategy = strategy
-        ..rebuildAssets = () async => true;
+        ..rebuildAssets = () async {
+          File(
+            p.join(h.tmp.path, 'bundle', 'assets', 'message.txt'),
+          ).writeAsStringSync('version two');
+          return true;
+        };
       h.pipeline.ready.signalReady();
 
       File(
@@ -1121,7 +1127,9 @@ void main() {
       ).writeAsStringSync('version two');
       await h.restart();
 
-      expect(strategy.assetCalls, isEmpty);
+      expect(strategy.assetCalls, [
+        {'assets/message.txt'},
+      ]);
     });
 
     test(

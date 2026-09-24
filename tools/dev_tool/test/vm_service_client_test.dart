@@ -1894,6 +1894,26 @@ void main() {
       );
     });
 
+    // A restart builds a new asset manager from the directory runInView names.
+    // The build tree is on this machine, where a device or a sandboxed app
+    // cannot open it; naming it would drop every reloaded asset and serve what
+    // the app shipped with.
+    test('a restart reads assets from the devFS directory', () async {
+      final (client, fake) = await connected();
+      final dill = File(p.join(root.path, 'app.dill'))..writeAsStringSync('k');
+
+      await client.reloadAssets({'assets/logo.png'});
+      await client.hotRestart(dill.path);
+
+      final run = fake.methodCalls.firstWhere(
+        (c) => c.method == '_flutter.runInView',
+      );
+      expect(
+        run.args?['assetDirectory'],
+        p.join(devFSRoot, 'flutter_assets') + p.separator,
+      );
+    });
+
     test(
       'points the engine at the devFS directory, evicts, and reassembles',
       () async {

@@ -359,11 +359,10 @@ class ReloadPipeline {
   /// going live, but the user has to be told, or they are looking at a
   /// "successful" reload showing the old artwork.
   ///
-  /// [deliver] is false when the caller is about to restart. Every strategy
-  /// re-reads the whole bundle as part of a restart — native `runInView` takes
-  /// the asset directory as an argument, DWDS re-runs `main()`, the CDP paths
-  /// navigate — so the rebuild is all that is needed, and evicting individual
-  /// assets first would be work the next step throws away.
+  /// [deliver] is false for a web restart: the page re-fetches every asset
+  /// from the build tree when it reloads, so the rebuild is all it needs. A
+  /// native restart delivers, because the restarted app reads its changed
+  /// assets out of devFS.
   Future<AssetOutcome> _refreshAssets(
     List<DeviceSession> targets, {
     required bool deliver,
@@ -639,23 +638,18 @@ class ReloadPipeline {
       // reached: an unaddressed command names every app, and the set of apps
       // is not fixed for the life of a run.
       final addressed = [for (final t in targets) t.id];
-      // Rebuild the asset bundle before the restart re-reads it. The
-      // restarting apps need no delivery — `runInView` is handed the asset
-      // directory and rebuilds the engine's asset manager from it, fonts
-      // included. An app this restart leaves running is different: the
-      // rebuild has already changed the tree under it, its cache is stale
-      // either way, and the diff is committed below — so it is told what to
-      // evict now, or it would show the old artwork until its own restart.
-      final targetIds = {for (final t in targets) t.id};
+      // Rebuild the asset bundle and deliver what changed to every app, the
+      // restarting ones included. A restarted app's asset manager reads the
+      // devFS asset directory the delivery writes to (see
+      // [VmServiceClient.hotRestart]), not the build tree, which a device or
+      // a sandboxed app cannot open. An app this restart leaves running needs
+      // the delivery's evictions, or it shows the old artwork until its own
+      // restart.
       final orchestrated = {for (final app in orch.apps) app.id};
-      final untargeted = [
+      final assets = await _refreshAssets([
         for (final s in host.sessions)
-          if (orchestrated.contains(s.appId) && !targetIds.contains(s.appId)) s,
-      ];
-      final assets = await _refreshAssets(
-        untargeted,
-        deliver: untargeted.isNotEmpty,
-      );
+          if (orchestrated.contains(s.appId)) s,
+      ], deliver: true);
       if (assets.rebuildFailed != null) {
         return toWire(
           CommandReport(verb: 'Restart', appIds: addressed, assets: assets),
