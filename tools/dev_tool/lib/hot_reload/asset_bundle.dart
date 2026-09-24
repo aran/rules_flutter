@@ -132,7 +132,9 @@ class AssetTracker {
   /// which directories those are.
   Map<String, Map<String, int>> _sourceState;
 
-  /// [builtBefore] is when the build that produced this bundle started.
+  /// [builtBefore] is when the build that produced this bundle started, as
+  /// `fileClockNow` reads it: it is compared with mtimes, so it has to come
+  /// from the clock that sets them.
   ///
   /// A source file stamped after it is left out of the initial baseline, so
   /// the first reload sees it as stale. This tracker is constructed during
@@ -298,12 +300,12 @@ class AssetTracker {
 
   /// [when] with its sub-millisecond part dropped.
   ///
-  /// The cutoff is a `DateTime.now()`, which carries microseconds, and it is
-  /// compared against a `FileStat.modified`, whose resolution is whatever the
-  /// SDK and the filesystem happen to give. Where that is coarser than the
-  /// cutoff, a file written *after* the cutoff and inside the same tick carries
-  /// a stamp that reads as *before* it — a hole in the one guard against
-  /// baselining an edit the build never saw.
+  /// The cutoff carries microseconds, and it is compared against a
+  /// `FileStat.modified` whose resolution is whatever the filesystem holding
+  /// the source gives. Where that is coarser than the cutoff, a file written
+  /// *after* the cutoff and inside the same tick carries a stamp that reads as
+  /// *before* it — a hole in the one guard against baselining an edit the
+  /// build never saw.
   ///
   /// Flooring only ever errs toward treating a file as written after the build:
   /// that costs a rebuild whose diff is empty, where the other direction loses

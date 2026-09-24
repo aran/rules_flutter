@@ -15,6 +15,7 @@ import 'package:args/args.dart';
 import 'app_log_sink.dart';
 import 'bazel.dart';
 import 'device.dart';
+import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
 import 'native_pipeline_assembler.dart';
@@ -112,8 +113,9 @@ class AttachCommand {
     // command cannot know. Command start is the earliest defensible cutoff:
     // edits between the app's real build and here are indistinguishable from
     // the source it was built from, which is a property of attaching to a
-    // process rather than launching one. See [AppliedVersions.seedFromBuild].
-    final builtBefore = DateTime.now();
+    // process rather than launching one. See [AppliedVersions.seedFromBuild],
+    // and [fileClockNow] for why the filesystem's clock.
+    final builtBefore = await fileClockNow();
 
     final logger = Logger('dev_tool.attach');
 

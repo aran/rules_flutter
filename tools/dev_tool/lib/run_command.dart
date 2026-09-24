@@ -26,6 +26,7 @@ import 'package:args/args.dart';
 import 'bazel.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
+import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
 import 'machine_protocol.dart';
@@ -399,8 +400,9 @@ class RunCommand {
       // reading it may or may not be in the result, and the two ways of being
       // wrong are not equal. Unseeding costs a recompile of content the app
       // already has; seeding drops the edit. See
-      // [AppliedVersions.seedFromBuild].
-      final builtBefore = DateTime.now();
+      // [AppliedVersions.seedFromBuild]. Off the filesystem's clock, not the
+      // wall clock's: see [fileClockNow].
+      final builtBefore = await fileClockNow();
       final build = await plan.buildApp();
       final appFile = build.appFile;
       final outputFiles = build.outputFiles;

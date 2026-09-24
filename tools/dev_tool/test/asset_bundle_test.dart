@@ -310,7 +310,7 @@ void main() {
     test(
       'an asset stamped in the build’s own millisecond is not baselined',
       () {
-        // The cutoff is a `DateTime.now()`, which carries microseconds, while
+        // The cutoff carries microseconds, while
         // `FileStat.modified` carries whatever the SDK and filesystem give it.
         // Within one millisecond of each other the stamp cannot be trusted to
         // say whether the save came before the build or after it — so assuming

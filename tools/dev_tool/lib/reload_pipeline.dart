@@ -28,6 +28,7 @@ import 'frontend_server.dart';
 import 'hot_reload/app_instance.dart';
 import 'hot_reload/applied_versions.dart';
 import 'hot_reload/asset_bundle.dart';
+import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/readiness_gate.dart';
 import 'hot_reload/reload_orchestrator.dart';
@@ -379,8 +380,9 @@ class ReloadPipeline {
     // Stamped before the build, not after: a source saved while bazel is
     // reading it is not in the tree bazel produces, and committing it as
     // delivered is how that edit is lost. Same guard, same reason, as the
-    // tracker's own baseline.
-    final rebuiltBefore = DateTime.now();
+    // tracker's own baseline. Off the filesystem's clock, not the wall
+    // clock's: see [fileClockNow].
+    final rebuiltBefore = await fileClockNow();
     if (!await rebuild()) {
       return const AssetOutcome(
         rebuildFailed: 'Asset rebuild (bazel) failed; see build output above.',

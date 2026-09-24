@@ -160,6 +160,7 @@ _UNIT_TESTS = {
     },
     "device_integration_test": {"fakes": True},
     "device_test": {"fakes": True},
+    "file_clock_test": {"deps": _PATH_DEP},
     "flutter_error_report_test": {"deps": _PATH_DEP},
     "key_press_test": {},
     "frontend_server_integration_test": {"fakes": True},
