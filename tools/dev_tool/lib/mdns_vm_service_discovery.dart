@@ -209,8 +209,11 @@ class MdnsVmServiceDiscovery {
       // or the client short-circuited — must not become a tight loop of
       // queries, which would flood the link and defeat the backoff.
       final spent = elapsed.elapsed - attemptStart;
-      if (spent < attemptWindow)
-        await Future<void>.delayed(attemptWindow - spent);
+      if (spent < attemptWindow) {
+        await Future<void>.delayed(
+          _roundUpToMillisecond(attemptWindow - spent),
+        );
+      }
 
       window *= 2;
       if (window > _maxQueryWindow) window = _maxQueryWindow;
@@ -227,6 +230,14 @@ class MdnsVmServiceDiscovery {
       ),
     );
   }
+
+  /// [d] rounded up to a whole millisecond.
+  ///
+  /// A timer truncates its duration to whole milliseconds, so an unrounded
+  /// wait can end before the window does, and the loop then starts more
+  /// attempts in the sliver left before the timeout.
+  static Duration _roundUpToMillisecond(Duration d) =>
+      Duration(milliseconds: (d.inMicroseconds + 999) ~/ 1000);
 
   /// Runs [body] where a socket error can be observed.
   ///
