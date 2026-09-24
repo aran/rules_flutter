@@ -17,11 +17,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
-# Caching goes through bazel-contrib/setup-bazel, and every Bazel job shares
-# one repository cache (Bazel's content-addressed downloads) per OS. Before
-# this, each job saved its whole output base under its own key: about eleven
-# multi-GB entries against GitHub's 10 GB per-repo budget, so LRU eviction
-# kept most jobs cold.
+# One repository cache per OS, set up by bazel-contrib/setup-bazel and shared
+# by every Bazel job: downloads are content-addressed, so a workspace never
+# needs its own copy.
 #
 # setup-bazel keys the repository cache by hashing files, by default the
 # MODULE.bazel at `module-root`. Every job passes this same list instead, so
