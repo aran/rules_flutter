@@ -24,7 +24,6 @@ flutter/tests/resources_fixture/
 *.yaml
 *.yml
 
-# Markdown is wrapped by hand. Prettier 3.1 mangles a code span that wraps
-# across lines — it read `rules_flutter++flutter+flutter_<platform>` in
-# docs/TESTING.md as emphasis and rewrote it to `rules*flutter…`.
+# Markdown is wrapped by hand, and prettier rewrites a code span that wraps
+# across lines as emphasis.
 *.md

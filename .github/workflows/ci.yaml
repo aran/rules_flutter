@@ -51,8 +51,7 @@ jobs:
       - name: bazel test //...
         run: bazel test //... --test_output=errors
   # The hooks in .pre-commit-config.yaml, over every file. Nothing else runs
-  # them for a commit made without `pre-commit install`, and before this job
-  # they had drifted to 54 files and three failing checks.
+  # them for a commit made without `pre-commit install`.
   pre-commit:
     name: pre-commit
     runs-on: ubuntu-latest
