@@ -23,8 +23,15 @@ repos:
       - id: check-yaml
       - id: destroyed-symlinks
       - id: detect-private-key
+        # A throwaway self-signed certificate and key for the TLS tests.
+        exclude: ^tools/dev_tool/test/tls_fixture\.dart$
       - id: end-of-file-fixer
+        # `flutter create` output is kept as generated.
+        exclude: ^e2e/[^/]+/(android|ios|linux|macos|web|windows)/
       - id: trailing-whitespace
+        # A patch's blank context lines are a single space; stripping it
+        # stops the hunk from applying.
+        exclude: \.patch$
   # Check formatting and lint for starlark code
   - repo: https://github.com/keith/pre-commit-buildifier
     rev: 8.5.1.3

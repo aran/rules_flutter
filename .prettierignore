@@ -1,0 +1,30 @@
+# `flutter create` output, kept as generated: the platform runner directories
+# of every example app.
+e2e/*/android/
+e2e/*/ios/
+e2e/*/linux/
+e2e/*/macos/
+e2e/*/web/
+e2e/*/windows/
+
+# Flutter's web bootstrap templates. `{{flutter_service_worker_version}}` and
+# the other placeholders are not JavaScript until Flutter substitutes them.
+e2e/web_example/custom_boot/
+e2e/web_example/templates/
+
+# The web runner files the rules ship, copied from Flutter's own template.
+flutter/private/runners/web/
+
+# Test fixtures whose bytes are the point, and a shader prettier would read as
+# JavaScript.
+flutter/tests/web_reserved/
+flutter/tests/resources_fixture/
+
+# yamlfmt owns YAML; two formatters on one file would fight.
+*.yaml
+*.yml
+
+# Markdown is wrapped by hand. Prettier 3.1 mangles a code span that wraps
+# across lines — it read `rules_flutter++flutter+flutter_<platform>` in
+# docs/TESTING.md as emphasis and rewrote it to `rules*flutter…`.
+*.md

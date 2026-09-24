@@ -838,7 +838,7 @@ void main() {
           final typo = await dt.httpCommand('app.tap', {
             'appId': appId,
             'key': 'agent_test_button',
-            'settle': 'flase',
+            'settle': 'flase', // typos:ignore-line
           });
           expect(
             typo['error'],

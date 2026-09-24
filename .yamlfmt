@@ -1,0 +1,8 @@
+formatter:
+  type: basic
+  # Blank lines separate the sections of a pubspec or analysis_options; keep
+  # them.
+  retain_line_breaks_single: true
+  # Folded (`>-`) descriptions are wrapped by hand at 80 columns; do not join
+  # them into one line.
+  scan_folded_as_literal: true

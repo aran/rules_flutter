@@ -31,6 +31,18 @@ jobs:
           restore-keys: bazel-unit-${{ runner.os }}-
       - name: bazel test //...
         run: bazel test //... --test_output=errors
+  # The hooks in .pre-commit-config.yaml, over every file. Nothing else runs
+  # them for a commit made without `pre-commit install`, and before this job
+  # they had drifted to 54 files and three failing checks.
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: pre-commit/action@v3.0.1
   dart-tool-tests:
     name: Dart tool tests
     runs-on: ubuntu-latest

@@ -5,6 +5,8 @@ extend-ignore-re = [
   # Git SHAs quoted in comments. typos reads a hex string as words and picks
   # real ones out of it — `537e8ba` reports `ba`.
   "\\b[0-9a-f]{7,40}\\b",
+  # A line that misspells on purpose, e.g. a test that feeds in a typo.
+  "(?Rm)^.*//\\s*typos:ignore-line$",
 ]
 
 [default.extend-words]
@@ -27,6 +29,9 @@ udid = "udid"
 certifi = "certifi"
 # From "PNGs": typos splits the plural off the acronym and reports the stem.
 PN = "PN"
+# PNG's Paeth predictor (RFC 2083 §6.6), named after Alan W. Paeth.
+paeth = "paeth"
+Paeth = "Paeth"
 
 [files]
 # Xcode's project and interface files are generated, and they are dense with
