@@ -17,18 +17,39 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
+# Caching goes through bazel-contrib/setup-bazel, and every Bazel job shares
+# one repository cache (Bazel's content-addressed downloads) per OS. Before
+# this, each job saved its whole output base under its own key: about eleven
+# multi-GB entries against GitHub's 10 GB per-repo budget, so LRU eviction
+# kept most jobs cold.
+#
+# setup-bazel keys the repository cache by hashing files, by default the
+# MODULE.bazel at `module-root`. Every job passes this same list instead, so
+# they all land on one key per OS whichever workspace they build. A change to
+# any of these files starts a new key, restored from the newest older one; the
+# cache only grows that way, so bump `cache-version` to start it over.
+#
+# Only e2e hello_world saves it, on pushes to main. It builds for every
+# platform and so fetches the most; were every job allowed to save, the first
+# to finish (smoke, fetching almost nothing) would take the key and the rest
+# could not replace it. Every other job, and every pull request, only restores,
+# then downloads whatever its own workspace needs beyond that.
+env:
+  BAZEL_REPOSITORY_CACHE_KEY_FILES: |
+    - MODULE.bazel
+    - MODULE.bazel.lock
+    - e2e/*/MODULE.bazel
+    - flutter/private/versions.bzl
 jobs:
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Mount Bazel cache
-        uses: actions/cache@v6
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
-          path: ~/.cache/bazel
-          key: bazel-unit-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
-          restore-keys: bazel-unit-${{ runner.os }}-
+          repository-cache: ${{ env.BAZEL_REPOSITORY_CACHE_KEY_FILES }}
+          cache-save: false
       - name: bazel test //...
         run: bazel test //... --test_output=errors
   # The hooks in .pre-commit-config.yaml, over every file. Nothing else runs
@@ -80,14 +101,18 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      # One cache: the root workspace (which builds the dev tool binary) and
-      # e2e/web_example (which builds the app) share this output root.
-      - name: Mount Bazel cache
-        uses: actions/cache@v6
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
-          path: ~/.cache/bazel
-          key: bazel-web-smoke-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'e2e/web_example/MODULE.bazel') }}
-          restore-keys: bazel-web-smoke-${{ runner.os }}-
+          repository-cache: ${{ env.BAZEL_REPOSITORY_CACHE_KEY_FILES }}
+          cache-save: false
+      # setup-bazel pins every workspace to one output base with a `startup`
+      # line in ~/.bazelrc. This job runs two workspaces: the root, whose
+      # bazel-bin holds the dev tool binary under test, and e2e/web_example,
+      # which that binary builds. Sharing a base, the second would restart the
+      # server and replace the execroot the running binary lives in. Drop the
+      # line so each workspace keeps Bazel's own per-workspace default.
+      - name: Keep one output base per workspace
+        run: sed -i '/^startup --output_base=/d' ~/.bazelrc
       # The test process itself resolves this package's pubspec, and dwds
       # requires a Dart newer than the runner's default. The tool under test
       # runs on the hermetic Flutter toolchain either way.
@@ -145,33 +170,13 @@ jobs:
             os: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The Xcode build number is part of the cache key so a runner-image Xcode
-      # bump invalidates the cache instead of restoring one whose cached Swift
-      # compile actions reference an Xcode that is no longer installed.
-      - name: Capture Xcode build for cache key (macOS)
-        if: runner.os == 'macOS'
-        run: echo "XCODE_BUILD=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "$GITHUB_ENV"
-      - name: Mount Bazel cache (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/cache@v6
+      # See the note above `env` for why only hello_world saves. The output base
+      # setup-bazel sets (~/.bazel; D:/_bazel on Windows) takes precedence over
+      # the Windows step's --output_user_root and is as short.
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
-          path: ~/Library/Caches/bazel
-          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
-          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-xc${{ env.XCODE_BUILD }}-
-      - name: Mount Bazel cache (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/bazel
-          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
-          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
-      - name: Mount Bazel cache (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v6
-        with:
-          path: C:/_bazel_cache
-          key: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-${{ hashFiles(format('e2e/{0}/MODULE.bazel', matrix.workspace)) }}
-          restore-keys: bazel-e2e-${{ matrix.workspace }}-${{ runner.os }}-
+          repository-cache: ${{ env.BAZEL_REPOSITORY_CACHE_KEY_FILES }}
+          cache-save: ${{ github.event_name == 'push' && matrix.workspace == 'hello_world' }}
       - name: Install GTK3 (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
