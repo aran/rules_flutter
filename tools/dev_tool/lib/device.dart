@@ -1077,9 +1077,7 @@ class AndroidDevice extends Device {
   /// some of them are *about* the serial — `unknown host service
   /// '<tail>:features'` is what it answers when the `-s` value has a colon in it
   /// and the server splits on that colon. A reader who cannot see the serial the
-  /// tool used has nothing to compare against the one they would have typed, and
-  /// the earlier `unknown_device_id` warning is several screens back in a
-  /// `--machine` run's output.
+  /// tool used has nothing to compare against the one they would have typed.
   ///
   /// Omitted entirely when no device was named, because there is then no serial
   /// to doubt: adb chose, and its message says so.
@@ -1846,79 +1844,6 @@ Device detectDevice() {
     'No device available for ${Platform.operatingSystem}. '
     'Desktop devices are supported on macOS, Linux, and Windows.',
   );
-}
-
-/// Resolve device IDs to [Device] instances.
-///
-/// If [ids] is empty, auto-detects one device for the current platform.
-/// Accepted IDs: `macos`, `linux`, `windows`, `ios-simulator`,
-/// `ios-simulator:<udid>`, `ios`, `ios:<udid>`, `chrome`, `android`,
-/// `android:<serial>`, or a bare Android serial.
-///
-/// Unknown IDs are treated as Android serial numbers with a warning.
-List<Device> resolveDevices(List<String> ids) {
-  if (ids.isEmpty) return [detectDevice()];
-  return ids.map(_resolveDevice).toList();
-}
-
-Device _resolveDevice(String id) {
-  switch (id) {
-    case 'macos':
-      return MacOSDevice();
-    case 'linux':
-      return LinuxDevice();
-    case 'windows':
-      return WindowsDevice();
-    case 'chrome':
-      return WebDevice();
-    case 'ios-simulator':
-      return IOSSimulatorDevice.booted();
-    case 'ios':
-      return IOSDevice();
-    // Whichever device `adb` itself picks, which is the one attached when there
-    // is one and a named refusal from adb when there are several.
-    case 'android':
-      return AndroidDevice();
-    default:
-      if (id.startsWith('ios-simulator:')) {
-        return IOSSimulatorDevice(udid: id.substring('ios-simulator:'.length));
-      }
-      if (id.startsWith('ios:')) {
-        return IOSDevice(udid: id.substring('ios:'.length));
-      }
-      // `android:<serial>`, for symmetry with the two above — and because
-      // without it the prefix reaches `adb -s` intact, where a colon means a
-      // network device: the server then reads the serial as `android` and the
-      // rest as a service name, and answers
-      // `unknown host service '<serial>:features'`. Nothing in that sentence
-      // names the device id that caused it, and the install fails on a device
-      // the same `adb` can see.
-      if (id.startsWith('android:')) {
-        return AndroidDevice(deviceId: id.substring('android:'.length));
-      }
-      // Warn if it looks like a typo of a known device name.
-      const knownIds = [
-        'macos',
-        'linux',
-        'windows',
-        'chrome',
-        'ios-simulator',
-        'ios',
-        'android',
-      ];
-      _logger.warning({
-        'message': 'unknown_device_id',
-        'text':
-            "Unknown device ID '$id' — treating it as an Android serial "
-            'number, so a typo here surfaces as adb not finding the device. '
-            'Known device IDs: ${knownIds.join(', ')}; a serial can also be '
-            'written `android:<serial>`, and a platform prefix spelled wrong '
-            'lands here rather than being corrected.',
-        'device': id,
-        'knownIds': knownIds,
-      });
-      return AndroidDevice(deviceId: id);
-  }
 }
 
 /// iOS Simulator device (via xcrun simctl).

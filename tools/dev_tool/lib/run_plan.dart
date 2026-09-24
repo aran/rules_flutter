@@ -17,6 +17,7 @@ import 'package:args/args.dart';
 import 'bazel.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
+import 'device_id.dart';
 import 'logging.dart';
 import 'toolchain_info.dart';
 import 'web_mode.dart';
@@ -316,6 +317,12 @@ class RunPlan {
     // info` spawns and a toolchain resolution have been spent on it.
     final compilationMode = compilationModeFor(results);
 
+    // Devices FIRST — they dictate the platform build flags — and before any
+    // `bazel` spawn, so an id that names no device is refused at once.
+    final devices = await resolveDevices(
+      results['device'] as List<String>,
+    );
+
     // Resolve the workspace root once rather than per callsite: it avoids
     // redundant `bazel info` spawns and gives every consumer the same answer.
     final workspace = await bazel.findWorkspaceRoot();
@@ -327,9 +334,6 @@ class RunPlan {
       workspace: workspace,
       runBazel: bazel.run,
     );
-
-    // Devices FIRST — they dictate the platform build flags.
-    final devices = resolveDevices(results['device'] as List<String>);
 
     // What shape of web run this is, and what the web flags mean for it —
     // both before the host is probed, because a `--web-port` that is not a

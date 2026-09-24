@@ -89,72 +89,6 @@ void main() {
     });
   });
 
-  group('resolveDevices', () {
-    test('returns auto-detected device when no IDs given', () {
-      final devices = resolveDevices([]);
-      expect(devices, hasLength(1));
-    });
-
-    test('resolves macos to MacOSDevice', () {
-      final devices = resolveDevices(['macos']);
-      expect(devices.single, isA<MacOSDevice>());
-    });
-
-    test('resolves linux to LinuxDevice', () {
-      final devices = resolveDevices(['linux']);
-      expect(devices.single, isA<LinuxDevice>());
-    });
-
-    test('resolves windows to WindowsDevice', () {
-      final devices = resolveDevices(['windows']);
-      expect(devices.single, isA<WindowsDevice>());
-    });
-
-    test('resolves chrome to WebDevice', () {
-      final devices = resolveDevices(['chrome']);
-      expect(devices.single, isA<WebDevice>());
-    });
-
-    test('resolves ios-simulator to IOSSimulatorDevice', () {
-      final devices = resolveDevices(['ios-simulator']);
-      expect(devices.single, isA<IOSSimulatorDevice>());
-    });
-
-    test('resolves ios-simulator:UDID to IOSSimulatorDevice with udid', () {
-      final devices = resolveDevices(['ios-simulator:ABC-123']);
-      final device = devices.single as IOSSimulatorDevice;
-      expect(device.udid, 'ABC-123');
-    });
-
-    test('resolves unknown ID as Android serial', () {
-      final devices = resolveDevices(['emulator-5554']);
-      expect(devices.single, isA<AndroidDevice>());
-    });
-
-    test('resolves android to the device adb itself picks', () {
-      final devices = resolveDevices(['android']);
-      expect((devices.single as AndroidDevice).deviceId, isNull);
-    });
-
-    test('resolves android:SERIAL to the bare serial', () {
-      // The prefix must not survive into `adb -s`. A colon there means a network
-      // device, so the server reads the serial as `android` and the rest as a
-      // service name and answers `unknown host service '<serial>:features'` —
-      // an error naming neither the device id nor the flag that produced it,
-      // for a device the same `adb` installs to by hand. Reproduced directly
-      // with `adb -s android:<serial> features` on a Pixel 9a.
-      final device = resolveDevices(['android:58051JEBF01271']).single;
-      expect((device as AndroidDevice).deviceId, '58051JEBF01271');
-    });
-
-    test('resolves multiple device IDs', () {
-      final devices = resolveDevices(['macos', 'chrome']);
-      expect(devices, hasLength(2));
-      expect(devices[0], isA<MacOSDevice>());
-      expect(devices[1], isA<WebDevice>());
-    });
-  });
-
   group('buildArgs', () {
     test('MacOSDevice returns empty buildArgs', () {
       expect(MacOSDevice().buildArgs, isEmpty);
@@ -4426,19 +4360,6 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     test('returns null when not in Bazel runfiles', () {
       final result = resolveRunfile('_main/some/nonexistent/path');
       expect(result, isNull);
-    });
-  });
-
-  group('resolveDevices ios', () {
-    test('resolves ios to IOSDevice', () {
-      final devices = resolveDevices(['ios']);
-      expect(devices.single, isA<IOSDevice>());
-    });
-
-    test('resolves ios:UDID to IOSDevice with udid', () {
-      final devices = resolveDevices(['ios:ABC-123']);
-      final device = devices.single as IOSDevice;
-      expect(device.udid, 'ABC-123');
     });
   });
 

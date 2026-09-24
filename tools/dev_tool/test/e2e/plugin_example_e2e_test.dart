@@ -727,7 +727,7 @@ void main() {
         await _runScreenshotTest(
           workspace: ws.root,
           target: ':plugin_android',
-          device: probe.serial,
+          device: 'android:${probe.serial}',
           outputBasename: 'plugin_android_e2e',
         );
       });

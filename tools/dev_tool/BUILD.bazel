@@ -159,6 +159,7 @@ _UNIT_TESTS = {
         "deps": _PATH_DEP,
     },
     "device_integration_test": {"fakes": True},
+    "device_id_test": {},
     "device_test": {"fakes": True},
     "file_clock_test": {"deps": _PATH_DEP},
     "flutter_error_report_test": {"deps": _PATH_DEP},
