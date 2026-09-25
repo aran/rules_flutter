@@ -210,7 +210,7 @@ void main() {
     test('a misspelled prefix, by what follows it', () async {
       await expectLater(
         resolveDevices(
-          ['ios-simulater:$_simUdid'],
+          ['ios-simulater:$_simUdid'], // typos:ignore-line
           runProbe: _fakeHost().run,
           adbPath: '/fake/adb',
         ),

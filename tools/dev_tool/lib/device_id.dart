@@ -281,8 +281,7 @@ List<KnownDevice> parseAdbDevices(String output) {
 }
 
 String _explainRefusal(String id, _Lookup lookup) {
-  // A misspelled prefix (`ios-simulater:<udid>`) is still worth looking up by
-  // what follows it.
+  // A prefix with a typo in it is still worth looking up by what follows it.
   final colon = id.indexOf(':');
   final keys = {id, if (colon >= 0) id.substring(colon + 1)};
   final matches = [
