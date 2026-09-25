@@ -48,8 +48,10 @@ which git does not treat as a trailer.
 
 **Checks.** `bazel run //tools/changelog:check` checks the commit subject and
 the trailers. It runs as the `commit-msg` hook, and in CI on every push where
-the repo has CI. `bazel run //tools/changelog` prints the unreleased notes so
-you can see how they read.
+the repo has CI. To install the hook, `uv tool install prek`, then
+`prek install -f` (without `-f`, prek keeps an existing hook and runs both).
+`bazel run //tools/changelog` prints the unreleased notes so you can see how
+they read.
 
 ## Tooling
 

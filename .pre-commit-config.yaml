@@ -1,9 +1,9 @@
 # See CONTRIBUTING.md for instructions.
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
+# Hooks run with prek (https://github.com/j178/prek), which reads this
+# pre-commit format. See https://pre-commit.com/hooks.html for more hooks
 
 # The commit message hook runs in the commit-msg stage, and the other hooks
-# must not run on commit messages. `pre-commit install` installs both stages.
+# must not run on commit messages. `prek install` installs both stages.
 default_stages: [pre-commit]
 default_install_hook_types: [pre-commit, commit-msg]
 # Use a slightly older version of node by default
@@ -45,7 +45,7 @@ repos:
     hooks:
       - id: commit-message
         name: commit message policy
-        entry: bazel run --noshow_progress //tools/changelog:check --
+        entry: bazel run --ui_event_filters=-info --noshow_progress --show_result=0 //tools/changelog:check --
         language: system
         stages: [commit-msg]
   - repo: https://github.com/pre-commit/mirrors-prettier

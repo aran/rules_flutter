@@ -212,7 +212,7 @@ workspace is. To check it builds, extract the archive somewhere clean and run
 
 - `multitool.lock.json` — tool versions, URLs, and SHA-256 hashes
 
-**Managed tools**: `yamlfmt`, `typos`
+**Managed tools**: `git-cliff`, `prek`, `typos`, `yamlfmt`
 
 **Procedure**:
 
@@ -225,7 +225,9 @@ workspace is. To check it builds, extract the archive somewhere clean and run
 **Verification**: Both tools run successfully against the repo.
 
 Also update the matching `rev:` values in `.pre-commit-config.yaml` for yamlfmt
-and typos to keep CI and local hooks in sync.
+and typos to keep CI and local hooks in sync. When bumping prek, update
+`prek-version` in `.github/workflows/ci.yaml` to match, and run
+`uv tool upgrade prek` so the installed git hooks use the new version.
 
 **Automation**: `/bump-multitool` slash command. Alternatively, install the
 [multitool CLI](https://github.com/theoremlp/multitool) and run
@@ -233,9 +235,9 @@ and typos to keep CI and local hooks in sync.
 
 ---
 
-## Pre-commit Hook Bumps
+## Git Hook Bumps
 
-**Trigger**: New versions of pre-commit hooks (buildifier, etc.).
+**Trigger**: New versions of the git hooks (buildifier, etc.).
 
 **Files**:
 
@@ -255,7 +257,7 @@ Reconcile the revs that track something else in this repo:
 - `pre-commit/mirrors-prettier` is archived upstream; `v3.1.0` is the last
   stable tag and is expected to stay pinned.
 
-**Verification**: `pre-commit run --all-files` passes.
+**Verification**: `prek run --all-files` passes.
 
 **Automation**: Manual, per above.
 

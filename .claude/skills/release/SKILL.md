@@ -78,7 +78,8 @@ The bar is `CLAUDE.md`'s verification policy and `docs/TESTING.md`, applied to
 6. **Manual checks the unreleased commits call for** — `docs/TESTING.md`'s "Quick
    reference: what to test when" (macOS runtime test, hot reload and restart, device
    checks). Anything that changes what an app draws means seeing it render.
-7. **Lint:** `pre-commit run --all-files` must leave the tree clean.
+7. **Lint:** `bazel run @multitool//tools/prek -- -C "$PWD" run --all-files` (or plain
+   `prek run --all-files` if prek is installed) must leave the tree clean.
 8. **Archive contents.** Consumers download `git archive` output, trimmed by
    `.gitattributes`. The only `e2e/` directory in it may be `e2e/smoke`, which
    `.bcr/presubmit.yml` runs:
