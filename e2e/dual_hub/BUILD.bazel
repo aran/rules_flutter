@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_format_test", "dart_library")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_binary", "dart_library")
 
 # Two pub hubs, one library collecting a package from each, and a binary over
 # that library. See MODULE.bazel for how the two locks differ.
@@ -11,9 +11,8 @@ load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_format_test", "dart_libr
 # library's transitive packages in `dart_analyze` and `dart_fix`. What never
 # reaches it is `dart_library` itself, which accumulates records into depsets
 # and never dedups — so a `build_test` over a bare library proves nothing about
-# the check no matter how badly its hubs disagree. Verified: a
-# `dart_analyze_test` pointed at `:disagreeing` fails with the same error a
-# binary does.
+# the check no matter how badly its hubs disagree. Verified: analyzing
+# `:disagreeing` fails with the same error a binary does.
 
 # `path` is 1.9.1 in both hubs, down to the same sha256. Two records for one
 # package name are normal — `merge_package_records` exists to expect them — so
@@ -76,14 +75,15 @@ dart_binary(
     deps = [":disagreeing"],
 )
 
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = [
-        "bin/main.dart",
-        "lib/dual_hub.dart",
-    ],
-    # Matches the `sdks:` constraint both hub locks state.
-    language_version = "3.12",
-    options = "analysis_options.yaml",
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+)
+
+# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
+# aspect `.bazelrc` enables: each Dart file is checked against the nearest
+# listed one above it.
+dart_analysis_config(
+    name = "analysis_config",
+    options = [":options"],
 )

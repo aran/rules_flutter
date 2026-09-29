@@ -442,8 +442,8 @@ def _flutter_test_impl(ctx):
         ),
         env_info,
         instrumented_files_info,
-        # What makes `dart_analyze_test(target = ":some_flutter_test")`
-        # possible. The test's `main` belongs to no package's `lib/`, so no
+        # What lets rules_dart's analysis check a `flutter_test`. The test's
+        # `main` belongs to no package's `lib/`, so no
         # `DartInfo` can name it and it reaches the analyzer only through here.
         # Deliberately not offered as a `DartInfo`: `deps` requires one, and a
         # test is not a dependency.

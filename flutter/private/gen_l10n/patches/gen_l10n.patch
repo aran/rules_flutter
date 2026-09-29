@@ -75,8 +75,8 @@
 +    throwToolExit(
 +      'l10n.yaml sets `format: true`, which this build rule does not support: '
 +      'formatting shells out to the `dart` binary, which is not available to '
-+      'the action. Set `format: false` and check formatting with a separate '
-+      'dart_format_test target instead.',
++      'the action. Set `format: false`; generated sources are not '
++      'format-checked.',
 +    );
    }
  

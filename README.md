@@ -67,7 +67,7 @@ Some platforms need one more repository from the same extension. Add it to `use_
 | Android | `flutter_android_engine_arm64`, or `flutter_android_engine_x64` for `android_abi = "x64"` |
 | Web | `flutter_web_sdk` |
 
-Static analysis needs nothing extra. `dart_analyze_test` of a `flutter_library` or a `flutter_test` resolves `dart:ui` through the `sky_engine` package, which those rules add to the analyzer's closure themselves. Their compiled output does not change.
+Static analysis needs nothing extra. rules_dart's analysis resolves `dart:ui` in a `flutter_library`, `flutter_plugin` or `flutter_test` through the `sky_engine` package, which those rules add to the analyzer's closure themselves. Their compiled output does not change.
 
 ### .bazelrc
 
@@ -1200,7 +1200,7 @@ A few things to know:
 - **Keep `@@locale` consistent with the filename.** The rule derives output names from the arb filenames, while the generator decides what to write from each file's `@@locale`. If `app_english.arb` declares `"@@locale": "en"`, Bazel expects `app_localizations_english.dart` and the generator writes `app_localizations_en.dart`, which surfaces as "output was not created". Bazel cannot read file contents during analysis, so the rule cannot check this for you.
 - **Outputs are grouped by primary language.** `app_es.arb` and `app_es_419.arb` produce one `app_localizations_es.dart` holding both classes, matching upstream.
 - **Generated files always use LF line endings.** Upstream copies the line endings of `pubspec.yaml`, which would make the output depend on a file the action does not declare.
-- **There is no `format` attribute.** Formatting shells out to the `dart` binary, which the action does not have. Setting it is an error rather than a silent no-op. Use a `dart_format_test` if you want the output checked.
+- **There is no `format` attribute.** Formatting shells out to the `dart` binary, which the action does not have. Setting it is an error rather than a silent no-op. rules_dart's format check covers hand-written files only, so the generated sources are not checked.
 - **Two copies of `intl` are in play.** The generator has its own. An app using the generated code needs `intl` in its own lock. Upstream has the same split.
 
 The generator is carved out of `flutter_tools` at fetch time with a set of patches, so a Flutter version bump re-validates it. A release that moves the patch context fails the patch, and a new release also needs a `source_sha256` in `flutter/private/versions.bzl`. Two things those checks cannot catch: a newly added read of an undeclared file at run time, which shows up as a `PathNotFoundException`, and a newly adopted `dart:io` API newer than the Dart that rules_dart provides, which shows up as a compile error naming a missing type. The fix for the second is to cut the dead code that uses it, as the existing patches do for an unused `NetworkInterface` wrapper. See `flutter/private/flutter_gen_l10n_repo.bzl`.

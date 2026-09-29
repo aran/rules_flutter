@@ -1,4 +1,4 @@
-/// Flutter code, analyzed by `dart_analyze_test`.
+/// Flutter code, analyzed by rules_dart's `dart_analyze` aspect.
 ///
 /// `dart:ui` resolves only through `package:sky_engine`'s `lib/_embedder.yaml`,
 /// which `flutter_library` adds to the analyzer's closure itself. Without it

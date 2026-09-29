@@ -13,7 +13,7 @@ how a pub package's hook-built library arrives.
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_format_test", "dart_library")
+load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_library")
 
 # The header is this library's binding contract: the signatures live there, so a
 # change to it is a change to what a caller may call, and a change to the `.c`
@@ -55,15 +55,4 @@ dart_library(
     srcs = ["lib/native_add.dart"],
     code_assets = [":code_asset"],
     visibility = ["//:__pkg__"],
-)
-
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["lib/**/*.dart"]),
-    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
-    # `latest` default would enforce a style `dart format` here cannot
-    # produce. See docs/TESTING.md.
-    language_version = "3.12",
-    options = "//:options",
 )

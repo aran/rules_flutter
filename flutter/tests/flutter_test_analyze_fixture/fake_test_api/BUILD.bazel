@@ -1,4 +1,3 @@
-load("@rules_dart//dart:defs.bzl", "dart_format_test")
 load("//flutter/tests:native_assets_test.bzl", "legacy_dart_library")
 
 # Its own Bazel package, not a target beside the fixture, because
@@ -13,11 +12,4 @@ legacy_dart_library(
     # refuses deps exposing neither `package:flutter_test` nor
     # `package:test_api`, and this is the root workspace's only stand-in.
     visibility = ["//flutter/tests:__subpackages__"],
-)
-
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["**/*.dart"]),
-    options = "//:analysis_options.yaml",
 )

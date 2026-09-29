@@ -2,7 +2,7 @@
 // Bazel supplies via the `@rules_dart//dart/runfiles` dep its `dart_test`
 // declares. A bare `dart test` resolves only this package's pubspec, where that
 // import does not exist, so the file fails to load rather than failing a test.
-// Coverage comes from //flutter/private/tools/test:flutter_test_runner_test.
+// Coverage comes from //flutter/private/tools:flutter_test_runner_test.
 @Tags(['runfiles'])
 library;
 

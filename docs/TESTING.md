@@ -34,22 +34,25 @@ Complete instructions for testing rules_flutter changes. Run **all applicable se
 bazel test //...
 ```
 
-### Proving an analysis target is not vacuous
+### Proving analysis covers a file
 
-A `dart_analyze_test` that reports clean proves nothing until you have seen it
-go red. Nothing checks that its operand stages the files you believe it covers,
-so a target covering *nothing* passes exactly as quietly as one covering
-everything. Prove coverage by making a deliberate diagnostic appear — a
+`bazel test` runs `dart analyze` and the `dart format` check as rules_dart's
+`dart_analyze` aspect (`.bazelrc`), over each target's own hand-written files:
+a library's sources, and an executable's `[main] + srcs`. A clean run proves
+nothing about a file until you have seen it go red. Nothing checks that the
+target you believe owns a file actually carries it, so a file no checked target
+owns passes exactly as quietly as a clean one. The aspect also never visits a
+`manual` target, or one incompatible with the host, since `//...` does not
+expand to either. Prove coverage by making a deliberate diagnostic appear — a
 transient file whose only content is an unused import — and confirming the
-target fails **at that file's own path**, then restoring and confirming green.
+build fails **at that file's own path**, then restoring and confirming green.
 
-Which probe discriminates depends on the operand's shape, because
-`DartAnalyzableInfo` carries `[main] + srcs`:
+Which probe discriminates depends on the owning target's shape:
 
-* **Operand carries `srcs`** → drop the probe in as a new, *unimported* file.
+* **Target carries `srcs`** → drop the probe in as a new, *unimported* file.
   Unimported is what makes it proof: an imported one is reached through `main`'s
   own closure, so the target goes red whether or not `srcs` carries it.
-* **Operand is `main`-only** — a `main` and no `srcs`
+* **Target is `main`-only** — a `main` and no `srcs`
   (`//tools/update_flutter_version`, `//tools/pip_lock_guard:pip_facts_test`) →
   transiently repoint `main` at the probe; restoring must return it to green.
   The dropped-file form cannot discriminate here: a probe added to a `srcs` the
@@ -128,26 +131,29 @@ installs `zip` so our own Linux VMs match CI.
 The verdict therefore depends on the host image. Making it hermetic means a
 `zip` from the build graph, not a PATH lookup.
 
-### Every `dart_format_test` pins `language_version`
+### When a target states `language_version`
 
-`dart_format_test` handed loose `srcs` formats at `latest` — the newest language
-version the SDK knows — unless the target says otherwise. `dart format` run by
-hand, or by an IDE, instead takes the version from the
-`.dart_tool/package_config.json` pub wrote from the package's `sdk:` constraint.
-While those two agree the default is invisible; when they diverge the check
-demands a style the package's own formatter will never produce, and no edit can
-make both happy.
+Usually it doesn't. Left out, a target is compiled, analyzed and
+format-checked at the SDK's newest language version, and an entrypoint inside
+a package takes that package's version — the right answer whenever a package's
+`sdk:` lower bound is the SDK this repo pins.
 
-They diverged at Dart 3.13, which rewraps a long `typedef`. Every package here
-declares `sdk: ^3.12.0`, so every `dart_format_test` carries
-`language_version = "3.12"` to match. Two rules follow:
+It matters only when the two differ in a way you can see. The format check
+(rules_dart's `dart_analyze` aspect) formats at the target's version, while
+`dart format` run by hand or by an IDE takes the version from the `sdk:`
+lower bound pub wrote into `.dart_tool/package_config.json`. They diverged at
+Dart 3.13, which rewraps a long `typedef`: the pinned SDK is 3.13, the packages
+here declare `sdk: ^3.12.0`, and where a file's formatting differs between the
+two, the check and the IDE would each reformat the other's output.
 
-- A new `dart_format_test` sets `language_version` to its package's `sdk:`
-  lower bound. Only a `dart_format_test` with `target =` may leave it off — that
-  form takes the version from the `dart_library` instead, and setting both is an
-  error.
-- Raising a `pubspec.yaml`'s `sdk:` constraint means raising the matching
-  `language_version`, and reformatting whatever the new style moves.
+So a target states `language_version = "3.12"` exactly where that happens —
+today the dev tool, `//flutter/private/tools`, and `hello_world`'s targets —
+with a comment naming the `pubspec.yaml` it matches. Stating it makes an
+executable a member of the package rooted at its BUILD directory, so a test
+whose `srcs` sit above that directory is refused; define such a test in the
+BUILD file at the Dart package root, as `//flutter/private/tools` does. Raising
+a `pubspec.yaml`'s `sdk:` lower bound to the pinned SDK makes the statement
+unnecessary: drop it, and reformat whatever the new style moves.
 
 ### A green sweep does not test the published rules_dart pin
 
@@ -673,21 +679,18 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
   SDK build *that workspace's* hooks before the tool's `main` runs at all, so
   the process dies before `daemon.connected`. The hook's actual error is in
   `<workspace>/.dart_tool/hooks_runner/<pkg>/<hash>/stderr.txt`.
-- `cross_compile_example` is the one workspace where **`bazel test //...` fails
-  by construction**, so it is not in the § 3 sweep list and not in CI. Its
-  `.bazelrc` pins `--platforms=linux_x64` for every command, and Bazel then
-  finds no test toolchain whose execution platform satisfies a Linux *target*
-  platform on a macOS host — an analysis failure that aborts the build rather
-  than skipping a test. Verify its two targets separately:
+- `cross_compile_example` has **no test targets**, so it is verified with
+  `bazel build //...`, not `bazel test`. Its `.bazelrc` pins
+  `--platforms=linux_x64` for every command, and a test there would find no test
+  toolchain on a macOS host. The analysis and format checks are an aspect, not
+  tests, and that workspace enables it under `build`, so one command covers the
+  cross-compiled bundle and the checks:
   ```sh
   cd e2e/cross_compile_example
-  bazel build :cross_linux                                              # the cross-compiled bundle
-  bazel test :app_analyze_test :format_test --platforms=@platforms//host  # lint + format
+  bazel build //...
   ```
-  The analysis is host-side and needs no Linux; on a Linux host the pin *is*
-  the host platform and the override is unnecessary. `:app_analyze_test` must
-  not carry `target_compatible_with = ["@platforms//os:linux"]` to skip itself:
-  the pin *satisfies* that constraint, so it only breaks the override.
+  `bazel test //...` there exits 4 ("No test targets were found") however clean
+  the checks are.
 
 ### What the automated e2e tests cover
 
@@ -1259,7 +1262,7 @@ script's own package requires ≥ 3.12.
 | Keys (`key_press.dart`, `app.pressKey` in `agent_command.dart`, `pressKeyOverCdp` in `device.dart`, `ext.rules_flutter.pressKey` in `agent_extensions/agent.dart`) | dev_tool unit **and** `press_key_e2e_test.dart` (macOS, Chrome DDC, Chrome `--wasm`). The framework route on iOS, Android, Linux and Windows has no e2e: check it by hand on the device you changed it for |
 | dev_tool app-output forwarding (`app_log.dart`, `app_log_sink.dart`, `cdp_console.dart`, `vm_service_logs.dart`, `device.dart` launch paths) | dev_tool unit + e2e **and** the manual per-platform checks below |
 | dev_tool iOS device paths (`mdns_vm_service_discovery.dart`, `IOSDevice` in `device.dart`) | dev_tool unit **and** manual hot reload + hot restart on hardware, **wired and wireless** — see "iOS hardware (manual)" |
-| New or changed `dart_analyze_test` coverage (an operand's `srcs` glob or `main`) | Root `//...` **and** the non-vacuity probe — see § 1 |
+| New or changed analysis coverage (a target's `srcs` glob or `main`, a new `manual` tag, a new `analysis_options.yaml`) | Root `//...` **and** the probe — see § 1 |
 | Golden comparator (`flutter/private/goldens/`, `flutter_test.bzl` bootstrap) | Root `//...` + codegen `//...` **and** the manual regeneration round trip below |
 | Everything | All sections above |
 
@@ -1277,9 +1280,8 @@ wherever a package_config is assembled — `collect_packages` (`dart_binary`,
 `dart_analysis_options`, the codegen `library_deps` path) and directly on a
 library's transitive packages in `dart_analyze` and `dart_fix`. `dart_library`
 itself never reaches it: it accumulates records into depsets and never dedups,
-so a `build_test` over a bare library proves nothing. A `dart_analyze_test`
-pointed at the library *does* fire it, so that is the cheaper second assertion
-if one is ever wanted.
+so a `build_test` over a bare library proves nothing. The analysis aspect
+visiting the library *does* fire it.
 
 The disagreeing half is `manual` because its contract is to fail analysis,
 which no target in `bazel test //...` can have:

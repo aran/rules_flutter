@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
 load("@rules_flutter//flutter:defs.bzl", "flutter_library")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle", "flutter_web_manifest_gen")
 
@@ -198,8 +198,15 @@ dart_test(
 dart_analysis_options(
     name = "options",
     src = "analysis_options.yaml",
-    visibility = ["//custom_boot:__pkg__"],
     deps = ["@deps//:very_good_analysis"],
+)
+
+# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
+# aspect `.bazelrc` enables: each Dart file is checked against the nearest
+# listed one above it.
+dart_analysis_config(
+    name = "analysis_config",
+    options = [":options"],
 )
 
 # Static analysis over this example's Dart.
@@ -217,13 +224,6 @@ flutter_library(
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
     ],
-)
-
-dart_analyze_test(
-    name = "app_analyze_test",
-    size = "small",
-    lib = ":app_lib",
-    options = ":options",
 )
 
 # =============================================================================
@@ -291,46 +291,4 @@ dart_test(
         ":app_wasm",
     ],
     main = "test/verify_compiler_flags_test.dart",
-)
-
-# Static analysis of the test sources beside the app's Dart.
-# `app_analyze_test` above covers `:app_lib` and its whole
-# first-party closure — dependency packages included — but a test's `main`
-# belongs to no package's `lib/`, so nothing in that closure can name it.
-#
-# Compiling a test's `main` to a kernel rejects broken code but is indifferent
-# to everything `dart analyze --fatal-infos` reports.
-#
-# `options`: these hold to the same very_good_analysis bar as the app code,
-# rather than the SDK default. The one rule that does not fit a diagnostic
-# script is `avoid_print` — writing what it found to the test log is the
-# script's product, not a stray debug statement — and the scripts that print
-# disable exactly that rule per-file, with the reason above the
-# `ignore_for_file` (which `document_ignores` requires).
-[dart_analyze_test(
-    name = "%s_analyze" % t,
-    size = "small",
-    options = ":options",
-    target = ":%s" % t,
-) for t in [
-    "verify_compiler_flags_test",
-    "verify_index_html_test",
-    "verify_service_worker_test",
-]]
-
-# Every `.dart` file directly in this package — `custom_boot` carries its own
-# `format_test`. `templates/dev_bootstrap.js` is JS, not Dart, so it is outside
-# this glob's reach regardless.
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob([
-        "lib/**/*.dart",
-        "test/**/*.dart",
-    ]),
-    # Matches this workspace's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
-    # `latest` default would enforce a style `dart format` here cannot
-    # produce. See docs/TESTING.md.
-    language_version = "3.12",
-    options = ":options",
 )

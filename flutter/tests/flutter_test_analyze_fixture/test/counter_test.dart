@@ -1,4 +1,4 @@
-/// A `flutter_test` `main`, analyzed by `:analyze_test`.
+/// A `flutter_test` `main`, analyzed by `:analysis_test`.
 ///
 /// It belongs to no package's `lib/`, so no `DartInfo` can name it and it
 /// reaches the analyzer only as `DartAnalyzableInfo.srcs`. Before

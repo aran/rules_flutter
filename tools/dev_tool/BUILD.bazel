@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test", "dart_library", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_test")
 load(":source_repo.bzl", "SOURCE_REPO")
 
 exports_files(["pubspec.lock"])
@@ -23,12 +23,17 @@ dart_library(
     name = "lib",
     package_name = "flutter_bazel_dev_tool",
     srcs = glob(["lib/**/*.dart"]),
+    # `pubspec.yaml`'s `sdk: ^3.12.0`. The format check formats this package's
+    # files, its tests included, at the version the package states, and at the
+    # SDK's newest when it states none.
+    language_version = "3.12",
     visibility = ["//visibility:private"],
     deps = _LIB_DEPS,
 )
 
 dart_binary(
     name = "flutter_bazel",
+    package_name = "flutter_bazel_dev_tool",
     srcs = glob(["lib/**/*.dart"]),
     compile_mode = "exe",
     # iOS device screenshots (pymobiledevice3) work from any host, so they are
@@ -50,6 +55,10 @@ dart_binary(
         "//conditions:default": [],
     }),
     defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
+    # The same package as `:lib`, stated here too because the binary re-lists
+    # its sources by relative path rather than depending on it. Compile,
+    # analysis and the format check all take the version from here.
+    language_version = "3.12",
     main = "bin/flutter_bazel.dart",
     visibility = ["//visibility:public"],
     deps = _LIB_DEPS,
@@ -73,29 +82,6 @@ dart_binary(
         "@platforms//os:windows": ["@platforms//:incompatible"],
         "//conditions:default": [],
     }),
-)
-
-dart_analyze_test(
-    name = "process_group_exec_analyze_test",
-    size = "small",
-    target = ":process_group_exec",
-)
-
-# Static analysis, as a test — `bazel test //...` fails on an analysis
-# regression rather than leaving it to whoever next runs `dart analyze` by hand.
-# Plain Dart, so it needs nothing beyond the pinned rules_dart: the dev tool
-# never imports `dart:ui`, and the analyzer resolves everything it does import
-# from the ordinary package config.
-#
-# Pointed at the binary rather than at `:lib`, because `bin/flutter_bazel.dart`
-# is a `main` that belongs to no package's `lib/` and so appears in no
-# `DartInfo`. Analyzing `:lib` left the entrypoint uncovered; the binary's
-# `DartAnalyzableInfo` carries it *and* the whole `:lib` closure, so this is one
-# action for both.
-dart_analyze_test(
-    name = "flutter_bazel_analyze_test",
-    size = "small",
-    target = ":flutter_bazel",
 )
 
 # Every unit test under test/. Adding an entry here is the whole cost of a new
@@ -281,32 +267,6 @@ dart_test(
     deps = _TEST_DEPS,
 )
 
-# Every test target on this package, however it was declared. The analysis
-# targets below are generated from this rather than from `_UNIT_TESTS`, so a
-# test declared outside the map cannot be run without being analyzed.
-_ALL_TESTS = _UNIT_TESTS.keys() + ["e2e_runner_test"]
-
-# The same static-analysis bar the production sources are held to, applied to
-# the tests. Test sources were never analyzed at all until this existed: a
-# `dart_test` compiles its `main` to a kernel, which rejects broken code but is
-# indifferent to everything `dart analyze --fatal-infos` reports — two dead
-# imports sat in committed test files with every target green.
-#
-# A test's `main` and its `srcs` helpers belong to no package's `lib/`, so they
-# cannot be collected into a `dart_library` (rules_dart rejects `srcs` outside
-# `lib/`, since a `package:` URI could never reach them). They reach the
-# analyzer through the `dart_test`'s own `DartAnalyzableInfo` instead, which is
-# why this is one target per test rather than one for the whole directory.
-#
-# Generated from `_ALL_TESTS` rather than written out, so a new entry is
-# analyzed the day it is added and no test file can be covered by a run target
-# but missed by an analysis one.
-[dart_analyze_test(
-    name = "%s_analyze" % name,
-    size = "small",
-    target = ":%s" % name,
-) for name in _ALL_TESTS]
-
 # The Dart in this package that belongs to no package's `lib/` and to no test
 # target: every file under `test/e2e/`, and every script under `tool/` that is
 # not already carried by a test's `srcs`. Nothing analyzed any of it. Closing
@@ -318,8 +278,8 @@ _ALL_TESTS = _UNIT_TESTS.keys() + ["e2e_runner_test"]
 # harness shells out to `bazel info`, `bazel build` and a whole `flutter_bazel
 # run` — so a `dart_test` over one would nest a Bazel invocation inside a Bazel
 # test action. That is a reason they cannot be *run* by Bazel. It is not a
-# reason they cannot be *analyzed*: `dart_analyze_test` reads
-# `DartAnalyzableInfo` and stages sources, and never asks for its operand's
+# reason they cannot be *analyzed*: the analysis aspect reads
+# `DartAnalyzableInfo` and stages sources, and never asks for the target's
 # compiled output, so a handle that is never run still carries them to the
 # analyzer. `e2e/codegen` already does this for its generator scripts —
 # existing only to be analyzed is the point.
@@ -365,38 +325,4 @@ dart_binary(
     main = "tool/e2e.dart",
     visibility = ["//visibility:private"],
     deps = _TEST_DEPS + _PATH_DEP + ["@dev_tool_deps//:vm_service"],
-)
-
-dart_analyze_test(
-    name = "loose_sources_analyze",
-    size = "small",
-    target = ":loose_sources",
-)
-
-# Every `.dart` file in this package, in one target rather than split the way
-# the analyze tests above are. `dart_format_test` does have a `target=`
-# attribute, but handed files directly it needs no `DartAnalyzableInfo` — so it
-# carries none of the reason `:loose_sources` and the per-test analyze loop
-# exist: format checking was never blocked on a library or test owning the file.
-#
-# Four patterns, not `**/*.dart`: `.probes/` sits beside `bin/`, `lib/`,
-# `test/`, and `tool/` in this package and is gitignored scratch space (see
-# `.gitignore`), never reviewed or committed. A blanket recursive glob would
-# pull it under enforcement anyway, since `glob()` does not consult
-# `.gitignore` — these four are exactly the trees `:lib`, `:flutter_bazel`,
-# the `_UNIT_TESTS` loop, and `:loose_sources` already draw `srcs` from above.
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob([
-        "bin/**/*.dart",
-        "lib/**/*.dart",
-        "test/**/*.dart",
-        "tool/**/*.dart",
-    ]),
-    # Matches this package's `pubspec.yaml` (`sdk: ^3.12.0`); the rule's
-    # `latest` default would enforce a style `dart format` here cannot
-    # produce. See docs/TESTING.md.
-    language_version = "3.12",
-    options = "//:analysis_options.yaml",
 )

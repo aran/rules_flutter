@@ -85,7 +85,7 @@ jobs:
       # `-x runfiles` for the same reason as the dev_tool step above: these
       # tools are Bazel scripts, and one of them imports a package that arrives
       # through its `dart_test` deps rather than through this pubspec. Excluded
-      # here, covered by //flutter/private/tools/test:flutter_test_runner_test.
+      # here, covered by //flutter/private/tools:flutter_test_runner_test.
       - name: Run private tool tests
         working-directory: flutter/private/tools
         run: dart pub get && dart test -x runfiles

@@ -2,7 +2,7 @@
 
 `DartInfo.transitive_resources` is how a package's non-Dart `lib/` files
 (images, templates, JS, YAML) reach everything that stages a whole package —
-`dart_analyze_test`, `dart_test`, the dev tool. A provider field that was
+rules_dart's analysis, `dart_test`, the dev tool. A provider field that was
 never set has no default, so a rule that drops its own `resources` on the
 floor produces a package with pieces missing. The probe pins the contract:
 files listed on the new `resources` attribute must land in the provider.

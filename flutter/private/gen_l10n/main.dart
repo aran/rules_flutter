@@ -129,8 +129,8 @@ Future<void> main(List<String> argv) async {
     suppressWarnings: args.containsKey('suppress-warnings'),
     // Never formatted: upstream shells out to the `dart` binary, which this
     // action does not have. The vendored generator raises rather than
-    // silently skipping, so this must stay false. Check formatting of the
-    // generated sources with a `dart_format_test` if you want it enforced.
+    // silently skipping, so this must stay false. Nothing else formats them
+    // either: rules_dart's format check covers hand-written files only.
     format: false,
   );
 

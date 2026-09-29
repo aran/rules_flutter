@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_format_test", "dart_library")
+load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_library")
 load("//flutter:defs.bzl", "flutter_application", "flutter_library", "flutter_test")
 load("//flutter/tests:native_assets_test.bzl", "hook_check_probe", "legacy_dart_library")
 
@@ -138,11 +138,4 @@ build_test(
         ":hook_fixture_is_an_offender",
         ":legacy_package_has_no_hook",
     ],
-)
-
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["**/*.dart"]),
-    options = "//:analysis_options.yaml",
 )

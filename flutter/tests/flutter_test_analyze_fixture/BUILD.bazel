@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_test")
 load("//flutter:defs.bzl", "flutter_test")
 
 # The guard on `flutter_test`'s `DartAnalyzableInfo`, in the root workspace so
@@ -7,8 +7,8 @@ load("//flutter:defs.bzl", "flutter_test")
 # rejects broken code but is indifferent to everything `dart analyze
 # --fatal-infos` reports.
 #
-# Four things have to hold for `:analyze_test` to pass, and it fails loudly if
-# any stops:
+# Four things have to hold for `:analysis_test` to pass, and it fails loudly
+# if any stops:
 #
 #   * `flutter_test` provides `DartAnalyzableInfo` at all;
 #   * `main` is in it, so `test/counter_test.dart` is analyzed;
@@ -28,9 +28,9 @@ load("//flutter:defs.bzl", "flutter_test")
 # of `main` stops resolving. Every `flutter_test` that runs today sits at a
 # workspace root, where `lib_root` is `""` and only `lib/…` is claimed.
 #
-# Only the analysis closure is exercised, and `manual` does not hide it —
-# `:analyze_test` depends on this target, and a dependency is built regardless
-# of the tag.
+# Only the analysis closure is exercised: `:analysis_test` reaches this target
+# through the analysis aspect, which reads the provider, so nothing is built
+# or run.
 #
 # The running `test_api`-only configuration lives at `e2e/codegen`'s root
 # instead; see `//:test_api_only_test` there.
@@ -43,17 +43,11 @@ flutter_test(
     deps = ["//flutter/tests/flutter_test_analyze_fixture/fake_test_api"],
 )
 
-dart_analyze_test(
-    name = "analyze_test",
-    size = "small",
-    target = ":fixture_test",
-)
-
-# `:fake_test_api` is its own package (see the comment there), so this glob
-# does not reach it.
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["**/*.dart"]),
-    options = "//:analysis_options.yaml",
+# The check the whole package exists for. `:fixture_test` is `manual`, so
+# `bazel test //...` never hands it to the analysis aspect; this does.
+dart_analysis_test(
+    name = "analysis_test",
+    targets = [
+        ":fixture_test",
+    ],
 )

@@ -921,8 +921,7 @@ def _flutter_web_bundle_impl(ctx):
         dump_info = depset([dump_info_file] if dump_info_file else []),
     )
 
-    # What makes `dart_analyze_test(target = ":some_web_app")` possible. Until
-    # this existed the rule handed out no Dart provider at all, so every web
+    # What lets rules_dart's analysis check a web app. Until this existed the rule handed out no Dart provider at all, so every web
     # example had to declare its sources a second time as a `flutter_library`
     # purely for the analyzer to stage — and anything the bundle reached that
     # the shadow library missed was analyzed by nothing. `dart_web_application`

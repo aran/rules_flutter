@@ -1,5 +1,4 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_dart//dart:defs.bzl", "dart_format_test")
 load("//flutter:defs.bzl", "flutter_library", "flutter_plugin")
 load("//flutter/tests:dart_resources_test.bzl", "dart_in_resources_fails_test", "resources_probe")
 
@@ -80,11 +79,4 @@ dart_in_resources_fails_test(
     name = "dart_in_resources_plugin_test",
     size = "small",
     target_under_test = ":dart_in_resources_plugin",
-)
-
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["**/*.dart"]),
-    options = "//:analysis_options.yaml",
 )

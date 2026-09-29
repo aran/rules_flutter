@@ -58,12 +58,11 @@ The bar is `CLAUDE.md`'s verification policy and `docs/TESTING.md`, applied to
    `bazel build --nobuild --lockfile_mode=error //...` must pass. If it doesn't, regenerate
    with `bazel mod tidy --lockfile_mode=refresh` then
    `bazel build --nobuild --lockfile_mode=update //...`, verify again, and commit.
-   `e2e/cross_compile_example` cannot take `//...`: check `:cross_linux`, then
-   `:app_analyze_test :format_test` with `--platforms=@platforms//host`, as separate
-   invocations.
+   `e2e/cross_compile_example` has no tests: `bazel build //...` there covers the bundle
+   and the analysis and format checks.
 4. **Full test surface, uncached.** `--nocache_test_results` on every run: a cache replay
    prints `PASSED` having run nothing. Root `//...` and every workspace in
-   `docs/TESTING.md` § 3, including `cross_compile_example`'s two commands. Android
+   `docs/TESTING.md` § 3, plus `bazel build //...` in `cross_compile_example`. Android
    workspaces need both variables, exported:
    ```sh
    export ANDROID_HOME=$HOME/Library/Android/sdk

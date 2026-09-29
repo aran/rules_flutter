@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_test")
 load(":source_repo.bzl", "SOURCE_REPO")
 
 # Keeps `MODULE.bazel.lock`'s pip extension facts honest on every host.
@@ -45,21 +45,4 @@ dart_test(
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
     ],
-)
-
-# A test's `main` belongs to no package's `lib/`, so it appears in no
-# `DartInfo` and nothing else analyzes it — compiling the test to a kernel
-# rejects broken code but is indifferent to everything `dart analyze` reports.
-# The `dart_test`'s own `DartAnalyzableInfo` is what reaches it.
-dart_analyze_test(
-    name = "pip_facts_analyze",
-    size = "small",
-    target = ":pip_facts_test",
-)
-
-dart_format_test(
-    name = "format_test",
-    size = "small",
-    srcs = glob(["*.dart"]),
-    options = "//:analysis_options.yaml",
 )

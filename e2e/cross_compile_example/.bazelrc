@@ -6,3 +6,13 @@ build --platforms=@rules_flutter//flutter/platforms:linux_x64
 build -c dbg
 
 try-import %workspace%/.bazelrc.user
+
+# `dart analyze` and the `dart format` check run as an aspect. Under `build`
+# here, not `test` as elsewhere: this workspace has no test targets, and
+# `bazel test //...` with none exits 4 however clean the checks are, so
+# `bazel build //...` is what runs them. The config line is `common` because
+# `bazel run` of `dart_fix`/`dart_format` reads it too.
+build --aspects=@rules_dart//dart:analyze.bzl%dart_analyze
+build --output_groups=+dart_analyze
+build --output_groups=+dart_format
+common --@rules_dart//dart:analysis_config=//:analysis_config

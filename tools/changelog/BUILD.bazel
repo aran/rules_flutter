@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_binary", "dart_format_test")
+load("@rules_dart//dart:defs.bzl", "dart_binary")
 load("@rules_multitool//multitool:workspace_root.bzl", "workspace_root")
 
 # `bazel run //tools/changelog` prints the unreleased release notes;
@@ -20,15 +20,4 @@ workspace_root(
 dart_binary(
     name = "check",
     main = "check_commit_messages.dart",
-)
-
-# `srcs`, not `target`: dart_format_test's `target` takes only a dart_library.
-dart_format_test(
-    name = "format_test",
-    srcs = ["check_commit_messages.dart"],
-)
-
-dart_analyze_test(
-    name = "analyze_test",
-    target = ":check",
 )
