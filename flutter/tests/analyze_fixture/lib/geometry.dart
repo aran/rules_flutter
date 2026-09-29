@@ -1,8 +1,8 @@
 /// Flutter code, analyzed by `dart_analyze_test`.
 ///
-/// `dart:ui` resolves only because `@flutter_sky_engine//:sky_engine` is on
-/// this library's `deps` and carries `lib/_embedder.yaml` as a `resources`
-/// member. Drop that dep and every reference below becomes undefined.
+/// `dart:ui` resolves only through `package:sky_engine`'s `lib/_embedder.yaml`,
+/// which `flutter_library` adds to the analyzer's closure itself. Without it
+/// every reference below is undefined.
 library;
 
 import 'dart:ui';

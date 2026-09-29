@@ -378,8 +378,7 @@ dart_analysis_options(
 
 # Static analysis over this example's Dart. The app rule is a bundle and
 # carries no DartInfo, so the sources are declared once more as a library for
-# the analyzer to stage. sky_engine supplies lib/_embedder.yaml, the only way
-# `dart:ui` resolves.
+# the analyzer to stage.
 flutter_library(
     name = "app_lib",
     package_name = "plugin_example",
@@ -392,7 +391,6 @@ flutter_library(
         "@deps//:path_provider",
         "@deps//:record_android",
         "@deps//:url_launcher",
-        "@flutter_sky_engine//:sky_engine",
     ],
 )
 

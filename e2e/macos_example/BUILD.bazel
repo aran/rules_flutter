@@ -94,7 +94,6 @@ flutter_library(
     deps = _APP_DEPS + [
         # Supplies `lib/_embedder.yaml`, the only way the analyzer resolves
         # `dart:ui`. Without it every Flutter import fails to resolve.
-        "@flutter_sky_engine//:sky_engine",
     ],
 )
 

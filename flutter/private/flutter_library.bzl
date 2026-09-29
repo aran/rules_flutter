@@ -1,7 +1,7 @@
 """Implementation of the flutter_library rule."""
 
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "dart_info", "derive_lib_root", "derive_package_name")
+load("@rules_dart//dart:utils.bzl", "dart_analyzable_info_with_package", "dart_info", "derive_lib_root", "derive_package_name")
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
 
@@ -140,6 +140,44 @@ def aggregate_pub_contributions(deps):
 
     return (fonts, extra_asset_copies)
 
+# Analysis-only: `package:sky_engine`'s `lib/_embedder.yaml` is the only way the
+# analyzer resolves `dart:ui`. Reaches `flutter_analyzable_info` alone.
+SKY_ENGINE_ATTR = attr.label(
+    doc = "Analysis-only: supplies `lib/_embedder.yaml`, the only way the analyzer resolves `dart:ui`.",
+    default = Label("@flutter_sky_engine//:sky_engine"),
+    providers = [DartInfo],
+)
+
+def flutter_analyzable_info(ctx, package_name, lib_root):
+    """The package a Flutter library rule declares, as the analyzer sees it.
+
+    The same package its `DartInfo` records, with `package:sky_engine` added.
+    Compilation gets `dart:ui` from the patched SDK; the analyzer resolves it
+    only through `sky_engine`'s `lib/_embedder.yaml`, so without this every
+    `dart:ui` import is unresolved. `DartInfo` is untouched, so no compile input
+    changes, and the analyzer prefers this provider when a target has both.
+
+    Args:
+      ctx: The rule context. Reads `deps`, `srcs`, `resources`, `code_assets`,
+        `language_version`, `version` and `_sky_engine` (`SKY_ENGINE_ATTR`).
+      package_name: The Dart package name the rule's `DartInfo` uses.
+      lib_root: The package root the rule's `DartInfo` uses.
+
+    Returns:
+      A `DartAnalyzableInfo`.
+    """
+    return dart_analyzable_info_with_package(
+        label = ctx.label,
+        package_name = package_name,
+        lib_root = lib_root,
+        language_version = ctx.attr.language_version,
+        deps = ctx.attr.deps + [ctx.attr._sky_engine],
+        package_srcs = ctx.files.srcs,
+        resources = ctx.files.resources,
+        code_assets = ctx.attr.code_assets,
+        version = ctx.attr.version,
+    )
+
 def _flutter_library_impl(ctx):
     package_name = derive_package_name(
         ctx.attr.package_name,
@@ -210,6 +248,7 @@ def _flutter_library_impl(ctx):
             version = ctx.attr.version,
             has_unreplaced_hook = ctx.attr.has_unreplaced_hook,
         ),
+        flutter_analyzable_info(ctx, package_name, lib_root),
         flutter_info(
             deps = ctx.attr.deps,
             asset_dirs = ctx.files.assets,
@@ -284,6 +323,7 @@ flutter_library = rule(
             doc = "Map of asset File label -> package-relative path (mirrors `flutter.assets` in pubspec.yaml). Bundled at `packages/<package_name>/<path>` (or bare `<path>` when `package_name` is empty); also included in AssetManifest.",
             allow_files = True,
         ),
+        "_sky_engine": SKY_ENGINE_ATTR,
         "pkg_shaders": attr.label_keyed_string_dict(
             doc = "Map of shader File label -> package-relative path (mirrors `flutter.shaders` in pubspec.yaml). Routed through the impellerc compile and bundled at `packages/<package_name>/<path>` (or bare `<path>` when `package_name` is empty).",
             allow_files = True,

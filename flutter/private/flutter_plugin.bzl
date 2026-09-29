@@ -25,7 +25,7 @@ load("//flutter:providers.bzl", "FlutterDataAssetInfo", "FlutterInfo", "FlutterN
 load("//flutter/private:common.bzl", "collect_binding_contracts", "collect_native_libs")
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo", "FlutterWindowsPluginInfo")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
-load("//flutter/private:flutter_library.bzl", "build_pub_contributions")
+load("//flutter/private:flutter_library.bzl", "SKY_ENGINE_ATTR", "build_pub_contributions", "flutter_analyzable_info")
 load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "native_sources_aspect")
 
 def build_plugin_struct(name, plugin_platforms):
@@ -198,6 +198,7 @@ def _flutter_plugin_impl(ctx):
             version = ctx.attr.version,
             has_unreplaced_hook = ctx.attr.has_unreplaced_hook,
         ),
+        flutter_analyzable_info(ctx, package_name, lib_root),
         flutter_info(
             deps = ctx.attr.deps,
             asset_dirs = ctx.files.assets,
@@ -220,6 +221,7 @@ def _flutter_plugin_impl(ctx):
 flutter_plugin = rule(
     implementation = _flutter_plugin_impl,
     attrs = {
+        "_sky_engine": SKY_ENGINE_ATTR,
         "srcs": attr.label_list(
             doc = "Dart source files for the plugin's public API.",
             allow_files = [".dart"],

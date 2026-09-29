@@ -1,0 +1,24 @@
+load("@rules_dart//dart:defs.bzl", "dart_analyze_test", "dart_format_test")
+load("//flutter:defs.bzl", "flutter_plugin")
+
+# A `flutter_plugin` over code that imports `dart:ui`, analyzed with nothing
+# but its own sources. It names no `sky_engine`: the rule supplies that package
+# to analysis itself, as `flutter_library` does (see `../analyze_fixture`).
+flutter_plugin(
+    name = "analyze_plugin_fixture",
+    package_name = "analyze_plugin_fixture",
+    srcs = ["lib/selection.dart"],
+)
+
+dart_analyze_test(
+    name = "analyze_plugin_fixture_test",
+    size = "small",
+    target = ":analyze_plugin_fixture",
+)
+
+dart_format_test(
+    name = "format_test",
+    size = "small",
+    srcs = glob(["**/*.dart"]),
+    options = "//:analysis_options.yaml",
+)

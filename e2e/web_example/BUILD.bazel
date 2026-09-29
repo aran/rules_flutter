@@ -215,8 +215,6 @@ flutter_library(
     srcs = glob(["lib/**/*.dart"]),
     deps = [
         "@deps//:flutter",
-        # Supplies lib/_embedder.yaml — the only way `dart:ui` resolves.
-        "@flutter_sky_engine//:sky_engine",
         "@rules_flutter//flutter:material_icons",
     ],
 )

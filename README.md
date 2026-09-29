@@ -67,7 +67,7 @@ Some platforms need one more repository from the same extension. Add it to `use_
 | Android | `flutter_android_engine_arm64`, or `flutter_android_engine_x64` for `android_abi = "x64"` |
 | Web | `flutter_web_sdk` |
 
-Static analysis with rules_dart's `dart_analyze_test` also needs `flutter_sky_engine`, which is where `dart:ui` resolves from.
+Static analysis needs nothing extra. `dart_analyze_test` of a `flutter_library` or a `flutter_test` resolves `dart:ui` through the `sky_engine` package, which those rules add to the analyzer's closure themselves. Their compiled output does not change.
 
 ### .bazelrc
 
