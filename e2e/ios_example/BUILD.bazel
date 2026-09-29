@@ -1,4 +1,3 @@
-load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_analyze_test", "dart_format_test", "dart_test")
@@ -15,8 +14,11 @@ load(
     "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
+    "flutter_ios_simulator_build",
+    "flutter_ios_simulator_build_test",
 )
 load("@rules_swift//swift:swift.bzl", "swift_library")
+load(":simulator_mode_test.bzl", "simulator_fastbuild_refused_test")
 
 exports_files(["pubspec.lock"])
 
@@ -223,7 +225,7 @@ ios_application(
 # Tests
 # =============================================================================
 
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_app_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":app"],
@@ -231,7 +233,7 @@ build_test(
 
 # Both apps in one build_test: a per-package module-name collision is an
 # analysis-time action conflict, so it fails here rather than at runtime.
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_two_apps_one_package_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [
@@ -240,12 +242,26 @@ build_test(
     ],
 )
 
-# Reads the Info.plist out of the built .ipa. Bazel's default fastbuild is
-# not `-c opt`, so this bundle carries the Dart VM service keys *and* the
-# app's own Local Network Privacy keys.
+simulator_fastbuild_refused_test(
+    name = "simulator_fastbuild_refused_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    target_under_test = ":app",
+)
+
+# `:app` as the tests below read it: a simulator bundle, which is always a
+# debug build.
+flutter_ios_simulator_build(
+    name = "app_simulator",
+    testonly = True,
+    targets = [":app"],
+)
+
+# Reads the Info.plist out of the built .ipa. A debug build is not `-c opt`,
+# so this bundle carries the Dart VM service keys *and* the app's own Local
+# Network Privacy keys.
 dart_test(
     name = "verify_ios_info_plist_test",
-    data = [":app"],
+    data = [":app_simulator"],
     main = "test/verify_ios_info_plist_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
 )
@@ -255,18 +271,18 @@ dart_test(
 # actually carry it.
 dart_test(
     name = "verify_ios_app_icon_test",
-    data = [":app"],
+    data = [":app_simulator"],
     main = "test/verify_ios_app_icon_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
 )
 
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_bazel_runner_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":app_bazel_runner"],
 )
 
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_custom_runner_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":app_custom_runner"],

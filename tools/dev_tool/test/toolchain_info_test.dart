@@ -164,6 +164,39 @@ void main() {
       ]);
     });
 
+    test('fetches with the flags the run builds with', () async {
+      // The fetch analyses the target, so it has to see the configuration the
+      // build will: an iOS simulator app is refused at analysis outside
+      // `-c dbg`, and a fetch without the run's `-c dbg` failed on exactly
+      // that before anything was built.
+      final platform = detectHostPlatform();
+      final base = outputBaseWith(null);
+      final repoName = 'rules_flutter++flutter+flutter_$platform';
+      final calls = <List<String>>[];
+      Future<ProcessResult> run(
+        List<String> args, {
+        required String workingDirectory,
+      }) async {
+        calls.add(args);
+        if (args.first == 'info') return ok('$base\n');
+        Directory(
+          p.join(base, 'external', repoName),
+        ).createSync(recursive: true);
+        return ok('');
+      }
+
+      await resolveToolchainPaths(
+        '//:app_ios',
+        workspace: '/ws',
+        runBazel: run,
+        buildFlags: ['-c', 'dbg', '--ios_multi_cpus=sim_arm64'],
+      );
+      expect(calls.map((c) => c.join(' ')), [
+        'info output_base',
+        'fetch //:app_ios -c dbg --ios_multi_cpus=sim_arm64',
+      ]);
+    });
+
     test('reports bazel’s own error when the fetch fails', () async {
       // A workspace that cannot be analysed at all is reported as bazel's own
       // failure, naming it and its remedy, rather than as a missing Flutter

@@ -131,6 +131,18 @@ def _flutter_ios_framework_impl(ctx):
     is_device = apple_support.target_environment_from_rule_ctx(ctx) == "device"
     vtool_platform = "ios" if is_device else "iossim"
 
+    # The simulator engine runs kernel under the JIT and cannot load an AOT
+    # snapshot, so this bundle would launch to a white screen with the engine
+    # reporting "Engine run configuration was invalid". Refused here, as
+    # `flutter build ios --simulator --release` refuses it, rather than built.
+    if app_info.aot_output and not is_device:
+        fail(
+            ("The iOS simulator runs debug builds only, and this is a %s " +
+             "build. Build it with -c dbg, or for a device with " +
+             "--ios_multi_cpus=arm64. A build test of a simulator app can " +
+             "use flutter_ios_simulator_build_test.") % ctx.var["COMPILATION_MODE"],
+        )
+
     ctx.actions.write(framework_plist, _APP_FRAMEWORK_INFO_PLIST.format(
         minimum_os_version = minimum_os_version,
     ))

@@ -56,12 +56,14 @@ Two tiers of API:
         )
 """
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_apple//apple:apple.bzl", "apple_dynamic_framework_import", "apple_dynamic_xcframework_import")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_swift//swift:swift.bzl", "swift_library")
 load("//flutter/private:constants.bzl", _IOS_MINIMUM_OS_VERSION = "IOS_MINIMUM_OS_VERSION")
+load("//flutter/private:debug_build.bzl", _debug_build = "debug_build")
 load("//flutter/private:flutter_apple_plugin_library.bzl", _flutter_apple_plugin_library_macro = "flutter_apple_plugin_library")
 load("//flutter/private:flutter_apple_plugins_aggregator.bzl", _flutter_apple_plugins_aggregator = "flutter_apple_plugins_aggregator")
 load("//flutter/private:flutter_ios_application.bzl", _flutter_ios_application = "flutter_ios_application", _flutter_ios_framework_rule = "flutter_ios_framework", _flutter_ios_native_frameworks_rule = "flutter_ios_native_frameworks", _flutter_ios_privacy_manifests_rule = "flutter_ios_privacy_manifests")
@@ -654,5 +656,50 @@ def flutter_ios_app(
             "__%s_native_frameworks" % name,
         ],
         tags = tags,
+        **kwargs
+    )
+
+def flutter_ios_simulator_build(name, targets, **kwargs):
+    """Builds iOS apps for the simulator in debug mode, whatever `-c` says.
+
+    The simulator engine runs only debug builds, so a simulator app built in
+    `fastbuild` or `opt` is refused at analysis. This forwards the files of
+    `targets` built with `-c dbg`, for anything that needs a simulator bundle
+    under a default `bazel test //...`: a `build_test`, or a test that reads
+    the bundle through `data`. The files keep their runfiles paths.
+
+    Args:
+        name: Target name.
+        targets: `flutter_ios_app` or `ios_application` targets.
+        **kwargs: Common attributes (e.g. `tags`, `testonly`, `visibility`).
+    """
+    _debug_build(
+        name = name,
+        targets = targets,
+        **kwargs
+    )
+
+def flutter_ios_simulator_build_test(name, targets, **kwargs):
+    """A build test of iOS simulator apps, built with `-c dbg`.
+
+    A plain `build_test` of a simulator app fails under a default
+    `bazel test //...`, because the app is refused outside debug mode. See
+    `flutter_ios_simulator_build`.
+
+    Args:
+        name: Target name.
+        targets: `flutter_ios_app` or `ios_application` targets to build.
+        **kwargs: Passed through to `build_test` (e.g. `tags`,
+            `target_compatible_with`).
+    """
+    flutter_ios_simulator_build(
+        name = "__%s_dbg" % name,
+        targets = targets,
+        tags = ["manual"],
+        testonly = True,
+    )
+    build_test(
+        name = name,
+        targets = ["__%s_dbg" % name],
         **kwargs
     )

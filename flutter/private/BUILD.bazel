@@ -24,6 +24,12 @@ bzl_library(
 )
 
 bzl_library(
+    name = "debug_build",
+    srcs = ["debug_build.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "artifact_urls",
     srcs = ["artifact_urls.bzl"],
     visibility = ["//flutter:__subpackages__"],

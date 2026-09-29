@@ -11,6 +11,7 @@ load(
     "flutter_ios_framework_gen",
     "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
+    "flutter_ios_simulator_build_test",
 )
 load(
     "@rules_flutter//flutter:macos.bzl",
@@ -162,6 +163,8 @@ ios_application(
     infoplists = ["ios/Info.plist"],
     launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
     minimum_os_version = "13.0",
+    # Simulator builds are debug-only; `:ios_build_test` builds it in dbg.
+    tags = ["manual"],
     version = ":app_version",
     deps = _IOS_DEPS,
 )
@@ -196,7 +199,7 @@ build_test(
     targets = [":app_macos"],
 )
 
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":app_ios"],

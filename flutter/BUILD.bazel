@@ -96,6 +96,7 @@ bzl_library(
     srcs = ["ios.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:debug_build",
         "//flutter/private:flutter_ios_application",
         "//flutter/private:flutter_ios_registrant",
         "//flutter/private:flutter_plist_merge",

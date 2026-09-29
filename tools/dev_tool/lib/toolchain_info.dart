@@ -76,10 +76,15 @@ List<String> flutterToolchainRepoNames(String platform) => [
 /// what makes the fetch below load-bearing rather than incidental: on a
 /// workspace whose output base has never been built there is no external repo
 /// to find yet, and this is the call that creates it.
+///
+/// [buildFlags] are the configuration flags the run's own build uses. The
+/// fetch analyses [target], so it has to see that configuration: an iOS
+/// simulator app is refused at analysis outside `-c dbg`.
 Future<ToolchainPaths> resolveToolchainPaths(
   String target, {
   required String workspace,
   required BazelRunner runBazel,
+  List<String> buildFlags = const [],
 }) async {
   final info = await runBazel([
     'info',
@@ -109,12 +114,13 @@ Future<ToolchainPaths> resolveToolchainPaths(
     final fetch = await runBazel([
       'fetch',
       target,
+      ...buildFlags,
     ], workingDirectory: workspace);
     if (fetch.exitCode != 0) {
       throw DevToolException(
         'Could not fetch what $target needs, so the Flutter toolchain was '
         'never materialized.\n'
-        '  cd $workspace && bazel fetch $target\n'
+        '  cd $workspace && bazel fetch ${[target, ...buildFlags].join(' ')}\n'
         '  exit ${fetch.exitCode}\n'
         '${_tail(fetch.stderr as String)}',
       );

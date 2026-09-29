@@ -333,6 +333,8 @@ class AttachCommand {
         target,
         workspace: workspace,
         runBazel: host.bazel.run,
+        // The configuration the pipeline below builds in.
+        buildFlags: ['-c', 'dbg', ...userBuildArgs],
       );
 
       // Assemble the reload pipeline exactly as `run` does on native, with no

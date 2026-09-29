@@ -15,6 +15,7 @@ load(
     "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
+    "flutter_ios_simulator_build_test",
 )
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
@@ -325,7 +326,7 @@ build_test(
     targets = [":hello_world_macos"],
 )
 
-build_test(
+flutter_ios_simulator_build_test(
     name = "ios_bundle_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":hello_world_ios"],

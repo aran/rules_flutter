@@ -523,16 +523,18 @@ The project can be a scratch project. It does not need to be the app you build w
 There is no way to run a release iOS build without a signing credential. That matters because release-only problems, such as [missing permissions](#release-builds-and-permissions), show up when you run the app, not when you read the code.
 
 - **Device, `-c opt`.** The real thing. Needs a provisioning profile.
-- **Simulator, `-c opt`.** Builds a complete `.ipa` with no warning, installs and launches with exit code 0, and then shows a blank white screen forever. The simulator engine is a JIT engine and looks for `flutter_assets/kernel_blob.bin`, which an AOT bundle does not have. It never crashes, so there is no crash log. The only evidence is in the simulator's system log:
+- **Simulator, `-c opt`.** Refused at analysis: "The iOS simulator runs debug builds only". So is the default `fastbuild`. The simulator engine runs kernel under the JIT and cannot load an AOT snapshot, so such a bundle would install, launch, and show a blank white screen with only `Engine run configuration was invalid` in the system log. `flutter build ios --simulator --release` refuses it too.
 
-  ```
-  (Flutter) Failed to find snapshot at .../App.framework/flutter_assets/kernel_blob.bin
-  (Flutter) [ERROR:flutter/shell/common/engine.cc(219)] Engine run configuration was invalid.
-  ```
+Use `-c dbg` on the simulator and a device for release. A test that needs a simulator bundle under a plain `bazel test //...` gets one from `flutter_ios_simulator_build`, which builds its `targets` with `-c dbg` whatever the command line says. Name it in a test's `data`, or use `flutter_ios_simulator_build_test` in place of a `build_test`:
 
-  Read it with `xcrun simctl spawn booted log show --last 5m --predicate 'eventMessage CONTAINS "kernel_blob"'`.
+```starlark
+load("@rules_flutter//flutter:ios.bzl", "flutter_ios_simulator_build_test")
 
-Use `-c dbg` on the simulator and a device for release.
+flutter_ios_simulator_build_test(
+    name = "ios_app_build_test",
+    targets = [":app_ios"],
+)
+```
 
 ### App icons
 

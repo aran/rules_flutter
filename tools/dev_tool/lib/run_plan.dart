@@ -329,10 +329,22 @@ class RunPlan {
     // The native pipeline needs the frontend server and dartaotruntime out of
     // this, and DevTools needs the toolchain's `dart` on every platform —
     // including web, which otherwise never resolves a toolchain at all.
+    //
+    // With the flags the run will build with, because the fetch analyses the
+    // target: see [resolveToolchainPaths].
+    final extraArgs = [
+      ...(results['build-arg'] as List<String>),
+      ...defineFlags,
+      ...devices.first.buildArgs,
+    ];
     final toolchain = await resolveToolchainPaths(
       target,
       workspace: workspace,
       runBazel: bazel.run,
+      buildFlags: [
+        if (compilationMode != null) ...['-c', compilationMode],
+        ...extraArgs,
+      ],
     );
 
     // What shape of web run this is, and what the web flags mean for it —
@@ -421,11 +433,7 @@ class RunPlan {
 
     return RunPlan._(
       target: target,
-      extraArgs: [
-        ...(results['build-arg'] as List<String>),
-        ...defineFlags,
-        ...devices.first.buildArgs,
-      ],
+      extraArgs: extraArgs,
       userBuildArgs: results['build-arg'] as List<String>,
       compilationMode: compilationMode,
       devices: devices,
