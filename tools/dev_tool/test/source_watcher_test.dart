@@ -50,13 +50,22 @@ void main() {
         );
         await watcher.start();
         final events = <SourceChange>[];
-        final sub = watcher.changes.listen(events.add);
+        final first = Completer<void>();
+        final sub = watcher.changes.listen((change) {
+          events.add(change);
+          if (!first.isCompleted) first.complete();
+        });
 
         fake.emit(WatchEvent(ChangeType.MODIFY, '/root/lib/a.dart'));
         fake.emit(WatchEvent(ChangeType.MODIFY, '/root/lib/b.dart'));
         fake.emit(WatchEvent(ChangeType.MODIFY, '/root/lib/c.dart'));
 
-        await Future<void>.delayed(const Duration(milliseconds: 80));
+        // Wait for the flush itself, not for a wall-clock guess at when it
+        // lands: under load the debounce timer can fire well after its 30ms.
+        await first.future.timeout(const Duration(seconds: 10));
+        // A second event would follow one debounce window later. Waiting a
+        // few windows for it can only miss a split, never fail a correct run.
+        await Future<void>.delayed(const Duration(milliseconds: 90));
 
         expect(events, hasLength(1));
         expect(events.first.paths, {
