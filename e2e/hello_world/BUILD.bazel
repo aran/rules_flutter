@@ -253,6 +253,32 @@ flutter_test(
     ],
 )
 
+# Bazel's test protocol under `flutter_test`: `--test_filter` selects cases,
+# `shard_count` splits them, and each case is reported in the XML Bazel
+# collects. (Its `size`/`timeout` as the suite's default timeout is unit-tested
+# on `suiteTimeout` in `flutter_test_runner_test`.) The sharded twin is what proves
+# the runner declares sharding support; see the test file.
+flutter_test(
+    name = "bazel_protocol_test",
+    package_name = "hello_world",
+    main = "test/bazel_protocol_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+flutter_test(
+    name = "bazel_protocol_sharded_test",
+    package_name = "hello_world",
+    main = "test/bazel_protocol_test.dart",
+    shard_count = 3,
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
 # Verifies Dart environment defines: the `defines` attr, the
 # --@rules_flutter//flutter:extra_dart_defines flag (set in .bazelrc, value
 # contains a comma to prove repeatable-flag no-split semantics), and

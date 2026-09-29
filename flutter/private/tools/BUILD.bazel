@@ -21,6 +21,7 @@ exports_files(
         # its neighbours this one is a `dart_binary` main (below), and rules
         # reach it through that target rather than by file label.
         "flutter_test_runner.dart",
+        "bazel_test_protocol.dart",
     ],
     visibility = ["//flutter:__subpackages__"],
 )
@@ -35,6 +36,7 @@ dart_binary(
 
 dart_binary(
     name = "flutter_test_runner",
+    srcs = ["bazel_test_protocol.dart"],
     compile_mode = "exe",
     main = "flutter_test_runner.dart",
     visibility = ["//flutter:__subpackages__"],

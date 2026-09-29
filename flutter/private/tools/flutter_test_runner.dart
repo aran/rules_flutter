@@ -27,11 +27,19 @@
 /// `FLUTTER_TEST_UPDATE_GOLDENS` in the tester's environment, which the
 /// comparator in the bootstrap reads. It is accepted only under `bazel run`,
 /// where `BUILD_WORKSPACE_DIRECTORY` names a source tree to write to.
+///
+/// Bazel's test protocol wins wherever it has one. The suite's default timeout
+/// is Bazel's own (`TEST_TIMEOUT`), not `package:test`'s 30 seconds; a test's
+/// own `timeout:` still applies — see [suiteTimeout].
+/// `--test_filter`, sharding and the per-case XML report follow
+/// `bazel_test_protocol.dart`.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:runfiles/runfiles.dart';
+
+import 'bazel_test_protocol.dart';
 
 /// Whether this run should regenerate goldens instead of comparing them.
 ///
@@ -99,6 +107,18 @@ void main(List<String> args) async {
   final testPath = Platform.environment['FLUTTER_TEST_PATH'] ?? 'test.dart';
   final coverageOutput = Platform.environment['COVERAGE_OUTPUT_FILE'];
 
+  final TestSelection selection;
+  try {
+    selection = TestSelection.fromEnvironment(Platform.environment);
+  } on FormatException catch (e) {
+    stderr.writeln('flutter_test runner: ${e.message}');
+    exit(64);
+  }
+  // Touched before the run, as Bazel asks: it is how a runner says it supports
+  // sharding at all, and Bazel 9 fails a sharded test whose runner never does.
+  final shardStatus = Platform.environment['TEST_SHARD_STATUS_FILE'];
+  if (shardStatus != null) File(shardStatus).writeAsStringSync('');
+
   exitCode = await _runOnce(
     tester: tester,
     icu: icu,
@@ -107,6 +127,8 @@ void main(List<String> args) async {
     testPath: testPath,
     coverageOutput: coverageOutput,
     updateGoldens: updateGoldens,
+    selection: selection,
+    xmlOutput: Platform.environment['XML_OUTPUT_FILE'],
   );
 }
 
@@ -118,6 +140,8 @@ Future<int> _runOnce({
   required String testPath,
   required String? coverageOutput,
   required bool updateGoldens,
+  required TestSelection selection,
+  required String? xmlOutput,
 }) async {
   final harness = await _Harness.bind();
   try {
@@ -129,6 +153,8 @@ Future<int> _runOnce({
       testPath: testPath,
       coverageOutput: coverageOutput,
       updateGoldens: updateGoldens,
+      selection: selection,
+      xmlOutput: xmlOutput,
     );
   } finally {
     await harness.dispose();
@@ -149,6 +175,26 @@ Duration testCeiling(String? bazelTestTimeout) {
   if (seconds == null || seconds <= 0) return const Duration(minutes: 5);
   final margin = seconds ~/ 20;
   return Duration(seconds: seconds - (margin < 10 ? 10 : margin));
+}
+
+/// The suite's default timeout, serialized as `Metadata` carries it.
+///
+/// Bazel's own limit (`TEST_TIMEOUT`, seconds) in place of `package:test`'s
+/// 30-second default, as `dart_test` sets it. Not `none`: `Timeout.merge`
+/// lets `none` on either side win, so it would discard a limit a test's author
+/// wrote on a case to catch a hang. With Bazel's limit as the default, such a
+/// `timeout:` still fires, `Timeout.factor` scales Bazel's limit, and a case
+/// with neither runs as long as Bazel lets the target run. Outside `bazel
+/// test` there is no limit to state, so the default is none.
+///
+/// Public, like [testCeiling], because the test reaches it directly.
+Object suiteTimeout(String? bazelTestTimeout) {
+  final seconds = int.tryParse(bazelTestTimeout ?? '');
+  if (seconds == null || seconds <= 0) return 'none';
+  return {
+    'duration': Duration(seconds: seconds).inMicroseconds,
+    'scaleFactor': null,
+  };
 }
 
 /// Harness state: server, tester process, WebSocket, channel demux.
@@ -252,6 +298,8 @@ class _Harness {
     required String testPath,
     required String? coverageOutput,
     required bool updateGoldens,
+    required TestSelection selection,
+    required String? xmlOutput,
   }) async {
     final enableVmService = coverageOutput != null;
     // Coverage does not start the tester paused, and `flutter test --coverage`
@@ -398,16 +446,31 @@ class _Harness {
     // Send the initial suite handshake.
     _send(0, _initialMessage(testPath));
 
+    // Bounded inside Bazel's own budget, like each test below, so a suite that
+    // never finishes loading is reported here rather than killed silently.
     final root = await suiteReady.future.timeout(
-      const Duration(minutes: 5),
+      testCeiling(Platform.environment['TEST_TIMEOUT']),
       onTimeout: () => null,
     );
 
     final results = _Results();
     if (root != null) {
-      await _runGroup(root, results, const <String>[]);
+      final selected = selection.select(root);
+      if (selected != null) {
+        await _runGroup(selected, results);
+      } else if (selection.narrows) {
+        stdout.writeln(
+          'flutter_test: no test case in this suite matches this run\'s '
+          '--test_filter or shard.',
+        );
+      }
     } else {
       results.recordError('suite did not load');
+    }
+    if (xmlOutput != null) {
+      await File(
+        xmlOutput,
+      ).writeAsString(junitXml(results.cases, suiteName: testPath));
     }
 
     // Collect coverage before tearing the tester down — the isolate must still
@@ -516,34 +579,19 @@ class _Harness {
     }
   }
 
-  Future<void> _runGroup(
-    Map<String, dynamic> group,
-    _Results results,
-    List<String> nameStack,
-  ) async {
-    final groupName = group['name'] as String? ?? '';
-    final stack = [
-      ...nameStack,
-      if (groupName.isNotEmpty) groupName,
-    ];
-
+  Future<void> _runGroup(Map<String, dynamic> group, _Results results) async {
     final setUpAll = group['setUpAll'] as Map?;
     if (setUpAll != null) {
-      await _runTest(
-        setUpAll.cast<String, dynamic>(),
-        results,
-        stack,
-        fixture: 'setUpAll',
-      );
+      await _runTest(setUpAll.cast<String, dynamic>(), results, fixture: true);
     }
 
     final entries = group['entries'] as List? ?? const [];
     for (final entry in entries) {
       final m = (entry as Map).cast<String, dynamic>();
       if (m['type'] == 'group') {
-        await _runGroup(m, results, stack);
+        await _runGroup(m, results);
       } else {
-        await _runTest(m, results, stack);
+        await _runTest(m, results);
       }
     }
 
@@ -552,34 +600,30 @@ class _Harness {
       await _runTest(
         tearDownAll.cast<String, dynamic>(),
         results,
-        stack,
-        fixture: 'tearDownAll',
+        fixture: true,
       );
     }
   }
 
+  /// Runs one test, or one `setUpAll`/`tearDownAll` when [fixture] is set: a
+  /// fixture is reported only when it fails, as `package:test` hides it.
+  ///
+  /// `test['name']` is already the full name, enclosing groups included —
+  /// `package:test` names a test that way when it is declared.
   Future<void> _runTest(
     Map<String, dynamic> test,
-    _Results results,
-    List<String> nameStack, {
-    String? fixture,
+    _Results results, {
+    bool fixture = false,
   }) async {
     final testChannelId = (test['channel'] as num).toInt();
-    final testName = test['name'] as String? ?? '';
-    final fullName = [
-      ...nameStack,
-      if (testName.isNotEmpty) testName,
-    ].join(' ');
-    final reportName = fixture != null
-        ? (fullName.isEmpty ? '[$fixture]' : '[$fixture] $fullName')
-        : fullName;
+    final reportName = test['name'] as String? ?? '';
 
     final metadata = test['metadata'] as Map?;
     final skipReason = metadata == null ? null : metadata['skipReason'];
     final skipFlag = metadata == null
         ? false
         : (metadata['skip'] as bool? ?? false);
-    if (fixture == null && skipFlag) {
+    if (!fixture && skipFlag) {
       results.recordSkipped(reportName, skipReason as String?);
       return;
     }
@@ -592,12 +636,16 @@ class _Harness {
           type: 'TestDeviceException',
           stackChain: '',
         ),
+        Duration.zero,
+        '',
       );
       return;
     }
 
     final ch = _allocChannel();
     final completer = Completer<void>();
+    final started = Stopwatch()..start();
+    final output = StringBuffer();
     _pendingTests[ch.inputId] = completer;
     _TestFailureSummary? failure;
 
@@ -620,11 +668,9 @@ class _Harness {
         case 'message':
           final mtype = msg['message-type'] as String? ?? 'print';
           final text = msg['text'] as String? ?? '';
-          if (mtype == 'print') {
-            stdout.writeln(text);
-          } else {
-            stdout.writeln('[$mtype] $text');
-          }
+          final line = mtype == 'print' ? text : '[$mtype] $text';
+          stdout.writeln(line);
+          output.writeln(line);
         case 'complete':
           if (!completer.isCompleted) completer.complete();
       }
@@ -635,11 +681,11 @@ class _Harness {
     // on testChannelId+1.
     _send(testChannelId + 1, {'command': 'run', 'channel': ch.outputId});
 
-    // `test_api` enforces the per-test timeout from the metadata we sent
-    // (30s), but that's a Timer — a test that spins synchronously without
-    // yielding to the event loop never lets it fire. Backstop with a
-    // ceiling so a wedged test surfaces as a failure here instead of
-    // hanging until Bazel's outer test timeout. Kill the tester and treat
+    // `test_api` enforces the timeout from the metadata we sent — Bazel's own,
+    // or the test's — but that's a Timer: a test that spins synchronously
+    // without yielding never lets it fire. This ceiling stays just inside
+    // Bazel's limit, so a wedged test is named as a failure here instead of the
+    // whole target being killed with no word on which test hung. Kill the tester and treat
     // the socket as gone so the remaining tests bail out fast.
     final ceiling = testCeiling(Platform.environment['TEST_TIMEOUT']);
     await completer.future.timeout(
@@ -664,17 +710,25 @@ class _Harness {
       );
     }
 
+    started.stop();
     if (failure != null) {
-      results.recordFailure(reportName, failure!);
-    } else if (fixture == null) {
-      results.recordSuccess(reportName);
+      results.recordFailure(
+        reportName,
+        failure!,
+        started.elapsed,
+        output.toString(),
+      );
+    } else if (!fixture) {
+      results.recordSuccess(reportName, started.elapsed, output.toString());
     }
   }
 
   Map<String, dynamic> _initialMessage(String testPath) {
     return {
       'type': 'initial',
-      'metadata': _defaultMetadata(),
+      'metadata': _defaultMetadata(
+        suiteTimeout(Platform.environment['TEST_TIMEOUT']),
+      ),
       'platform': _suitePlatform(),
       'platformVariables': const <String>[],
       'collectTraces': true,
@@ -689,11 +743,11 @@ class _Harness {
   }
 
   /// Minimal `Metadata.serialize` payload — all optional flags omitted, an
-  /// empty `forTag`, and the default 30s timeout.
-  static Map<String, Object?> _defaultMetadata() {
+  /// empty `forTag`, and [timeout] as [suiteTimeout] serializes it.
+  static Map<String, Object?> _defaultMetadata(Object timeout) {
     return {
       'testOn': null,
-      'timeout': {'duration': 30 * Duration.microsecondsPerSecond},
+      'timeout': timeout,
       'skip': null,
       'skipReason': null,
       'verboseTrace': null,
@@ -777,19 +831,39 @@ class _Results {
   int skipped = 0;
   bool _suiteError = false;
 
-  void recordSuccess(String name) {
+  /// Every case in the order it ran, for the JUnit report.
+  final List<TestCaseResult> cases = [];
+
+  void recordSuccess(String name, Duration elapsed, String output) {
     passed++;
+    cases.add(TestCaseResult.passed(name, elapsed, output));
     stdout.writeln('  PASS  $name');
   }
 
-  void recordFailure(String name, _TestFailureSummary summary) {
+  void recordFailure(
+    String name,
+    _TestFailureSummary summary,
+    Duration elapsed,
+    String output,
+  ) {
     failed++;
+    cases.add(
+      TestCaseResult.failed(
+        name,
+        elapsed,
+        output,
+        failureType: summary.type,
+        message: summary.message,
+        detail: summary.toString(),
+      ),
+    );
     stdout.writeln('  FAIL  $name');
     stdout.writeln(_indent(summary.toString(), '        '));
   }
 
   void recordSkipped(String name, String? reason) {
     skipped++;
+    cases.add(TestCaseResult.skipped(name));
     stdout.writeln(
       reason == null ? '  SKIP  $name' : '  SKIP  $name (${reason.trim()})',
     );

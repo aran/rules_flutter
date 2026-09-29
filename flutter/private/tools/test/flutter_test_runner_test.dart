@@ -238,6 +238,25 @@ void main() {
     });
   });
 
+  group('suiteTimeout', () {
+    test('is Bazel\'s TEST_TIMEOUT, not package:test\'s 30 seconds', () {
+      expect(runner.suiteTimeout('300'), {
+        'duration': const Duration(seconds: 300).inMicroseconds,
+        'scaleFactor': null,
+      });
+    });
+
+    test('is never none under Bazel, so a test\'s own timeout still fires', () {
+      // `Timeout.merge` lets `none` on either side win.
+      expect(runner.suiteTimeout('60'), isNot('none'));
+    });
+
+    test('is none outside bazel test, where there is no limit to state', () {
+      expect(runner.suiteTimeout(null), 'none');
+      expect(runner.suiteTimeout(''), 'none');
+    });
+  });
+
   group('testCeiling', () {
     test("derives the wedged-test backstop from Bazel's TEST_TIMEOUT, so a "
         'test given --test_timeout=1200 runs its full length', () {

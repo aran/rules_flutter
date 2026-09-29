@@ -1050,6 +1050,13 @@ flutter_test(
 
 It takes the compile attributes of `flutter_application` (`main`, `srcs`, `deps`, `defines`, `package_name`, `language_version`, `assets`, `shaders`) plus the usual `data` and `env`. Values in `env` are literal; there is no `$(location)` expansion.
 
+Bazel's test protocol applies, as it does to `dart_test`:
+
+- **Time.** The target's `size` or `timeout` replaces `package:test`'s 30-second default, so a test with no `timeout:` of its own runs as long as Bazel lets the target run. A `timeout:` written on a test still applies, and `Timeout.factor` scales Bazel's limit.
+- **`--test_filter`.** A regular expression matched against each test's full name, group names included, like `flutter test --name`. A target the filter matches nothing in passes, so `bazel test //... --test_filter=x` runs only what it names.
+- **`shard_count`.** Splits the suite's tests into contiguous shares, one per shard.
+- **Results.** Each case is reported in the `test.xml` Bazel collects, so CI shows cases rather than one pass or fail per target.
+
 #### Golden files
 
 Goldens must be listed in `data`, or the test cannot see them:

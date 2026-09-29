@@ -25,11 +25,18 @@ _UNIT_TESTS = {
         "flutter_test_runner.dart",
         ["@rules_dart//dart/runfiles"],
     ),
+    "bazel_test_protocol_test": ("bazel_test_protocol.dart", []),
+}
+
+# The runner imports its protocol module by relative path, so every test of the
+# runner carries it too.
+_TOOL_SRCS = {
+    "flutter_test_runner.dart": ["bazel_test_protocol.dart"],
 }
 
 [dart_test(
     name = name,
-    srcs = ["//flutter/private/tools:%s" % tool],
+    srcs = ["//flutter/private/tools:%s" % f for f in [tool] + _TOOL_SRCS.get(tool, [])],
     main = "%s.dart" % name,
     deps = ["@dev_tool_deps//:test"] + extra_deps,
 ) for name, (tool, extra_deps) in _UNIT_TESTS.items()]
