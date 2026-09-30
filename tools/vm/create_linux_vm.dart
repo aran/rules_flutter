@@ -16,6 +16,8 @@
 /// After creation, use deploy_bundle.dart to SCP a bundle and verify it.
 library;
 
+import 'dart:io';
+
 import 'gcloud.dart';
 import 'hermetic_dart.dart';
 
@@ -30,24 +32,25 @@ const _imageProject = 'ubuntu-os-cloud';
 String _startupScript(String dartVersion) =>
     '''#!/bin/bash
 set -ex
+trap 'echo STARTUP_FAILED > /tmp/startup_complete' ERR
 
 # System packages for running Flutter GTK apps.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq \
-  gcc \
-  g++ \
-  libegl1 \
-  libgles2 \
-  libgl1-mesa-dri \
-  libgtk-3-0 \
-  x11-utils \
-  xvfb \
-  xdotool \
-  scrot \
-  unzip \
-  zip \
-  curl \
+apt-get install -y -qq \\
+  gcc \\
+  g++ \\
+  libegl1 \\
+  libgles2 \\
+  libgl1-mesa-dri \\
+  libgtk-3-0 \\
+  x11-utils \\
+  xvfb \\
+  xdotool \\
+  scrot \\
+  unzip \\
+  zip \\
+  curl \\
   git
 
 # Dart SDK — the version `@rules_dart//dart` resolves to, passed in rather than
@@ -84,19 +87,28 @@ Future<void> main(List<String> args) async {
   print('  Dart SDK: $dartVersion (from @rules_dart//dart)');
   print('');
 
-  await gcloud([
-    'compute',
-    'instances',
-    'create',
-    vmName,
-    '--machine-type=$_machineType',
-    '--image-family=$_imageFamily',
-    '--image-project=$_imageProject',
-    '--provisioning-model=SPOT',
-    '--instance-termination-action=DELETE',
-    '--metadata=startup-script=${_startupScript(dartVersion)}',
-    '--scopes=default',
-  ]);
+  // From a file: `--metadata` splits its value on commas, and the script
+  // has them.
+  final tmpDir = Directory.systemTemp.createTempSync('linux_vm_');
+  final tmpStartup = File('${tmpDir.path}/startup.sh')
+    ..writeAsStringSync(_startupScript(dartVersion));
+  try {
+    await gcloud([
+      'compute',
+      'instances',
+      'create',
+      vmName,
+      '--machine-type=$_machineType',
+      '--image-family=$_imageFamily',
+      '--image-project=$_imageProject',
+      '--provisioning-model=SPOT',
+      '--instance-termination-action=DELETE',
+      '--metadata-from-file=startup-script=${tmpStartup.path}',
+      '--scopes=default',
+    ]);
+  } finally {
+    tmpDir.deleteSync(recursive: true);
+  }
 
   print('');
   print('VM created. Waiting for SSH ...');
@@ -105,14 +117,19 @@ Future<void> main(List<String> args) async {
   // Wait for startup script to complete.
   print('Waiting for startup script to complete ...');
   final deadline = DateTime.now().add(const Duration(minutes: 5));
-  while (DateTime.now().isBefore(deadline)) {
-    try {
-      final result = await sshRun(
-        vmName,
-        'cat /tmp/startup_complete 2>/dev/null',
+  while (true) {
+    final result = await sshRun(
+      vmName,
+      'cat /tmp/startup_complete 2>/dev/null || true',
+    );
+    if (result.contains('STARTUP_COMPLETE')) break;
+    if (result.contains('STARTUP_FAILED') || DateTime.now().isAfter(deadline)) {
+      stderr.writeln(
+        'The startup script did not finish. Its log: gcloud compute ssh '
+        "$vmName --command 'sudo journalctl -u google-startup-scripts'",
       );
-      if (result.contains('STARTUP_COMPLETE')) break;
-    } catch (_) {}
+      exit(1);
+    }
     await Future<void>.delayed(const Duration(seconds: 10));
   }
 
