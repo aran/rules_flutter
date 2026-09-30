@@ -33,6 +33,14 @@
         "sha256": "24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4",
         "os": "linux",
         "cpu": "x86_64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-pc-windows-msvc.zip",
+        "file": "git-cliff-2.14.2/git-cliff.exe",
+        "sha256": "6ece2112b3f4af462190ecbea4aeb1315fff6af415629b597f84319073c31131",
+        "os": "windows",
+        "cpu": "x86_64"
       }
     ]
   },
