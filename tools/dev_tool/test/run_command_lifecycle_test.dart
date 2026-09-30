@@ -256,10 +256,16 @@ void main() {
           );
           await watcher.start();
 
-          // Subscribe before producing the change.
+          // Subscribe before producing the change. Only changes to the file
+          // under test reload: the primer below produces changes of its own.
+          final primed = Completer<void>();
           final ranCompleter = Completer<void>();
           final reloadResults = <Map<String, dynamic>>[];
           final sub = watcher.changes.listen((change) async {
+            if (change.paths.any((p) => p.endsWith('primer.dart'))) {
+              if (!primed.isCompleted) primed.complete();
+            }
+            if (!change.paths.any((p) => p.endsWith('main.dart'))) return;
             final result = await h.runner.run('app.hotReload', {
               'invalidatedFiles': [
                 for (final p in change.paths)
@@ -270,23 +276,25 @@ void main() {
             if (!ranCompleter.isCompleted) ranCompleter.complete();
           });
 
-          // Nothing to wait for here. `SourceWatcher.start` awaits
-          // `DirectoryWatcher.ready`, whose contract is that setup is finished
-          // and events are being delivered — package:watcher discards every
-          // event it sees before that point, which is what "primed" means. A
-          // sleep layered on top of an already-awaited happens-before is a guess
-          // about how long someone else's setup takes, and the guess is what
-          // breaks under load, not the watcher.
+          // `ready` does not mean events are being delivered. On macOS,
+          // package:watcher completes it a fixed 200ms after starting the
+          // native watch (`watched_directory_tree.dart`), and on a loaded host
+          // a write made just after that can be lost outright. So prove the
+          // stream live first: write a primer until a change for it arrives.
+          // Each write is a fresh event, so this waits on delivery rather than
+          // on a guess at how long setup takes.
+          for (var n = 0; !primed.isCompleted; n++) {
+            h.writeFile('primer.dart', '// $n');
+            await Future.any([
+              primed.future,
+              Future<void>.delayed(const Duration(milliseconds: 500)),
+            ]);
+          }
           h.writeFile('main.dart', 'v2 longer');
 
-          await ranCompleter.future.timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              throw StateError(
-                'watcher did not fire within 5s of writing the file',
-              );
-            },
-          );
+          // The test's own timeout below is what reports a watcher that
+          // never delivers.
+          await ranCompleter.future;
           await sub.cancel();
           await watcher.stop();
 
@@ -296,7 +304,7 @@ void main() {
           await h.dispose();
         }
       },
-      timeout: const Timeout(Duration(seconds: 15)),
+      timeout: const Timeout(Duration(seconds: 60)),
     );
   });
 }
