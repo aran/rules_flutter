@@ -43,11 +43,10 @@ class ToolchainPaths {
 /// target runs inside a Bazel sandbox, where nesting a `bazel` invocation is
 /// not possible (see the comment on the analysis targets in this package's
 /// BUILD file), so the failures below cannot be provoked without one.
-typedef BazelRunner =
-    Future<ProcessResult> Function(
-      List<String> args, {
-      required String workingDirectory,
-    });
+typedef BazelRunner = Future<ProcessResult> Function(
+  List<String> args, {
+  required String workingDirectory,
+});
 
 /// What the Flutter host toolchain repo for [platform] is called inside an
 /// output base, in each of the two positions `rules_flutter` can occupy.

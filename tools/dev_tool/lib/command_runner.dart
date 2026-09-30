@@ -38,20 +38,20 @@ import 'package:pool/pool.dart';
 import 'command_failure.dart';
 
 /// Handler signature for a registered command.
-typedef CommandHandler =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> params);
+typedef CommandHandler = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> params,
+);
 
 /// Told that a long-running command was received and, later, that it ended.
 ///
 /// [id] pairs the two. Injected rather than reached for, so `CommandRunner`
 /// stays ignorant of the machine protocol it usually reports through.
-typedef CommandProgress =
-    void Function(
-      String method,
-      Map<String, dynamic> params,
-      String id, {
-      required bool finished,
-    });
+typedef CommandProgress = void Function(
+  String method,
+  Map<String, dynamic> params,
+  String id, {
+  required bool finished,
+});
 
 /// Serializes command execution through a single-resource pool.
 ///

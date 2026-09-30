@@ -30,10 +30,6 @@ flutter_kernel_target(
     name = "hello_world",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     main = "lib/main.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -47,10 +43,6 @@ flutter_aot_target(
     name = "hello_world_aot",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     main = "lib/main.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -70,10 +62,6 @@ flutter_application(
     name = "hello_world_app",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     main = "lib/main.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -214,10 +202,6 @@ flutter_web_app(
     name = "hello_world_web",
     package_name = "hello_world",
     srcs = ["lib/common_widgets.dart"],
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",
@@ -239,10 +223,6 @@ flutter_test(
         "lib/common_widgets.dart",
         "lib/main.dart",
     ],
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     main = "test/widget_test.dart",
     deps = [
         "@deps//:cupertino_icons",
@@ -399,8 +379,6 @@ build_test(
 dart_test(
     name = "verify_pub_assets_test",
     data = [":hello_world_app"],
-    # `pubspec.yaml`'s `sdk: ^3.12.0`, as the app's own targets state it.
-    language_version = "3.12",
     main = "test/verify_pub_assets_test.dart",
     deps = [
         "@deps//:test",

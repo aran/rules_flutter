@@ -62,12 +62,9 @@ void main() {
             'method': 'getVersion',
           }),
         );
-        final reply =
-            json.decode(
-                  await socket.first.timeout(const Duration(seconds: 30))
-                      as String,
-                )
-                as Map<String, dynamic>;
+        final reply = json.decode(
+          await socket.first.timeout(const Duration(seconds: 30)) as String,
+        ) as Map<String, dynamic>;
         expect(reply['error'], isNull, reason: 'getVersion failed: $reply');
         expect(
           reply['result']?['major'],

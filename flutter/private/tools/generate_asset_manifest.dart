@@ -254,9 +254,9 @@ Future<void> main(List<String> args) async {
       stderr.writeln(constFinderResult.stderr);
       // Fall through without tree shaking rather than failing the build.
     } else {
-      final output =
-          json.decode(constFinderResult.stdout as String)
-              as Map<String, dynamic>;
+      final output = json.decode(
+        constFinderResult.stdout as String,
+      ) as Map<String, dynamic>;
 
       // Check for non-const IconData usage.
       final nonConst = output['nonConstantLocations'] as List<dynamic>? ?? [];

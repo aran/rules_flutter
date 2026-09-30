@@ -1260,8 +1260,9 @@ final Map<String, String> _hermeticDartByWorkspace = {};
 /// The `dart` the dev tool itself runs on: the Flutter toolchain's, resolved
 /// out of [workspace]'s Bazel output base.
 ///
-/// `dart run` compiles the tool's whole dependency graph, and `dwds` declares
-/// language version 3.12, so a `dart` older than that on PATH fails the spawn
+/// `dart run` compiles the tool's whole dependency graph, and the tool's own
+/// package declares language version 3.13, so a `dart` older than that on PATH
+/// fails the spawn
 /// outright — every test then sees an unexplained timeout waiting for
 /// `daemon.connected` rather than the compile error that caused it. Whichever
 /// `dart` happens to come first on PATH is not a property of this repo, so the

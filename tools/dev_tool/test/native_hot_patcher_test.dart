@@ -129,9 +129,7 @@ void main() {
     builtFiles = [];
     buildFails = false;
     toolCalls = [];
-    toolAnswer = (args) => args.contains('snapshot')
-        ? '{"status":"ok"}'
-        : '{"status":"patched","file":"/out/libmul_patch.dylib","functions":["mul_body"]}';
+    toolAnswer = (args) => args.contains('snapshot') ? '{"status":"ok"}' : '{"status":"patched","file":"/out/libmul_patch.dylib","functions":["mul_body"]}';
     apps = [FakeApp('app1')];
   });
 

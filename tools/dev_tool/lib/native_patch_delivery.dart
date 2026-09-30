@@ -19,8 +19,10 @@ import 'package:path/path.dart' as p;
 import 'temp_dir.dart';
 
 /// Runs a process to completion. Injected so tests see every command.
-typedef DeliveryProcessRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef DeliveryProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// How a native hot patch reaches one kind of device.
 abstract class NativePatchDelivery {

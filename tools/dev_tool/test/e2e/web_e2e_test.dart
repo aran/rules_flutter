@@ -84,14 +84,12 @@ void main() {
         );
         // The one line that says which flag is keeping this run alive, and
         // what it gave up for it.
-        final degraded =
-            json.decode(
-                  await dt.waitForStderr(
-                    'web_dev_server_failed',
-                    timeout: const Duration(seconds: 30),
-                  ),
-                )
-                as Map<String, dynamic>;
+        final degraded = json.decode(
+          await dt.waitForStderr(
+            'web_dev_server_failed',
+            timeout: const Duration(seconds: 30),
+          ),
+        ) as Map<String, dynamic>;
         expect(degraded['level'], 'WARNING');
         expect(degraded['flag'], '--allow-no-vm-service');
         expect(degraded['error'], contains('_dev_config.json'));
@@ -143,14 +141,12 @@ void main() {
       await dt.waitForEvent('app.started', timeout: const Duration(minutes: 4));
 
       // Said once, up front, rather than one refused command at a time.
-      final absent =
-          json.decode(
-                await dt.waitForStderr(
-                  'agent_surface_unavailable',
-                  timeout: const Duration(seconds: 30),
-                ),
-              )
-              as Map<String, dynamic>;
+      final absent = json.decode(
+        await dt.waitForStderr(
+          'agent_surface_unavailable',
+          timeout: const Duration(seconds: 30),
+        ),
+      ) as Map<String, dynamic>;
       expect(absent['reason'], 'wasm');
 
       // And the surface really is absent, not present-and-refusing.

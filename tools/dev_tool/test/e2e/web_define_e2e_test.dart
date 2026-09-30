@@ -89,19 +89,16 @@ Future<Map<String, dynamic>> _evaluate(
         'params': {'expression': expression, 'awaitPromise': true},
       }),
     );
-    final reply =
-        json.decode(
-              await replies
-                      .firstWhere(
-                        (m) =>
-                            (json.decode(m as String)
-                                as Map<String, dynamic>)['id'] ==
-                            1,
-                      )
-                      .timeout(const Duration(seconds: 30))
-                  as String,
-            )
-            as Map<String, dynamic>;
+    final reply = json.decode(
+      await replies
+              .firstWhere(
+                (m) =>
+                    (json.decode(m as String) as Map<String, dynamic>)['id'] ==
+                    1,
+              )
+              .timeout(const Duration(seconds: 30))
+          as String,
+    ) as Map<String, dynamic>;
     return reply;
   } finally {
     await socket.close();

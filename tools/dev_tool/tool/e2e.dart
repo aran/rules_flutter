@@ -42,14 +42,14 @@
 /// ## Too old a `dart` never reaches this script
 ///
 /// The suite is executed by whatever `dart` invoked this script, and that is
-/// not a property of this repo. `tools/dev_tool` depends on `dwds`, so
-/// `pubspec.yaml` requires `sdk: ^3.12.0`, and an older SDK refuses to compile
-/// *any* library in the package:
+/// not a property of this repo. `pubspec.yaml` requires `sdk: ^3.13.0`, the SDK
+/// this repo pins, and an older SDK refuses to compile *any* library in the
+/// package:
 ///
 /// ```
-/// tool/e2e.dart:1:1: Error: The language version 3.12 specified for the
+/// tool/e2e.dart:1:1: Error: The language version 3.13 specified for the
 /// package 'flutter_bazel_dev_tool' is too high. The highest supported
-/// language version is 3.11.
+/// language version is 3.12.
 /// ```
 ///
 /// It exits **254**, so it is loud by this file's own standard: no sweep
@@ -60,8 +60,8 @@
 /// That is the whole guard, and it fires before `main` runs. This script used
 /// to check [Platform.version] against the same floor itself, to name the wrong
 /// `dart` and the fix rather than let `package:test` hit a version-solving
-/// wall. The check could not fire once `pubspec.yaml` was tightened from
-/// `^3.0.0` to `^3.12.0` — an SDK below the floor now fails to parse the
+/// wall. The check cannot fire while `pubspec.yaml` states a real floor — an
+/// SDK below the floor fails to parse the
 /// package, and one above it passes the check — so it was dead code promising
 /// a message nobody could see, and it is gone. Restoring it would mean moving
 /// this script out of the package so an old SDK can still parse it.

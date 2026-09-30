@@ -256,11 +256,10 @@ List<String> bazelBuildArgs(
 ];
 
 /// Starts the `bazel` client for [args], in [workingDirectory].
-typedef BazelSpawn =
-    Future<Process> Function(
-      List<String> args, {
-      required String workingDirectory,
-    });
+typedef BazelSpawn = Future<Process> Function(
+  List<String> args, {
+  required String workingDirectory,
+});
 
 /// Asks a running bazel command to stop, the way a terminal's Ctrl-C does.
 typedef BazelInterrupt = void Function(Process process);

@@ -22,20 +22,23 @@ void main() {
         '@rules_flutter//flutter:native_hot_patch.bzl%'
         'flutter_native_hot_patch_aspect';
 
-    test('reads the files an aspect put in a group, and the execution root', () {
-      final outputs = aspectOutputsFromBuildEvents(
-        _hotPatchBuildEvents.join('\n'),
-        aspect: aspect,
-        outputGroup: 'flutter_native_hot_patch',
-      );
-      expect(outputs.executionRoot, '/output_base/execroot/_main');
-      expect(outputs.files, [
-        '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib',
-        '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json',
-        '/output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool',
-        '/workspace/native/mul.h',
-      ]);
-    });
+    test(
+      'reads the files an aspect put in a group, and the execution root',
+      () {
+        final outputs = aspectOutputsFromBuildEvents(
+          _hotPatchBuildEvents.join('\n'),
+          aspect: aspect,
+          outputGroup: 'flutter_native_hot_patch',
+        );
+        expect(outputs.executionRoot, '/output_base/execroot/_main');
+        expect(outputs.files, [
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib',
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json',
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool',
+          '/workspace/native/mul.h',
+        ]);
+      },
+    );
 
     test('ignores another aspect\'s group and follows nested file sets', () {
       final events = [

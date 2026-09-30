@@ -1,5 +1,6 @@
 import 'package:flutter_bazel_dev_tool/compiler_config.dart';
 import 'package:flutter_bazel_dev_tool/frontend_server.dart';
+
 import 'dart:io';
 import 'dart:convert';
 

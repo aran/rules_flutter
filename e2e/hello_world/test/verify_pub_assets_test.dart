@@ -122,13 +122,11 @@ void main() {
     // contain the prefixed asset path verbatim (StandardMessageCodec
     // serializes string keys as UTF-8 bytes inline in the binary, so
     // base64-decoding the wrapper and searching for the path matches).
-    final wrapped =
-        jsonDecode(
-              File(
-                '${bundleDir.path}/AssetManifest.bin.json',
-              ).readAsStringSync(),
-            )
-            as String;
+    final wrapped = jsonDecode(
+      File(
+        '${bundleDir.path}/AssetManifest.bin.json',
+      ).readAsStringSync(),
+    ) as String;
     final raw = base64Decode(wrapped);
     final asString = utf8.decode(raw, allowMalformed: true);
     expect(

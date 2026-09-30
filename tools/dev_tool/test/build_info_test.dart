@@ -38,8 +38,7 @@ void main() {
       // build it came from.
       final chosen = resolveAssetsDir(
         info: info(
-          assetsDir:
-              'bazel-out/darwin_arm64-dbg-android-ST-a6b/bin/app_flutter_flutter_assets',
+          assetsDir: 'bazel-out/darwin_arm64-dbg-android-ST-a6b/bin/app_flutter_flutter_assets',
         ),
         candidates: const [
           'bazel-out/darwin_arm64-dbg-android-ST-80d/bin/app_flutter_flutter_assets',
@@ -244,11 +243,10 @@ void main() {
       // what the restarted app will report is what it reported before.
       final replayed = BuildInfo.fromJson(
         jsonDecode(
-              parsed.defineAssignment.substring(
-                'rules_flutter.build_info='.length,
-              ),
-            )
-            as Map<String, dynamic>,
+          parsed.defineAssignment.substring(
+            'rules_flutter.build_info='.length,
+          ),
+        ) as Map<String, dynamic>,
       );
       expect(replayed.label, parsed.label);
       expect(replayed.assetsDir, parsed.assetsDir);

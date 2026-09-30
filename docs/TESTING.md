@@ -131,29 +131,26 @@ installs `zip` so our own Linux VMs match CI.
 The verdict therefore depends on the host image. Making it hermetic means a
 `zip` from the build graph, not a PATH lookup.
 
-### When a target states `language_version`
+### Language versions: unset, with pubspecs at the pinned SDK
 
-Usually it doesn't. Left out, a target is compiled, analyzed and
+No target in this repo states `language_version`, and none should without a
+reason that requires it. Unset, a target is compiled, analyzed and
 format-checked at the SDK's newest language version, and an entrypoint inside
-a package takes that package's version — the right answer whenever a package's
-`sdk:` lower bound is the SDK this repo pins.
+a package takes that package's version.
 
-It matters only when the two differ in a way you can see. The format check
-(rules_dart's `dart_analyze` aspect) formats at the target's version, while
-`dart format` run by hand or by an IDE takes the version from the `sdk:`
-lower bound pub wrote into `.dart_tool/package_config.json`. They diverged at
-Dart 3.13, which rewraps a long `typedef`: the pinned SDK is 3.13, the packages
-here declare `sdk: ^3.12.0`, and where a file's formatting differs between the
-two, the check and the IDE would each reformat the other's output.
+That default is right only while every `pubspec.yaml` states the SDK this repo
+pins as its `sdk:` lower bound (`^3.13.0` today). `dart format` run by hand or
+by an IDE takes its version from that lower bound, through the
+`.dart_tool/package_config.json` pub writes, while the format check (rules_dart's
+`dart_analyze` aspect) formats at the SDK's newest. When the two differ, as
+they did at Dart 3.13, which rewraps a long `typedef`, each reformats the
+other's output.
 
-So a target states `language_version = "3.12"` exactly where that happens —
-today the dev tool, `//flutter/private/tools`, and `hello_world`'s targets —
-with a comment naming the `pubspec.yaml` it matches. Stating it makes an
-executable a member of the package rooted at its BUILD directory, so a test
-whose `srcs` sit above that directory is refused; define such a test in the
-BUILD file at the Dart package root, as `//flutter/private/tools` does. Raising
-a `pubspec.yaml`'s `sdk:` lower bound to the pinned SDK makes the statement
-unnecessary: drop it, and reformat whatever the new style moves.
+So bumping the pinned Flutter/Dart SDK means raising every `pubspec.yaml`'s
+`sdk:` lower bound, and the `sdks:` floor of its `pubspec.lock`, to the new
+version in the same change, then reformatting whatever the new style moves.
+The one exception is `flutter/private/gen_l10n/pubspec.yaml`, which matches
+upstream `flutter_tools` exactly.
 
 ### A green sweep does not test the published rules_dart pin
 
@@ -279,24 +276,18 @@ reports `result: "success"` in the JSON reporter, for backwards compatibility.
 The predicate for "ran and passed" is `result == "success" && !skipped
 && !hidden`.
 
-### The `dart` that runs the e2e suite must be 3.12 or newer
+### The `dart` that runs the e2e suite must be 3.13 or newer
 
 The suite is run by whatever `dart` is first on your `PATH`, and that is not a
-property of this repo. `tools/dev_tool` depends on `dwds >=27.1.0`, which
-declares `SDK >=3.12.0-307.0.dev`, so an older Dart fails version solving
-before a single test runs:
+property of this repo. `tools/dev_tool`'s `pubspec.yaml` requires the SDK this
+repo pins (`sdk: ^3.13.0`), so pub refuses an older Dart during version solving,
+naming that constraint, before a single test runs.
 
-```
-Because flutter_bazel_dev_tool depends on dwds >=27.1.0 which requires SDK
-version >=3.12.0-307.0.dev, version solving failed.
-```
-
-The Flutter toolchain this repo pins ships a new enough one (3.12.1 at the
-current pin). Put it first:
+The Flutter toolchain this repo pins ships exactly that one. Put it first:
 
 ```sh
 export PATH="$(ls -d "$(bazel info output_base)"/external/*flutter+flutter_*/dart-sdk/bin | head -1):$PATH"
-dart --version   # expect 3.12 or newer
+dart --version   # expect 3.13 or newer
 ```
 
 The glob spans both repo-name shapes: `+flutter+flutter_<platform>` when
@@ -306,22 +297,22 @@ rules_flutter is the main module (which it is here), and
 The unit tests are unaffected — Bazel resolves the toolchain for them.
 
 **A too-old Dart never reaches the runner.** `tools/dev_tool`'s
-`pubspec.yaml` requires `sdk: ^3.12.0`, so an older SDK refuses to compile any
+`pubspec.yaml` requires `sdk: ^3.13.0`, so an older SDK refuses to compile any
 library in the package — including the runner itself — and says so before
 `main` runs:
 
 ```
 $ PATH="/path/to/an/old/sdk/bin:$PATH" dart run tools/dev_tool/tool/e2e.dart
-tool/e2e.dart:1:1: Error: The language version 3.12 specified for the package
+tool/e2e.dart:1:1: Error: The language version 3.13 specified for the package
 'flutter_bazel_dev_tool' is too high. The highest supported language version
-is 3.11.
+is 3.12.
 ```
 
 It exits **254** — loud, so no pipeline or sweep script can read it as a pass
 — but it names the package rather than the fix. If you see it, the fix is the
 `export PATH=…` above. `tool/e2e.dart` used to check `Platform.version` itself
 and print a sentence naming the wrong `dart`; that check became unreachable
-when `pubspec.yaml` was tightened from `^3.0.0` to `^3.12.0`, and was removed
+when `pubspec.yaml` got a real floor in place of `^3.0.0`, and was removed
 rather than left promising a message nobody could see. Getting it back means
 moving the runner out of the package, which nothing has needed yet.
 
@@ -1210,7 +1201,7 @@ suite. There is no browser-test toolchain in this repo and no `npx` step.
 | Templating / defines | `custom_boot/test/verify_templating_test.dart` | Substitution outcomes in the built bytes: web defines resolved, kept placeholders survived, `buildConfig` emitted, no `{{` left. |
 | Local CanvasKit | `web_example/test/verify_compiler_flags_test.dart` | `useLocalCanvasKit` is declared, so the renderer loads from the app origin rather than gstatic.com — the regression a strict `script-src 'self'` exposes. |
 
-Running the web checks needs a `dart` of 3.12+ on `PATH` (see § 2) and, for
+Running the web checks needs a `dart` of 3.13+ on `PATH` (see § 2) and, for
 `plugin_example`, `ANDROID_HOME` / `ANDROID_NDK_HOME` — its workspace-level
 analysis loads the Android repo rule whichever target you build.
 
@@ -1237,7 +1228,7 @@ These are not Bazel tests — they're standalone Dart scripts for manual investi
 Read a passing `pair` as "the collision did not happen in this run", not as "it
 cannot": the race is timing-dependent and the generated-sources half of it is
 unfixed. Run `solo` alongside it as the control. Needs the hermetic Dart (§ 2) — the
-script's own package requires ≥ 3.12.
+script's own package requires ≥ 3.13.
 
 ## Quick reference: what to test when
 
@@ -1255,7 +1246,7 @@ script's own package requires ≥ 3.12.
 | Plugins | plugin_example, ffi_plugin_example |
 | Toolchain / SDK | smoke, hello_world |
 | dev_tool (unit) | `bazel test //tools/dev_tool/...` (already covered by root `//...`) |
-| dev_tool (e2e) | `dart run tools/dev_tool/tool/e2e.dart` — needs a Dart ≥3.12 on `PATH`, see § 2 |
+| dev_tool (e2e) | `dart run tools/dev_tool/tool/e2e.dart` — needs a Dart ≥3.13 on `PATH`, see § 2 |
 | dev_tool reload paths (`run_command.dart`, `vm_service_client.dart`, `hot_reload/**`, `session.dart`, `reload_pipeline.dart`) | dev_tool unit + e2e **and** manual hot reload **and** hot restart — see "Hot reload / hot restart (manual)" |
 | dev_tool native-library checks (`native_libs_watch.dart`, `native_libs_verdict.dart`, `native_libs_fingerprint.dart`, `native_libs_relauncher.dart`, `native_sources.bzl`, `flutter_native_library`, the `nativeLibs` / `nativeLibContracts` / `nativeLibSources` fields of `_dev_config.json`, and what a moved contract does when a `hot_patch` builder covers the library) | `native_libs_reload_e2e_test.dart` (a reload delivered and a reload withheld) **and** `relaunch_e2e_test.dart` (a restart relaunching) **and** `native_hot_patch_e2e_test.dart`'s last case (an app that runs no build of its own, where only the declared sources can see a native edit) — the halves of one contract, and no unit test can reach any of them |
 | Native hot patching (`native_hot_patcher.dart`, `native_hot_patch_tool.dart`, `native_patch_delivery.dart`, `native_image_identity.dart`, `flutter/native_hot_patch.bzl`, `flutter_native_library.hot_patch`, `agent_extensions/native_patch.dart`) | dev_tool unit **and** `native_hot_patch_e2e_test.dart` (macOS) **and** `relaunch_e2e_test.dart` **and** the manual device check — a native edit patched into the app on the iOS simulator, an iOS device and Android, see "Native hot patch on devices (manual)" |

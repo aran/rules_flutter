@@ -142,12 +142,11 @@ final class PatchFailed extends PatchBuilderAnswer {
 }
 
 /// Runs a process to completion from [workingDirectory].
-typedef PatchToolRunner =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      required String workingDirectory,
-    });
+typedef PatchToolRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  required String workingDirectory,
+});
 
 Future<ProcessResult> _runProcess(
   String executable,

@@ -23,17 +23,12 @@ dart_library(
     name = "lib",
     package_name = "flutter_bazel_dev_tool",
     srcs = glob(["lib/**/*.dart"]),
-    # `pubspec.yaml`'s `sdk: ^3.12.0`. The format check formats this package's
-    # files, its tests included, at the version the package states, and at the
-    # SDK's newest when it states none.
-    language_version = "3.12",
     visibility = ["//visibility:private"],
     deps = _LIB_DEPS,
 )
 
 dart_binary(
     name = "flutter_bazel",
-    package_name = "flutter_bazel_dev_tool",
     srcs = glob(["lib/**/*.dart"]),
     compile_mode = "exe",
     # iOS device screenshots (pymobiledevice3) work from any host, so they are
@@ -55,10 +50,6 @@ dart_binary(
         "//conditions:default": [],
     }),
     defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
-    # The same package as `:lib`, stated here too because the binary re-lists
-    # its sources by relative path rather than depending on it. Compile,
-    # analysis and the format check all take the version from here.
-    language_version = "3.12",
     main = "bin/flutter_bazel.dart",
     visibility = ["//visibility:public"],
     deps = _LIB_DEPS,

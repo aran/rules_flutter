@@ -368,13 +368,11 @@ void main() {
           tree.edit('package:app/a.dart');
 
           // X reloads. Its compiler holds the old `a`, so the delta carries `b`.
-          final xDill =
-              await x.compile(
-                    invalidated: {'package:app/a.dart'},
-                    entrypoint: 'e',
-                    mode: ApplyMode.hotReload,
-                  )
-                  as CompileSucceeded;
+          final xDill = await x.compile(
+            invalidated: {'package:app/a.dart'},
+            entrypoint: 'e',
+            mode: ApplyMode.hotReload,
+          ) as CompileSucceeded;
           await x.applyAndSettle(
             xDill.dillPath,
             mode: ApplyMode.hotReload,
@@ -383,13 +381,11 @@ void main() {
           );
 
           // Y reloads later, against its OWN untouched baseline.
-          final yDill =
-              await y.compile(
-                    invalidated: {'package:app/a.dart'},
-                    entrypoint: 'e',
-                    mode: ApplyMode.hotReload,
-                  )
-                  as CompileSucceeded;
+          final yDill = await y.compile(
+            invalidated: {'package:app/a.dart'},
+            entrypoint: 'e',
+            mode: ApplyMode.hotReload,
+          ) as CompileSucceeded;
           await y.applyAndSettle(
             yDill.dillPath,
             mode: ApplyMode.hotReload,

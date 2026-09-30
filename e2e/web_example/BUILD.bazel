@@ -17,10 +17,6 @@ flutter_web_app(
     # A first-party asset, so the web dev loop's asset reload has something
     # real to deliver.
     assets = glob(["assets/**"]),
-    # Matches `pubspec.yaml`'s `sdk: ^3.12.0`, so the app's own package_config
-    # entry states the version pub would grant it rather than inheriting the
-    # SDK's current one.
-    language_version = "3.12",
     deps = [
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",

@@ -881,23 +881,26 @@ class WindowsDevice extends Device {
 }
 
 /// Signature for running a process and returning its result (allows test injection).
-typedef ProcessRunSync =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef ProcessRunSync = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// Signature for starting a streaming process (allows test injection).
-typedef ProcessStarter =
-    Future<Process> Function(String executable, List<String> arguments);
+typedef ProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// [ProcessStarter] for a helper whose environment the caller assembles.
 ///
 /// The bundled screenshot helpers need `RUNFILES_MANIFEST_FILE` forwarded to
 /// find their own runfiles, and that path is only known at the call site.
-typedef ProcessStarterWithEnvironment =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments,
-      Map<String, String> environment,
-    );
+typedef ProcessStarterWithEnvironment = Future<Process> Function(
+  String executable,
+  List<String> arguments,
+  Map<String, String> environment,
+);
 
 /// The environment a desktop Flutter app is launched with.
 ///

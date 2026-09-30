@@ -10,11 +10,6 @@ load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_test")
 # and a `dart_test`'s own files are `[main] + srcs`, so checking the test
 # checks the script. **A script exported here without a test below is checked
 # by nothing** — the test is what carries it, not this list.
-#
-# Every target here states `language_version`, `pubspec.yaml`'s `sdk: ^3.12.0`.
-# This directory is the Dart package root, so that makes each a member of the
-# package, and compile, analysis and the format check use the version the
-# package states rather than the SDK's newest.
 exports_files(
     [
         "generate_asset_manifest.dart",
@@ -34,7 +29,6 @@ exports_files(
 dart_binary(
     name = "pub_runner",
     compile_mode = "exe",
-    language_version = "3.12",
     main = "pub.dart",
     visibility = ["//flutter:__subpackages__"],
     deps = ["@rules_dart//dart/runfiles"],
@@ -44,7 +38,6 @@ dart_binary(
     name = "flutter_test_runner",
     srcs = ["bazel_test_protocol.dart"],
     compile_mode = "exe",
-    language_version = "3.12",
     main = "flutter_test_runner.dart",
     visibility = ["//flutter:__subpackages__"],
     deps = ["@rules_dart//dart/runfiles"],
@@ -87,7 +80,6 @@ _TOOL_SRCS = {
 [dart_test(
     name = name,
     srcs = [tool] + _TOOL_SRCS.get(tool, []),
-    language_version = "3.12",
     main = "test/%s.dart" % name,
     deps = ["@dev_tool_deps//:test"] + extra_deps,
 ) for name, (tool, extra_deps) in _UNIT_TESTS.items()]

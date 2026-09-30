@@ -123,8 +123,7 @@ class RunCommand {
     ..addFlag(
       'wasm',
       defaultsTo: false,
-      help:
-          'Run web app in WASM mode (no hot reload, uses bazel rebuild + page reload).',
+      help: 'Run web app in WASM mode (no hot reload, uses bazel rebuild + page reload).',
     )
     ..addOption(
       'web-port',

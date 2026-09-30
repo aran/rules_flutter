@@ -133,9 +133,9 @@ void main() {
         );
         final response = await request.close();
         expect(response.statusCode, HttpStatus.unauthorized);
-        final body =
-            json.decode(await response.transform(utf8.decoder).join())
-                as Map<String, dynamic>;
+        final body = json.decode(
+          await response.transform(utf8.decoder).join(),
+        ) as Map<String, dynamic>;
         expect(body['error'], contains('token'));
         expect(body['error'], contains('query parameter'));
         expect(body['error'], contains('not from a header'));
@@ -260,9 +260,9 @@ void main() {
       test('lists what is registered, with the slow ones marked', () async {
         final response = await _get('/commands');
         expect(response.statusCode, 200);
-        final body =
-            json.decode(await response.transform(utf8.decoder).join())
-                as Map<String, dynamic>;
+        final body = json.decode(
+          await response.transform(utf8.decoder).join(),
+        ) as Map<String, dynamic>;
         final commands = (body['commands'] as List).cast<Map>();
         expect(commands, isNotEmpty);
         // Sorted by name, so a client can diff two readings.

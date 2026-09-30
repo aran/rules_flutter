@@ -136,19 +136,16 @@ class VmProbe {
         'params': params,
       }),
     );
-    final reply =
-        json.decode(
-              await replies
-                      .firstWhere(
-                        (m) =>
-                            (json.decode(m as String)
-                                as Map<String, dynamic>)['id'] ==
-                            id,
-                      )
-                      .timeout(const Duration(seconds: 60))
-                  as String,
-            )
-            as Map<String, dynamic>;
+    final reply = json.decode(
+      await replies
+              .firstWhere(
+                (m) =>
+                    (json.decode(m as String) as Map<String, dynamic>)['id'] ==
+                    id,
+              )
+              .timeout(const Duration(seconds: 60))
+          as String,
+    ) as Map<String, dynamic>;
     return reply;
   }
 
@@ -236,9 +233,9 @@ void main() {
 
       // --web-browser-debug-port: CDP answers exactly there, and it is a
       // headless browser that answered.
-      final version =
-          await getJson(Uri.parse('http://127.0.0.1:$debugPort/json/version'))
-              as Map<String, dynamic>;
+      final version = await getJson(
+        Uri.parse('http://127.0.0.1:$debugPort/json/version'),
+      ) as Map<String, dynamic>;
       // The browser's own report, from its `User-Agent` rather than its
       // `Browser` field: Chrome 151 answers `Chrome/151…` for the latter
       // whether or not it is headless, and `HeadlessChrome/151…` in the user

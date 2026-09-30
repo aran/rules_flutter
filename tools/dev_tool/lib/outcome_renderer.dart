@@ -223,9 +223,11 @@ Map<String, dynamic> toWire(CommandReport report) {
 
   // Last, so it finishes whichever sentence the arms above settled on: the
   // command worked, and this is the part of it the screen does not show yet.
-  if (report.outcome case ReloadApplied(
-    :final notShown,
-  ) when notShown.isNotEmpty) {
+  if (report.outcome
+      case ReloadApplied(
+        :final notShown,
+      )
+      when notShown.isNotEmpty) {
     map['message'] =
         '${map['message'] ?? _headline(report)}, but '
         '${_notShownClause(notShown, report.appIds)}';

@@ -41,11 +41,10 @@ typedef MDnsClientFactory = MDnsClient Function();
 
 /// Lists the host's network interfaces. Injected so the "is the USB network
 /// interface even up?" diagnostic is testable.
-typedef NetworkInterfaceLister =
-    Future<List<NetworkInterface>> Function({
-      bool includeLinkLocal,
-      InternetAddressType type,
-    });
+typedef NetworkInterfaceLister = Future<List<NetworkInterface>> Function({
+  bool includeLinkLocal,
+  InternetAddressType type,
+});
 
 Future<List<NetworkInterface>> _listNetworkInterfaces({
   bool includeLinkLocal = false,

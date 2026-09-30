@@ -17,8 +17,10 @@ final _logger = Logger('dev_tool.frontend_server');
 
 /// Wraps a persistent frontend_server process for incremental compilation.
 /// Signature for starting a process (allows test injection).
-typedef ProcessFactory =
-    Future<Process> Function(String executable, List<String> arguments);
+typedef ProcessFactory = Future<Process> Function(
+  String executable,
+  List<String> arguments,
+);
 
 class FrontendServer {
   final String _dartaotruntimePath;
