@@ -687,6 +687,7 @@ flutter_linux_app(
 | `application` | A `flutter_application` target. Required. |
 | `app_name` | Binary name. Defaults to the target name. |
 | `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. |
+| `window_title` | Window title. Defaults to `app_name`, then the target name. A `linux/runner/` from `flutter create` sets its own title and ignores this. |
 
 The output directory:
 

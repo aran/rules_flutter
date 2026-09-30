@@ -2,11 +2,14 @@
 ///
 /// Usage:
 ///   dart run tools/vm/deploy_bundle.dart <vm-name> <bundle_path> [--windows]
+///       [--title <window title>]
 ///
 /// Linux (default):
 ///   1. SCPs the bundle directory to the VM
 ///   2. SCPs the verification scripts
-///   3. Runs verify_linux_app.dart under Xvfb
+///   3. Runs verify_linux_app.dart under Xvfb, waiting for a window titled
+///      `--title`, which defaults to the bundle's name as the built-in runner
+///      does
 ///   4. Downloads the screenshot
 ///
 /// Windows (--windows):
@@ -24,7 +27,8 @@ import 'gcloud.dart';
 Future<void> main(List<String> args) async {
   if (args.length < 2) {
     stderr.writeln(
-      'Usage: dart run tools/vm/deploy_bundle.dart <vm-name> <bundle_path> [--windows]',
+      'Usage: dart run tools/vm/deploy_bundle.dart <vm-name> <bundle_path> '
+      '[--windows] [--title <window title>]',
     );
     exit(1);
   }
@@ -32,6 +36,11 @@ Future<void> main(List<String> args) async {
   final vmName = args[0];
   final bundlePath = args[1];
   final isWindows = args.contains('--windows');
+  final titleFlag = args.indexOf('--title');
+  if (titleFlag >= 0 && titleFlag + 1 >= args.length) {
+    stderr.writeln('--title needs a value');
+    exit(1);
+  }
 
   if (!Directory(bundlePath).existsSync()) {
     stderr.writeln('Bundle directory not found: $bundlePath');
@@ -39,13 +48,14 @@ Future<void> main(List<String> args) async {
   }
 
   final appName = Uri.parse(bundlePath).pathSegments.last;
+  final title = titleFlag >= 0 ? args[titleFlag + 1] : appName;
 
   print('Deploying $appName to $vmName ...');
 
   if (isWindows) {
     await _deployWindows(vmName, bundlePath, appName);
   } else {
-    await _deployLinux(vmName, bundlePath, appName);
+    await _deployLinux(vmName, bundlePath, appName, title);
   }
 }
 
@@ -53,6 +63,7 @@ Future<void> _deployLinux(
   String vmName,
   String bundlePath,
   String appName,
+  String title,
 ) async {
   // Determine project root (for verification scripts).
   final scriptDir = Platform.script.resolve('.').toFilePath();
@@ -92,7 +103,7 @@ Future<void> _deployLinux(
   try {
     final output = await sshRun(
       vmName,
-      'bash -c \'export PATH="/opt/dart-sdk/bin:/usr/local/bin:\$PATH" && dart run ~/verify_scripts/verify_linux_app.dart ~/$appName "Flutter"\'',
+      'bash -c \'export PATH="/opt/dart-sdk/bin:/usr/local/bin:\$PATH" && dart run ~/verify_scripts/verify_linux_app.dart ~/$appName ${_quoteForBashC(title)}\'',
     );
     print(output);
 
@@ -266,4 +277,16 @@ Future<void> _deployWindows(
   } catch (e) {
     print('Could not download screenshot: $e');
   }
+}
+
+/// [value] as one word inside the single-quoted `bash -c '...'` above.
+///
+/// Double quotes keep the inner shell from splitting or expanding it; a
+/// single quote closes and reopens the outer quoting.
+String _quoteForBashC(String value) {
+  final inner = value.replaceAllMapped(
+    RegExp(r'[\\"$`]'),
+    (m) => '\\${m[0]}',
+  );
+  return '"${inner.replaceAll("'", r"'\''")}"';
 }

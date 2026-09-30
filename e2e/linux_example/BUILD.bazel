@@ -67,6 +67,7 @@ flutter_linux_runner_lib_gen(
     engine = ":flutter_engine",
     gtk_app_id = "com.example.linuxexample",
     registrant = ":app_registrant",
+    window_title = "Linux Example",
 )
 
 flutter_linux_bundle(
@@ -96,6 +97,13 @@ dart_test(
     name = "verify_linux_bundle_test",
     data = [":app"],
     main = "test/verify_linux_bundle_test.dart",
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+dart_test(
+    name = "verify_window_title_test",
+    data = [":app_bazel_runner"],
+    main = "test/verify_window_title_test.dart",
     target_compatible_with = ["@platforms//os:linux"],
 )
 

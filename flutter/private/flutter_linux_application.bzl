@@ -119,6 +119,29 @@ def gtk3_sysroot_link_inputs(sysroot_files, lib_dir):
 # Runner compilation rule
 # =============================================================================
 
+def _c_string_literal(value):
+    """`value` as a C string literal, for a `-D` define.
+
+    UTF-8 passes through as bytes; GTK takes titles as UTF-8.
+    """
+    escaped = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+    return "\"" + escaped + "\""
+
+def linux_runner_defines(gtk_app_id, window_title):
+    """The local defines the built-in Linux runner reads.
+
+    Args:
+      gtk_app_id: GTK application identifier.
+      window_title: Title of the runner's window.
+
+    Returns:
+      A list of `NAME=value` strings for `cc_common.compile(local_defines=...)`.
+    """
+    return [
+        "GTK_APP_ID=" + _c_string_literal(gtk_app_id),
+        "WINDOW_TITLE=" + _c_string_literal(window_title),
+    ]
+
 def _flutter_linux_runner_lib_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
     flutter_sdk_info = flutter_toolchain.flutter_sdk_info
@@ -156,7 +179,7 @@ def _flutter_linux_runner_lib_impl(ctx):
         runner_srcs = runner_srcs,
         runner_hdrs = runner_hdrs,
         engine_files = engine_files,
-        gtk_app_id = ctx.attr.gtk_app_id,
+        defines = linux_runner_defines(ctx.attr.gtk_app_id, ctx.attr.window_title),
         registrant_srcs = registrant_srcs,
         registrant_hdrs = registrant_hdrs,
         linux_sysroot = flutter_sdk_info.linux_sysroot,
@@ -171,7 +194,7 @@ def _flutter_linux_runner_lib_impl(ctx):
         executable = runner_binary,
     )]
 
-def _compile_linux_runner(ctx, runner_srcs, engine_files, gtk_app_id, linux_sysroot, registrant_srcs = [], registrant_hdrs = [], runner_hdrs = [], target_arch = "", plugin_srcs = [], plugin_hdrs = [], plugin_include_dirs = []):
+def _compile_linux_runner(ctx, runner_srcs, engine_files, defines, linux_sysroot, registrant_srcs = [], registrant_hdrs = [], runner_hdrs = [], target_arch = "", plugin_srcs = [], plugin_hdrs = [], plugin_include_dirs = []):
     """Compile the C++ GTK Linux runner binary.
 
     Uses cc_common.compile() + cc_common.link() with Bazel's hermetic CC
@@ -181,7 +204,7 @@ def _compile_linux_runner(ctx, runner_srcs, engine_files, gtk_app_id, linux_sysr
         ctx: Rule context.
         runner_srcs: List of C++ source Files for the runner.
         engine_files: Engine library files from toolchain.
-        gtk_app_id: GTK application identifier string.
+        defines: Local defines, from `linux_runner_defines`.
         linux_sysroot: Chromium sysroot target (mandatory for hermetic GTK3 builds).
         registrant_srcs: Generated registrant .cc files.
         registrant_hdrs: Generated registrant .h files.
@@ -323,7 +346,7 @@ def _compile_linux_runner(ctx, runner_srcs, engine_files, gtk_app_id, linux_sysr
         engine_include_dir = header_dir,
         extra_compile_flags = extra_compile,
         extra_link_flags = sysroot_link_flags + ["-Wl,-rpath,$ORIGIN/lib"],
-        extra_defines = ["GTK_APP_ID=\"" + gtk_app_id + "\""],
+        extra_defines = defines,
         additional_srcs = additional_srcs + plugin_srcs,
         system_include_dirs = system_include_dirs,
         additional_inputs = sysroot_files,
@@ -352,6 +375,11 @@ flutter_linux_runner_lib = rule(
         "gtk_app_id": attr.string(
             doc = "GTK application identifier (e.g. 'com.example.myapp').",
             default = "com.example.flutter",
+        ),
+        "window_title": attr.string(
+            doc = "Title of the built-in runner's window. A runner from `srcs` " +
+                  "sets its own title and may ignore the `WINDOW_TITLE` define.",
+            default = "Flutter",
         ),
         "application": attr.label(
             doc = "Optional flutter_application target. When set, the runner " +

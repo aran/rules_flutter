@@ -10,6 +10,8 @@
  *   data/
  *     flutter_assets/
  *     icudtl.dat
+ *
+ * The build defines GTK_APP_ID and WINDOW_TITLE as C string literals.
  */
 
 #include <flutter_linux/flutter_linux.h>
@@ -21,7 +23,7 @@ extern void fl_register_plugins(FlPluginRegistry *registry);
 static void on_activate(GtkApplication *app) {
   GtkWindow *window =
       GTK_WINDOW(gtk_application_window_new(app));
-  gtk_window_set_title(window, "Flutter");
+  gtk_window_set_title(window, WINDOW_TITLE);
   gtk_window_set_default_size(window, 800, 600);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

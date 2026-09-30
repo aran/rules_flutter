@@ -1147,7 +1147,8 @@ gcloud compute instances delete flutter-linux-test --quiet
 
 **When to run:** After any change to Linux runner code, engine selection, or bundle assembly.
 
-**What the check actually asserts:** that a window *titled "Flutter"* appears
+**What the check actually asserts:** that a window titled with the bundle's
+name (the built-in runner's default title; pass `--title` for another) appears
 (not merely that some window exists — the Xvfb root window always does), and
 that a capture of it differs from the blank display measured before launch. It
 fails loudly if the runner dies on a missing library, or maps a window and

@@ -13,6 +13,7 @@ load(":flutter_sdk_package_test.bzl", "flutter_sdk_package_test_suite")
 load(":flutter_test_bootstrap_test.bzl", "flutter_test_bootstrap_test_suite")
 load(":ios_test.bzl", "ios_test_suite")
 load(":language_version_test.bzl", "language_version_test_suite")
+load(":linux_runner_defines_test.bzl", "linux_runner_defines_test_suite")
 load(":linux_sysroot_link_test.bzl", "linux_sysroot_link_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
 load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
@@ -67,6 +68,8 @@ flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")
 plugin_registrant_test_suite(name = "plugin_registrant_test")
 
 platform_bundle_test_suite(name = "platform_bundle_test")
+
+linux_runner_defines_test_suite(name = "linux_runner_defines_test")
 
 linux_sysroot_link_test_suite(name = "linux_sysroot_link_test")
 
