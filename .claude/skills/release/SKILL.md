@@ -69,7 +69,7 @@ The bar is `CLAUDE.md`'s verification policy and `docs/TESTING.md`, applied to
    export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<an installed version>   # ls $ANDROID_HOME/ndk
    ```
 5. **Dev tool e2e suite** (it also holds the web rendering checks):
-   `dart run tools/dev_tool/tool/e2e.dart`, with a Dart ≥ 3.12 first on `PATH`
+   `dart run tools/dev_tool/tool/e2e.dart`, with a Dart ≥ 3.13 first on `PATH`
    (`docs/TESTING.md` § 2), a booted iOS simulator and the `flutter_test` Android
    emulator. It needs the workspace to itself (a `git commit` runs Bazel through its
    hooks) and a machine that isn't saturated: read `uptime` first. Rerun any failure on
