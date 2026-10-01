@@ -354,7 +354,10 @@ def _flutter_test_impl(ctx):
     # (e.g. MaterialIcons) need to land in the bundle for tests that resolve
     # them via `rootBundle`. Tests run on the host, so shaders compile against
     # the host platform resolved above.
-    compiled_shaders = flutter_compile_shaders(ctx, flutter_sdk_info, target_platform)
+    # The test runs on flutter_tester, not the host's embedder: its shaders
+    # are compiled for it, as `flutter test` compiles them (SkSL for Skia,
+    # Vulkan for Impeller).
+    compiled_shaders = flutter_compile_shaders(ctx, flutter_sdk_info, "tester")
     flutter_assets = declare_flutter_assets_dir(ctx)
     flutter_build_assets(
         ctx,
@@ -387,10 +390,11 @@ def _flutter_test_impl(ctx):
         "FLUTTER_TEST_ASSETS": runfiles_path(flutter_assets, workspace_name),
         # Display path for the suite. Used in package:test report output.
         "FLUTTER_TEST_PATH": ctx.file.main.short_path,
+        "FLUTTER_TEST_IMPELLER": "1" if ctx.attr.enable_impeller else "",
     }
 
     # User-supplied variables, merged last but never over the rule's own keys:
-    # those five are the runner's start-up contract, and a test that quietly
+    # those six are the runner's start-up contract, and a test that quietly
     # replaced one would fail far from the cause.
     for key, value in ctx.attr.env.items():
         if key in env:
@@ -548,6 +552,14 @@ _TEST_ATTRS["data"] = attr.label_list(
 # The five `FLUTTER_TEST_*` keys the rule sets are the runner's start-up
 # contract; supplying one is rejected in the implementation rather than
 # silently honoured or silently dropped.
+_TEST_ATTRS["enable_impeller"] = attr.bool(
+    doc = "Render with Impeller in flutter_tester, as `flutter test " +
+          "--enable-impeller` does, instead of software Skia. A test that " +
+          "draws an Impeller-only shader, or a golden meant to match an " +
+          "Impeller device, needs it.",
+    default = False,
+)
+
 _TEST_ATTRS["env"] = attr.string_dict(
     doc = "Extra environment variables for the test process. Values are " +
           "literal — no Make-variable or $(location) expansion. The " +

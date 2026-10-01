@@ -129,6 +129,7 @@ void main(List<String> args) async {
     updateGoldens: updateGoldens,
     selection: selection,
     xmlOutput: Platform.environment['XML_OUTPUT_FILE'],
+    impeller: Platform.environment['FLUTTER_TEST_IMPELLER'] == '1',
   );
 }
 
@@ -142,6 +143,7 @@ Future<int> _runOnce({
   required bool updateGoldens,
   required TestSelection selection,
   required String? xmlOutput,
+  required bool impeller,
 }) async {
   final harness = await _Harness.bind();
   try {
@@ -155,6 +157,7 @@ Future<int> _runOnce({
       updateGoldens: updateGoldens,
       selection: selection,
       xmlOutput: xmlOutput,
+      impeller: impeller,
     );
   } finally {
     await harness.dispose();
@@ -300,6 +303,7 @@ class _Harness {
     required bool updateGoldens,
     required TestSelection selection,
     required String? xmlOutput,
+    required bool impeller,
   }) async {
     final enableVmService = coverageOutput != null;
     // Coverage does not start the tester paused, and `flutter test --coverage`
@@ -317,8 +321,14 @@ class _Harness {
       '--icu-data-file-path=$icu',
       '--enable-checked-mode',
       '--verify-entry-points',
-      '--enable-software-rendering',
-      '--skia-deterministic-rendering',
+      // `flutter test --enable-impeller`'s choice: Impeller, or software
+      // Skia rendered deterministically.
+      if (impeller)
+        '--enable-impeller'
+      else ...[
+        '--enable-software-rendering',
+        '--skia-deterministic-rendering',
+      ],
       '--enable-dart-profiling',
       '--non-interactive',
       '--use-test-fonts',

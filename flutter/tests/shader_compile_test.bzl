@@ -47,10 +47,16 @@ def _web_flags_test_impl(ctx):
     asserts.equals(env, ["--sksl"], flags)
     return unittest.end(env)
 
+def _tester_flags_test_impl(ctx):
+    """flutter_tester gets SKSL + Vulkan, as `flutter test` compiles for it."""
+    env = unittest.begin(ctx)
+    asserts.equals(env, ["--sksl", "--runtime-stage-vulkan"], get_shader_platform_flags("tester"))
+    return unittest.end(env)
+
 def _all_platforms_covered_test_impl(ctx):
     """All expected platforms are in the flags dict."""
     env = unittest.begin(ctx)
-    expected = ["ios", "macos", "android", "linux", "windows", "web"]
+    expected = ["ios", "macos", "android", "linux", "windows", "web", "tester"]
     for p in expected:
         asserts.true(env, p in SHADER_PLATFORM_FLAGS, "Platform '%s' should be in SHADER_PLATFORM_FLAGS" % p)
     return unittest.end(env)
@@ -62,6 +68,7 @@ _t3_test = unittest.make(_linux_matches_android_test_impl)
 _t4_test = unittest.make(_windows_matches_android_test_impl)
 _t5_test = unittest.make(_web_flags_test_impl)
 _t6_test = unittest.make(_all_platforms_covered_test_impl)
+_t7_test = unittest.make(_tester_flags_test_impl)
 
 def shader_compile_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test)

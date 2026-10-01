@@ -238,6 +238,19 @@ flutter_test(
 # collects. (Its `size`/`timeout` as the suite's default timeout is unit-tested
 # on `suiteTimeout` in `flutter_test_runner_test`.) The sharded twin is what proves
 # the runner declares sharding support; see the test file.
+# An Impeller-only shader, drawn in flutter_tester running Impeller.
+flutter_test(
+    name = "impeller_shader_test",
+    package_name = "hello_world",
+    enable_impeller = True,
+    main = "test/impeller_shader_test.dart",
+    shaders = ["shaders/indexed.frag"],
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
 flutter_test(
     name = "bazel_protocol_test",
     package_name = "hello_world",

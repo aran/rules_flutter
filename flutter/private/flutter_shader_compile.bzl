@@ -10,6 +10,7 @@ selected based on the target platform.
 # - macOS: SKSL + Metal
 # - Android/Linux/Windows: SKSL + GLES + GLES3 + Vulkan
 # - Web: SKSL only (with --json)
+# - flutter_tester (`flutter test`): SKSL + Vulkan, Impeller's backend there
 SHADER_PLATFORM_FLAGS = {
     "ios": ["--runtime-stage-metal"],
     "macos": ["--sksl", "--runtime-stage-metal"],
@@ -17,13 +18,15 @@ SHADER_PLATFORM_FLAGS = {
     "linux": ["--sksl", "--runtime-stage-gles", "--runtime-stage-gles3", "--runtime-stage-vulkan"],
     "windows": ["--sksl", "--runtime-stage-gles", "--runtime-stage-gles3", "--runtime-stage-vulkan"],
     "web": ["--sksl"],
+    "tester": ["--sksl", "--runtime-stage-vulkan"],
 }
 
 def get_shader_platform_flags(target_platform):
     """Get the impellerc flags for a target platform.
 
     Args:
-        target_platform: One of "ios", "macos", "android", "linux", "windows", "web".
+        target_platform: One of "ios", "macos", "android", "linux", "windows", "web",
+            "tester".
 
     Returns:
         List of impellerc flag strings.
