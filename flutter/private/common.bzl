@@ -562,6 +562,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
         return {}
 
     compiled = {}
+    user_includes = getattr(ctx.files, "shader_includes", [])
     for shader in user_shaders + sdk_shaders:
         output = ctx.actions.declare_file(ctx.label.name + "_shaders/" + shader.basename + ".iplr")
         flutter_shader_compile_action(
@@ -572,6 +573,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
             output = output,
             target_platform = target_platform,
             is_web = target_platform == "web",
+            includes = user_includes if shader in user_shaders else [],
         )
 
         # User shaders: use workspace-relative path ("shaders/my_effect.frag").
@@ -587,9 +589,12 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
     for entry in pub_shader_entries:
         prefix = "packages/{}/".format(entry.package_name) if entry.package_name else ""
         bundle_path = prefix + entry.shader_path
+
+        # Named by the shader's path in its package, not its basename: one
+        # package may ship `a/blur.frag` and `b/blur.frag`.
         out_dir = entry.package_name if entry.package_name else "_local"
         output = ctx.actions.declare_file(
-            ctx.label.name + "_pub_shaders/" + out_dir + "/" + entry.file.basename + ".iplr",
+            ctx.label.name + "_pub_shaders/" + out_dir + "/" + entry.shader_path + ".iplr",
         )
         flutter_shader_compile_action(
             ctx = ctx,
@@ -599,6 +604,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
             output = output,
             target_platform = target_platform,
             is_web = target_platform == "web",
+            includes = entry.includes,
         )
         compiled[bundle_path] = output
 
@@ -1104,6 +1110,12 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
     "shaders": attr.label_list(
         doc = "Fragment shader files (.frag) to compile with impellerc. Compiled shaders are included in the asset bundle.",
         allow_files = [".frag", ".glsl"],
+    ),
+    "shader_includes": attr.label_list(
+        doc = "Files the `shaders` may `#include`. A shader compiles in a " +
+              "sandbox holding only its declared inputs, so an include not " +
+              "listed here is not found.",
+        allow_files = True,
     ),
     "tree_shake_icons": attr.bool(
         doc = "If True, tree-shake icon fonts to only include used glyphs. " +

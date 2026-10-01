@@ -27,6 +27,8 @@ flutter_plugin(
         "ios": {"pluginClass": "GlassPlugin"},
         "macos": {"pluginClass": "GlassPlugin"},
     }),
+    # invert.frag includes premultiplied.glsl.
+    shader_includes = glob(["shaders/*.glsl"]),
     visibility = ["//visibility:public"],
     deps = ["@deps//:flutter"],
 )

@@ -5,7 +5,7 @@ load("@rules_dart//dart:utils.bzl", "dart_analyzable_info_with_package", "dart_i
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
 
-def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict):
+def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict, shader_includes = []):
     """Build pub_fonts/pub_assets/pub_shaders contribution structs from rule attrs.
 
     Decodes the JSON-encoded font declarations and walks the file dicts,
@@ -26,6 +26,9 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
             shape, for non-font assets.
         pkg_shaders_dict: dict[Target, str] — `ctx.attr.pkg_shaders`. Same
             shape, for shaders.
+        shader_includes: list[File] — `ctx.files.shader_includes`, the files
+            this package's shaders may `#include`. Each shader carries them
+            as `includes` to its compile.
 
     Returns:
         Tuple of (extra_pub_fonts, extra_pub_assets, extra_pub_shaders) lists.
@@ -83,6 +86,7 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
             package_name = package_name,
             shader_path = shader_path,
             file = files[0],
+            includes = tuple(shader_includes),
         ))
 
     return (extra_pub_fonts, extra_pub_assets, extra_pub_shaders)
@@ -198,6 +202,7 @@ def _flutter_library_impl(ctx):
         ctx.attr.font_files,
         ctx.attr.pkg_assets,
         ctx.attr.pkg_shaders,
+        ctx.files.shader_includes,
     )
 
     # `resources` names the non-Dart remainder of `lib/`; a Dart source there
@@ -324,6 +329,13 @@ flutter_library = rule(
             allow_files = True,
         ),
         "_sky_engine": SKY_ENGINE_ATTR,
+        "shader_includes": attr.label_list(
+            doc = "Files this package's `pkg_shaders` may `#include` (e.g. " +
+                  "`glob([\"shaders/**/*.glsl\"])`). A shader compiles in a " +
+                  "sandbox holding only its declared inputs, so an include " +
+                  "not listed here is not found.",
+            allow_files = True,
+        ),
         "pkg_shaders": attr.label_keyed_string_dict(
             doc = "Map of shader File label -> package-relative path (mirrors `flutter.shaders` in pubspec.yaml). Routed through the impellerc compile and bundled at `packages/<package_name>/<path>` (or bare `<path>` when `package_name` is empty).",
             allow_files = True,

@@ -40,7 +40,8 @@ def flutter_shader_compile_action(
         shader,
         output,
         target_platform,
-        is_web = False):
+        is_web = False,
+        includes = []):
     """Compile a single shader file to .iplr format using impellerc.
 
     Args:
@@ -51,6 +52,8 @@ def flutter_shader_compile_action(
         output: The output .iplr File.
         target_platform: Target platform string ("ios", "macos", "android", "linux", "windows", "web").
         is_web: If True, emit JSON format (for web targets).
+        includes: Files the shader may `#include` — inputs the sandbox
+            needs, found relative to the shader's own directory.
     """
     platform_flags = get_shader_platform_flags(target_platform)
 
@@ -83,7 +86,7 @@ def flutter_shader_compile_action(
     ctx.actions.run(
         executable = impellerc,
         arguments = [args],
-        inputs = [shader] + shader_lib,
+        inputs = [shader] + shader_lib + list(includes),
         outputs = [output, spirv_output],
         mnemonic = "FlutterShaderCompile",
         progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),

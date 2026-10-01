@@ -58,7 +58,7 @@ silently discards every dependency's contribution.""",
         "data_assets": "depset[FlutterDataAssetInfo]: Per-package Native Assets `DataAsset` declarations contributed by transitive `flutter_data_asset` rules.",
         "pub_fonts": "depset[struct]: Per-package font declarations from pub `flutter.fonts`. Each struct has: package_name (str — empty string sentinel for non-package contributions like the toolchain MaterialIcons target), family (str), fonts (list[struct(asset, weight, style)]), files (list[File] — the .ttf/.otf File objects matching the asset paths). Bundle aggregator prefixes family + asset paths with `packages/<pkg>/` only when package_name is non-empty.",
         "pub_assets": "depset[struct]: Per-package asset files from pub `flutter.assets`. Each struct has: package_name (str — empty sentinel for non-package), asset_path (str — as declared in pubspec, before any prefixing), file (File). Bundle aggregator places them at `packages/<pkg>/<asset_path>` (or bare `asset_path` for empty package_name).",
-        "pub_shaders": "depset[struct]: Per-package shader files from pub `flutter.shaders`. Same shape as pub_assets but routes through the shader compile pipeline before bundling.",
+        "pub_shaders": "depset[struct]: Per-package shader files from pub `flutter.shaders`. Same shape as pub_assets, plus `includes` (the files the shader may `#include`), and routed through the shader compile pipeline before bundling.",
     },
 )
 

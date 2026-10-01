@@ -507,6 +507,7 @@ _TEST_ATTRS = {
         # require shader and font assets to render.
         "assets",
         "shaders",
+        "shader_includes",
         "license_files",
         "tree_shake_icons",
         "_asset_bundle_tool",

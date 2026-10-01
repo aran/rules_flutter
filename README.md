@@ -990,7 +990,9 @@ flutter_library(
 | `srcs` | Dart source files. Required. |
 | `deps` | `dart_library` or `flutter_library` targets. |
 | `assets` | Asset files: images, fonts, and so on. |
-| `shaders` | Fragment shaders to compile with impellerc. |
+| `pkg_shaders` | The package's fragment shaders, as `{file: path}` mirroring `flutter: shaders:` in `pubspec.yaml`. Bundled at `packages/<package_name>/<path>`, where `FragmentProgram.fromAsset` looks for them. |
+| `shader_includes` | Files the `pkg_shaders` may `#include`, such as `glob(["shaders/**/*.glsl"])`. A shader compiles with only its declared inputs, so an include not listed here is not found. |
+| `shaders` | Shaders bundled at `shaders/<file name>`, as Flutter's own are. A package's own shaders go in `pkg_shaders`. |
 | `package_name` | The Dart package name. Defaults to the last component of the Bazel package path. |
 | `language_version` | The Dart language version, matching the `sdk:` constraint in `pubspec.yaml`. |
 
@@ -1029,6 +1031,7 @@ flutter_application(
 | `extra_gen_snapshot_options` | Extra flags for `gen_snapshot`. |
 | `track_widget_creation` | Record widget creation locations for the DevTools inspector. Default `False`. |
 | `shaders` | Fragment shaders to compile with impellerc. |
+| `shader_includes` | Files the `shaders` may `#include`. |
 | `tree_shake_icons` | Keep only the icon glyphs the app uses. Default `True`. |
 | `license_files` | License and NOTICE files to include in `NOTICES.Z`. |
 | `min_os_version` | Minimum Apple deployment target, passed to `gen_snapshot` as `--macho-min-os-version`. |
@@ -1112,6 +1115,7 @@ flutter_plugin(
 | `native_deps` | Shared libraries bundled for `dart:ffi`. |
 | `native_assets` | `flutter_native_asset` targets, usually inside a `select()` on platform. |
 | `assets`, `resources` | Asset and resource files. |
+| `pkg_shaders`, `shader_includes` | The package's fragment shaders and what they `#include`, as on `flutter_library`. |
 | `package_name`, `language_version`, `version` | The package's name, language version, and version. |
 
 `e2e/ffi_example` shows a plugin built on Native Assets, `e2e/ffi_plugin_example` one with a Dart plugin class and `native_deps`, and `e2e/plugin_example` one with a Dart plugin class only.

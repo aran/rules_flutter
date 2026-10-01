@@ -399,6 +399,36 @@ def _library_spoke_carries_resources_test_impl(ctx):
 
 library_spoke_carries_resources_test = unittest.make(_library_spoke_carries_resources_test_impl)
 
+def _spoke_with_shaders_declares_their_includes_test_impl(ctx):
+    """A spoke with shaders lists its GLSL as what they may `#include`.
+
+    The compile runs sandboxed with only declared inputs, so a shader that
+    includes a sibling `.glsl` fails unless the spoke declares it.
+    """
+    env = unittest.begin(ctx)
+
+    def content(pkg_shaders):
+        return make_flutter_library_build_content(
+            name = "shader_pkg",
+            deps = [],
+            language_version = "3.4",
+            code_assets = [],
+            has_unreplaced_hook = "",
+            fonts_json_str = "",
+            font_files = {},
+            pkg_assets = {},
+            pkg_shaders = pkg_shaders,
+        )
+
+    with_shaders = content({":shaders/glow.frag": "shaders/glow.frag"})
+    asserts.true(env, "shader_includes = glob(" in with_shaders, with_shaders)
+    asserts.true(env, '"**/*.glsl"' in with_shaders, with_shaders)
+    asserts.false(env, "shader_includes" in content({}))
+
+    return unittest.end(env)
+
+spoke_with_shaders_declares_their_includes_test = unittest.make(_spoke_with_shaders_declares_their_includes_test_impl)
+
 def _overlay_substitutes_the_language_version_test_impl(ctx):
     """An overlay declares the language version by placeholder, never by value.
 
@@ -587,4 +617,5 @@ def flutter_pub_package_test_suite(name):
         empty_subpackage_test,
         plugin_spoke_carries_resources_test,
         library_spoke_carries_resources_test,
+        spoke_with_shaders_declares_their_includes_test,
     )

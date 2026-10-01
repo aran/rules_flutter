@@ -166,6 +166,7 @@ def _flutter_plugin_impl(ctx):
         ctx.attr.font_files,
         ctx.attr.pkg_assets,
         ctx.attr.pkg_shaders,
+        ctx.files.shader_includes,
     )
 
     # `resources` names the non-Dart remainder of `lib/`; a Dart source there
@@ -316,6 +317,13 @@ flutter_plugin = rule(
         ),
         "pkg_assets": attr.label_keyed_string_dict(
             doc = "Map of asset File label -> package-relative path (mirrors `flutter.assets`). Same shape as `flutter_library.pkg_assets`.",
+            allow_files = True,
+        ),
+        "shader_includes": attr.label_list(
+            doc = "Files this package's `pkg_shaders` may `#include` (e.g. " +
+                  "`glob([\"shaders/**/*.glsl\"])`). A shader compiles in a " +
+                  "sandbox holding only its declared inputs, so an include " +
+                  "not listed here is not found.",
             allow_files = True,
         ),
         "pkg_shaders": attr.label_keyed_string_dict(

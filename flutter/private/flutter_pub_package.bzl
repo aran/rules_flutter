@@ -629,6 +629,11 @@ def _format_label_dict_literal(d, indent = "        "):
     lines = ['{indent}"{k}": "{v}",'.format(indent = indent, k = k, v = d[k]) for k in keys]
     return "{\n" + "\n".join(lines) + "\n" + indent[:-4] + "}"
 
+_SHADER_INCLUDES_GLOB = """    shader_includes = glob(
+        ["**/*.glsl", "**/*.frag", "**/*.vert"],
+        allow_empty = True,
+    ),"""
+
 def _format_pub_asset_attrs(fonts_json_str, font_files, pkg_assets, pkg_shaders):
     """Render the four pub-asset attrs as BUILD source, omitting empty ones."""
     parts = []
@@ -640,6 +645,10 @@ def _format_pub_asset_attrs(fonts_json_str, font_files, pkg_assets, pkg_shaders)
         parts.append("    pkg_assets = {},".format(_format_label_dict_literal(pkg_assets)))
     if pkg_shaders:
         parts.append("    pkg_shaders = {},".format(_format_label_dict_literal(pkg_shaders)))
+
+        # What the shaders may `#include`: a package's GLSL anywhere in it,
+        # since an include can reach `../`.
+        parts.append(_SHADER_INCLUDES_GLOB)
     return ("\n".join(parts) + "\n") if parts else ""
 
 def _format_code_asset_attrs(code_assets, has_unreplaced_hook):

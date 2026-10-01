@@ -1167,6 +1167,7 @@ def _flutter_web_bundle_impl(ctx):
 _WEB_RELEVANT_KEYS = (
     "assets",
     "shaders",
+    "shader_includes",
     "tree_shake_icons",
     "license_files",
     "track_widget_creation",
