@@ -28,7 +28,7 @@ repos:
         exclude: ^tools/dev_tool/test/tls_fixture\.dart$
       - id: end-of-file-fixer
         # `flutter create` output is kept as generated.
-        exclude: ^e2e/[^/]+/(android|ios|linux|macos|web|windows)/
+        exclude: ^e2e/[^/]+/((android|ios|linux|macos|web|windows)/|[^/]+/(ios|macos)/Runner/)
       - id: trailing-whitespace
         # A patch's blank context lines are a single space; stripping it
         # stops the hunk from applying.

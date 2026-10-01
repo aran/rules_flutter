@@ -6,6 +6,9 @@ e2e/*/linux/
 e2e/*/macos/
 e2e/*/web/
 e2e/*/windows/
+# The same, for an example app in a subpackage of its workspace.
+e2e/*/*/ios/Runner/
+e2e/*/*/macos/Runner/
 
 # Flutter's web bootstrap templates. `{{flutter_service_worker_version}}` and
 # the other placeholders are not JavaScript until Flutter substitutes them.
@@ -15,10 +18,12 @@ e2e/web_example/templates/
 # The web runner files the rules ship, copied from Flutter's own template.
 flutter/private/runners/web/
 
-# Test fixtures whose bytes are the point, and a shader prettier would read as
-# JavaScript.
+# Test fixtures whose bytes are the point.
 flutter/tests/web_reserved/
 flutter/tests/resources_fixture/
+
+# Shaders are GLSL, which prettier reads as JavaScript.
+*.frag
 
 # yamlfmt owns YAML; two formatters on one file would fight.
 *.yaml
