@@ -469,6 +469,10 @@ def flutter_android_app(
             consumed by the macro and cannot be a `select()`.
         resources: Extra resource_files for android_binary.
         deps: Extra deps for android_binary (e.g. custom android_library).
+            A plugin written in the workspace goes here as its
+            `flutter_android_plugin_library`: the registrant compiles
+            against these too, so the plugin is both packaged and
+            registered. Pub plugins arrive through the hub instead.
         pub_hub_name: Name of the `flutter.pub(name = ...)` hub providing
             plugin spokes. The macro depends on
             `@<pub_hub_name>//android:all_android_plugin_libs` to compile
@@ -537,9 +541,12 @@ def flutter_android_app(
         tags = tags,
     )
 
+    # `deps` too: a plugin written in the workspace reaches the app only
+    # through them, and the registrant names its class.
     registrant_deps = ["__%s_engine" % name]
     if pub_hub_name:
         registrant_deps.append("@%s//android:all_android_plugin_libs" % pub_hub_name)
+    registrant_deps = registrant_deps + deps
 
     _kt_android_library(
         name = "__%s_registrant" % name,
