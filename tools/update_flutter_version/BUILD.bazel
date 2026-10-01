@@ -1,6 +1,14 @@
-load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_test")
 
 dart_binary(
     name = "update_flutter_version",
+    srcs = ["shader_flags.dart"],
     main = "main.dart",
+)
+
+dart_test(
+    name = "shader_flags_test",
+    srcs = ["shader_flags.dart"],
+    main = "test/shader_flags_test.dart",
+    deps = ["@dev_tool_deps//:test"],
 )

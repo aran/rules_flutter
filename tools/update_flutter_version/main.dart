@@ -15,6 +15,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'shader_flags.dart';
+
 const gcsBase = 'https://storage.googleapis.com/flutter_infra_release/flutter';
 
 const artifacts = [
@@ -227,6 +229,8 @@ Future<void> main(List<String> args) async {
       '  Could not read sysroots.json for tag $version (path may differ in older Flutter versions).',
     );
   }
+
+  _checkShaderFlags(version, flutterRepo, workspaceDir);
 
   // Print Starlark snippet.
   print('');
@@ -466,5 +470,36 @@ Future<String> _sha256OfFile(String path) async {
       throw ArtifactChecksumException('sha256 hash failed: ${result.stderr}');
     }
     return (result.stdout as String).split(' ').first;
+  }
+}
+
+/// Compares `SHADER_PLATFORM_FLAGS` with the runtime stages flutter_tools at
+/// [version] compiles shaders for, and says which platforms moved.
+void _checkShaderFlags(String version, String flutterRepo, String workspace) {
+  print('');
+  print('Checking shader compile flags...');
+  const toolsPath =
+      'packages/flutter_tools/lib/src/build_system/tools/shader_compiler.dart';
+  final shown = Process.runSync('git', [
+    'show',
+    '$version:$toolsPath',
+  ], workingDirectory: flutterRepo);
+  if (shown.exitCode != 0) {
+    print('  Could not read $toolsPath at $version: ${shown.stderr}');
+    return;
+  }
+  const bzlPath = 'flutter/private/flutter_shader_compile.bzl';
+  final mismatches = shaderFlagMismatches(
+    flutterToolsShaderFlags(shown.stdout as String),
+    rulesShaderFlags(File('$workspace/$bzlPath').readAsStringSync()),
+  );
+  if (mismatches.isEmpty) {
+    print('  SHADER_PLATFORM_FLAGS matches flutter_tools.');
+    return;
+  }
+  print('  WARNING: SHADER_PLATFORM_FLAGS in $bzlPath differs from');
+  print('  flutter_tools at $version. Update it to match:');
+  for (final line in mismatches) {
+    print('    $line');
   }
 }
