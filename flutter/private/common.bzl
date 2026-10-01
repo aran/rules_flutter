@@ -563,6 +563,14 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
 
     compiled = {}
     user_includes = getattr(ctx.files, "shader_includes", [])
+
+    # What compiles a shader whose SkSL stage fails without it.
+    retry = dict(
+        dart = flutter_sdk_info.dart,
+        dart_files = flutter_sdk_info.tool_files,
+        compile_tool = ctx.file._shader_compile_tool,
+        require_sksl = getattr(ctx.attr, "require_sksl_shaders", False),
+    )
     for shader in user_shaders + sdk_shaders:
         output = ctx.actions.declare_file(ctx.label.name + "_shaders/" + shader.basename + ".iplr")
         flutter_shader_compile_action(
@@ -574,6 +582,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
             target_platform = target_platform,
             is_web = target_platform == "web",
             includes = user_includes if shader in user_shaders else [],
+            **retry
         )
 
         # User shaders: use workspace-relative path ("shaders/my_effect.frag").
@@ -605,6 +614,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
             target_platform = target_platform,
             is_web = target_platform == "web",
             includes = entry.includes,
+            **retry
         )
         compiled[bundle_path] = output
 
@@ -1116,6 +1126,18 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
               "sandbox holding only its declared inputs, so an include not " +
               "listed here is not found.",
         allow_files = True,
+    ),
+    "require_sksl_shaders": attr.bool(
+        doc = "Fail the build when a shader cannot be compiled for Skia " +
+              "(SkSL). By default such a shader is compiled for Impeller " +
+              "alone with a warning, as `flutter build` does, and fails to " +
+              "load only where the app renders with Skia. Set this for an " +
+              "app that renders with Skia. Web builds always need SkSL.",
+        default = False,
+    ),
+    "_shader_compile_tool": attr.label(
+        default = Label("//flutter/private/tools:compile_shader.dart"),
+        allow_single_file = True,
     ),
     "tree_shake_icons": attr.bool(
         doc = "If True, tree-shake icon fonts to only include used glyphs. " +

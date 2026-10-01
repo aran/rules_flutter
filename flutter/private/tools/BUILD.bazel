@@ -14,6 +14,7 @@ exports_files(
     [
         "generate_asset_manifest.dart",
         "bundle_app.dart",
+        "compile_shader.dart",
         "merge_android_manifests.dart",
         "merge_plists.dart",
         "web_template.dart",
@@ -60,6 +61,7 @@ dart_binary(
 # The value is the tool plus whatever that tool imports beyond `package:test`.
 _UNIT_TESTS = {
     "bundle_app_test": ("bundle_app.dart", []),
+    "compile_shader_test": ("compile_shader.dart", []),
     "generate_asset_manifest_test": ("generate_asset_manifest.dart", []),
     "merge_android_manifests_test": ("merge_android_manifests.dart", []),
     "merge_plists_test": ("merge_plists.dart", []),

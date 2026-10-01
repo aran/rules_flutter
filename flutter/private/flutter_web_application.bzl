@@ -1168,6 +1168,8 @@ _WEB_RELEVANT_KEYS = (
     "assets",
     "shaders",
     "shader_includes",
+    "require_sksl_shaders",
+    "_shader_compile_tool",
     "tree_shake_icons",
     "license_files",
     "track_widget_creation",

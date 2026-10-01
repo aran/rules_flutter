@@ -1028,6 +1028,7 @@ flutter_application(
 | `track_widget_creation` | Record widget creation locations for the DevTools inspector. Default `False`. |
 | `shaders` | Fragment shaders to compile with impellerc. |
 | `shader_includes` | Files the `shaders` may `#include`. |
+| `require_sksl_shaders` | Fail the build when a shader cannot be compiled for Skia (SkSL). By default such a shader, say one that indexes a uniform array in a loop, is compiled for Impeller alone with a warning, as `flutter build` does, and fails to load only where the app renders with Skia. Web builds always need SkSL. Default `False`. |
 | `tree_shake_icons` | Keep only the icon glyphs the app uses. Default `True`. |
 | `license_files` | License and NOTICE files to include in `NOTICES.Z`. |
 | `min_os_version` | Minimum Apple deployment target, passed to `gen_snapshot` as `--macho-min-os-version`. |

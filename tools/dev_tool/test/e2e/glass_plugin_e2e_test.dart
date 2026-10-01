@@ -20,12 +20,12 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
-/// Runs [target] on [device] and returns the app's verdict, from
-/// `glass_results` on.
+/// Runs [target] on [device] and returns the app's verdict, from [tag] on.
 Future<String> _glassResults({
   required String target,
   required String device,
   List<String> extraArgs = const [],
+  String tag = 'glass_results',
 }) async {
   // The in-tree workspace: these runs read the app's output and change
   // nothing.
@@ -38,10 +38,10 @@ Future<String> _glassResults({
   try {
     await dt.waitForEvent('app.started', timeout: const Duration(minutes: 8));
     final line = await dt.waitForAppLog(
-      'glass_results',
+      tag,
       timeout: const Duration(minutes: 2),
     );
-    final results = line.substring(line.indexOf('glass_results'));
+    final results = line.substring(line.indexOf(tag));
     // What the app saw, in the run's log whether or not it matches.
     print('e2e: $target on $device: $results');
     return results;
@@ -100,9 +100,55 @@ void main() {
     timeout: _timeout,
   );
 
+  // `//impeller_shader` draws with a shader SkSL cannot compile, which the
+  // build keeps for Impeller alone, as `flutter build` does.
+  for (final (platform, target, device) in [
+    ('macOS', '//impeller_shader:app_macos', 'macos'),
+    ('iOS simulator', '//impeller_shader:app_ios', 'ios-simulator'),
+  ]) {
+    test(
+      '$platform: a shader SkSL cannot compile still draws under Impeller',
+      () async {
+        expect(
+          await _glassResults(
+            target: target,
+            device: device,
+            tag: 'impeller_shader_results',
+          ),
+          'impeller_shader_results paint=PASS',
+        );
+      },
+      skip: notMac,
+      timeout: _timeout,
+    );
+  }
+
   // Probed once, and read by both the `skip:` and the body; see
   // plugin_example_e2e_test.dart's Android group for why.
   final android = AndroidDeviceProbe.detect();
+  test(
+    'Android: a shader SkSL cannot compile still draws under Impeller',
+    () async {
+      final probe = android;
+      if (probe is! AndroidDeviceFound) {
+        fail(
+          'Android device detection failed: '
+          '${(probe as AndroidProbeFailed).reason}',
+        );
+      }
+      expect(
+        await _glassResults(
+          target: '//impeller_shader:app_android',
+          device: 'android:${probe.serial}',
+          tag: 'impeller_shader_results',
+        ),
+        'impeller_shader_results paint=PASS',
+      );
+    },
+    skip: android.skipReason,
+    timeout: _timeout,
+  );
+
   test(
     'Android: package shaders draw, and a workspace plugin is registered',
     () async {

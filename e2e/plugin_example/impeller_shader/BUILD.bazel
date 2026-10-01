@@ -1,0 +1,73 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app", "flutter_ios_simulator_build_test")
+load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
+
+# A package shader SkSL cannot compile (pkg/shaders/indexed.frag indexes a
+# uniform array in a loop). It builds for the platforms that render with
+# Impeller, with a warning, as under `flutter build`; a web build of it fails,
+# since web compiles SkSL alone. The app draws with it and checks the pixel
+# (lib/main.dart).
+flutter_application(
+    name = "app_flutter",
+    package_name = "impeller_shader_app",
+    main = "lib/main.dart",
+    deps = [
+        "//impeller_shader/pkg",
+        "@deps//:flutter",
+    ],
+)
+
+flutter_macos_app(
+    name = "app_macos",
+    application = ":app_flutter",
+    bundle_id = "com.example.impellershader",
+    tags = ["manual"],
+)
+
+flutter_ios_app(
+    name = "app_ios",
+    application = ":app_flutter",
+    bundle_id = "com.example.impellershader",
+    tags = ["manual"],
+)
+
+flutter_android_app(
+    name = "app_android",
+    package_name = "com.example.impellershader",
+    application = ":app_flutter",
+    tags = ["manual"],
+)
+
+# The same shader with SkSL required: the build must fail. `manual`, and
+# checked by hand (docs/TESTING.md), since a test cannot expect a build to
+# fail.
+flutter_application(
+    name = "app_flutter_sksl_required",
+    package_name = "impeller_shader_app",
+    main = "lib/main.dart",
+    require_sksl_shaders = True,
+    tags = ["manual"],
+    deps = [
+        "//impeller_shader/pkg",
+        "@deps//:flutter",
+    ],
+)
+
+build_test(
+    name = "impeller_shader_build_test",
+    targets = [":app_android"],
+)
+
+build_test(
+    name = "impeller_shader_macos_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_macos"],
+)
+
+flutter_ios_simulator_build_test(
+    name = "impeller_shader_ios_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_ios"],
+)

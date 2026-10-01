@@ -508,6 +508,8 @@ _TEST_ATTRS = {
         "assets",
         "shaders",
         "shader_includes",
+        "require_sksl_shaders",
+        "_shader_compile_tool",
         "license_files",
         "tree_shake_icons",
         "_asset_bundle_tool",
