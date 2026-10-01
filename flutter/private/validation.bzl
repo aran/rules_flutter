@@ -143,6 +143,23 @@ _VALID_WEB_COMPILER_RENDERER = {
     "dart2js": ["canvaskit"],
 }
 
+def web_renderer(compiler, renderer):
+    """The renderer a web target uses: the one it names, else its compiler's.
+
+    dart2js can only render with CanvasKit, so naming it is not required;
+    dart2wasm defaults to skwasm, as `flutter build web --wasm` does.
+
+    Args:
+        compiler: Web compiler ("dart2wasm" or "dart2js").
+        renderer: The `renderer` attribute; empty when unset.
+
+    Returns:
+        "skwasm" or "canvaskit".
+    """
+    if renderer:
+        return renderer
+    return "canvaskit" if compiler == "dart2js" else "skwasm"
+
 def validate_web_compiler_renderer(compiler, renderer):
     """Validate that a web compiler+renderer combination is supported.
 

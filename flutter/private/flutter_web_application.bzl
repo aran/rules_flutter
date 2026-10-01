@@ -64,6 +64,7 @@ load(
     "validate_static_assets_url",
     "validate_web_compiler_renderer",
     "validate_web_wasm_only_attrs",
+    "web_renderer",
 )
 load(
     "//flutter/private:web_service_worker.bzl",
@@ -280,7 +281,8 @@ def _check_web_asset_dst(ctx, reserved, dst, short_path):
         )
 
 def _flutter_web_bundle_impl(ctx):
-    validate_web_compiler_renderer(ctx.attr.compiler, ctx.attr.renderer)
+    renderer = web_renderer(ctx.attr.compiler, ctx.attr.renderer)
+    validate_web_compiler_renderer(ctx.attr.compiler, renderer)
     validate_web_wasm_only_attrs(
         ctx.attr.compiler,
         [
@@ -450,7 +452,7 @@ def _flutter_web_bundle_impl(ctx):
             minify = ctx.attr.minify_wasm,
             enable_experiments = ctx.attr.enable_experiments,
             defines = user_defines,
-            renderer = ctx.attr.renderer,
+            renderer = renderer,
         )
 
         # Fallback: dart2js (always canvaskit renderer) — tree artifact for deferred loading
@@ -485,7 +487,7 @@ def _flutter_web_bundle_impl(ctx):
             compile_outputs.append(output_wasm_map)
             compile_copies.append({"src": output_wasm_map.path, "dst": "main.dart.wasm.map"})
         dart2js_dirs = [output_js_fallback_dir]
-        builds = [_wasm_build(ctx.attr.renderer), _JS_BUILD]
+        builds = [_wasm_build(renderer), _JS_BUILD]
     else:
         # JS-only mode — tree artifact for deferred loading
         output_js_dir = ctx.actions.declare_directory(ctx.label.name + "_dart2js")
@@ -508,7 +510,7 @@ def _flutter_web_bundle_impl(ctx):
             dump_info = ctx.attr.dump_info,
             source_maps = ctx.attr.source_maps,
             defines = user_defines,
-            renderer = ctx.attr.renderer,
+            renderer = renderer,
         )
         dart2js_dirs = [output_js_dir]
         builds = [_JS_BUILD]
@@ -1192,9 +1194,10 @@ flutter_web_bundle = rule(
             values = ["dart2wasm", "dart2js"],
         ),
         "renderer": attr.string(
-            doc = "Web renderer: 'skwasm' (default for wasm) or 'canvaskit'.",
-            default = "skwasm",
-            values = ["skwasm", "canvaskit"],
+            doc = "Web renderer: 'skwasm' or 'canvaskit'. Unset, it follows " +
+                  "`compiler`: skwasm for dart2wasm, canvaskit for dart2js.",
+            default = "",
+            values = ["", "skwasm", "canvaskit"],
         ),
         "title": attr.string(
             doc = "HTML page title. Only used when index_html is not provided.",

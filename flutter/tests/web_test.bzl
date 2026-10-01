@@ -3,7 +3,7 @@
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//flutter/private:flutter_web_application.bzl", "flutter_web_bundle")
-load("//flutter/private:validation.bzl", "escape_html", "is_valid_web_compiler_renderer")
+load("//flutter/private:validation.bzl", "escape_html", "is_valid_web_compiler_renderer", "web_renderer")
 load(
     "//flutter/private:web_service_worker.bzl",
     "SERVICE_WORKER_JS",
@@ -42,6 +42,17 @@ def _web_compiler_renderer_validation_test_impl(ctx):
     # Invalid: dart2js cannot use skwasm (skwasm requires wasm).
     asserts.false(env, is_valid_web_compiler_renderer("dart2js", "skwasm"), "dart2js+skwasm should be invalid")
 
+    return unittest.end(env)
+
+def _web_renderer_default_test_impl(ctx):
+    """An unset renderer follows the compiler; a named one is kept."""
+    env = unittest.begin(ctx)
+    asserts.equals(env, "skwasm", web_renderer("dart2wasm", ""))
+    asserts.equals(env, "canvaskit", web_renderer("dart2js", ""))
+    asserts.equals(env, "canvaskit", web_renderer("dart2wasm", "canvaskit"))
+
+    # Named and wrong is still refused, by the validation above.
+    asserts.equals(env, "skwasm", web_renderer("dart2js", "skwasm"))
     return unittest.end(env)
 
 def _service_worker_tears_down_test_impl(ctx):
@@ -170,6 +181,7 @@ _t1_test = unittest.make(_web_compiler_renderer_validation_test_impl)
 _t2_test = unittest.make(_service_worker_tears_down_test_impl)
 _t3_test = unittest.make(_service_worker_load_args_test_impl)
 _t4_test = unittest.make(_service_worker_version_test_impl)
+_t5_test = unittest.make(_web_renderer_default_test_impl)
 
 # -- Analysis tests over the flutter_web_bundle rule -------------------------
 #
@@ -1549,4 +1561,4 @@ def web_test_suite(name):
         targets = [":_web_profile_fixture"],
     )
 
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test)
