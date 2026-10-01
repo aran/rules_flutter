@@ -40,6 +40,10 @@ class _RecordingStrategy implements ReloadStrategy {
   StrategyOutcome next = const StrategyApplied(1);
   final List<Set<String>> assetCalls = [];
 
+  /// The `shaders` argument of each `applyAssets` call, parallel to
+  /// [assetCalls].
+  final List<Set<String>> shaderCalls = [];
+
   /// Which sessions each [applyAssets] call was aimed at, by appId.
   final List<List<String>> assetRecipients = [];
 
@@ -58,9 +62,11 @@ class _RecordingStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) async {
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) async {
     assetCalls.add(changed);
+    shaderCalls.add(shaders);
     assetRecipients.add([for (final s in sessions) s.appId]);
     return next;
   }
@@ -1129,6 +1135,55 @@ void main() {
 
       expect(strategy.assetCalls, [
         {'assets/message.txt'},
+      ]);
+    });
+
+    // A package's shader is bundled at `packages/<pkg>/…`, a path no
+    // workspace file has; only the build's map ties it to the `.frag` and the
+    // `.glsl` it includes. An edit to the include alone has to reach the app,
+    // and has to arrive named as a shader so the engine reloads the program.
+    test('an edited shader include is delivered as a shader', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      h.seedApplied();
+      const archivePath = 'packages/pkg/shaders/glow.frag';
+      final bundled = File(p.join(h.tmp.path, 'bundle', archivePath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('compiled v1');
+      final include = File(p.join(h.tmp.path, 'pkg', 'shaders', 'common.glsl'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('v1');
+      File(
+        p.join(h.tmp.path, 'pkg', 'shaders', 'glow.frag'),
+      ).writeAsStringSync('#include "common.glsl"');
+      final strategy = _RecordingStrategy();
+      h.pipeline
+        ..assetTracker = AssetTracker(
+          AssetBundle(
+            directory: p.join(h.tmp.path, 'bundle'),
+            workspaceRoot: h.tmp.path,
+            shaders: {
+              archivePath: ['pkg/shaders/glow.frag', 'pkg/shaders/common.glsl'],
+            },
+          ),
+          builtBefore: DateTime.now().add(const Duration(hours: 1)),
+        )
+        ..strategy = strategy
+        ..rebuildAssets = () async {
+          bundled.writeAsStringSync('compiled v2');
+          return true;
+        };
+      h.pipeline.ready.signalReady();
+
+      include.writeAsStringSync('v2');
+      await h.restart();
+
+      expect(strategy.assetCalls, [
+        {archivePath},
+      ]);
+      expect(strategy.shaderCalls, [
+        {archivePath},
       ]);
     });
 

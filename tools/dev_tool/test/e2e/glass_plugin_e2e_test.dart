@@ -19,6 +19,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
+import 'editable_workspace.dart';
 
 /// Runs [target] on [device] and returns the app's verdict, from [tag] on.
 Future<String> _glassResults({
@@ -117,6 +118,67 @@ void main() {
           ),
           'impeller_shader_results paint=PASS',
         );
+      },
+      skip: notMac,
+      timeout: _timeout,
+    );
+  }
+
+  // Shader hot reload: an edit to a package shader reaches the running app
+  // on a hot reload, as under `flutter run` — the tool rebuilds the shader,
+  // uploads it, and has the engine reinitialize the program. The app prints
+  // the colour it paints after every reassemble.
+  for (final (platform, target, device) in [
+    ('macOS', '//glass_app:glass_macos', 'macos'),
+    ('iOS simulator', '//glass_app:glass_ios', 'ios-simulator'),
+  ]) {
+    test(
+      '$platform: an edited shader draws after a hot reload',
+      () async {
+        final ws = await editableWorkspace('plugin_example');
+        final shader = ws.file('glass_plugin/shaders/tint.frag');
+        final source = shader.readAsStringSync();
+        expect(source, contains('fragColor = uColor;'));
+        final dt = await startDevTool(
+          workspace: ws.root,
+          target: target,
+          device: device,
+        );
+        try {
+          await dt.waitForEvent(
+            'app.started',
+            timeout: const Duration(minutes: 8),
+          );
+          await dt.waitForAppLog(
+            'glass_results',
+            timeout: const Duration(minutes: 2),
+          );
+
+          shader.writeAsStringSync(
+            source.replaceFirst(
+              'fragColor = uColor;',
+              'fragColor = vec4(0.0, 1.0, 0.0, 1.0);',
+            ),
+          );
+          final reload = await dt.sendCommand(
+            1,
+            'app.hotReload',
+            params: {'appId': dt.appId},
+          );
+          expect(reload['error'], isNull, reason: '$reload');
+          expect(
+            reload['result']?['assetPaths'],
+            contains('packages/glass_plugin/shaders/tint.frag'),
+            reason: 'the reload must deliver the rebuilt shader: $reload',
+          );
+          // Green, where the app launched painting magenta.
+          await dt.waitForAppLog(
+            'glass_paint_color 0xff00ff00',
+            timeout: const Duration(minutes: 1),
+          );
+        } finally {
+          await dt.sendCommand(2, 'daemon.shutdown');
+        }
       },
       skip: notMac,
       timeout: _timeout,

@@ -96,6 +96,18 @@ class _GlassPageState extends State<_GlassPage> {
       // A wasm build renders with skwasm, a JS build with CanvasKit.
       '${kIsWeb ? ' renderer=${kIsWasm ? 'skwasm' : 'canvaskit'}' : ''}';
 
+  // A hot reload reassembles; report what the paint shader draws now, so a
+  // run can see an edited shader arrive without a restart.
+  @override
+  void reassemble() {
+    super.reassemble();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final color = await _centre(_paintKey);
+      final hex = color?.toARGB32().toRadixString(16).padLeft(8, '0');
+      debugPrint('glass_paint_color 0x$hex');
+    });
+  }
+
   /// The invert filter, or null where shader filters are unsupported; then
   /// `_filterResult` says so, and whether constructing one threw.
   ui.ImageFilter? _makeFilter(GlassShaders shaders) {
@@ -162,10 +174,7 @@ class _GlassPageState extends State<_GlassPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'GLASS $_summary',
-            key: const ValueKey('glass_result'),
-          ),
+          Text('GLASS $_summary', key: const ValueKey('glass_result')),
           const SizedBox(height: 16),
           Row(
             children: [

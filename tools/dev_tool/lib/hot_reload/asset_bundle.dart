@@ -11,7 +11,9 @@
 /// `fonts/MaterialIcons-Regular.otf` from the SDK, the generated manifests)
 /// have no workspace file at their archive path, so they are not watched. They
 /// still take part in the diff: a rebuild that changes one is applied like any
-/// other.
+/// other. Shaders are the exception the build spells out: a package's shader
+/// sits at `packages/<pkg>/…` and is compiled from a `.frag` and whatever it
+/// includes, so the build lists those files ([AssetBundle.shaders]).
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -49,7 +51,19 @@ class AssetBundle {
   /// to the files a user edits.
   final String workspaceRoot;
 
-  const AssetBundle({required this.directory, required this.workspaceRoot});
+  /// Every shader in the bundle, by archive path, with the workspace-relative
+  /// files it is compiled from. See `DevConfig.shaders`.
+  final Map<String, List<String>> shaders;
+
+  const AssetBundle({
+    required this.directory,
+    required this.workspaceRoot,
+    this.shaders = const {},
+  });
+
+  /// Whether [archivePath] is a compiled shader, which the engine caches as a
+  /// program and so has to be told to reload, not just evicted.
+  bool isShader(String archivePath) => shaders.containsKey(archivePath);
 
   /// Every file in the bundle, keyed by archive path, valued by a digest of
   /// its contents.
@@ -91,6 +105,16 @@ class AssetBundle {
       p.joinAll(p.url.split(archivePath)),
     );
     return File(candidate).existsSync() ? candidate : null;
+  }
+
+  /// Every workspace file that feeds [archivePath]: the file at its own path,
+  /// and for a shader, the files the build says it is compiled from.
+  Iterable<String> sourcesOf(String archivePath) sync* {
+    final own = sourceOf(archivePath);
+    if (own != null) yield own;
+    for (final source in shaders[archivePath] ?? const <String>[]) {
+      yield p.join(workspaceRoot, p.joinAll(p.url.split(source)));
+    }
   }
 
   /// FNV-1a over [bytes].
@@ -225,8 +249,9 @@ class AssetTracker {
   }) {
     final dirs = <String>{};
     for (final archivePath in bundleState.keys) {
-      final source = bundle.sourceOf(archivePath);
-      if (source != null) dirs.add(p.dirname(source));
+      for (final source in bundle.sourcesOf(archivePath)) {
+        dirs.add(p.dirname(source));
+      }
     }
     return _scanDirs(dirs, builtBefore: builtBefore);
   }

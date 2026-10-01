@@ -526,14 +526,70 @@ def collect_sdk_shader_srcs(deps):
         return depset(transitive = transitive_depsets).to_list()
     return []
 
+def _shader_jobs(ctx):
+    """Every shader this target bundles, as struct(bundle_path, file, includes).
+
+    User shaders keep their workspace-relative path ("shaders/my_effect.frag"),
+    SDK shaders go under "shaders/<basename>" (Flutter's convention), and a
+    package's under "packages/<pkg>/<path>" (bare "<path>" when it has no
+    package name). Two shaders claiming one bundle path fail here: one would
+    otherwise overwrite the other.
+    """
+    jobs = []
+    user_includes = getattr(ctx.files, "shader_includes", [])
+    for shader in ctx.files.shaders:
+        jobs.append(struct(bundle_path = shader.short_path, file = shader, includes = user_includes))
+    for shader in collect_sdk_shader_srcs(ctx.attr.deps):
+        jobs.append(struct(bundle_path = "shaders/" + shader.basename, file = shader, includes = []))
+    for dep in ctx.attr.deps:
+        if FlutterInfo in dep:
+            for entry in dep[FlutterInfo].pub_shaders.to_list():
+                prefix = "packages/{}/".format(entry.package_name) if entry.package_name else ""
+                jobs.append(struct(
+                    bundle_path = prefix + entry.shader_path,
+                    file = entry.file,
+                    includes = entry.includes,
+                ))
+
+    # One package can reach a target along several paths; the same file at
+    # the same bundle path is one shader.
+    by_path = {}
+    for job in jobs:
+        seen = by_path.get(job.bundle_path)
+        if seen == None:
+            by_path[job.bundle_path] = job
+        elif seen.file != job.file:
+            fail("%s: two shaders are bundled at %s: %s and %s." % (
+                ctx.label,
+                job.bundle_path,
+                seen.file.short_path,
+                job.file.short_path,
+            ))
+    return by_path.values()
+
+def shader_sources(ctx):
+    """The workspace files behind each bundled shader, for the dev tool.
+
+    `{bundle path: [workspace-relative path]}`: the shader and what it may
+    `#include`, where those are source files of this workspace. A shader from
+    another repository maps to an empty list; it is still a shader, which is
+    what the dev tool needs to know to make the app reload it.
+    """
+    return {
+        job.bundle_path: [
+            f.short_path
+            for f in [job.file] + list(job.includes)
+            if f.is_source and not f.short_path.startswith("../")
+        ]
+        for job in _shader_jobs(ctx)
+    }
+
 def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
-    """Compile shader files for the target platform using impellerc.
+    """Compile every shader this target bundles for the target platform.
 
-    Compiles both user-provided shaders (from the shaders attr) and SDK
-    shaders collected transitively from FlutterInfo.shader_srcs.
-
-    User shaders keep their workspace-relative path (e.g. "shaders/my_effect.frag").
-    SDK shaders are placed at "shaders/<basename>" (matching Flutter conventions).
+    The shaders are the target's own (`shaders`), the SDK's (collected from
+    FlutterInfo.shader_srcs) and its packages' (FlutterInfo.pub_shaders); see
+    `_shader_jobs` for where each is bundled.
 
     Args:
         ctx: Rule context (must have shaders attr and deps attr).
@@ -544,80 +600,31 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
         Dict mapping bundle destination path → compiled File. Pass to
         extra_asset_copies in flutter_asset_bundle_action.
     """
-
-    # Collect all shaders: user-provided + SDK shaders from deps.
-    user_shaders = list(ctx.files.shaders)
-    sdk_shaders = collect_sdk_shader_srcs(ctx.attr.deps)
-
-    # Walk pub-package shaders from FlutterInfo.pub_shaders. Each carries
-    # (package_name, shader_path, file). Bundle dest path is
-    # `packages/<pkg>/<shader_path>` (or bare `<shader_path>` for non-package
-    # contributions where package_name is empty).
-    pub_shader_entries = []
-    for dep in ctx.attr.deps:
-        if FlutterInfo in dep:
-            pub_shader_entries.extend(dep[FlutterInfo].pub_shaders.to_list())
-
-    if (not user_shaders and not sdk_shaders and not pub_shader_entries) or not flutter_sdk_info.impellerc:
+    jobs = _shader_jobs(ctx)
+    if not jobs or not flutter_sdk_info.impellerc:
         return {}
 
     compiled = {}
-    user_includes = getattr(ctx.files, "shader_includes", [])
-
-    # What compiles a shader whose SkSL stage fails without it.
-    retry = dict(
-        dart = flutter_sdk_info.dart,
-        dart_files = flutter_sdk_info.tool_files,
-        compile_tool = ctx.file._shader_compile_tool,
-        require_sksl = getattr(ctx.attr, "require_sksl_shaders", False),
-    )
-    for shader in user_shaders + sdk_shaders:
-        output = ctx.actions.declare_file(ctx.label.name + "_shaders/" + shader.basename + ".iplr")
+    for job in jobs:
+        # Named by the bundle path, which is unique, so no two outputs meet.
+        out_path = job.bundle_path.replace("../", "_external/")
+        output = ctx.actions.declare_file(ctx.label.name + "_shaders/" + out_path + ".iplr")
         flutter_shader_compile_action(
             ctx = ctx,
             impellerc = flutter_sdk_info.impellerc,
             shader_lib = flutter_sdk_info.shader_lib,
-            shader = shader,
+            shader = job.file,
             output = output,
             target_platform = target_platform,
             is_web = target_platform == "web",
-            includes = user_includes if shader in user_shaders else [],
-            **retry
+            includes = job.includes,
+            # What compiles a shader whose SkSL stage fails without it.
+            dart = flutter_sdk_info.dart,
+            dart_files = flutter_sdk_info.tool_files,
+            compile_tool = ctx.file._shader_compile_tool,
+            require_sksl = getattr(ctx.attr, "require_sksl_shaders", False),
         )
-
-        # User shaders: use workspace-relative path ("shaders/my_effect.frag").
-        # SDK shaders: place under "shaders/<basename>" (e.g. "shaders/ink_sparkle.frag").
-        if shader in user_shaders:
-            bundle_path = shader.short_path
-        else:
-            bundle_path = "shaders/" + shader.basename
-        compiled[bundle_path] = output
-
-    # Pub-package shaders. Output filename includes package_name to avoid
-    # collisions when two packages ship a shader with the same basename.
-    for entry in pub_shader_entries:
-        prefix = "packages/{}/".format(entry.package_name) if entry.package_name else ""
-        bundle_path = prefix + entry.shader_path
-
-        # Named by the shader's path in its package, not its basename: one
-        # package may ship `a/blur.frag` and `b/blur.frag`.
-        out_dir = entry.package_name if entry.package_name else "_local"
-        output = ctx.actions.declare_file(
-            ctx.label.name + "_pub_shaders/" + out_dir + "/" + entry.shader_path + ".iplr",
-        )
-        flutter_shader_compile_action(
-            ctx = ctx,
-            impellerc = flutter_sdk_info.impellerc,
-            shader_lib = flutter_sdk_info.shader_lib,
-            shader = entry.file,
-            output = output,
-            target_platform = target_platform,
-            is_web = target_platform == "web",
-            includes = entry.includes,
-            **retry
-        )
-        compiled[bundle_path] = output
-
+        compiled[job.bundle_path] = output
     return compiled
 
 def declare_flutter_assets_dir(ctx):

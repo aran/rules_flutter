@@ -1356,8 +1356,9 @@ class _RecordingReloadStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) async {
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) async {
     calls.add('assets');
     return const StrategyApplied(0);
   }
@@ -1385,8 +1386,9 @@ class _ThrowingReloadStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) async => throw error;
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) async => throw error;
 }
 
 /// A device that tracks stop calls.

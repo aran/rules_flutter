@@ -286,6 +286,15 @@ class DevConfig {
   /// without inferring a URI from a path).
   final List<String> generatedSourceUris;
 
+  /// Every shader the bundle carries, by archive path, with the
+  /// workspace-relative files it is compiled from (the shader and what it may
+  /// `#include`; none for a shader from another repository).
+  ///
+  /// Declared by the build: a package's shader is bundled at
+  /// `packages/<pkg>/…`, a path no workspace file has, so the bundle cannot
+  /// say what to watch for it, nor which of its entries are shaders at all.
+  final Map<String, List<String>> shaders;
+
   /// Absolute paths of the loose native libraries (`native_deps`) this build
   /// wrote, declared by the build rather than found by searching the outputs.
   ///
@@ -424,6 +433,7 @@ class DevConfig {
     this.filesystemScheme = '',
     this.generatedSourcePaths = const [],
     this.generatedSourceUris = const [],
+    this.shaders = const {},
     this.nativeLibs = const [],
     this.nativeLibContracts = const {},
     this.nativeLibSources = const {},
@@ -490,6 +500,11 @@ class DevConfig {
       filesystemScheme: (json['filesystemScheme'] as String?) ?? '',
       generatedSourcePaths: strList('generatedSourcePaths'),
       generatedSourceUris: strList('generatedSourceUris'),
+      shaders: {
+        for (final MapEntry(:key, :value)
+            in ((json['shaders'] as Map?) ?? const {}).entries)
+          key as String: (value as List).cast<String>(),
+      },
       nativeLibs: strList('nativeLibs'),
       nativeLibContracts: {
         for (final entry

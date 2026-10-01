@@ -198,10 +198,14 @@ abstract interface class ReloadStrategy {
   /// made to look like a code reload. On a strategy that navigates the page,
   /// both routes happen to converge — that is a fact about that strategy, not
   /// about the pipeline.
+  ///
+  /// [shaders] is the part of [changed] that is compiled shaders, which the
+  /// engine holds as programs and has to be told to reload.
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  );
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  });
 }
 
 /// Reload strategy for native platforms via Dart VM service.
@@ -333,8 +337,12 @@ class VmServiceReloadStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) => _applyToAll(sessions, (c) => c.reloadAssets(changed));
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) => _applyToAll(
+    sessions,
+    (c) => c.reloadAssets(changed, shaders: shaders),
+  );
 }
 
 /// What a single device did with one apply. See
@@ -657,8 +665,9 @@ class DwdsReloadStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) async {
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) async {
     // Nothing to deliver: the module server reads `assets/` off the build tree
     // on every request, so the new bytes are already on the wire. All that is
     // left is convincing the page to ask again — the framework caches every
@@ -675,6 +684,15 @@ class DwdsReloadStrategy implements ReloadStrategy {
       return const StrategyUnsupported(
         'the page has never loaded a program, so it is not showing these '
         'assets — it will fetch them when it loads',
+      );
+    }
+
+    // Neither does `flutter run`: its web devFS never names a shader to
+    // evict. A restart loads the page, and the page the new program.
+    if (shaders.isNotEmpty) {
+      return const StrategyUnsupported(
+        'a web page compiles its shaders once and has no hook to reload one '
+        '— hot restart (R) to pick up the edited shader',
       );
     }
 
@@ -789,8 +807,9 @@ class WasmReloadStrategy implements ReloadStrategy {
   @override
   Future<StrategyOutcome> applyAssets(
     Set<String> changed,
-    List<DeviceSession> sessions,
-  ) => _rebuildAndReload();
+    List<DeviceSession> sessions, {
+    Set<String> shaders = const {},
+  }) => _rebuildAndReload();
 
   Future<StrategyOutcome> _rebuildAndReload() async {
     try {

@@ -223,6 +223,40 @@ void main() {
       },
     );
 
+    // `flutter run`'s order: the bytes are evicted, each changed shader is
+    // reinitialized from them (the engine holds it as a program, which an
+    // evict does not touch), and the app reassembles to draw with it.
+    test(
+      'a changed shader is reinitialized before the app reassembles',
+      () async {
+        final (session, fake, _) = await wedgeable();
+        const glow = 'packages/pkg/shaders/glow.frag';
+
+        final outcome = await VmServiceReloadStrategy().applyAssets(
+          {glow, 'assets/logo.png'},
+          [session],
+          shaders: {glow},
+        );
+
+        expect(outcome.isSuccess, isTrue, reason: '$outcome');
+        final calls = [for (final c in fake.extensionCalls) c.method];
+        expect(
+          calls.where((m) => m == 'ext.ui.window.reinitializeShader'),
+          hasLength(1),
+        );
+        expect(
+          fake.extensionCalls
+              .firstWhere((c) => c.method == 'ext.ui.window.reinitializeShader')
+              .args?['assetKey'],
+          glow,
+        );
+        expect(
+          calls.indexOf('ext.ui.window.reinitializeShader'),
+          lessThan(calls.lastIndexOf('ext.flutter.reassemble')),
+        );
+      },
+    );
+
     test('the same bound covers a hung hot reload', () async {
       final (session, fake, client) = await wedgeable();
       final gate = Completer<void>();
@@ -607,6 +641,24 @@ void main() {
         await s.attachVmService(service);
 
         final outcome = await s.applyAssets({'assets/fonts/Inter.ttf'}, []);
+
+        expect(outcome, isA<StrategyUnsupported>());
+        expect(outcome.message, contains('hot restart'));
+        expect(service.extensionCalls, isEmpty);
+      },
+    );
+
+    test(
+      'sends a shader change back for a restart, as flutter run does',
+      () async {
+        // A web page compiles its shaders once; there is no reinitialize hook
+        // to send, and evicting the bytes leaves the old program drawing.
+        final service = FakeVmService(isolates: [isolate]);
+        final s = strategy();
+        await s.attachVmService(service);
+
+        const glow = 'packages/pkg/shaders/glow.frag';
+        final outcome = await s.applyAssets({glow}, [], shaders: {glow});
 
         expect(outcome, isA<StrategyUnsupported>());
         expect(outcome.message, contains('hot restart'));

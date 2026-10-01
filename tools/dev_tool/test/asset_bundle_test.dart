@@ -208,6 +208,36 @@ void main() {
       expect(tracker.watches(p.join(fixture.workspace, 'README.md')), isFalse);
     });
 
+    test('watches the sources the build names for a package shader', () {
+      fixture.putGenerated('packages/pkg/shaders/glow.frag', 'compiled');
+      fixture.edit(p.join('pkg', 'shaders', 'glow.frag'), 'source');
+      fixture.edit(p.join('pkg', 'lib', 'common.glsl'), 'include');
+      final bundle = AssetBundle(
+        directory: fixture.bundleDir,
+        workspaceRoot: fixture.workspace,
+        shaders: {
+          'packages/pkg/shaders/glow.frag': [
+            'pkg/shaders/glow.frag',
+            'pkg/lib/common.glsl',
+          ],
+          // Flutter's own: a shader, with nothing in the workspace behind it.
+          'shaders/ink_sparkle.frag': [],
+        },
+      );
+      final tracker = AssetTracker(bundle, builtBefore: afterFixtureWrites());
+
+      expect(
+        tracker.watches(p.join(fixture.workspace, 'pkg', 'lib', 'x.glsl')),
+        isTrue,
+      );
+      expect(bundle.isShader('packages/pkg/shaders/glow.frag'), isTrue);
+      expect(bundle.isShader('shaders/ink_sparkle.frag'), isTrue);
+      expect(bundle.isShader('AssetManifest.bin'), isFalse);
+
+      fixture.edit(p.join('pkg', 'lib', 'common.glsl'), 'include v2');
+      expect(tracker.sourcesAreStale, isTrue);
+    });
+
     test('a bundle with no first-party assets watches nothing', () {
       fixture.putGenerated('AssetManifest.bin', 'manifest');
       fixture.putGenerated('fonts/MaterialIcons-Regular.otf', 'sdk font');

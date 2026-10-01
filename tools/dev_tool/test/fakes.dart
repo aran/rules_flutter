@@ -901,6 +901,7 @@ class FakeVmService implements VmService {
   List<String> extensionRPCs = const [
     'ext.flutter.evict',
     'ext.flutter.reassemble',
+    'ext.ui.window.reinitializeShader',
   ];
 
   /// If non-null, [getIsolate] fails with this instead of answering.

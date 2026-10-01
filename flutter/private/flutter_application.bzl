@@ -15,7 +15,7 @@ load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args", "shader_sources")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
@@ -326,6 +326,10 @@ def _flutter_application_impl(ctx):
                 "filesystemScheme": compilation.dev_filesystem_scheme,
                 "generatedSourcePaths": compilation.dev_generated_source_paths,
                 "generatedSourceUris": compilation.dev_generated_source_uris,
+                # Every bundled shader, by bundle path, with the workspace
+                # files it is compiled from. The dev tool watches those and
+                # has the app reload a shader whose compiled bytes changed.
+                "shaders": shader_sources(ctx),
                 # The loose native libraries this build writes, from the
                 # same list `default_files` carries so the two cannot drift —
                 # `native_deps` and Native Assets code assets alike, because a

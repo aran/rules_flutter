@@ -559,7 +559,7 @@ class NativePipelineAssembler {
       return;
     }
 
-    final assetsDir = await _wireAssets();
+    final assetsDir = await _wireAssets(shaders: devConfig.shaders);
 
     // For codegen apps, rebuild the flutter_application via bazel before each
     // reload/restart so edits to codegen inputs are regenerated. Null for
@@ -715,7 +715,9 @@ class NativePipelineAssembler {
   /// once and only the app knows which one it is.
   ///
   /// Returns the directory.
-  Future<String> _wireAssets() async {
+  Future<String> _wireAssets({
+    required Map<String, List<String>> shaders,
+  }) async {
     final candidates = await host.bazel.cqueryFlutterAppFiles(
       target,
       workspace: workspace,
@@ -749,7 +751,11 @@ class NativePipelineAssembler {
     // `runInView` is the one the tracker watches. Nothing derives it a second
     // time.
     pipeline.assetTracker = AssetTracker(
-      AssetBundle(directory: assetsDir, workspaceRoot: workspace),
+      AssetBundle(
+        directory: assetsDir,
+        workspaceRoot: workspace,
+        shaders: shaders,
+      ),
       builtBefore: builtBefore,
     );
     pipeline.rebuildAssets = _bundleRebuild.run;

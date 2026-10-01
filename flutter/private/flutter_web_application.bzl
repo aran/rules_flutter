@@ -45,6 +45,7 @@ load(
     "make_web_wrapper_main_content",
     "merge_dart_defines",
     "resolve_dev_generated_sources",
+    "shader_sources",
 )
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -1088,6 +1089,8 @@ def _flutter_web_bundle_impl(ctx):
             "filesystemScheme": dev_filesystem_scheme,
             "generatedSourcePaths": dev_generated_source_paths,
             "generatedSourceUris": dev_generated_source_uris,
+            # See flutter_application's dev config.
+            "shaders": shader_sources(ctx),
             # The native modules the page instantiates, and per module the files
             # its bindings were generated from. A reload cannot replace an
             # instantiated module any more than a process can replace a `dlopen`ed

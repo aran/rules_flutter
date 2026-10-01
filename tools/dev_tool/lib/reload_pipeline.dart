@@ -404,7 +404,14 @@ class ReloadPipeline {
           : AssetOutcome(changed: changed);
     }
 
-    final outcome = await applyTo.applyAssets(changed, targets);
+    final outcome = await applyTo.applyAssets(
+      changed,
+      targets,
+      shaders: {
+        for (final path in changed)
+          if (tracker.bundle.isShader(path)) path,
+      },
+    );
     return AssetOutcome(changed: changed, delivery: outcome);
   }
 

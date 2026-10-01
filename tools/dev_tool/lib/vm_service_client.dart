@@ -1417,7 +1417,15 @@ class VmServiceClient {
   /// resolves to what shipped. The corollary is that a *deleted* asset keeps
   /// resolving to the shipped copy until the next relaunch — devFS has no
   /// delete, and upstream has the same gap.
-  Future<ApplyVerdict> reloadAssets(Set<String> changed) async {
+  ///
+  /// [shaders], the part of [changed] that is compiled shaders, is also sent
+  /// `ext.ui.window.reinitializeShader`, as `flutter run` sends it: the engine
+  /// holds a loaded shader as a program, which evicting the bytes does not
+  /// touch.
+  Future<ApplyVerdict> reloadAssets(
+    Set<String> changed, {
+    Set<String> shaders = const {},
+  }) async {
     if (_httpAddress == null) {
       throw StateError(_noConnectionMessage);
     }
@@ -1496,6 +1504,22 @@ class VmServiceClient {
                 isolateId: views.first.isolateId,
                 args: {'viewId': views.first.id},
               );
+            }
+
+            if (shaders.isNotEmpty) {
+              await requireServiceExtension('ext.ui.window.reinitializeShader');
+              for (final assetKey in shaders) {
+                await _service!.callServiceExtension(
+                  'ext.ui.window.reinitializeShader',
+                  isolateId: _mainIsolateId,
+                  args: {'assetKey': assetKey},
+                );
+              }
+              _logger.info({
+                'message': 'shaders_reinitialized',
+                'text': 'Reloaded shader(s): ${shaders.join(', ')}',
+                'shaders': shaders.toList(),
+              });
             }
 
             await requireServiceExtension('ext.flutter.reassemble');

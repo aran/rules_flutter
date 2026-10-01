@@ -538,6 +538,7 @@ class WebPipelineAssembler {
         AssetBundle(
           directory: p.join(webOutputDir, 'assets'),
           workspaceRoot: plan.workspace,
+          shaders: devConfig.shaders,
         ),
         builtBefore: builtBefore,
       );
