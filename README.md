@@ -2,7 +2,7 @@
 
 Bazel rules for building Flutter apps.
 
-> **Status: v0.0.1, alpha.** It works today, but the public API may change before 1.0. Feedback and contributions are welcome.
+> **Status: alpha.** It works today, but the public API may still change. Feedback and contributions are welcome.
 
 rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and packages the result for macOS, iOS, Android, Linux, Windows, and the web. It builds on [rules_dart](https://github.com/aran/rules_dart) for Dart compilation and hands platform packaging to the rulesets that already do it well: `rules_apple`, `rules_android`, and friends. It also ships a dev tool, `flutter_bazel`, that gives you hot reload, hot restart, and an HTTP channel for driving a running app from a script.
 
