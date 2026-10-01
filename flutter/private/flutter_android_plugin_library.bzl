@@ -32,10 +32,11 @@ def flutter_android_plugin_library(
     """Wrap a Flutter plugin's Android Kotlin/Java sources in a kt_android_library.
 
     Args:
-        name: Target name. Add it to the application's `binary_deps`. The
-            Tier-1 macro's auto-aggregation covers pub.dev plugins only —
-            it deps on the hub's `all_android_plugin_libs`, which knows the
-            resolved spokes and nothing about a target in this workspace.
+        name: Target name. Add it to `flutter_android_app(deps = ...)`,
+            which packages it and registers its plugin class. The macro's
+            automatic wiring covers pub.dev plugins only — it deps on the
+            hub's `all_android_plugin_libs`, which knows the resolved spokes
+            and nothing about a target in this workspace.
         srcs: Kotlin/Java source files (`.kt`, `.java`).
         java_package: Java package the plugin's classes live in
             (e.g. `io.flutter.plugins.urllauncher`). Used to generate a
@@ -46,7 +47,10 @@ def flutter_android_plugin_library(
             Android engine AAR). Required for the plugin's Kotlin/Java
             to compile against the FlutterPlugin SPI.
         manifest: Optional AndroidManifest.xml fragment shipped with the
-            plugin. Defaults to a minimal generated one.
+            plugin. Its components and permissions (`<receiver>`,
+            `<service>`, `<uses-permission>`, ...) are merged into the app's
+            manifest, as AGP merges a library's. Defaults to a minimal
+            generated one that contributes nothing.
         deps: Extra Maven AAR / android_library deps. The Flutter
             Android engine is added automatically.
         visibility: Target visibility.
@@ -58,6 +62,12 @@ def flutter_android_plugin_library(
 
     if java_package == None:
         java_package = "dev.flutter.plugins.%s" % name.replace("_", "")
+
+    # rules_android's `android_library` keeps its manifest to itself unless
+    # told to export it; AGP always merges a library's. The generated
+    # stand-in has nothing to contribute.
+    if manifest:
+        kwargs.setdefault("exports_manifest", 1)
 
     actual_manifest = manifest
     if not actual_manifest:

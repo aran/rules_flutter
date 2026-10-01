@@ -56,8 +56,9 @@ flutter_android_engine(
 # automatic wiring covers only plugins from the pub hub.
 flutter_android_plugin_library(
     name = "glass_plugin_android",
-    srcs = ["android/src/main/kotlin/com/example/glass_plugin/GlassPlugin.kt"],
+    srcs = glob(["android/src/main/kotlin/**/*.kt"]),
     flutter_engine = ":android_engine",
     java_package = "com.example.glass_plugin",
+    manifest = "android/src/main/AndroidManifest.xml",
     visibility = ["//visibility:public"],
 )

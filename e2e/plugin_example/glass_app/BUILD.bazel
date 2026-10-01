@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_test")
 load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
 load("@rules_flutter//flutter:defs.bzl", "flutter_application")
 load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app", "flutter_ios_simulator_build_test")
@@ -83,4 +84,13 @@ flutter_ios_simulator_build_test(
     name = "glass_ios_build_test",
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":glass_ios"],
+)
+
+# The plugin's library manifest reaches the APK: its receiver and the
+# permission it asks for.
+dart_test(
+    name = "verify_glass_apk_test",
+    data = [":glass_android"],
+    main = "test/verify_glass_apk_test.dart",
+    tags = ["android"],
 )
