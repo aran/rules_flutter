@@ -160,11 +160,7 @@ flutter_application(
 
 Plugins need no special treatment. A pub package that is a Flutter plugin arrives as a plugin target, and the platform macros register it and build its native code. On Android the hub also exposes `@deps//android:all_android_plugin_libs`, the Kotlin and Java of every plugin, and `flutter_android_app` adds it to the APK for you.
 
-One Android detail: a plugin that declares permissions in its own manifest (for example `record_android` and `RECORD_AUDIO`) needs this line in your `.bazelrc`, because Bazel's manifest merger drops library permissions by default where Gradle keeps them:
-
-```bazelrc
-common --merge_android_manifest_permissions
-```
+Permissions a plugin declares in its own manifest, such as `record_android`'s `RECORD_AUDIO`, reach the app's manifest as they do under Gradle. You don't need `--merge_android_manifest_permissions`.
 
 ### Regenerating pubspec.lock
 

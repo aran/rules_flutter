@@ -438,11 +438,11 @@ def flutter_android_app(
         spoke's Kotlin/Java sources (and resources) via the hub's
         aggregator. Spokes without Android sources contribute empty
         libraries (no-op).
-      - Plugins that declare `<uses-permission>` in their library
-        manifests (e.g. record_android's RECORD_AUDIO) additionally need
-        `common --merge_android_manifest_permissions` in the workspace's
-        `.bazelrc`: Bazel's manifest merger strips library permissions by
-        default, whereas AGP always merges them.
+      - Permissions that plugins and AARs declare in their own manifests
+        (e.g. record_android's RECORD_AUDIO) are lifted into the app's
+        manifest, as AGP merges them. Bazel's own merger drops library
+        permissions unless `--merge_android_manifest_permissions` is set;
+        the app no longer depends on that flag.
 
     Args:
         name: Target name (Bazel identifier). Produces an android_binary.
@@ -687,6 +687,19 @@ def flutter_android_app(
             tags = tags,
         )
         actual_manifest = "__%s_manifest_with_permissions" % name
+
+    # 8c. Lift the permissions the app's Android libraries declare (plugins,
+    # AARs) into its own manifest, as Gradle does. Bazel's merger drops them
+    # unless --merge_android_manifest_permissions is set; done here, they
+    # reach the APK whatever the flags.
+    flutter_android_manifest_merge(
+        name = "__%s_manifest_with_library_permissions" % name,
+        base = actual_manifest,
+        libraries = binary_deps + deps,
+        placeholders = ["applicationId", "minSdkVersion", "targetSdkVersion"],
+        tags = tags,
+    )
+    actual_manifest = "__%s_manifest_with_library_permissions" % name
 
     # 9. Final android_binary.
     _android_binary(

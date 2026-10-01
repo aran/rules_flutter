@@ -243,4 +243,132 @@ void main() {
       );
     });
   });
+
+  group('library permissions', () {
+    String lift(
+      Map<String, String> libraries, {
+      String base = _base,
+      Set<String> placeholders = const {},
+    }) => mergeManifests(
+      baseXml: base,
+      basePath: 'out/base/AndroidManifest.xml',
+      libraries: libraries,
+      placeholders: placeholders,
+    );
+
+    const alerts = '''
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="dev.example.alerts">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" tools:ignore="ProtectedPermissions"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"
+        tools:node="remove"/>
+    <application>
+        <receiver android:name=".AlertsReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
+''';
+
+    test('lifts the permissions under the root, keeping android:*', () {
+      final merged = lift({'alerts/AndroidManifest.xml': alerts});
+      expect(
+        merged,
+        contains(
+          '<uses-permission '
+          'android:name="android.permission.POST_NOTIFICATIONS"/>',
+        ),
+      );
+      expect(
+        merged,
+        contains(
+          '<uses-permission '
+          'android:name="android.permission.SCHEDULE_EXACT_ALARM" '
+          'android:maxSdkVersion="32"/>',
+        ),
+      );
+      expect(merged, isNot(contains('tools:ignore')));
+    });
+
+    test('skips a tools:node="remove" directive', () {
+      final merged = lift({'alerts/AndroidManifest.xml': alerts});
+      expect(merged, isNot(contains('READ_PHONE_STATE')));
+    });
+
+    test('takes nothing from below <application>', () {
+      final merged = lift({'alerts/AndroidManifest.xml': alerts});
+      expect(merged, isNot(contains('AlertsReceiver')));
+    });
+
+    test('skips what the base declares, and declares each name once', () {
+      const base = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <application android:label="example"/>
+</manifest>
+''';
+      const other = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+</manifest>
+''';
+      final merged = lift({
+        'alerts/AndroidManifest.xml': alerts,
+        'other/AndroidManifest.xml': other,
+      }, base: base);
+      expect('POST_NOTIFICATIONS'.allMatches(merged).length, 1);
+      expect('SCHEDULE_EXACT_ALARM'.allMatches(merged).length, 1);
+      // Needed at every SDK level by `other`, so maxSdkVersion goes.
+      expect(merged, isNot(contains('maxSdkVersion')));
+    });
+
+    test('leaves the base untouched when no library adds anything', () {
+      const empty = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"/>
+''';
+      expect(lift({'empty/AndroidManifest.xml': empty}), _base);
+    });
+
+    test('passes through a placeholder the build substitutes', () {
+      // androidx.core's, verbatim.
+      const core = r'''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+</manifest>
+''';
+      expect(
+        lift(
+          {'core/AndroidManifest.xml': core},
+          placeholders: {'applicationId'},
+        ),
+        contains(
+          r'android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"',
+        ),
+      );
+    });
+
+    test(r'rejects a ${...} placeholder the build does not substitute', () {
+      const placeholder = r'''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="${applicationId}.permission.C2D"/>
+</manifest>
+''';
+      expect(
+        () => lift({'p/AndroidManifest.xml': placeholder}),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('p/AndroidManifest.xml'), contains('placeholder')),
+          ),
+        ),
+      );
+    });
+  });
 }

@@ -1,5 +1,5 @@
-/// Merges an overlay AndroidManifest.xml's permissions into a main (base)
-/// manifest. Two callers, one mechanism:
+/// Merges permissions into a main (base) AndroidManifest.xml: an overlay's,
+/// and those of the app's Android libraries. Three callers, one mechanism:
 ///
 ///   * `flutter_android_app`'s debug variant handling, folding
 ///     `android/app/src/debug/AndroidManifest.xml` into `-c dbg` APKs the
@@ -7,7 +7,12 @@
 ///   * `flutter_android_app(permissions = [...])`, folding the app's own
 ///     permissions in for **every** compilation mode — the seam a networked
 ///     app needs, since the debug variant's INTERNET is the Dart VM
-///     service's and never reaches release.
+///     service's and never reaches release;
+///   * library permissions (`--library`, repeatable): a plugin or AAR that
+///     declares `<uses-permission>` in its own manifest. Gradle merges those
+///     into the app; Bazel's merger drops them unless
+///     `--merge_android_manifest_permissions` is set, so an app that forgot
+///     the flag shipped without them. Lifting them here makes the flag moot.
 ///
 /// This tool implements deliberately narrow, never-wrong semantics: the
 /// overlay may contain ONLY `<uses-permission>` / `<uses-permission-sdk-23>`
@@ -18,6 +23,16 @@
 /// never be silently mis-merged. Users with richer variant manifests pass
 /// `debug_manifest` on `flutter_android_app` explicitly (or restructure).
 ///
+/// A library manifest is read leniently, since it is a whole manifest: only
+/// the `<uses-permission>` / `<uses-permission-sdk-23>` elements directly
+/// under its root are taken. Their `android:*` attributes (`maxSdkVersion`,
+/// `usesPermissionFlags`) are kept; `tools:*` lint hints are dropped; an
+/// element marked `tools:node="remove"` is a removal directive, not a
+/// declaration, and is skipped. A `\${name}` placeholder passes through
+/// verbatim when `name` is one the app's build substitutes afterwards
+/// (`--placeholder`, e.g. androidx.core's `\${applicationId}.…` permission);
+/// any other is a hard error.
+///
 /// The base manifest is never re-serialized: merged permissions are inserted
 /// textually right after the root `<manifest ...>` open tag, so every base
 /// byte the tool doesn't understand passes through untouched.
@@ -25,7 +40,8 @@
 /// It has no package dependencies and runs with the bare Dart SDK.
 ///
 /// Usage:
-///   dart merge_android_manifests.dart --base <path> --overlay <path> --output <path>
+///   dart merge_android_manifests.dart --base <path> [--overlay <path>]
+///       [--library <path>]... [--placeholder <name>]... --output <path>
 import 'dart:io';
 
 /// Pointer at the Tier-1 escape hatch, appended to every rejection.
@@ -317,31 +333,160 @@ Set<String> _basePermissionNames(String baseXml) {
   return names;
 }
 
+/// A `<uses-permission>` taken from a library manifest, with the `android:*`
+/// attributes it is emitted with.
+class LibraryPermission {
+  /// `uses-permission` or `uses-permission-sdk-23`.
+  final String element;
+
+  /// The `android:*` attributes, `android:name` among them, in source order.
+  final Map<String, String> attributes;
+
+  LibraryPermission(this.element, this.attributes);
+
+  String get name => attributes['android:name']!;
+
+  String render() {
+    final attrs = attributes.entries
+        .map((e) => ' ${e.key}="${e.value}"')
+        .join();
+    return '<$element$attrs/>';
+  }
+}
+
+/// The permissions [libraryXml] declares directly under its `<manifest>`
+/// root, read as documented at the top of this file.
+List<LibraryPermission> parseLibraryPermissions(
+  String libraryXml,
+  String libraryPath, {
+  Set<String> placeholders = const {},
+}) {
+  Never reject(String detail) => throw FormatException(
+    'Cannot read the permissions of library manifest $libraryPath: $detail',
+  );
+
+  final scanner = _Scanner(libraryXml);
+  final permissions = <LibraryPermission>[];
+  var depth = 0;
+  while (true) {
+    scanner.skipInsignificant();
+    if (scanner.atEnd) break;
+    final text = scanner.text;
+    if (text[scanner.pos] != '<') {
+      final next = text.indexOf('<', scanner.pos);
+      scanner.pos = next == -1 ? text.length : next;
+      continue;
+    }
+    if (text.startsWith('<![CDATA[', scanner.pos)) {
+      final end = text.indexOf(']]>', scanner.pos);
+      if (end == -1) reject('unterminated CDATA section.');
+      scanner.pos = end + 3;
+      continue;
+    }
+    if (text.startsWith('<?', scanner.pos) ||
+        text.startsWith('<!', scanner.pos)) {
+      final end = text.indexOf('>', scanner.pos);
+      if (end == -1) reject('unterminated markup at offset ${scanner.pos}.');
+      scanner.pos = end + 1;
+      continue;
+    }
+    final (name, attrs, selfClosing, isEnd) = scanner.readTag();
+    if (isEnd) {
+      depth--;
+      continue;
+    }
+    if (depth == 1 && _permissionElements.contains(name)) {
+      if (attrs['tools:node'] == 'remove') {
+        // A removal directive for the merger, not a declaration.
+      } else {
+        final kept = <String, String>{
+          for (final e in attrs.entries)
+            if (e.key.startsWith('android:')) e.key: e.value,
+        };
+        for (final e in attrs.entries) {
+          if (!e.key.startsWith('android:') && !e.key.startsWith('tools:')) {
+            reject(
+              '<$name> carries attribute "${e.key}", which is neither '
+              'android:* nor tools:*.',
+            );
+          }
+        }
+        final permissionName = kept['android:name'];
+        if (permissionName == null || permissionName.isEmpty) {
+          reject('<$name> has no android:name attribute.');
+        }
+        for (final value in kept.values) {
+          for (final match in RegExp(r'\$\{([^}]*)\}').allMatches(value)) {
+            if (!placeholders.contains(match[1])) {
+              reject(
+                '<$name android:name="$permissionName"> contains the Gradle '
+                'placeholder "\${${match[1]}}", which this build does not '
+                'substitute (it substitutes: ${placeholders.join(', ')}).',
+              );
+            }
+          }
+        }
+        permissions.add(LibraryPermission(name, kept));
+      }
+    }
+    if (!selfClosing) depth++;
+  }
+  return permissions;
+}
+
 /// Merges [overlayXml]'s permissions into [baseXml], returning the merged
 /// manifest text. Throws [FormatException] when the overlay violates the
 /// strict contract or the base has no `<manifest>` root.
 String mergeManifests({
   required String baseXml,
-  required String overlayXml,
   required String basePath,
-  required String overlayPath,
+  String? overlayXml,
+  String? overlayPath,
+  Map<String, String> libraries = const {},
+  Set<String> placeholders = const {},
 }) {
-  final overlayPermissions = parseOverlayPermissions(overlayXml, overlayPath);
+  final overlayPermissions = overlayXml == null
+      ? const <OverlayPermission>[]
+      : parseOverlayPermissions(overlayXml, overlayPath!);
   final insertAt = _baseInsertionPoint(baseXml, basePath);
-  final existing = _basePermissionNames(baseXml);
+  final seen = _basePermissionNames(baseXml);
 
-  final seen = <String>{};
+  final lines = <String>[];
+  for (final permission in overlayPermissions) {
+    if (!seen.add(permission.name)) continue;
+    lines.add('<${permission.element} android:name="${permission.name}"/>');
+  }
+  // Libraries in the order given; the first declaration of a name wins,
+  // except that one without maxSdkVersion replaces one with it, since the
+  // app then needs the permission at every SDK level.
+  final fromLibraries = <String, LibraryPermission>{};
+  for (final MapEntry(key: path, value: xml) in libraries.entries) {
+    for (final permission in parseLibraryPermissions(
+      xml,
+      path,
+      placeholders: placeholders,
+    )) {
+      if (seen.contains(permission.name)) continue;
+      final earlier = fromLibraries[permission.name];
+      if (earlier == null ||
+          (earlier.attributes.containsKey('android:maxSdkVersion') &&
+              !permission.attributes.containsKey('android:maxSdkVersion'))) {
+        fromLibraries[permission.name] = permission;
+      }
+    }
+  }
+  lines.addAll(fromLibraries.values.map((p) => p.render()));
+  // An overlay always leaves its provenance, even when it adds nothing.
+  if (lines.isEmpty && overlayXml == null) return baseXml;
+
+  final sources = [?overlayPath, if (libraries.isNotEmpty) 'library manifests'];
   final inserted = StringBuffer()
     ..write(
-      '\n    <!-- Permissions merged by rules_flutter '
-      'from $overlayPath into $basePath. -->',
+      '\n    <!-- Permissions merged by rules_flutter from '
+      '${sources.join(' and ')} into $basePath. -->',
     );
-  for (final permission in overlayPermissions) {
-    if (existing.contains(permission.name)) continue;
-    if (!seen.add(permission.name)) continue;
-    inserted.write(
-      '\n    <${permission.element} android:name="${permission.name}"/>',
-    );
+  for (final line in lines) {
+    inserted.write('\n    $line');
   }
 
   return baseXml.substring(0, insertAt) +
@@ -353,21 +498,27 @@ void main(List<String> args) {
   String? basePath;
   String? overlayPath;
   String? outputPath;
+  final libraryPaths = <String>[];
+  final placeholders = <String>{};
 
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--base' && i + 1 < args.length) {
       basePath = args[++i];
     } else if (args[i] == '--overlay' && i + 1 < args.length) {
       overlayPath = args[++i];
+    } else if (args[i] == '--library' && i + 1 < args.length) {
+      libraryPaths.add(args[++i]);
+    } else if (args[i] == '--placeholder' && i + 1 < args.length) {
+      placeholders.add(args[++i]);
     } else if (args[i] == '--output' && i + 1 < args.length) {
       outputPath = args[++i];
     }
   }
 
-  if (basePath == null || overlayPath == null || outputPath == null) {
+  if (basePath == null || outputPath == null) {
     stderr.writeln(
-      'Usage: dart merge_android_manifests.dart '
-      '--base <path> --overlay <path> --output <path>',
+      'Usage: dart merge_android_manifests.dart --base <path> '
+      '[--overlay <path>] [--library <path>]... --output <path>',
     );
     exit(1);
   }
@@ -376,9 +527,15 @@ void main(List<String> args) {
   try {
     merged = mergeManifests(
       baseXml: File(basePath).readAsStringSync(),
-      overlayXml: File(overlayPath).readAsStringSync(),
       basePath: basePath,
+      overlayXml: overlayPath == null
+          ? null
+          : File(overlayPath).readAsStringSync(),
       overlayPath: overlayPath,
+      libraries: {
+        for (final path in libraryPaths) path: File(path).readAsStringSync(),
+      },
+      placeholders: placeholders,
     );
   } on FormatException catch (e) {
     stderr.writeln(e.message);
