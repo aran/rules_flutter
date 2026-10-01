@@ -1,7 +1,7 @@
 """Unit tests for plugin_registrant.bzl pure functions."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:plugin_registrant.bzl", "make_registrant_content")
+load("//flutter/private:plugin_registrant.bzl", "make_android_registrant_content", "make_registrant_content")
 
 def _no_plugins_returns_empty_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -269,5 +269,20 @@ _t12_test = unittest.make(_plugins_without_agent_test_impl)
 _t13_test = unittest.make(_web_registrant_keeps_function_shape_test_impl)
 _t14_test = unittest.make(_native_agent_registrant_test_impl)
 
+def _android_registrant_names_the_declared_package_test_impl(ctx):
+    """The registrant constructs `<package>.<pluginClass>`, as flutter_tools does."""
+    env = unittest.begin(ctx)
+    content = make_android_registrant_content([
+        struct(name = "glass_plugin", plugin_class = "GlassPlugin", package = "com.example.glass_plugin"),
+    ])
+    asserts.true(
+        env,
+        "flutterEngine.getPlugins().add(new com.example.glass_plugin.GlassPlugin());" in content,
+        content,
+    )
+    return unittest.end(env)
+
+_t15_test = unittest.make(_android_registrant_names_the_declared_package_test_impl)
+
 def plugin_registrant_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test, _t14_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test, _t14_test, _t15_test)

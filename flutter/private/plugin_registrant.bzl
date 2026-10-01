@@ -314,13 +314,15 @@ def make_android_registrant_content(plugins, java_package = "io.flutter.plugins"
         "  public static void registerWith(@NonNull FlutterEngine flutterEngine) {",
     ]
     for p in plugins:
-        # `_collect_native_plugins` doesn't carry package — it's stamped
-        # via the Android-specific platform info dict. Caller passes the
-        # raw plugin struct so we can read p.platforms here too. As a
-        # defense, fall back to a generic `io.flutter.plugins.<name>`.
+        # A guessed package names a class that does not exist, and the
+        # registrant then fails to compile saying only that.
         java_pkg = getattr(p, "package", "")
         if not java_pkg:
-            java_pkg = "io.flutter.plugins.%s" % p.name.replace("_", "")
+            fail(
+                "plugin %s registers %s on Android but names no Java " % (p.name, p.plugin_class) +
+                "package: set `android_package` on its flutter_plugin (or " +
+                "`android.package` in `plugin_platforms_json`).",
+            )
         fqcn = "%s.%s" % (java_pkg, p.plugin_class)
         lines.append("    try {")
         lines.append("      flutterEngine.getPlugins().add(new %s());" % fqcn)

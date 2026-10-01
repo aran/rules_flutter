@@ -1112,11 +1112,14 @@ flutter_plugin(
 | `platforms` | The platforms the plugin supports. |
 | `dart_plugin_class` | The Dart class registered with the engine at startup. |
 | `plugin_class` | The native plugin class, for plugins with a native registration. |
+| `android_package` | The Java package of the Android `plugin_class`. Required when `platforms` lists `android` with a `plugin_class`. |
 | `native_deps` | Shared libraries bundled for `dart:ffi`. |
 | `native_assets` | `flutter_native_asset` targets, usually inside a `select()` on platform. |
 | `assets`, `resources` | Asset and resource files. |
 | `pkg_shaders`, `shader_includes` | The package's fragment shaders and what they `#include`, as on `flutter_library`. |
 | `package_name`, `language_version`, `version` | The package's name, language version, and version. |
+
+A plugin's native code is its own target. Swift goes in a `flutter_apple_plugin_library` per platform, passed as `apple_libs`. Kotlin or Java goes in a `flutter_android_plugin_library` listed in the app's `flutter_android_app(deps = ...)`, which packages it, registers its plugin class and merges its `manifest` (receivers, services, permissions) into the app's. `e2e/plugin_example/glass_plugin` shows both, with shaders.
 
 `e2e/ffi_example` shows a plugin built on Native Assets, `e2e/ffi_plugin_example` one with a Dart plugin class and `native_deps`, and `e2e/plugin_example` one with a Dart plugin class only.
 
