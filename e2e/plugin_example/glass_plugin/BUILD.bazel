@@ -1,0 +1,61 @@
+load("@rules_flutter//flutter:android.bzl", "flutter_android_engine", "flutter_android_plugin_library")
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
+
+# A plugin written in the workspace that ships fragment shaders, the shape of
+# a Liquid Glass UI kit: `pkg_shaders` is its pubspec's `flutter: shaders:`,
+# and `plugin_platforms_json` its `flutter: plugin: platforms:`. The app in
+# //glass_app draws with both shaders and calls the native side.
+flutter_plugin(
+    name = "glass_plugin",
+    package_name = "glass_plugin",
+    srcs = ["lib/glass_plugin.dart"],
+    apple_libs = select({
+        "@platforms//os:macos": [":glass_plugin_apple_macos"],
+        "@platforms//os:ios": [":glass_plugin_apple_ios"],
+        "//conditions:default": [],
+    }),
+    pkg_shaders = {
+        "shaders/invert.frag": "shaders/invert.frag",
+        "shaders/tint.frag": "shaders/tint.frag",
+    },
+    plugin_platforms_json = json.encode({
+        "android": {
+            "package": "com.example.glass_plugin",
+            "pluginClass": "GlassPlugin",
+        },
+        "ios": {"pluginClass": "GlassPlugin"},
+        "macos": {"pluginClass": "GlassPlugin"},
+    }),
+    visibility = ["//visibility:public"],
+    deps = ["@deps//:flutter"],
+)
+
+flutter_apple_plugin_library(
+    name = "glass_plugin_apple_macos",
+    srcs = ["macos/Classes/GlassPlugin.swift"],
+    module_name = "glass_plugin",
+    platform = "macos",
+)
+
+flutter_apple_plugin_library(
+    name = "glass_plugin_apple_ios",
+    srcs = ["ios/Classes/GlassPlugin.swift"],
+    module_name = "glass_plugin",
+    platform = "ios",
+)
+
+flutter_android_engine(
+    name = "android_engine",
+    tags = ["manual"],
+)
+
+# A workspace plugin's Android code goes to the app by hand: the app's
+# automatic wiring covers only plugins from the pub hub.
+flutter_android_plugin_library(
+    name = "glass_plugin_android",
+    srcs = ["android/src/main/kotlin/com/example/glass_plugin/GlassPlugin.kt"],
+    flutter_engine = ":android_engine",
+    java_package = "com.example.glass_plugin",
+    visibility = ["//visibility:public"],
+)

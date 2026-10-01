@@ -1,0 +1,86 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app", "flutter_ios_simulator_build_test")
+load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
+load("@rules_flutter//flutter:web.bzl", "flutter_web_app", "flutter_web_bundle")
+
+# Draws with //glass_plugin's shaders as a `Paint.shader` and as a
+# `BackdropFilter`, calls its native plugin, and shows one line saying which
+# of the three worked (lib/main.dart). The builds are tested here; running
+# them is tools/dev_tool/test/e2e/glass_plugin_e2e_test.dart.
+
+_DEPS = [
+    "//glass_plugin",
+    "@deps//:flutter",
+]
+
+flutter_application(
+    name = "glass_flutter",
+    package_name = "glass_app",
+    main = "lib/main.dart",
+    deps = _DEPS,
+)
+
+flutter_macos_app(
+    name = "glass_macos",
+    application = ":glass_flutter",
+    bundle_id = "com.example.glassapp",
+    tags = ["manual"],
+)
+
+flutter_ios_app(
+    name = "glass_ios",
+    application = ":glass_flutter",
+    bundle_id = "com.example.glassapp",
+    tags = ["manual"],
+)
+
+flutter_android_app(
+    name = "glass_android",
+    package_name = "com.example.glassapp",
+    application = ":glass_flutter",
+    tags = ["manual"],
+    deps = ["//glass_plugin:glass_plugin_android"],
+)
+
+# skwasm: dart2wasm, the macro's renderer.
+flutter_web_app(
+    name = "glass_web",
+    package_name = "glass_app",
+    tags = ["manual"],
+    deps = _DEPS,
+)
+
+# CanvasKit: dart2js.
+flutter_web_bundle(
+    name = "glass_web_canvaskit",
+    package_name = "glass_app",
+    compiler = "dart2js",
+    main = "lib/main.dart",
+    tags = ["manual"],
+    deps = _DEPS,
+)
+
+build_test(
+    name = "glass_build_test",
+    targets = [
+        # Compiling the registrant is what proves the workspace plugin's
+        # Kotlin is on its classpath.
+        ":glass_android",
+        ":glass_web",
+        ":glass_web_canvaskit",
+    ],
+)
+
+build_test(
+    name = "glass_macos_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":glass_macos"],
+)
+
+flutter_ios_simulator_build_test(
+    name = "glass_ios_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":glass_ios"],
+)
