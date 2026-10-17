@@ -69,6 +69,20 @@ Some platforms need one more repository from the same extension. Add it to `use_
 
 Static analysis needs nothing extra. rules_dart's analysis resolves `dart:ui` in a `flutter_library`, `flutter_plugin` or `flutter_test` through the `sky_engine` package, which those rules add to the analyzer's closure themselves. Their compiled output does not change.
 
+#### Overriding `rules_dart`
+
+`rules_flutter` uses APIs from the [`Mivr/rules_dart`](https://github.com/Mivr/rules_dart) fork (`@rules_dart//dart:hooks.bzl`, `@rules_dart//dart/private:record_use.bzl`, and `dart_codegen(package_name = ...)`) that are not in the `rules_dart` `0.7.3` release on the Bazel Central Registry. Because Bzlmod ignores module overrides in non-root modules, add `git_override` for `rules_dart` in your root `MODULE.bazel`:
+
+```starlark
+bazel_dep(name = "rules_dart", version = "0.7.3")
+
+git_override(
+    module_name = "rules_dart",
+    commit = "95f7011252ff6b39b30c47915ba3d0ac7e78a0dc",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+```
+
 ### .bazelrc
 
 Two settings are required. Paste them into your project's `.bazelrc`:
@@ -776,7 +790,7 @@ flutter_linux_app(
 |---|---|
 | `application` | A `flutter_application` target. Required. |
 | `app_name` | Binary name. Defaults to the target name. |
-| `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. |
+| `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. A `linux/runner/` from `flutter create` gets it as `APPLICATION_ID`. |
 | `window_title` | Window title. Defaults to `app_name`, then the target name. A `linux/runner/` from `flutter create` sets its own title and ignores this. |
 
 The output directory:
@@ -967,7 +981,7 @@ So a policy strict enough to be useful cannot live in `web/index.html` today, be
 
 `gen_snapshot`, the AOT compiler, runs on the host and produces code for the target. Flutter publishes a different binary per host and target pair, and not every pair exists.
 
-| Host | Target | AOT (release) | JIT (debug) | Notes |
+| Host | Target | AOT (release / profile) | JIT (debug) | Notes |
 |---|---|:---:|:---:|---|
 | macOS | macOS | Yes | Yes | Native build |
 | macOS | iOS | Yes | Yes | `rules_apple` handles the transition |
@@ -977,13 +991,19 @@ So a policy strict enough to be useful cannot live in `web/index.html` today, be
 | macOS | Web | Yes | n/a | Web uses dart2wasm or dart2js, not gen_snapshot |
 | Linux | Linux | Yes | Yes | Native build |
 | Linux | Android | Yes | Yes | The Android rules handle the transition |
-| Linux | iOS | No | No | Needs Xcode |
+| Linux | iOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Linux | macOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Linux | Windows | No | Yes | Needs a Windows cross-toolchain |
 | Linux | Web | Yes | n/a | |
 | Windows | Windows | Yes | Yes | Native build |
 | Windows | Android | Yes | Yes | The Android rules handle the transition |
+| Windows | macOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Windows | Linux | No | Yes | Needs a Linux cross-toolchain |
 | Windows | Web | Yes | n/a | |
 
-The gap is desktop to desktop: there is no release cross-compile from macOS to Linux or Windows, because Flutter does not publish those `gen_snapshot` binaries. Build debug bundles across, or build release natively on the target.
+The gap is desktop-to-desktop and non-macOS-to-Apple AOT:
+- **Apple release and profile AOT (`ios_*`, `macos_*`) requires a macOS host (or a Darwin-target `gen_snapshot`).** Each `gen_snapshot` binary has its target OS and ABI compiled in at build time (`DART_TARGET_OS_*` in the Dart VM); `--snapshot_kind=app-aot-macho-dylib` only selects the Mach-O container format and does not change the generated machine code's target ABI. In particular, Apple arm64 reserves register `x18` for the platform and uses a different FFI argument ABI from Linux/Android arm64, and `dart:ui` calls the Flutter engine through `@Native` FFI. Because Flutter only publishes Darwin-targeted `gen_snapshot` binaries for macOS hosts, release and profile AOT builds for iOS and macOS are only registered on macOS hosts and fail at analysis on Linux and Windows. Debug/JIT (`-c dbg`) compiles platform-independent kernel `.dill` with `frontend_server` and works from Linux and Windows.
+- **Desktop to desktop:** there is no release or profile AOT cross-compile between desktop OSes (macOS, Linux, Windows), because Flutter does not publish cross-OS desktop `gen_snapshot` binaries. Build debug bundles across with `-c dbg`, or build release/profile natively on the target OS.
 
 ### Release builds and permissions
 
@@ -1337,31 +1357,42 @@ On Windows, the repository rule extracts all of `packages/flutter_tools` (about 
 
 ### Providers
 
-**`FlutterSdkInfo`** comes from the toolchain and carries the engine binaries and SDK files a custom rule needs:
+**`FlutterSdkInfo`** comes from the toolchain and carries the engine binaries and SDK files a custom rule needs. Core host fields live directly on `@rules_flutter//flutter:toolchain_type`; lazy-fetched fields (`gen_snapshot`, `platform_kernel_dill_product`, `const_finder`, `font_subset`, `engine_library`, `linux_sysroot`, `material_icons_font`) live on optional sub-toolchains so builds only download the repositories they use. Use `resolve_flutter_sdk_info(ctx)` with `FLUTTER_OPTIONAL_TOOLCHAINS` (from `@rules_flutter//flutter:providers.bzl` or `@rules_flutter//flutter:toolchain.bzl`) to merge them:
 
 ```starlark
-sdk = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
+load("@rules_flutter//flutter:providers.bzl", "FLUTTER_OPTIONAL_TOOLCHAINS", "resolve_flutter_sdk_info")
+
+# In rule(..., toolchains = ["@rules_flutter//flutter:toolchain_type"] + FLUTTER_OPTIONAL_TOOLCHAINS):
+sdk = resolve_flutter_sdk_info(ctx)
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `version` | `str` | The Flutter SDK version, for example `"3.47.7"`. |
 | `engine_revision` | `str` | The engine commit hash. |
-| `dart` | `File` | The `dart` executable from the bundled Dart SDK. |
+| `dart` | `File` | Deprecated. The `dart` executable from the bundled Dart SDK; prefer `@rules_dart//dart:exec_tools_toolchain_type`. |
 | `dartaotruntime` | `File` | The runtime for AOT snapshots. |
-| `gen_snapshot` | `File` | The AOT compiler. |
+| `gen_snapshot` | `File` or `None` | The AOT compiler (resolved via `@rules_flutter//flutter:aot_toolchain_type`). |
 | `frontend_server` | `File` | `frontend_server_aot.dart.snapshot`, for kernel compilation. |
 | `platform_kernel_dill` | `File` | `platform_strong.dill`, the debug platform kernel. |
-| `platform_kernel_dill_product` | `File` | `platform_strong_product.dill`, the release platform kernel. |
+| `platform_kernel_dill_product` | `File` or `None` | `platform_strong_product.dill`, the release platform kernel (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
 | `patched_sdk` | `Target` | The Flutter-patched Dart SDK root. |
 | `icu_data` | `File` | `icudtl.dat`. |
-| `tool_files` | `depset[File]` | Everything needed to run the build tools, for action inputs. |
-| `engine_library` | `Target` or `None` | The platform engine runtime library. `None` for mobile and web. |
-| `const_finder` | `File` or `None` | `const_finder.dart.snapshot`, for icon tree shaking. |
-| `font_subset` | `File` or `None` | The `font-subset` binary. |
+| `tool_files` | `depset[File]` | Deprecated. All files in the bundled Dart SDK and patched SDK; prefer `@rules_dart//dart:exec_tools_toolchain_type` or the action-specific `dart_*_files` sets. |
+| `dart_vm_files` | `depset[File]` | Minimal Dart SDK files needed to run the `dart` VM on a snapshot (`bin/dart`, `bin/dartvm`). |
+| `dart_pub_files` | `depset[File]` | Minimal Dart SDK files needed for `dart pub` (`bin/dart`, `bin/dartaotruntime`, `bin/snapshots/dartdev_aot.dart.snapshot`, `version`). |
+| `dart2wasm_files` | `depset[File]` | Minimal Dart SDK files needed for `dart compile wasm` (`bin/dart`, `bin/dartaotruntime`, `bin/snapshots/dart2wasm_product.snapshot`, `bin/wasm-opt`). |
+| `dart2js_files` | `depset[File]` | Minimal Dart SDK files needed for `dart compile js` (`bin/dart`, `bin/dartvm`, `bin/snapshots/dart2js.dart.snapshot`). |
+| `engine_library` | `Target` or `None` | The platform engine runtime library. `None` for mobile and web (resolved via `@rules_flutter//flutter:desktop_engine_toolchain_type`). |
+| `linux_sysroot` | `Target` or `None` | The Chromium sysroot filegroup for Linux GTK3 builds (resolved via `@rules_flutter//flutter:desktop_engine_toolchain_type`). |
+| `const_finder` | `File` or `None` | `const_finder.dart.snapshot`, for icon tree shaking (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
+| `font_subset` | `File` or `None` | The `font-subset` binary (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
+| `material_icons_font` | `File` or `None` | `MaterialIcons-Regular.otf` (resolved via `@rules_flutter//flutter:material_icons_toolchain_type`). |
 | `impellerc` | `File` or `None` | The shader compiler. |
 | `shader_lib` | `list[File]` | Shader include files for impellerc. |
 | `target_os`, `target_arch` | `str` | The cross-compilation target, or empty for a native build. |
+
+A Flutter workspace's Dart toolchain is the Dart SDK bundled with its Flutter release. Analysis, formatting, codegen, `dart_test` and `dart_binary` all use it, so the workspace downloads one Dart SDK, not two. A root module that registers its own Dart toolchain before `@flutter_toolchains` keeps it.
 
 **`FlutterInfo`** is carried by `flutter_library` and `flutter_plugin`:
 

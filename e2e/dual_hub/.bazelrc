@@ -1,5 +1,3 @@
-common --lockfile_mode=off
-
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart

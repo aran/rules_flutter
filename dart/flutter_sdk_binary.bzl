@@ -5,6 +5,8 @@ Usage:
     bazel run @rules_flutter//dart -- analyze lib/
 """
 
+load("//flutter:providers.bzl", "resolve_exec_dart")
+
 _BASH_RUNFILES_INIT = """\
 # --- begin runfiles.bash initialization v3 ---
 set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
@@ -39,8 +41,9 @@ def _is_windows(ctx):
 def _flutter_sdk_binary_impl(ctx):
     toolchain = ctx.toolchains["//flutter:toolchain_type"]
     flutter_sdk_info = toolchain.flutter_sdk_info
+    dart = resolve_exec_dart(ctx, flutter_sdk_info)
 
-    dart_path = _runfiles_path(flutter_sdk_info.dart, ctx.workspace_name)
+    dart_path = _runfiles_path(dart, ctx.workspace_name)
 
     if _is_windows(ctx):
         script = ctx.actions.declare_file(ctx.label.name + ".bat")
@@ -67,7 +70,13 @@ exec "$DART" "$@"
             is_executable = True,
         )
 
-    runfiles = ctx.runfiles(transitive_files = flutter_sdk_info.tool_files)
+    dart_tc = (
+        ctx.toolchains["@rules_dart//dart:exec_tools_toolchain_type"] if "@rules_dart//dart:exec_tools_toolchain_type" in ctx.toolchains else None
+    )
+    sdk_files = (
+        dart_tc.dart_sdk_info.tool_files if (dart_tc and getattr(dart_tc, "dart_sdk_info", None)) else flutter_sdk_info.tool_files
+    )
+    runfiles = ctx.runfiles(transitive_files = sdk_files)
     runfiles = runfiles.merge(ctx.attr._runfiles_lib[DefaultInfo].default_runfiles)
 
     return [DefaultInfo(
@@ -86,6 +95,9 @@ flutter_sdk_binary = rule(
         ),
     },
     executable = True,
-    toolchains = ["//flutter:toolchain_type"],
+    toolchains = [
+        "//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_dart//dart:exec_tools_toolchain_type", mandatory = False),
+    ],
     doc = "Exposes the Flutter-bundled Dart binary from the resolved toolchain as a runnable target.",
 )

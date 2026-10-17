@@ -598,6 +598,7 @@ def flutter_android_app(
     _flutter_android_registrant(
         name = "__%s_registrant_src" % name,
         application = application,
+        android_abi = _short_abi_to_full(android_abi),
         tags = tags,
     )
 
@@ -747,6 +748,17 @@ def flutter_android_app(
     actual_manifest = "__%s_manifest_with_library_permissions" % name
 
     # 9. Final android_binary.
+    # `android_binary` resolves `_cc_toolchain` in the outer target
+    # configuration before transitioning to Android, so it can be analyzed on
+    # host or Android platforms (both of which register a CC toolchain) but not
+    # when the top-level `--platforms` is iOS.
+    kwargs.setdefault(
+        "target_compatible_with",
+        select({
+            Label("@platforms//os:ios"): [Label("@platforms//:incompatible")],
+            "//conditions:default": [],
+        }),
+    )
     _android_binary(
         name = name,
         manifest = actual_manifest,

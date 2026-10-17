@@ -102,3 +102,33 @@ def version_below_lower_bound(version, constraint):
         if a != b:
             return a < b
     return False
+
+def hosted_package_sha256(name, info, lock):
+    """Returns the recorded sha256 of a hosted package in `pubspec.lock`.
+
+    Fails when the package entry has no non-empty `description.sha256`, naming
+    the package, its version, and the lock file.
+
+    Args:
+        name: Hosted pub package name.
+        info: Parsed lock entry dict for the package.
+        lock: Label or string naming the `pubspec.lock` file.
+
+    Returns:
+        The recorded sha256 string.
+    """
+    desc = info["description"] if "description" in info else None
+    version = info["version"] if "version" in info else ""
+    if type(desc) != "dict" or "sha256" not in desc or not desc["sha256"]:
+        # Same wording as rules_dart's pub.from_lock(), with
+        # flutter.pub's command.
+        fail((
+            "pub package \"{name}\" {version} in {lock} has no sha256. " +
+            "Run `bazel run @rules_flutter//flutter:pub -- get` " +
+            "(Dart 2.19 or newer records one) and commit the lock."
+        ).format(
+            lock = str(lock),
+            name = name,
+            version = version,
+        ))
+    return desc["sha256"]

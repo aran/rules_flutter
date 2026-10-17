@@ -14,8 +14,10 @@ load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
 def _flutter_linux_engine_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
     flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    desktop_tc = ctx.toolchains["@rules_flutter//flutter/private:desktop_engine_toolchain_type"] if "@rules_flutter//flutter/private:desktop_engine_toolchain_type" in ctx.toolchains else None
+    engine_library = flutter_sdk_info.engine_library or (desktop_tc.engine_library if desktop_tc else None)
 
-    if flutter_sdk_info.engine_library == None:
+    if engine_library == None:
         fail(
             "No Linux engine library in the Flutter toolchain: it targets a " +
             "non-Linux platform. Build for Linux with a Linux-targeting " +
@@ -23,7 +25,7 @@ def _flutter_linux_engine_impl(ctx):
             "@rules_flutter//flutter/platforms:linux_x64 as a convenience).",
         )
 
-    engine_files = flutter_sdk_info.engine_library.files.to_list()
+    engine_files = engine_library.files.to_list()
 
     # Separate engine files into .so, headers, etc.
     engine_so = None
@@ -82,7 +84,7 @@ def _flutter_linux_engine_impl(ctx):
     )
 
     return [
-        DefaultInfo(files = flutter_sdk_info.engine_library.files),
+        DefaultInfo(files = engine_library.files),
         cc_info,
     ]
 
@@ -97,6 +99,7 @@ flutter_linux_engine_rule = rule(
     toolchains = [
         "@bazel_tools//tools/cpp:toolchain_type",
         "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:desktop_engine_toolchain_type", mandatory = False),
     ],
     doc = "Exposes the Flutter Linux engine (libflutter_linux_gtk.so + headers) from the toolchain, with CcInfo for cc_binary compatibility.",
 )

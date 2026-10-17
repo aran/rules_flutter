@@ -10,7 +10,7 @@ select()s between its two targets — mirroring the macOS and iOS engine repos.
 This is lazy — only fetched when an Android build target is used.
 """
 
-load(":artifact_urls.bzl", "android_engine_artifact_path", "engine_artifact_url")
+load(":artifact_urls.bzl", "android_engine_artifact_path", "engine_artifact_url", "require_sha256")
 load(":constants.bzl", "ANDROID_ABI_FOR_ARCH")
 
 def _flutter_android_engine_repo_impl(repository_ctx):
@@ -18,16 +18,18 @@ def _flutter_android_engine_repo_impl(repository_ctx):
     android_arch = repository_ctx.attr.android_arch
 
     # Release engine (AOT) at the repo root.
+    release_url = engine_artifact_url(engine_revision, android_engine_artifact_path(android_arch, "release"))
     repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, android_engine_artifact_path(android_arch, "release")),
-        sha256 = repository_ctx.attr.release_sha256,
+        url = release_url,
+        sha256 = require_sha256(repository_ctx.attr.release_sha256, release_url),
     )
 
     # Debug engine (JIT) under debug/ — its flutter.jar would otherwise collide
     # with the release one at the repo root.
+    debug_url = engine_artifact_url(engine_revision, android_engine_artifact_path(android_arch, "debug"))
     repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, android_engine_artifact_path(android_arch, "debug")),
-        sha256 = repository_ctx.attr.debug_sha256,
+        url = debug_url,
+        sha256 = require_sha256(repository_ctx.attr.debug_sha256, debug_url),
         output = "debug",
     )
 

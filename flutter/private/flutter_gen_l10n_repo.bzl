@@ -54,7 +54,7 @@ applies is a loud failure, where a rewrite would quietly drift.
    another dead-code cut, not a toolchain workaround — see the seventh patch.
 """
 
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
+load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url", "require_sha256")
 
 # The exact closure of `src/localizations/gen_l10n.dart` once the six import
 # edges are cut. Listed explicitly rather than globbed: the subset boundary is
@@ -99,9 +99,10 @@ _PATCHES = [
 def _flutter_gen_l10n_repo_impl(repository_ctx):
     version = repository_ctx.attr.flutter_version
 
+    tarball_url = flutter_source_tarball_url(version)
     repository_ctx.download_and_extract(
-        url = flutter_source_tarball_url(version),
-        sha256 = repository_ctx.attr.sha256,
+        url = tarball_url,
+        sha256 = require_sha256(repository_ctx.attr.sha256, tarball_url),
         stripPrefix = "flutter-{version}/packages/flutter_tools".format(version = version),
     )
 

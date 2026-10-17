@@ -61,6 +61,29 @@ def engine_artifact_url(engine_revision, artifact_path):
         path = artifact_path,
     )
 
+def require_sha256(sha256, url):
+    """Returns `sha256` unchanged, or fails if it is empty.
+
+    Repository rules call this on every download so that an empty checksum
+    cannot reach `download`, where Bazel would accept any bytes. The callers
+    in repositories.bzl read their values through `flutter_artifact_sha256()`
+    or `flutter_source_sha256()`, which already refuse a missing entry; this
+    guards the rule itself against a caller that passes nothing.
+
+    Args:
+        sha256: The expected SHA-256 hex digest.
+        url: The URL the digest is for, named in the failure message.
+
+    Returns:
+        `sha256`.
+    """
+    if not sha256:
+        fail((
+            "No sha256 given for {url}, so the download cannot be verified. " +
+            "Pass the recorded checksum from flutter/private/versions.bzl."
+        ).format(url = url))
+    return sha256
+
 def dart_sdk_artifact_path(host_platform):
     """Returns the artifact path for the Flutter-bundled Dart SDK.
 

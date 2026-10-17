@@ -36,6 +36,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:runfiles/runfiles.dart';
 
@@ -103,6 +104,10 @@ void main(List<String> args) async {
   final tester = r.rlocation(testerKey);
   final icu = r.rlocation(icuKey);
   final dill = r.rlocation(dillKey);
+  final baseDillKey = Platform.environment['FLUTTER_TEST_BASE_DILL'];
+  final baseDill = (baseDillKey == null || baseDillKey.isEmpty)
+      ? null
+      : r.rlocation(baseDillKey);
   final assetsDir = assetsKey == null ? null : r.rlocation(assetsKey);
   final testPath = Platform.environment['FLUTTER_TEST_PATH'] ?? 'test.dart';
   final coverageOutput = Platform.environment['COVERAGE_OUTPUT_FILE'];
@@ -123,6 +128,7 @@ void main(List<String> args) async {
     tester: tester,
     icu: icu,
     dill: dill,
+    baseDill: baseDill,
     assetsDir: assetsDir,
     testPath: testPath,
     coverageOutput: coverageOutput,
@@ -137,6 +143,7 @@ Future<int> _runOnce({
   required String tester,
   required String icu,
   required String dill,
+  String? baseDill,
   required String? assetsDir,
   required String testPath,
   required String? coverageOutput,
@@ -145,12 +152,27 @@ Future<int> _runOnce({
   required String? xmlOutput,
   required bool impeller,
 }) async {
+  File? combinedDill;
+  var effectiveDill = dill;
+  if (baseDill != null && File(baseDill).existsSync()) {
+    final tmpDir = Directory(
+      Platform.environment['TEST_TMPDIR'] ?? Directory.systemTemp.path,
+    );
+    combinedDill = File(
+      '${tmpDir.path}/flutter_test_${pid}_${DateTime.now().microsecondsSinceEpoch}.dill',
+    );
+    final builder = BytesBuilder(copy: false)
+      ..add(File(dill).readAsBytesSync())
+      ..add(File(baseDill).readAsBytesSync());
+    combinedDill.writeAsBytesSync(builder.takeBytes(), flush: true);
+    effectiveDill = combinedDill.path;
+  }
   final harness = await _Harness.bind();
   try {
     return await harness.run(
       tester: tester,
       icu: icu,
-      dill: dill,
+      dill: effectiveDill,
       assetsDir: assetsDir,
       testPath: testPath,
       coverageOutput: coverageOutput,
@@ -161,6 +183,11 @@ Future<int> _runOnce({
     );
   } finally {
     await harness.dispose();
+    if (combinedDill != null && combinedDill.existsSync()) {
+      try {
+        combinedDill.deleteSync();
+      } catch (_) {}
+    }
   }
 }
 

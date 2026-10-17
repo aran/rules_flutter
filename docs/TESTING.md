@@ -175,10 +175,12 @@ known:
    module resolution have succeeded, so any check that stops at "it loaded" will
    miss it entirely.
 
-The second is the nastier one. `dart_binary` compiles with **rules_dart's**
-exec-tools Dart, not the Flutter SDK's Dart, even inside rules_flutter. The
-Flutter Dart is downloaded but only as the `dart_sdk_files` filegroup, not as a
-registered toolchain. So Dart source using an API newer than rules_dart's Dart
+The second is the nastier one. Previously, `dart_binary` compiled with
+**rules_dart's** exec-tools Dart rather than Flutter's Dart because the bundled
+SDK was not a registered toolchain. `@flutter_toolchains` now registers
+Flutter's bundled Dart SDK as the Dart toolchain, so `dart_binary` compiles
+with Flutter's Dart. However, cross-compilation or an override can still resolve
+a different Dart SDK: Dart source using an API newer than the resolved Dart
 builds clean locally and fails on CI, whenever the sibling checkout carries a
 newer Dart than the published pin.
 

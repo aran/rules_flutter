@@ -13,6 +13,7 @@ def _plain_title_test_impl(ctx):
         env,
         [
             "GTK_APP_ID=\"com.example.notes\"",
+            "APPLICATION_ID=\"com.example.notes\"",
             "WINDOW_TITLE=\"Rainstorm Notes\"",
         ],
         linux_runner_defines("com.example.notes", "Rainstorm Notes"),
@@ -22,7 +23,8 @@ def _plain_title_test_impl(ctx):
 def _escapes_quotes_and_backslashes_test_impl(ctx):
     env = unittest.begin(ctx)
     defines = linux_runner_defines("com.example.x", "Say \"hi\" \\ bye\nnow")
-    asserts.equals(env, "WINDOW_TITLE=\"Say \\\"hi\\\" \\\\ bye\\nnow\"", defines[1])
+    titles = [d for d in defines if d.startswith("WINDOW_TITLE=")]
+    asserts.equals(env, ["WINDOW_TITLE=\"Say \\\"hi\\\" \\\\ bye\\nnow\""], titles)
     return unittest.end(env)
 
 _plain_title_test = unittest.make(_plain_title_test_impl)

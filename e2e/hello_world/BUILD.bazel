@@ -212,6 +212,13 @@ flutter_web_app(
 
 # -- Tests ---------------------------------------------------------------------
 
+_HOST_COMPATIBLE = select({
+    "@platforms//os:linux": [],
+    "@platforms//os:macos": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 # Widget test: drives the same MyApp counter-tap flow that the
 # `flutter create` template ships, exercising
 # TestWidgetsFlutterBinding.ensureInitialized() under flutter_tester so we
@@ -224,6 +231,7 @@ flutter_test(
         "lib/main.dart",
     ],
     main = "test/widget_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",
@@ -245,6 +253,7 @@ flutter_test(
     enable_impeller = True,
     main = "test/impeller_shader_test.dart",
     shaders = ["shaders/indexed.frag"],
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -255,6 +264,7 @@ flutter_test(
     name = "bazel_protocol_test",
     package_name = "hello_world",
     main = "test/bazel_protocol_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -266,6 +276,7 @@ flutter_test(
     package_name = "hello_world",
     main = "test/bazel_protocol_test.dart",
     shard_count = 3,
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -284,6 +295,7 @@ flutter_test(
         "E2E_WINNER=attr",
     ],
     main = "test/dart_defines_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
     ],
@@ -295,6 +307,7 @@ flutter_test(
     name = "hello_test",
     package_name = "hello_world",
     main = "hello_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
     ],
@@ -317,6 +330,7 @@ flutter_test(
     timeout = "moderate",
     env = {"COVERAGE_OUTPUT_FILE": "coverage_probe.lcov"},
     main = "hello_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
     ],
@@ -393,6 +407,7 @@ dart_test(
     name = "verify_pub_assets_test",
     data = [":hello_world_app"],
     main = "test/verify_pub_assets_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:test",
         "@rules_dart//dart/runfiles",

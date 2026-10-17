@@ -13,8 +13,9 @@ mounts one scheme at a time.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 load("//flutter/private:flutter_application.bzl", "flutter_application")
-load(":action_content.bzl", "written_json")
+load(":action_content.bzl", "package_entry", "written_json")
 
 _PACKAGE = "ae_fixture"
 _OUTSIDE_LIB_URI = "org-dartlang-app:///flutter/tests/web_fixture_main.dart"
@@ -30,6 +31,33 @@ def _kernel_argv(env):
 
 def _flag_values(argv, flag):
     return [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == flag]
+
+def _assert_multi_root_and_package_config(env, argv):
+    """FlutterKernelCompile mounts [bin_dir, '.'] under org-dartlang-app and emits stable rootUris."""
+    roots = _flag_values(argv, "--filesystem-root")
+    asserts.equals(env, 2, len(roots), "expected [bin_dir, '.'] mounted, got %r" % roots)
+    if len(roots) >= 2:
+        asserts.true(
+            env,
+            roots[0].startswith("bazel-out/") and roots[0].endswith("/bin"),
+            "first --filesystem-root must be bazel-out/.../bin, got %r" % roots[0],
+        )
+        asserts.equals(env, ".", roots[1], "second --filesystem-root must be '.', got %r" % roots[1])
+    asserts.equals(env, ["org-dartlang-app"], _flag_values(argv, "--filesystem-scheme"))
+
+    pkg_config = written_json(env, ".package_config.json")
+    entry = package_entry(pkg_config, _PACKAGE)
+    asserts.true(env, entry != None, "expected `%s` entry in .package_config.json" % _PACKAGE)
+    if entry != None:
+        asserts.equals(
+            env,
+            "org-dartlang-app:///flutter/tests",
+            entry.get("rootUri"),
+            "expected stable org-dartlang-app:/// rootUri",
+        )
+
+    copy_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "DartCopyTree"]
+    asserts.equals(env, [], copy_actions, "FlutterKernelCompile must not emit DartCopyTree actions")
 
 def _assert_registrant_on_app_scheme(env, argv):
     """The registrant's `--source`, its define and its root agree."""
@@ -55,15 +83,7 @@ def _assert_registrant_on_app_scheme(env, argv):
         registrant.startswith("org-dartlang-app:///flutter/tests/"),
         "the registrant is named by its workspace path under the app scheme, got %r" % registrant,
     )
-
-    # Generated, so it resolves under its output directory, not the exec root.
-    roots = _flag_values(argv, "--filesystem-root")
-    asserts.true(
-        env,
-        [r for r in roots if r.startswith("bazel-out/") and r.endswith("/bin")] != [],
-        "the registrant's output directory must be mounted, got %r" % roots,
-    )
-    asserts.equals(env, ["org-dartlang-app"], _flag_values(argv, "--filesystem-scheme"))
+    _assert_multi_root_and_package_config(env, argv)
 
 def _outside_lib_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -108,6 +128,11 @@ def _in_lib_test_impl(ctx):
         "package:%s/web_fixture_main.dart" % _PACKAGE,
         argv[-1] if argv else None,
     )
+    asserts.false(
+        env,
+        "--no-embed-source-text" in argv,
+        "JIT FlutterKernelCompile must keep embedded source text, got %r" % argv,
+    )
     _assert_registrant_on_app_scheme(env, argv)
 
     # Nothing for the dev loop to mount: the entrypoint resolves through the
@@ -119,10 +144,35 @@ def _in_lib_test_impl(ctx):
         asserts.equals(env, [], config["appSources"])
     return analysistest.end(env)
 
-_DBG = {"//command_line_option:compilation_mode": "dbg"}
+def _opt_in_lib_test_impl(ctx):
+    """Release builds (no registrant) also mount [bin_dir, '.'] and write stable rootUris."""
+    env = analysistest.begin(ctx)
+    argv = _kernel_argv(env)
+    asserts.equals(
+        env,
+        "package:%s/web_fixture_main.dart" % _PACKAGE,
+        argv[-1] if argv else None,
+    )
+    asserts.true(
+        env,
+        "--no-embed-source-text" in argv,
+        "AOT FlutterKernelCompile must pass --no-embed-source-text, got %r" % argv,
+    )
+    _assert_multi_root_and_package_config(env, argv)
+    return analysistest.end(env)
+
+_DBG = {
+    "//command_line_option:compilation_mode": "dbg",
+    str(Label("//flutter:profile")): False,
+}
+_OPT = {
+    "//command_line_option:compilation_mode": "opt",
+    str(Label("//flutter:profile")): False,
+}
 
 _outside_lib_test = analysistest.make(_outside_lib_test_impl, config_settings = _DBG)
 _in_lib_test = analysistest.make(_in_lib_test_impl, config_settings = _DBG)
+_opt_in_lib_test = analysistest.make(_opt_in_lib_test_impl, config_settings = _OPT)
 
 def app_entrypoint_test_suite(name):
     """Fixtures and tests for where a native app's `main` is compiled from.
@@ -155,10 +205,16 @@ def app_entrypoint_test_suite(name):
         name = name + "_in_lib",
         target_under_test = ":_ae_in_lib",
     )
+    _opt_in_lib_test(
+        name = name + "_opt_in_lib",
+        target_under_test = ":_ae_in_lib",
+        target_compatible_with = HOST_COMPATIBLE,
+    )
     native.test_suite(
         name = name,
         tests = [
             ":" + name + "_outside_lib",
             ":" + name + "_in_lib",
+            ":" + name + "_opt_in_lib",
         ],
     )

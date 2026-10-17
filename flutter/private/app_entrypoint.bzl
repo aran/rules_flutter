@@ -16,7 +16,7 @@ root-isolate launch (see plugin_registrant.bzl), which is what keeps it
 alive across hot restart.
 """
 
-load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config")
+load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config", "generate_stable_package_config")
 
 # The file-system scheme a file with no `package:` URI is compiled under — a
 # `main` outside its package's `lib/`, and the generated plugin registrant. One
@@ -277,6 +277,39 @@ def compile_package_config(ctx, packages, all_srcs):
     config_file = ctx.actions.declare_file(ctx.label.name + ".package_config.json")
     ctx.actions.write(config_file, generate_package_config(packages2, srcs2, config_file))
     return struct(config_file = config_file, srcs = srcs2, packages = packages2)
+
+def compile_kernel_package_config(ctx, packages, all_srcs, roots = None):
+    """Write a multi-root `package_config.json` under `APP_SCHEME` with no source copying.
+
+    Every package's `rootUri` is `org-dartlang-app:///<stable_path>`, which
+    `flutter_kernel_compile_action` resolves across `[ctx.bin_dir.path, "."]` via
+    `--filesystem-root` and `--filesystem-scheme org-dartlang-app`. Hand-written
+    sources in the source tree and generated `.g.dart` parts in `bazel-out`
+    resolve under one `package:` URI without `DartCopyTree` colocation, and the
+    compiled `.dill` embeds stable `org-dartlang-app:///` URIs instead of
+    machine-specific sandbox `file://` paths.
+
+    Args:
+      ctx: The rule context.
+      packages: List of `DartPackageInfo` (already synthesized via
+        `synthesize_app_package` when applicable).
+      all_srcs: Flat list of transitive source Files.
+      roots: Optional dict of package names to always retain in the config.
+
+    Returns:
+      `struct(config_file, srcs, packages)`.
+    """
+    config_file = ctx.actions.declare_file(ctx.label.name + ".package_config.json")
+    ctx.actions.write(
+        config_file,
+        generate_stable_package_config(
+            packages,
+            all_srcs,
+            roots = roots,
+            scheme = APP_SCHEME,
+        ),
+    )
+    return struct(config_file = config_file, srcs = all_srcs, packages = packages)
 
 def compute_wrapper_main_import(wrapper_dir_depth, main_path):
     """Relative import path from a generated wrapper to the original main.

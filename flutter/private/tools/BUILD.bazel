@@ -1,28 +1,22 @@
 load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 
-# The scripts build actions run directly, handed to those actions as raw
-# sources — a rule's `_tool` attr resolves the file label and passes its path to
-# `dart run`, so none of them is a Bazel target of its own.
-#
-# That leaves them owned by no target of their own, and the analysis aspect
-# checks only files a target owns. Their analysis rides on their unit tests
-# below instead: each one is a `srcs` entry of the `dart_test` that covers it,
-# and a `dart_test`'s own files are `[main] + srcs`, so checking the test
-# checks the script. **A script exported here without a test below is checked
-# by nothing** — the test is what carries it, not this list.
+# The sources of tools built into standalone executables. Exported so their unit
+# tests below can import them via `srcs`. Build actions reach them through their
+# compiled `dart_binary` targets rather than by file label.
 exports_files(
     [
+        "android_bundle.dart",
         "generate_asset_manifest.dart",
         "bundle_app.dart",
         "compile_shader.dart",
         "kernel_filter.dart",
+        "macho_edit.dart",
         "merge_android_manifests.dart",
         "merge_plists.dart",
         "strip_native_libs.dart",
         "web_template.dart",
-        # Exported for its unit test's `srcs`, not for a build action: unlike
-        # its neighbours this one is a `dart_binary` main (below), and rules
-        # reach it through that target rather than by file label.
+        "xtool_pack.dart",
         "flutter_test_runner.dart",
         "bazel_test_protocol.dart",
     ],
@@ -30,9 +24,19 @@ exports_files(
 )
 
 dart_binary(
+    name = "android_bundle",
+    compile_mode = "kernel",
+    main = "android_bundle.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
     name = "pub_runner",
     compile_mode = "exe",
     main = "pub.dart",
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter:__subpackages__"],
     deps = ["@rules_dart//dart/runfiles"],
 )
@@ -42,16 +46,103 @@ dart_binary(
     srcs = ["bazel_test_protocol.dart"],
     compile_mode = "exe",
     main = "flutter_test_runner.dart",
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter:__subpackages__"],
     deps = ["@rules_dart//dart/runfiles"],
+)
+
+dart_binary(
+    name = "bundle_app",
+    compile_mode = "kernel",
+    main = "bundle_app.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "compile_shader",
+    compile_mode = "kernel",
+    main = "compile_shader.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "generate_asset_manifest",
+    compile_mode = "exe",
+    main = "generate_asset_manifest.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "kernel_filter",
+    compile_mode = "kernel",
+    main = "kernel_filter.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "macho_edit",
+    compile_mode = "kernel",
+    main = "macho_edit.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "merge_android_manifests",
+    compile_mode = "exe",
+    main = "merge_android_manifests.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "merge_plists",
+    compile_mode = "exe",
+    main = "merge_plists.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "strip_native_libs",
+    compile_mode = "kernel",
+    main = "strip_native_libs.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "web_template",
+    compile_mode = "kernel",
+    main = "web_template.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
+)
+
+dart_binary(
+    name = "xtool_pack",
+    compile_mode = "exe",
+    main = "xtool_pack.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter:__subpackages__"],
 )
 
 # Unit tests for the tools above.
 #
 # Each test imports its tool by relative path (`../merge_plists.dart`), so the
-# tool is a `srcs` entry rather than a dep: these tools are plain scripts with
-# no pub dependencies, deliberately, since a build action runs them straight
-# from the toolchain's Dart.
+# tool is a `srcs` entry rather than a dep: these tools are compiled as
+# standalone executables for the exec platform, and their unit tests run against
+# the source.
 #
 # A new test file needs an entry here, or nothing runs it.
 #
@@ -62,14 +153,17 @@ dart_binary(
 #
 # The value is the tool plus whatever that tool imports beyond `package:test`.
 _UNIT_TESTS = {
+    "android_bundle_test": ("android_bundle.dart", []),
     "bundle_app_test": ("bundle_app.dart", []),
     "compile_shader_test": ("compile_shader.dart", []),
     "kernel_filter_test": ("kernel_filter.dart", []),
+    "macho_edit_test": ("macho_edit.dart", []),
     "generate_asset_manifest_test": ("generate_asset_manifest.dart", []),
     "merge_android_manifests_test": ("merge_android_manifests.dart", []),
     "merge_plists_test": ("merge_plists.dart", []),
     "strip_native_libs_test": ("strip_native_libs.dart", []),
     "web_template_test": ("web_template.dart", []),
+    "xtool_pack_test": ("xtool_pack.dart", []),
     "flutter_test_runner_test": (
         "flutter_test_runner.dart",
         ["@rules_dart//dart/runfiles"],
@@ -87,5 +181,6 @@ _TOOL_SRCS = {
     name = name,
     srcs = [tool] + _TOOL_SRCS.get(tool, []),
     main = "test/%s.dart" % name,
+    target_compatible_with = HOST_COMPATIBLE,
     deps = ["@dev_tool_deps//:test"] + extra_deps,
 ) for name, (tool, extra_deps) in _UNIT_TESTS.items()]

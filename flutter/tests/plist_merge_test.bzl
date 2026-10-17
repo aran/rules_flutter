@@ -54,7 +54,7 @@ def _strict_add_test_impl(ctx):
     input_basenames = [f.basename for f in action.inputs.to_list()]
     asserts.true(
         env,
-        "merge_plists.dart" in input_basenames,
+        "merge_plists" in input_basenames or "merge_plists.exe" in input_basenames,
         "the merger tool must be an action input",
     )
 

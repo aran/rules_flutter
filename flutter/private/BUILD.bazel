@@ -18,6 +18,34 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
+# Internal sub-toolchain types so rules only trigger fetching of the lazy
+# SDK repositories they actually use (product patched SDK + font-subset,
+# AOT gen_snapshot, desktop engine + Linux sysroot, MaterialIcons font).
+toolchain_type(
+    name = "product_tools_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "aot_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "desktop_engine_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "material_icons_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "font_subset_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
 bzl_library(
     name = "common",
     srcs = ["common.bzl"],
@@ -26,6 +54,7 @@ bzl_library(
         ":flutter_asset_bundle",
         ":flutter_compile",
         ":flutter_info",
+        ":flutter_kernel_module",
         ":flutter_shader_compile",
         ":validation",
         "//flutter:providers",
@@ -221,6 +250,7 @@ bzl_library(
     name = "flutter_compile",
     srcs = ["flutter_compile.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = ["//flutter:providers"],
 )
 
 bzl_library(
@@ -259,6 +289,7 @@ bzl_library(
     name = "flutter_shader_compile",
     srcs = ["flutter_shader_compile.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = ["//flutter:providers"],
 )
 
 bzl_library(
@@ -276,6 +307,7 @@ bzl_library(
         ":common",
         ":flutter_asset_bundle",
         ":flutter_info",
+        ":flutter_kernel_module",
         ":flutter_library",
         ":flutter_web_compile",
         ":plugin_registrant",
@@ -290,6 +322,9 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":common",
+        ":flutter_kernel_module",
+        "@rules_dart//dart:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -411,11 +446,23 @@ bzl_library(
 )
 
 bzl_library(
+    name = "flutter_kernel_module",
+    srcs = ["flutter_kernel_module.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        "@bazel_skylib//rules:common_settings",
+        "@rules_dart//dart:providers",
+        "@rules_dart//dart:utils",
+    ],
+)
+
+bzl_library(
     name = "flutter_test",
     srcs = ["flutter_test.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":common",
+        ":flutter_kernel_module",
         "//flutter:providers",
     ],
 )
@@ -429,6 +476,23 @@ bzl_library(
 bzl_library(
     name = "flutter_sdk_package",
     srcs = ["flutter_sdk_package.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [":artifact_urls"],
+)
+
+bzl_library(
+    name = "flutter_xtool_bundle",
+    srcs = ["flutter_xtool_bundle.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        "//flutter:providers",
+        "@bazel_skylib//lib:dicts",
+    ],
+)
+
+bzl_library(
+    name = "xtool_darwin_sdk_repo",
+    srcs = ["xtool_darwin_sdk_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [":artifact_urls"],
 )

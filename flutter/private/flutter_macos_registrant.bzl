@@ -9,7 +9,12 @@ load("//flutter/private:plugin_registrant.bzl", "generate_native_plugin_registra
 def _flutter_macos_registrant_impl(ctx):
     plugins = ctx.attr.application[FlutterApplicationInfo].plugins
     registrant = generate_native_plugin_registrant(ctx, plugins, "macos")
-    return [DefaultInfo(files = depset([registrant]))]
+    return [
+        DefaultInfo(files = depset([registrant])),
+        OutputGroupInfo(
+            swift = depset([registrant]),
+        ),
+    ]
 
 flutter_macos_registrant = rule(
     implementation = _flutter_macos_registrant_impl,

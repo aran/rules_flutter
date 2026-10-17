@@ -37,17 +37,45 @@ bazel_dep(name = "rules_kotlin", version = "2.4.20")
 bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
 bazel_dep(name = "rules_dart", version = "0.7.3")
+bazel_dep(name = "rules_go", version = "0.64.2")
 bazel_dep(name = "rules_python", version = "2.4.0")
 bazel_dep(name = "yaml.bzl", version = "0.1.2")
-
-# Provides the copy_to_directory toolchain that rules_dart's source-set
-# co-location (colocate_packages) uses to assemble a package's hand-written +
-# generated files into one directory for the kernel compile.
-bazel_dep(name = "bazel_lib", version = "3.7.2")
 
 bazel_dep(name = "rules_multitool", version = "1.11.1", dev_dependency = True)
 bazel_dep(name = "buildifier_prebuilt", version = "10.1.0", dev_dependency = True)
 bazel_dep(name = "bazelrc-preset.bzl", version = "1.9.2", dev_dependency = True)
+bazel_dep(name = "llvm", version = "0.8.19", dev_dependency = True)
+
+git_override(
+    module_name = "rules_dart",
+    commit = "95f7011252ff6b39b30c47915ba3d0ac7e78a0dc",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+
+# Override rules_android's Go SDK (0.8.0 requests 1.22.4 without checksums,
+# and its Go deps require >= 1.23) with sha256-pinned archives from go.dev/dl/.
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(
+    sdks = {
+        "darwin_amd64": ("go1.26.2.darwin-amd64.tar.gz", "bc3f1500d9968c36d705442d90ba91addf9271665033748b82532682e90a7966"),
+        "darwin_arm64": ("go1.26.2.darwin-arm64.tar.gz", "32af1522bf3e3ff3975864780a429cc0b41d190ec7bf90faa661d6d64566e7af"),
+        "linux_amd64": ("go1.26.2.linux-amd64.tar.gz", "990e6b4bbba816dc3ee129eaeaf4b42f17c2800b88a2166c265ac1a200262282"),
+        "linux_arm64": ("go1.26.2.linux-arm64.tar.gz", "c958a1fe1b361391db163a485e21f5f228142d6f8b584f6bef89b26f66dc5b23"),
+    },
+    version = "1.26.2",
+)
+
+register_toolchains(
+    "@llvm//toolchain:linux_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:linux_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:linux_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:linux_x86_64_to_linux_x86_64",
+    "@llvm//toolchain:macos_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:macos_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:macos_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:macos_x86_64_to_linux_x86_64",
+    dev_dependency = True,
+)
 
 # Register the apple_cc CC toolchain explicitly so rules_swift's
 # xcode_swift_toolchain resolves to a CC toolchain with a valid apple target
@@ -67,9 +95,12 @@ register_toolchains("@local_config_apple_cc_toolchains//:all")
 
 flutter = use_extension("//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.7")
-use_repo(flutter, "flutter_android_engine_arm64_profile", "flutter_android_engine_x64_profile", "flutter_dev_root", "flutter_gen_l10n", "flutter_ios_engine", "flutter_ios_engine_profile", "flutter_macos_engine", "flutter_sky_engine", "flutter_toolchains", "flutter_web_sdk")
+use_repo(flutter, "flutter_android_engine_arm64_profile", "flutter_android_engine_x64_profile", "flutter_dev_root", "flutter_gen_l10n", "flutter_ios_engine", "flutter_ios_engine_profile", "flutter_macos_engine", "flutter_sky_engine", "flutter_toolchains", "flutter_web_sdk", "flutter_xtool_darwin_sdk")
 
-register_toolchains("@flutter_toolchains//:all")
+register_toolchains(
+    "@flutter_toolchains//:all",
+    "@flutter_xtool_darwin_sdk//:all",
+)
 
 # AndroidX dependencies the Flutter Android embedding (flutter.jar) requires
 # at runtime, mirroring the dependency list of Flutter's official

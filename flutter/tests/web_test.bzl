@@ -230,6 +230,24 @@ def _assert_optimization_level(env, action, expected):
         "%s must state exactly one optimization level" % action.mnemonic,
     )
 
+def _assert_dart2js_platform_binaries(env, action):
+    """Assert dart2js receives `--platform-binaries=<.../web-sdk/kernel>`."""
+    if action == None:
+        return
+    flags = [a for a in action.argv if a.startswith("--platform-binaries=")]
+    asserts.equals(
+        env,
+        1,
+        len(flags),
+        "FlutterDart2JS must state --platform-binaries once: %s" % action.argv,
+    )
+    if flags:
+        asserts.true(
+            env,
+            flags[0].endswith("/web-sdk/kernel"),
+            "--platform-binaries must point at web-sdk/kernel, got %r" % flags[0],
+        )
+
 def _default_basenames(env):
     target = analysistest.target_under_test(env)
     return [f.basename for f in target[DefaultInfo].files.to_list()]
@@ -307,7 +325,10 @@ def _dbg_web_defines_test_impl(ctx):
 
 _dbg_web_defines_test = analysistest.make(
     _dbg_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _profile_web_defines_test_impl(ctx):
@@ -363,7 +384,10 @@ def _profile_web_defines_test_impl(ctx):
 
 _profile_web_defines_test = analysistest.make(
     _profile_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _opt_web_defines_test_impl(ctx):
@@ -390,6 +414,7 @@ def _opt_web_defines_test_impl(ctx):
         present = ["-Ddart.vm.product=true", "--minify", "--native-null-assertions"],
         absent_substrings = ["enable-asserts", "dart.vm.profile"],
     )
+    _assert_dart2js_platform_binaries(env, _action(env, "FlutterDart2JS"))
 
     # The release levels, and the reason they differ: dart2js goes to 4, while
     # dart2wasm stops at 2 because that is the highest level using only sound
@@ -408,6 +433,15 @@ def _opt_web_defines_test_impl(ctx):
             "dev-loop file %s leaked into release outputs" % basename,
         )
 
+    # A release web bundle with no fonts and no language experiments skips the
+    # redundant icon tree-shaking kernel compile.
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterKernelCompile"],
+        "a fontless release web build must skip FlutterKernelCompile",
+    )
+
     # Nothing serves a release bundle but a web server, so an index.html that
     # inlines the bootstrap is a legitimate single-request deployment here.
     _assert_template_wiring(env, expect_dev_loop_guard = False)
@@ -415,7 +449,50 @@ def _opt_web_defines_test_impl(ctx):
 
 _opt_web_defines_test = analysistest.make(
     _opt_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _fastbuild_web_defines_test_impl(ctx):
+    """A `fastbuild` web build is release-shaped, with dart2wasm at `-O0`.
+
+    `fastbuild` keeps release defines (`-Ddart.vm.product=true`), minification,
+    WASM symbol stripping, and `toString()` body dropping, while defaulting
+    `FlutterDart2Wasm` to `-O0` so inner-loop builds keep full dart2wasm TFA
+    tree-shaking without paying the multi-pass `wasm-opt` binaryen penalty.
+    """
+    env = analysistest.begin(ctx)
+    _assert_argv(
+        env,
+        _action(env, "FlutterDart2Wasm"),
+        present = [
+            "-Ddart.vm.product=true",
+            "--minify",
+            "--strip-wasm",
+            "--extra-compiler-option=--delete-tostring-package-uri=dart:ui",
+            "--extra-compiler-option=--delete-tostring-package-uri=package:flutter",
+        ],
+        absent_substrings = ["enable-asserts", "dart.vm.profile"],
+    )
+    _assert_argv(
+        env,
+        _action(env, "FlutterDart2JS"),
+        present = ["-Ddart.vm.product=true", "--minify", "--native-null-assertions"],
+        absent_substrings = ["enable-asserts", "dart.vm.profile"],
+    )
+    _assert_dart2js_platform_binaries(env, _action(env, "FlutterDart2JS"))
+    _assert_optimization_level(env, _action(env, "FlutterDart2Wasm"), 0)
+    _assert_optimization_level(env, _action(env, "FlutterDart2JS"), 4)
+    return analysistest.end(env)
+
+_fastbuild_web_defines_test = analysistest.make(
+    _fastbuild_web_defines_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "fastbuild",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _dev_config_test_impl(ctx):
@@ -516,7 +593,10 @@ def _dev_config_test_impl(ctx):
 
 _dev_config_test = analysistest.make(
     _dev_config_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
     attrs = {"expect_entrypoint": attr.string(mandatory = True)},
 )
 
@@ -557,7 +637,10 @@ def _main_outside_lib_test_impl(ctx):
 
 _main_outside_lib_test = analysistest.make(
     _main_outside_lib_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _dev_config_overrides_test_impl(ctx):
@@ -579,7 +662,10 @@ def _dev_config_overrides_test_impl(ctx):
 
 _dev_config_overrides_test = analysistest.make(
     _dev_config_overrides_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _wasm_source_map_test_impl(ctx):
@@ -654,7 +740,10 @@ def _minify_override_test_impl(ctx):
 
 _minify_override_test = analysistest.make(
     _minify_override_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_override_test_impl(ctx):
@@ -673,7 +762,10 @@ def _optimization_override_test_impl(ctx):
 
 _optimization_override_test = analysistest.make(
     _optimization_override_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_zero_test_impl(ctx):
@@ -691,7 +783,10 @@ def _optimization_zero_test_impl(ctx):
 
 _optimization_zero_test = analysistest.make(
     _optimization_zero_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _js_only_settings_test_impl(ctx):
@@ -726,7 +821,10 @@ def _js_only_settings_test_impl(ctx):
 
 _js_only_settings_test = analysistest.make(
     _js_only_settings_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_wasm_on_js_refused_test_impl(ctx):
@@ -794,12 +892,63 @@ def _experiments_test_impl(ctx):
     ]
     asserts.equals(env, 1, len(kernels), "expected the icon tree-shake kernel compile")
     if kernels:
-        _assert_argv(env, kernels[0], present = [flag])
+        _assert_argv(env, kernels[0], present = [flag, "--no-embed-source-text"])
     return analysistest.end(env)
 
 _experiments_test = analysistest.make(
     _experiments_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _font_icon_tree_shake_test_impl(ctx):
+    """A fastbuild web build with fonts pre-links a modular dill for icon tree-shaking."""
+    env = analysistest.begin(ctx)
+    _action(env, "DartKernel")
+    link_action = _action(env, "DartKernelLink")
+    _assert_argv(env, link_action, present = ["--platform"])
+    kernel_action = _action(env, "FlutterKernelCompile")
+    _assert_argv(
+        env,
+        kernel_action,
+        present = ["--from-dill", "--no-embed-source-text"],
+    )
+    return analysistest.end(env)
+
+_font_icon_tree_shake_test = analysistest.make(
+    _font_icon_tree_shake_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "fastbuild",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _font_icon_tree_shake_opt_test_impl(ctx):
+    """An `-c opt` web build compiles the icon tree-shaking dill from source so `kReleaseMode` folds to `true`."""
+    env = analysistest.begin(ctx)
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "DartKernelLink"],
+        "an -c opt web build must not link a debug modular dill for icon tree-shaking",
+    )
+    kernel_action = _action(env, "FlutterKernelCompile")
+    _assert_argv(
+        env,
+        kernel_action,
+        present = ["-Ddart.vm.product=true", "--no-embed-source-text"],
+        absent_substrings = ["--from-dill"],
+    )
+    return analysistest.end(env)
+
+_font_icon_tree_shake_opt_test = analysistest.make(
+    _font_icon_tree_shake_opt_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _dump_info_test_impl(ctx):
@@ -893,7 +1042,10 @@ def _no_strip_release_test_impl(ctx):
 
 _no_strip_release_test = analysistest.make(
     _no_strip_release_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _strip_wasm_on_js_refused_test_impl(ctx):
@@ -1313,6 +1465,14 @@ def _setup_web_fixtures():
     )
 
     flutter_web_bundle(
+        name = "_web_font_fixture",
+        package_name = "web_fixture",
+        main = "lib/web_fixture_main.dart",
+        deps = ["//flutter:material_icons"],
+        tags = ["manual"],
+    )
+
+    flutter_web_bundle(
         name = "_web_dump_info_fixture",
         package_name = "web_fixture",
         main = "lib/web_fixture_main.dart",
@@ -1429,6 +1589,10 @@ def web_test_suite(name):
         name = name + "_dbg_defines",
         target_under_test = ":_web_fixture",
     )
+    _fastbuild_web_defines_test(
+        name = name + "_fastbuild_defines",
+        target_under_test = ":_web_fixture",
+    )
     _opt_web_defines_test(
         name = name + "_opt_defines",
         target_under_test = ":_web_fixture",
@@ -1515,6 +1679,18 @@ def web_test_suite(name):
     _experiments_test(
         name = name + "_experiments",
         target_under_test = ":_web_experiments_fixture",
+    )
+    _font_icon_tree_shake_test(
+        name = name + "_font_icon_tree_shake",
+        target_under_test = ":_web_font_fixture",
+    )
+    _font_icon_tree_shake_opt_test(
+        name = name + "_font_icon_tree_shake_opt",
+        target_under_test = ":_web_font_fixture",
+    )
+    build_test(
+        name = name + "_font_icon_tree_shake_build",
+        targets = [":_web_font_fixture"],
     )
     _dev_config_overrides_test(
         name = name + "_dev_config_overrides",

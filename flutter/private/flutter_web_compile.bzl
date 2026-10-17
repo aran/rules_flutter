@@ -106,7 +106,7 @@ def default_dart2js_optimization_level(mode):
         return 4
     fail("unknown web build mode: %s" % mode)
 
-def default_dart2wasm_optimization_level(mode):
+def default_dart2wasm_optimization_level(mode, compilation_mode = "opt"):
     """The `-O` level a dart2wasm compile takes in a build mode.
 
     Upstream `WasmCompilerConfig.optimizationLevelForBuildMode`: 0 in debug, 2
@@ -115,17 +115,23 @@ def default_dart2wasm_optimization_level(mode):
     marginal, and 2 is the highest level that uses only sound optimizations.
     The two compilers therefore disagree about their release level, which is
     why this is a per-compiler answer rather than one shared number.
+    In Bazel `fastbuild` mode, release defaults to 0 so inner-loop builds keep
+    full dart2wasm TFA tree-shaking and minification without paying the 22s+
+    multi-pass `wasm-opt` binaryen penalty; `-c opt` and `profile` use 2.
 
     Args:
         mode: A `web_build_mode` value.
+        compilation_mode: Bazel `COMPILATION_MODE` ("fastbuild", "dbg", "opt").
 
     Returns:
         The optimization level as an int.
     """
     if mode == "debug":
         return 0
-    if mode == "profile" or mode == "release":
+    if mode == "profile":
         return 2
+    if mode == "release":
+        return 0 if compilation_mode == "fastbuild" else 2
     fail("unknown web build mode: %s" % mode)
 
 def resolve_web_optimization_level(level, mode_default):
@@ -180,7 +186,6 @@ def flutter_dart2wasm_action(
         ctx,
         dart,
         flutter_sdk_files,
-        web_sdk_files,
         dart2wasm_platform_dill,
         main_dart,
         srcs,
@@ -194,14 +199,15 @@ def flutter_dart2wasm_action(
         minify = "auto",
         enable_experiments = [],
         defines = [],
-        renderer = "skwasm"):
+        renderer = "skwasm",
+        web_compile_tool = None,
+        web_compile_inputs = []):
     """Compiles Dart source to WebAssembly using dart2wasm.
 
     Args:
         ctx: Rule context.
         dart: The `dart` executable File.
-        flutter_sdk_files: SDK files needed to run dart.
-        web_sdk_files: Flutter web SDK files.
+        flutter_sdk_files: Host Dart SDK files needed to run `dart compile wasm`.
         dart2wasm_platform_dill: The dart2wasm_platform.dill File.
         main_dart: The main .dart source File.
         srcs: All transitive source Files needed for compilation.
@@ -231,6 +237,8 @@ def flutter_dart2wasm_action(
              (output_source_map.path, output_wasm.path))
 
     args = ctx.actions.args()
+    if web_compile_tool != None:
+        args.add(web_compile_tool)
     args.add("compile")
     args.add("wasm")
 
@@ -245,7 +253,7 @@ def flutter_dart2wasm_action(
     # Optimization.
     args.add("-O%d" % resolve_web_optimization_level(
         optimization_level,
-        default_dart2wasm_optimization_level(mode),
+        default_dart2wasm_optimization_level(mode, ctx.var.get("COMPILATION_MODE", "fastbuild")),
     ))
     args.add("--strip-wasm" if (mode == "release" and strip_wasm) else "--no-strip-wasm")
     args.add("--minify" if resolve_web_minify(minify, mode) else "--no-minify")
@@ -283,12 +291,15 @@ def flutter_dart2wasm_action(
     args.add("-o", output_wasm)
     args.add(main_dart)
 
+    direct_inputs = [main_dart, package_config, dart2wasm_platform_dill] + srcs + web_compile_inputs
+    if web_compile_tool != None:
+        direct_inputs.append(web_compile_tool)
     ctx.actions.run(
         executable = dart,
         arguments = [args],
         inputs = depset(
-            direct = [main_dart, package_config, dart2wasm_platform_dill] + srcs,
-            transitive = [flutter_sdk_files, depset(web_sdk_files)],
+            direct = direct_inputs,
+            transitive = [flutter_sdk_files],
         ),
         outputs = [output_wasm, output_mjs] + ([output_source_map] if output_source_map != None else []),
         mnemonic = "FlutterDart2Wasm",
@@ -315,7 +326,9 @@ def flutter_dart2js_action(
         dump_info = False,
         source_maps = False,
         defines = [],
-        renderer = "canvaskit"):
+        renderer = "canvaskit",
+        web_compile_tool = None,
+        web_compile_inputs = []):
     """Compiles Dart source to JavaScript using dart2js.
 
     Output is a tree artifact (directory) because dart2js may produce
@@ -355,11 +368,14 @@ def flutter_dart2js_action(
         renderer: Web renderer ("canvaskit" or "skwasm").
     """
     args = ctx.actions.args()
+    if web_compile_tool != None:
+        args.add(web_compile_tool)
     args.add("compile")
     args.add("js")
 
     # libraries.json is one level above the kernel/ directory containing the dill.
     # The web SDK's libraries.json includes the Dart SDK's via a relative path.
+    args.add("--platform-binaries=" + dart2js_platform_dill.dirname)
     args.add("--libraries-spec=" + dart2js_platform_dill.dirname + "/../libraries.json")
 
     # Package config.
@@ -399,11 +415,14 @@ def flutter_dart2js_action(
     args.add("-o", output_dir.path + "/main.dart.js")
     args.add(main_dart)
 
+    direct_inputs = [main_dart, package_config, dart2js_platform_dill] + srcs + web_compile_inputs
+    if web_compile_tool != None:
+        direct_inputs.append(web_compile_tool)
     ctx.actions.run(
         executable = dart,
         arguments = [args],
         inputs = depset(
-            direct = [main_dart, package_config, dart2js_platform_dill] + srcs,
+            direct = direct_inputs,
             transitive = [flutter_sdk_files, depset(web_sdk_files)],
         ),
         outputs = [output_dir],

@@ -20,7 +20,7 @@ so we skip the frontend_server kernel compilation step used by desktop/mobile.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config")
+load("@rules_dart//dart:utils.bzl", "MODULAR_KERNEL_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
@@ -37,18 +37,32 @@ load(
 load(
     "//flutter/private:common.bzl",
     "AGENT_EXTENSIONS_ATTR",
+    "COPY_TO_DIRECTORY_TOOLCHAINS",
     "FLUTTER_APPLICATION_ATTRS",
+    "FLUTTER_DEPS_DOC",
     "KERNEL_COMPILE_ATTRS",
     "declare_flutter_assets_dir",
     "flutter_build_assets",
     "flutter_compile_shaders",
+    "flutter_web_shader_aspect",
     "make_web_wrapper_main_content",
     "merge_dart_defines",
     "resolve_dev_generated_sources",
+    "resolve_exec_dart",
+    "resolve_exec_dart_vm",
+    "resolve_flutter_sdk_info",
     "shader_sources",
 )
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
+load(
+    "//flutter/private:flutter_kernel_module.bzl",
+    "MODULAR_KERNEL_ATTRS",
+    "compile_flutter_modular_web_kernel",
+    "flutter_kernel_module_aspect",
+    "flutter_modular_test_tools",
+)
+load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "resolve_font_subset_tools")
 load(
     "//flutter/private:flutter_web_compile.bzl",
     "flutter_dart2js_action",
@@ -305,8 +319,7 @@ def _flutter_web_bundle_impl(ctx):
              "or trailing '/' and no '.' or '..' parts (e.g. \"web\" or \"web_apps/reminders\"); " +
              "got %r" % web_dir)
 
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    flutter_sdk_info = resolve_flutter_sdk_info(ctx)
 
     # Merged once for all compile actions below (dart2wasm, dart2js, icon
     # tree-shake kernel) and the dev-config emission.
@@ -316,6 +329,8 @@ def _flutter_web_bundle_impl(ctx):
     # the same way the native kernel path switches on COMPILATION_MODE.
     mode = web_build_mode(ctx)
     is_debug = mode == "debug"
+    is_profile = mode == "profile"
+    is_opt = ctx.var["COMPILATION_MODE"] == "opt"
 
     # Step 1: Collect sources, generate package config, handle plugin registrant.
     # dart compile wasm/js take .dart source directly (not kernel .dill).
@@ -422,6 +437,11 @@ def _flutter_web_bundle_impl(ctx):
     # dart2js outputs to a tree artifact (directory) to support deferred loading:
     # dart2js may produce main.dart.js + *.part.js files for deferred imports.
     web_sdk_file_list = ctx.attr._web_sdk.files.to_list() if ctx.attr._web_sdk else []
+    dart2js_web_sdk_files = [
+        f
+        for f in web_sdk_file_list
+        if f.path.endswith("/libraries.json")
+    ]
     compile_outputs = []  # Files (wasm, mjs, wasm.map)
     compile_copies = []  # Bundle copy entries for compile_outputs
     dart2js_dirs = []  # Tree artifacts from dart2js
@@ -429,6 +449,12 @@ def _flutter_web_bundle_impl(ctx):
     # flutter.js does the registering: it waits for the new worker to activate
     # (with a timeout) before booting the app, and — given only a version — it
     # registers nothing unless the visitor already has a worker to replace.
+    exec_dart, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
+    web_compile_inputs = [
+        f
+        for f in dart_vm_files.to_list()
+        if f.basename in ("dartvm", "dartvm.exe")
+    ]
     load_args = service_worker_load_args(ctx.attr.pwa)
     if ctx.attr.compiler == "dart2wasm":
         # Primary: dart2wasm. Outputs are declared under a subdirectory with
@@ -442,9 +468,8 @@ def _flutter_web_bundle_impl(ctx):
             output_wasm_map = ctx.actions.declare_file(ctx.label.name + "_wasm/main.dart.wasm.map")
         flutter_dart2wasm_action(
             ctx = ctx,
-            dart = flutter_sdk_info.dart,
-            flutter_sdk_files = flutter_sdk_info.tool_files,
-            web_sdk_files = web_sdk_file_list,
+            dart = exec_dart,
+            flutter_sdk_files = flutter_sdk_info.dart2wasm_files,
             dart2wasm_platform_dill = ctx.file._dart2wasm_platform_dill,
             main_dart = entrypoint,
             srcs = all_srcs,
@@ -459,15 +484,17 @@ def _flutter_web_bundle_impl(ctx):
             enable_experiments = ctx.attr.enable_experiments,
             defines = user_defines,
             renderer = renderer,
+            web_compile_tool = ctx.executable._web_template_tool,
+            web_compile_inputs = web_compile_inputs,
         )
 
         # Fallback: dart2js (always canvaskit renderer) — tree artifact for deferred loading
         output_js_fallback_dir = ctx.actions.declare_directory(ctx.label.name + "_dart2js_fallback")
         flutter_dart2js_action(
             ctx = ctx,
-            dart = flutter_sdk_info.dart,
-            flutter_sdk_files = flutter_sdk_info.tool_files,
-            web_sdk_files = web_sdk_file_list,
+            dart = exec_dart,
+            flutter_sdk_files = flutter_sdk_info.dart2js_files,
+            web_sdk_files = dart2js_web_sdk_files,
             dart2js_platform_dill = ctx.file._dart2js_platform_dill,
             main_dart = entrypoint,
             srcs = all_srcs,
@@ -483,6 +510,8 @@ def _flutter_web_bundle_impl(ctx):
             source_maps = ctx.attr.source_maps,
             defines = user_defines,
             renderer = "canvaskit",
+            web_compile_tool = ctx.executable._web_template_tool,
+            web_compile_inputs = web_compile_inputs,
         )
         compile_outputs = [output_wasm, output_mjs]
         compile_copies = [
@@ -499,9 +528,9 @@ def _flutter_web_bundle_impl(ctx):
         output_js_dir = ctx.actions.declare_directory(ctx.label.name + "_dart2js")
         flutter_dart2js_action(
             ctx = ctx,
-            dart = flutter_sdk_info.dart,
-            flutter_sdk_files = flutter_sdk_info.tool_files,
-            web_sdk_files = web_sdk_file_list,
+            dart = exec_dart,
+            flutter_sdk_files = flutter_sdk_info.dart2js_files,
+            web_sdk_files = dart2js_web_sdk_files,
             dart2js_platform_dill = ctx.file._dart2js_platform_dill,
             main_dart = entrypoint,
             srcs = all_srcs,
@@ -517,6 +546,8 @@ def _flutter_web_bundle_impl(ctx):
             source_maps = ctx.attr.source_maps,
             defines = user_defines,
             renderer = renderer,
+            web_compile_tool = ctx.executable._web_template_tool,
+            web_compile_inputs = web_compile_inputs,
         )
         dart2js_dirs = [output_js_dir]
         builds = [_JS_BUILD]
@@ -527,10 +558,50 @@ def _flutter_web_bundle_impl(ctx):
     # Icon tree shaking: compile a kernel .dill for const_finder analysis.
     # Web targets don't otherwise need a kernel (they use dart2wasm/dart2js),
     # so we compile one specifically for const_finder to analyze IconData constants.
+    fonts, _ = aggregate_pub_contributions(ctx.attr.deps)
+    const_finder, font_subset = resolve_font_subset_tools(ctx.attr.deps, flutter_sdk_info) if fonts else (None, None)
+    has_font_tree_shake = bool(fonts) and const_finder != None and font_subset != None
+    has_experiment_kernel = bool(ctx.attr.enable_experiments) and flutter_sdk_info.platform_kernel_dill_product != None
     kernel_dill = None
-    if (ctx.attr.tree_shake_icons and not is_debug and
-        flutter_sdk_info.const_finder != None and flutter_sdk_info.font_subset != None):
+    if ctx.attr.tree_shake_icons and not is_debug and (has_font_tree_shake or has_experiment_kernel):
         kernel_dill = ctx.actions.declare_file(ctx.label.name + "_icon_tree_shaking.dill")
+        entrypoint_uri = app_main_package_uri(
+            ctx.attr.package_name,
+            lib_root,
+            ctx.file.main.short_path,
+        )
+        from_dill = None
+        # Modular `.flutter.kmod` modules are compiled against the non-product
+        # platform dill without `-Ddart.vm.product=true` or
+        # `-Ddart.vm.profile=true`, so CFE folds `kReleaseMode` and
+        # `kProfileMode` to `false` inside `const` expressions in `.flutter.kmod`
+        # and strips source text. Passing `--from-dill` to `frontend_server` does
+        # not re-evaluate already-folded constants, so `-c opt` and `profile`
+        # builds must compile the icon tree-shaking kernel from source.
+        if (not is_opt and
+            not is_profile and
+            not ctx.attr.enable_experiments and
+            not user_defines and
+            entrypoint_uri != None and
+            flutter_sdk_info.platform_kernel_dill_product != None):
+            own_files = [ctx.file.main] + [f for f in ctx.files.srcs if f != ctx.file.main]
+            modular_tools = flutter_modular_test_tools(
+                ctx,
+                flutter_sdk_info,
+                own_files,
+                packages,
+                [],
+            )
+            if modular_tools != None:
+                from_dill = ctx.actions.declare_file(ctx.label.name + "_icon_tree_shaking.modular.dill")
+                compile_flutter_modular_web_kernel(
+                    ctx,
+                    flutter_sdk_info,
+                    modular_tools,
+                    lib_root,
+                    packages,
+                    from_dill,
+                )
 
         # When the app is a Dart package, key the entrypoint by its `package:`
         # URI so the compile reads `main.dart` from the colocated package and
@@ -541,17 +612,11 @@ def _flutter_web_bundle_impl(ctx):
         flutter_kernel_compile_action(
             ctx = ctx,
             dartaotruntime = flutter_sdk_info.dartaotruntime,
-            dart = flutter_sdk_info.dart,
-            kernel_filter_tool = ctx.file._kernel_filter_tool,
-            flutter_sdk_files = flutter_sdk_info.tool_files,
+            kernel_filter_tool = ctx.executable._kernel_filter_tool,
             frontend_server = flutter_sdk_info.frontend_server,
             platform_dill = flutter_sdk_info.platform_kernel_dill_product,
             main = ctx.file.main,
-            entrypoint_uri = app_main_package_uri(
-                ctx.attr.package_name,
-                lib_root,
-                ctx.file.main.short_path,
-            ),
+            entrypoint_uri = entrypoint_uri,
             srcs = all_srcs,
             package_config = config_file,
             output = kernel_dill,
@@ -566,6 +631,7 @@ def _flutter_web_bundle_impl(ctx):
             # would die here — in an icon-shaking step the user never asked
             # for — while both real compilers accepted it.
             extra_flags = web_experiment_flags(ctx.attr.enable_experiments),
+            from_dill = from_dill,
         )
 
     flutter_assets = declare_flutter_assets_dir(ctx)
@@ -765,16 +831,17 @@ def _flutter_web_bundle_impl(ctx):
     template_config_file = ctx.actions.declare_file(ctx.label.name + "_web_template_config.json")
     ctx.actions.write(template_config_file, json.encode(template_config))
 
+    dart_exe = exec_dart
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = dart_exe,
         arguments = [
-            ctx.file._web_template_tool.path,
+            ctx.executable._web_template_tool.path,
             "--config",
             template_config_file.path,
         ],
         inputs = depset(
-            direct = template_inputs + [template_config_file, ctx.file._web_template_tool],
-            transitive = [flutter_sdk_info.tool_files],
+            direct = template_inputs + [template_config_file, ctx.executable._web_template_tool],
+            transitive = [dart_vm_files],
         ),
         outputs = [index_html, bootstrap_js] + ([dev_bootstrap_js] if dev_bootstrap_js else []),
         mnemonic = "FlutterWebTemplate",
@@ -909,15 +976,15 @@ def _flutter_web_bundle_impl(ctx):
         all_inputs.append(service_worker_file)
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = dart_exe,
         arguments = [
-            ctx.file._bundle_tool.path,
+            ctx.executable._bundle_tool.path,
             "--config",
             bundle_config_file.path,
         ],
         inputs = depset(
-            direct = all_inputs + [ctx.file._bundle_tool],
-            transitive = [flutter_sdk_info.tool_files],
+            direct = all_inputs + [ctx.executable._bundle_tool],
+            transitive = [dart_vm_files],
         ),
         outputs = [output_dir] + ([dump_info_file] if dump_info_file else []),
         mnemonic = "FlutterWebBundle",
@@ -1191,6 +1258,12 @@ _WEB_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
     for k, v in FLUTTER_APPLICATION_ATTRS.items()
     if k in _WEB_RELEVANT_KEYS
 }
+_WEB_APPLICATION_ATTRS["deps"] = attr.label_list(
+    doc = FLUTTER_DEPS_DOC,
+    providers = [DartInfo],
+    aspects = [flutter_web_shader_aspect, flutter_kernel_module_aspect],
+)
+_WEB_APPLICATION_ATTRS.update(MODULAR_KERNEL_ATTRS)
 
 # Reaches the analysis closure only — see `analyzable_info` in the impl. No
 # BUILD file names it and no compile action's inputs change.
@@ -1507,14 +1580,19 @@ build knows which served file is a native module.
             default = Label("@flutter_web_sdk//:web_sdk"),
         ),
         "_bundle_tool": attr.label(
-            default = Label("//flutter/private/tools:bundle_app.dart"),
-            allow_single_file = [".dart"],
+            default = Label("//flutter/private/tools:bundle_app"),
+            executable = True,
+            cfg = "exec",
         ),
         "_web_template_tool": attr.label(
-            default = Label("//flutter/private/tools:web_template.dart"),
-            allow_single_file = [".dart"],
+            default = Label("//flutter/private/tools:web_template"),
+            executable = True,
+            cfg = "exec",
         ),
     }) | AGENT_EXTENSIONS_ATTR,
-    toolchains = ["@rules_flutter//flutter:toolchain_type"] + COPY_TO_DIRECTORY_TOOLCHAINS,
+    toolchains = [
+        "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:product_tools_toolchain_type", mandatory = False),
+    ] + COPY_TO_DIRECTORY_TOOLCHAINS + MODULAR_KERNEL_TOOLCHAINS,
     doc = "Builds a Flutter web application (WASM or JS) with all deployment artifacts.",
 )

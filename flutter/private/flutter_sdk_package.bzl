@@ -12,7 +12,7 @@ Omitting it is not neutral: `package_config.json` reads a missing
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "derive_language_version")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_deps", "parse_pubspec_sdk_constraint")
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
+load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url", "require_sha256")
 
 def make_flutter_sdk_build_content(name, deps, language_version):
     """Generate BUILD content for a Flutter SDK spoke.
@@ -103,9 +103,10 @@ def _flutter_sdk_package_impl(repository_ctx):
     # the same checksum, Bazel's content-addressed repository cache serves
     # them all from a single download; an unpinned fetch could not be
     # deduplicated that way.
+    tarball_url = flutter_source_tarball_url(flutter_version)
     repository_ctx.download_and_extract(
-        url = flutter_source_tarball_url(flutter_version),
-        sha256 = repository_ctx.attr.sha256,
+        url = tarball_url,
+        sha256 = require_sha256(repository_ctx.attr.sha256, tarball_url),
         stripPrefix = "flutter-{version}/packages/{pkg}".format(
             version = flutter_version,
             pkg = package_name,

@@ -76,7 +76,7 @@ FLUTTER_VERSIONS = {
     ),
 }
 
-def flutter_source_sha256(flutter_version):
+def flutter_source_sha256(flutter_version, versions = None):
     """Returns the recorded sha256 of a release's GitHub source tarball.
 
     Read through this accessor rather than off the struct directly, so that an
@@ -88,13 +88,17 @@ def flutter_source_sha256(flutter_version):
     Args:
         flutter_version: Flutter release tag (e.g. "3.47.5"). Must be a key of
             FLUTTER_VERSIONS.
+        versions: Optional version metadata dict override for testing.
 
     Returns:
         The 64-character hex sha256 string.
     """
-    meta = FLUTTER_VERSIONS[flutter_version]
-    sha256 = getattr(meta, "source_sha256", "")
-    if not sha256:
+    table = FLUTTER_VERSIONS if versions == None else versions
+    if (
+        flutter_version not in table or
+        not hasattr(table[flutter_version], "source_sha256") or
+        not table[flutter_version].source_sha256
+    ):
         fail((
             "No source tarball checksum recorded for Flutter {v}, so its " +
             "framework source cannot be fetched safely.\n" +
@@ -107,7 +111,43 @@ def flutter_source_sha256(flutter_version):
             v = flutter_version,
             url = flutter_source_tarball_url(flutter_version),
         ))
-    return sha256
+    return table[flutter_version].source_sha256
+
+def flutter_artifact_sha256(flutter_version, artifact_path, checksums = None):
+    """Returns the recorded sha256 of one engine artifact.
+
+    Every download of an engine artifact goes through this function, so a
+    missing entry fails the fetch with a message naming the artifact, instead
+    of letting Bazel accept whatever bytes the server returns.
+
+    Args:
+        flutter_version: Flutter release tag (e.g. "3.47.5"). Must be a key of
+            FLUTTER_VERSIONS.
+        artifact_path: Path relative to the engine revision directory, as
+            built by a helper in //flutter/private:artifact_urls.bzl
+            (e.g. "android-arm64-release/artifacts.zip").
+        checksums: Optional checksum table override for testing.
+
+    Returns:
+        The 64-character hex sha256 string.
+    """
+    table = ARTIFACT_CHECKSUMS if checksums == None else checksums
+    if (
+        flutter_version not in table or
+        artifact_path not in table[flutter_version] or
+        not table[flutter_version][artifact_path]
+    ):
+        fail((
+            "No sha256 recorded for {path} in Flutter {v}, so the download " +
+            "cannot be verified and will not be fetched.\n" +
+            "Add it to ARTIFACT_CHECKSUMS in flutter/private/versions.bzl " +
+            "under \"{v}\". `bazel run //tools/update_flutter_version -- {v}` " +
+            "downloads each artifact and prints its sha256."
+        ).format(
+            path = artifact_path,
+            v = flutter_version,
+        ))
+    return table[flutter_version][artifact_path]
 
 # Checksums for engine artifacts, keyed by version then artifact path.
 # Artifact paths are relative to:

@@ -5,11 +5,18 @@ module(name = "rules_flutter_cross_compile_example")
 bazel_dep(name = "rules_flutter", version = "0.0.0")
 bazel_dep(name = "rules_dart", version = "0.7.3")
 bazel_dep(name = "platforms", version = "1.1.0")
-bazel_dep(name = "llvm", version = "0.8.19")
+
+bazel_dep(name = "llvm", version = "0.8.19", dev_dependency = True)
 
 local_path_override(
     module_name = "rules_flutter",
     path = "../..",
+)
+
+git_override(
+    module_name = "rules_dart",
+    commit = "95f7011252ff6b39b30c47915ba3d0ac7e78a0dc",
+    remote = "https://github.com/Mivr/rules_dart.git",
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
@@ -22,6 +29,15 @@ use_repo(flutter, "deps", "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
 
-# Hermetic LLVM CC toolchain for cross-compilation.
-# Provides clang + lld that can produce Linux ELF binaries from macOS.
-register_toolchains("@llvm//toolchain:all")
+# Hermetic LLVM CC toolchain for Linux targets (native and cross-compilation from macOS).
+register_toolchains(
+    "@llvm//toolchain:linux_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:linux_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:linux_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:linux_x86_64_to_linux_x86_64",
+    "@llvm//toolchain:macos_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:macos_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:macos_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:macos_x86_64_to_linux_x86_64",
+    dev_dependency = True,
+)

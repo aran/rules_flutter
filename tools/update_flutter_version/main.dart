@@ -9,7 +9,9 @@
 /// What it does:
 ///   1. Looks up the engine revision from the Flutter tag
 ///   2. Downloads each artifact and computes SHA-256 (archives already pinned
-///      in versions.bzl for this version are reused, not downloaded again)
+///      in versions.bzl for this version are reused, not downloaded again).
+///      Exits non-zero if any artifact fails, after printing the snippet with
+///      MISSING in its place.
 ///   3. Prints the Starlark snippet to add to versions.bzl
 library;
 
@@ -86,6 +88,7 @@ Future<void> main(List<String> args) async {
   ).readAsStringSync();
   final pinned = pinnedArtifactChecksums(versionsBzl, version);
   final checksums = <String, String>{};
+  final failures = <String>[];
   final client = HttpClient();
 
   for (final artifact in artifacts) {
@@ -104,6 +107,7 @@ Future<void> main(List<String> args) async {
       print(sha);
     } catch (e) {
       print('FAILED ($e)');
+      failures.add(artifact);
     }
   }
 
@@ -126,6 +130,7 @@ Future<void> main(List<String> args) async {
       print(sha);
     } catch (e) {
       print('FAILED ($e)');
+      failures.add('flutter-$version.tar.gz');
     }
   }
 
@@ -143,6 +148,7 @@ Future<void> main(List<String> args) async {
       print(sha);
     } catch (e) {
       print('FAILED ($e)');
+      failures.add('material_fonts.zip');
     }
   }
 
@@ -205,6 +211,20 @@ Future<void> main(List<String> args) async {
   }
 
   _checkShaderFlags(version, flutterRepo, workspaceDir);
+
+  if (failures.isNotEmpty) {
+    stderr.writeln('');
+    stderr.writeln(
+      'ERROR: ${failures.length} artifact(s) could not be downloaded and hashed:',
+    );
+    for (final artifact in failures) {
+      stderr.writeln('  $artifact');
+    }
+    stderr.writeln(
+      'Their entries above read MISSING. Fix the download and re-run.',
+    );
+    exitCode = 1;
+  }
 
   // Print Starlark snippet.
   print('');

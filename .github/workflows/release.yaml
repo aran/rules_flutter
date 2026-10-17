@@ -7,9 +7,6 @@ on:
       tag_name:
         required: true
         type: string
-    secrets:
-      publish_token:
-        required: true
   # Or, developers can manually push a tag from their clone
   push:
     tags:
@@ -25,10 +22,3 @@ jobs:
       release_files: rules_flutter-*.tar.gz
       prerelease: false
       tag_name: ${{ inputs.tag_name || github.ref_name }}
-  publish:
-    needs: release
-    uses: ./.github/workflows/publish.yaml
-    with:
-      tag_name: ${{ inputs.tag_name || github.ref_name }}
-    secrets:
-      publish_token: ${{ secrets.publish_token || secrets.BCR_PUBLISH_TOKEN }}

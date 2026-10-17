@@ -215,6 +215,26 @@ void main() {
       );
     });
 
+    test('writes executable files with executable mode bits set', () async {
+      final outputDir = '${tempDir.path}/output';
+
+      await run({
+        'output_dir': outputDir,
+        'write_files': [
+          {
+            'path': 'MacOS/Runner',
+            'content': '#!/bin/sh\nexit 0\n',
+            'executable': true,
+          },
+        ],
+      });
+
+      final file = File('$outputDir/MacOS/Runner');
+      expect(file.existsSync(), isTrue);
+      final mode = file.statSync().mode;
+      expect(mode & 0x49, isNonZero);
+    }, testOn: '!windows');
+
     test('fails on a missing config file', () async {
       await expectLater(
         bundle_app.main(['--config', '${tempDir.path}/nonexistent.json']),

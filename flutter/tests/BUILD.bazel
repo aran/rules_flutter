@@ -1,4 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
+load(":action_inputs_test.bzl", "action_inputs_test_suite")
 load(":app_entrypoint_test.bzl", "app_entrypoint_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
@@ -31,6 +33,8 @@ load(":toolchains_repo_test.bzl", "toolchains_repo_test_suite")
 load(":validation_test.bzl", "validation_test_suite")
 load(":versions_test.bzl", "versions_test_suite")
 load(":web_test.bzl", "web_test_suite")
+
+action_inputs_test_suite(name = "action_inputs_test")
 
 versions_test_suite(name = "versions_test")
 
@@ -97,11 +101,13 @@ native_sources_test_suite(name = "native_sources_test")
 bridge_probe(
     name = "dart_code_asset_bridge_probe",
     expected_asset_ids = ["package:asset_fixture/src/ffi/asset_fixture.g.dart"],
+    target_compatible_with = HOST_COMPATIBLE,
     deps = ["//flutter/tests/dart_asset_fixture:asset_fixture"],
 )
 
 build_test(
     name = "dart_code_asset_bridge_test",
+    target_compatible_with = HOST_COMPATIBLE,
     targets = [":dart_code_asset_bridge_probe"],
 )
 

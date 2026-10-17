@@ -144,6 +144,52 @@ Uint8List encodeStandardMessage(Object? message) {
 
 // -- Icon tree shaking helpers -----------------------------------------------
 
+const Set<String> _knownIconFontFamilies = <String>{
+  'MaterialIcons',
+  'CupertinoIcons',
+};
+
+/// Returns true if [family] is a known Flutter icon font family
+/// (`MaterialIcons`, `CupertinoIcons`, or `packages/<pkg>/<family>`).
+bool isKnownIconFontFamily(String family) {
+  if (_knownIconFontFamilies.contains(family)) {
+    return true;
+  }
+  for (final iconFamily in _knownIconFontFamilies) {
+    if (family.startsWith('packages/') && family.endsWith('/$iconFamily')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Returns true if [copyKey] matches [assetPath] either exactly or on a `/`
+/// path-segment boundary (`packages/<pkg>/<assetPath>`).
+bool matchesFontAssetPath(String copyKey, String assetPath) {
+  return copyKey == assetPath || copyKey.endsWith('/$assetPath');
+}
+
+/// Builds a map from font `family` name to all declared `asset` paths in
+/// [fonts] (`FontManifest.json` entries).
+Map<String, Set<String>> buildFontFamilyToAssets(List<dynamic> fonts) {
+  final result = <String, Set<String>>{};
+  for (final entry in fonts) {
+    final m = entry as Map<String, dynamic>;
+    final family = m['family'] as String?;
+    final fontList = m['fonts'] as List<dynamic>? ?? [];
+    if (family != null && fontList.isNotEmpty) {
+      final assets = result.putIfAbsent(family, () => <String>{});
+      for (final fontEntry in fontList) {
+        final asset = (fontEntry as Map<String, dynamic>)['asset'] as String?;
+        if (asset != null) {
+          assets.add(asset);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 /// Run font-subset, piping code points via stdin. Returns true on success.
 Future<bool> _runFontSubset(
   String fontSubsetBin,
@@ -153,6 +199,7 @@ Future<bool> _runFontSubset(
 ) async {
   // font-subset reads code points from stdin (space-separated, newline-terminated).
   final process = await Process.start(fontSubsetBin, [outputPath, inputPath]);
+  final stderrFuture = process.stderr.transform(utf8.decoder).join();
   try {
     process.stdin.writeln(codePoints);
     await process.stdin.flush();
@@ -162,8 +209,12 @@ Future<bool> _runFontSubset(
   }
 
   final exitCode = await process.exitCode;
+  final errText = await stderrFuture;
   if (exitCode != 0) {
     stderr.writeln('font-subset failed for $inputPath (exit $exitCode)');
+    if (errText.isNotEmpty) {
+      stderr.writeln(errText);
+    }
     return false;
   }
   return true;
@@ -225,9 +276,9 @@ Future<void> main(List<String> args) async {
   // -- Icon tree shaking (optional) ------------------------------------------
   final iconTreeShaking = config['icon_tree_shaking'] as Map<String, dynamic>?;
   Map<String, Set<int>>? usedCodePoints;
-  Map<String, String>? fontFamilyToAsset;
+  Map<String, Set<String>>? fontFamilyToAssets;
 
-  if (iconTreeShaking != null) {
+  if (iconTreeShaking != null && fonts.isNotEmpty) {
     final dart = iconTreeShaking['dart'] as String;
     final constFinder = iconTreeShaking['const_finder'] as String;
     final kernelDill = iconTreeShaking['kernel_dill'] as String;
@@ -252,49 +303,37 @@ Future<void> main(List<String> args) async {
         'const_finder failed (exit ${constFinderResult.exitCode}):',
       );
       stderr.writeln(constFinderResult.stderr);
-      // Fall through without tree shaking rather than failing the build.
+      exit(1);
+    }
+
+    final output = json.decode(
+      constFinderResult.stdout as String,
+    ) as Map<String, dynamic>;
+
+    // Check for non-const IconData usage.
+    final nonConst = output['nonConstantLocations'] as List<dynamic>? ?? [];
+    if (nonConst.isNotEmpty) {
+      stderr.writeln(
+        'Warning: ${nonConst.length} non-const IconData instance(s) found. '
+        'Icon tree shaking disabled.',
+      );
     } else {
-      final output = json.decode(
-        constFinderResult.stdout as String,
-      ) as Map<String, dynamic>;
-
-      // Check for non-const IconData usage.
-      final nonConst = output['nonConstantLocations'] as List<dynamic>? ?? [];
-      if (nonConst.isNotEmpty) {
-        stderr.writeln(
-          'Warning: ${nonConst.length} non-const IconData instance(s) found. '
-          'Icon tree shaking disabled.',
-        );
-      } else {
-        // Build fontFamily → Set<codePoint> map.
-        usedCodePoints = <String, Set<int>>{};
-        for (final instance
-            in output['constantInstances'] as List<dynamic>? ?? []) {
-          final m = instance as Map<String, dynamic>;
-          final family = m['fontFamily'] as String?;
-          final pkg = m['fontPackage'] as String?;
-          final codePoint = m['codePoint'] as int?;
-          if (family != null && codePoint != null) {
-            final key = pkg == null ? family : 'packages/$pkg/$family';
-            usedCodePoints.putIfAbsent(key, () => <int>{}).add(codePoint);
-          }
-        }
-
-        // Build fontFamily → asset key map from FontManifest.
-        fontFamilyToAsset = <String, String>{};
-        for (final entry in fonts) {
-          final m = entry as Map<String, dynamic>;
-          final family = m['family'] as String?;
-          final fontList = m['fonts'] as List<dynamic>? ?? [];
-          if (family != null && fontList.isNotEmpty) {
-            final first = fontList.first as Map<String, dynamic>;
-            final asset = first['asset'] as String?;
-            if (asset != null) {
-              fontFamilyToAsset[family] = asset;
-            }
-          }
+      // Build fontFamily → Set<codePoint> map.
+      usedCodePoints = <String, Set<int>>{};
+      for (final instance
+          in output['constantInstances'] as List<dynamic>? ?? []) {
+        final m = instance as Map<String, dynamic>;
+        final family = m['fontFamily'] as String?;
+        final pkg = m['fontPackage'] as String?;
+        final codePoint = m['codePoint'] as int?;
+        if (family != null && codePoint != null) {
+          final key = pkg == null ? family : 'packages/$pkg/$family';
+          usedCodePoints.putIfAbsent(key, () => <int>{}).add(codePoint);
         }
       }
+
+      // Build fontFamily → Set<asset> map from FontManifest.
+      fontFamilyToAssets = buildFontFamilyToAssets(fonts);
     }
   }
 
@@ -306,30 +345,44 @@ Future<void> main(List<String> args) async {
 
     // Check if this asset should be subsetted.
     if (usedCodePoints != null &&
-        fontFamilyToAsset != null &&
+        fontFamilyToAssets != null &&
         iconTreeShaking != null) {
       final fontSubsetBin = iconTreeShaking['font_subset'] as String;
       String? matchedFamily;
-      for (final famEntry in fontFamilyToAsset.entries) {
-        if (famEntry.value == entry.key || entry.key.endsWith(famEntry.value)) {
+      for (final famEntry in fontFamilyToAssets.entries) {
+        if (famEntry.value.any(
+          (assetPath) => matchesFontAssetPath(entry.key, assetPath),
+        )) {
           matchedFamily = famEntry.key;
           break;
         }
       }
 
-      final codePoints = matchedFamily != null
-          ? usedCodePoints[matchedFamily]
-          : null;
-      if (codePoints != null && codePoints.isNotEmpty) {
-        // Run font-subset: code points are piped via stdin.
-        final codePointStr = codePoints.map((cp) => cp.toString()).join(' ');
-        final success = await _runFontSubset(
-          fontSubsetBin,
-          dest,
-          entry.value as String,
-          codePointStr,
-        );
-        if (success) {
+      if (matchedFamily != null) {
+        final codePoints = usedCodePoints[matchedFamily];
+        // When a known icon font family (MaterialIcons / CupertinoIcons) has 0
+        // used icons, pass a single dummy space glyph (0x20 / '32') so
+        // font-subset strips the unused icon font down to ~1 KB instead of
+        // shipping the full 1.65 MB font, while leaving non-icon text fonts
+        // (`codePoints == null` and not a known icon font family) untouched.
+        final effectiveCodePoints =
+            (codePoints != null && codePoints.isNotEmpty)
+            ? codePoints
+            : (isKnownIconFontFamily(matchedFamily) ? const <int>{0x20} : null);
+        if (effectiveCodePoints != null) {
+          // Run font-subset: code points are piped via stdin.
+          final codePointStr = effectiveCodePoints
+              .map((cp) => cp.toString())
+              .join(' ');
+          final success = await _runFontSubset(
+            fontSubsetBin,
+            dest,
+            entry.value as String,
+            codePointStr,
+          );
+          if (!success) {
+            exit(1);
+          }
           final inputSize = File(entry.value as String).lengthSync();
           final outputSize = File(dest).lengthSync();
           final reduction = ((inputSize - outputSize) / inputSize * 100)
@@ -339,7 +392,6 @@ Future<void> main(List<String> args) async {
           );
           continue;
         }
-        // Fall through to normal copy on failure.
       }
     }
 

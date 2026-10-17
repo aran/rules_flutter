@@ -20,9 +20,9 @@ jar stays in its repository for symbolizing a native engine crash.
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
-load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi")
+load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi", "resolve_exec_dart_vm")
 
-_TOOL = Label("//flutter/private/tools:strip_native_libs.dart")
+_TOOL = Label("//flutter/private/tools:strip_native_libs")
 
 def _engine_jar_transition_impl(_settings, attr):
     return {
@@ -61,18 +61,19 @@ def _flutter_android_engine_jar_impl(ctx):
 
     output = ctx.actions.declare_file(ctx.label.name + ".jar")
     args = ctx.actions.args()
-    args.add(ctx.file._tool)
+    args.add(ctx.executable._tool)
     args.add("--zipper", ctx.executable._zipper)
     args.add("--strip", strip)
     args.add("--input", ctx.file.jar)
     args.add("--output", output)
 
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = dart_exe,
         arguments = [args],
         inputs = depset(
-            direct = [ctx.file._tool, ctx.file.jar],
-            transitive = [flutter_sdk_info.tool_files, cc_toolchain.all_files],
+            direct = [ctx.executable._tool, ctx.file.jar],
+            transitive = [dart_vm_files, cc_toolchain.all_files],
         ),
         tools = [ctx.executable._zipper],
         outputs = [output],
@@ -97,7 +98,8 @@ flutter_android_engine_jar = rule(
         ),
         "_tool": attr.label(
             default = _TOOL,
-            allow_single_file = True,
+            executable = True,
+            cfg = "exec",
         ),
         "_zipper": attr.label(
             default = "@bazel_tools//tools/zip:zipper",
@@ -108,7 +110,10 @@ flutter_android_engine_jar = rule(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     },
-    toolchains = ["@rules_flutter//flutter:toolchain_type"] + use_cc_toolchain(),
+    toolchains = [
+        "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_dart//dart:exec_tools_toolchain_type", mandatory = False),
+    ] + use_cc_toolchain(),
     fragments = ["cpp"],
     doc = "Strips the native libraries of a Flutter engine jar as the Android Gradle Plugin does.",
 )

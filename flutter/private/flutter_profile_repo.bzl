@@ -8,14 +8,15 @@ profile never downloads them; a select() arm that is not taken does not fetch
 its repo.
 """
 
-load(":artifact_urls.bzl", "engine_artifact_url")
+load(":artifact_urls.bzl", "engine_artifact_url", "require_sha256")
 load(":engine_helpers.bzl", "extract_macos_inner_framework")
 
 def _flutter_profile_repo_impl(repository_ctx):
     for path, output in repository_ctx.attr.downloads.items():
+        url = engine_artifact_url(repository_ctx.attr.engine_revision, path)
         repository_ctx.download_and_extract(
-            url = engine_artifact_url(repository_ctx.attr.engine_revision, path),
-            sha256 = repository_ctx.attr.sha256s.get(path, ""),
+            url = url,
+            sha256 = require_sha256(repository_ctx.attr.sha256s.get(path, ""), url),
             output = output,
         )
     for base_dir in repository_ctx.attr.macos_framework_dirs:

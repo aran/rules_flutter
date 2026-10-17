@@ -12,6 +12,38 @@ toolchain_type(
     visibility = ["//visibility:public"],
 )
 
+# Public aliases for the optional lazy sub-toolchain types consumed via
+# `resolve_flutter_sdk_info(ctx)`.
+alias(
+    name = "product_tools_toolchain_type",
+    actual = "//flutter/private:product_tools_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "aot_toolchain_type",
+    actual = "//flutter/private:aot_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "desktop_engine_toolchain_type",
+    actual = "//flutter/private:desktop_engine_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "material_icons_toolchain_type",
+    actual = "//flutter/private:material_icons_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "font_subset_toolchain_type",
+    actual = "//flutter/private:font_subset_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
 # Flutter's profile mode: AOT like release, with the Dart VM service kept so
 # DevTools can attach. Applies with `-c opt` only:
 #
@@ -114,6 +146,7 @@ bzl_library(
         "//flutter/private:flutter_ios_application",
         "//flutter/private:flutter_ios_registrant",
         "//flutter/private:flutter_plist_merge",
+        "//flutter/private:flutter_xtool_bundle",
         "//flutter/private:runner_module",
     ],
 )
@@ -126,6 +159,7 @@ bzl_library(
         "//flutter/private:flutter_macos_application",
         "//flutter/private:flutter_macos_registrant",
         "//flutter/private:flutter_plist_merge",
+        "//flutter/private:flutter_xtool_bundle",
         "//flutter/private:runner_module",
     ],
 )
@@ -175,6 +209,7 @@ bzl_library(
         "//flutter/private:flutter_web_sdk_repo",
         "//flutter/private:toolchains_repo",
         "//flutter/private:versions",
+        "//flutter/private:xtool_darwin_sdk_repo",
     ],
 )
 

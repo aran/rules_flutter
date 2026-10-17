@@ -21,19 +21,16 @@ Two explicit modes, both never-wrong:
       debuggable VM service.
 """
 
-_TOOL = Label("//flutter/private/tools:merge_plists.dart")
+_TOOL = Label("//flutter/private/tools:merge_plists")
 
 def _flutter_plist_merge_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
-
-    tool = ctx.file._merge_tool
+    tool = ctx.executable._merge_tool
     output = ctx.actions.declare_file(
         "%s/%s" % (ctx.label.name, ctx.attr.output_basename),
     )
 
-    arguments = [tool.path, "--mode", ctx.attr.mode]
-    inputs = [tool]
+    arguments = ["--mode", ctx.attr.mode]
+    inputs = []
     if ctx.file.base:
         arguments += ["--base", ctx.file.base.path]
         inputs.append(ctx.file.base)
@@ -45,11 +42,10 @@ def _flutter_plist_merge_impl(ctx):
     arguments += ["--output", output.path]
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = tool,
         arguments = arguments,
         inputs = depset(
             direct = inputs,
-            transitive = [flutter_sdk_info.tool_files],
         ),
         outputs = [output],
         mnemonic = "FlutterPlistMerge",
@@ -96,7 +92,8 @@ flutter_plist_merge = rule(
         ),
         "_merge_tool": attr.label(
             default = _TOOL,
-            allow_single_file = True,
+            executable = True,
+            cfg = "exec",
         ),
     },
     toolchains = [

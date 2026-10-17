@@ -5,14 +5,13 @@ Flutter compilation differs from vanilla Dart in that it uses:
 - The frontend_server_aot.dart.snapshot instead of `dart compile kernel`
 """
 
+load("//flutter:providers.bzl", "resolve_exec_dart_vm")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
 
 def flutter_kernel_compile_action(
         ctx,
         dartaotruntime,
-        dart,
         kernel_filter_tool,
-        flutter_sdk_files,
         frontend_server,
         platform_dill,
         main,
@@ -27,7 +26,8 @@ def flutter_kernel_compile_action(
         native_assets_manifest = None,
         dart_plugin_registrant_uri = None,
         filesystem_roots = [],
-        recorded_uses = None):
+        recorded_uses = None,
+        from_dill = None):
     """Creates a Flutter kernel compilation action.
 
     Invokes the frontend_server via dartaotruntime to compile Dart sources
@@ -36,11 +36,7 @@ def flutter_kernel_compile_action(
     Args:
         ctx: The rule context.
         dartaotruntime: The dartaotruntime executable File (from FlutterSdkInfo).
-        dart: The Dart executable File that runs [kernel_filter_tool].
-        kernel_filter_tool: `kernel_filter.dart`, which runs the
-            frontend_server and drops its batch-protocol lines from the
-            output so a successful compile prints nothing.
-        flutter_sdk_files: All Flutter SDK files needed (for action inputs).
+        kernel_filter_tool: The compiled `kernel_filter` executable File.
         frontend_server: The frontend_server_aot.dart.snapshot File.
         platform_dill: The platform_strong.dill File (debug or product).
         main: The entrypoint .dart source File. Always an action input and
@@ -87,9 +83,11 @@ def flutter_kernel_compile_action(
             `@RecordUse` uses that survive tree-shaking to (`--recorded-uses`),
             the input of package link hooks. Only an AOT compile records; a
             JIT compile writes an empty file.
+        from_dill: Optional pre-linked modular `.dill` File passed via
+            `--from-dill` to initialize `frontend_server` without re-parsing
+            transitive sources.
     """
     args = ctx.actions.args()
-    args.add(kernel_filter_tool)
     args.add("--")
     args.add(dartaotruntime)
     args.add(frontend_server)
@@ -116,6 +114,7 @@ def flutter_kernel_compile_action(
     if aot:
         args.add("--aot")
         args.add("--tfa")
+        args.add("--no-embed-source-text")
 
     # Compilation mode flags
     bazel_mode = ctx.var["COMPILATION_MODE"]
@@ -125,11 +124,16 @@ def flutter_kernel_compile_action(
     for d in defines:
         args.add("-D" + d)
 
-    if filesystem_roots:
-        # The action's cwd is the exec root, so `""` mounts it as `.`.
-        for root in filesystem_roots:
-            args.add("--filesystem-root", root or ".")
-        args.add("--filesystem-scheme", APP_SCHEME)
+    # Always mount the output bin_dir first and the exec root (`.`) second under
+    # APP_SCHEME so multi-root package_config.json entries (`org-dartlang-app:///...`)
+    # resolve both generated files in bazel-out and hand-written files in the source tree.
+    mounted_roots = [ctx.bin_dir.path, ""]
+    for r in filesystem_roots:
+        if r != None and r not in mounted_roots:
+            mounted_roots.append(r)
+    for root in mounted_roots:
+        args.add("--filesystem-root", root or ".")
+    args.add("--filesystem-scheme", APP_SCHEME)
 
     if dart_plugin_registrant_uri:
         args.add("--source", dart_plugin_registrant_uri)
@@ -143,6 +147,9 @@ def flutter_kernel_compile_action(
 
     if recorded_uses != None:
         args.add("--recorded-uses", recorded_uses)
+
+    if from_dill != None:
+        args.add("--from-dill", from_dill.path)
 
     if entrypoint_uri:
         args.add(entrypoint_uri)
@@ -158,19 +165,23 @@ def flutter_kernel_compile_action(
     else:
         env["HOME"] = output.dirname
 
-    direct_inputs = [main, package_config, frontend_server, platform_dill] + srcs
+    if from_dill != None:
+        direct_inputs = [main, package_config, frontend_server, platform_dill, from_dill]
+    else:
+        direct_inputs = [main, package_config, frontend_server, platform_dill] + srcs
     if native_assets_manifest != None:
         direct_inputs.append(native_assets_manifest)
     outputs = [output]
     if recorded_uses != None:
         outputs.append(recorded_uses)
 
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx)
     ctx.actions.run(
-        executable = dart,
-        arguments = [args],
+        executable = dart_exe,
+        arguments = [kernel_filter_tool.path, args],
         inputs = depset(
-            direct = direct_inputs + [kernel_filter_tool, dartaotruntime],
-            transitive = [flutter_sdk_files],
+            direct = direct_inputs + [dartaotruntime, kernel_filter_tool],
+            transitive = [dart_vm_files],
         ),
         outputs = outputs,
         mnemonic = "FlutterKernelCompile",

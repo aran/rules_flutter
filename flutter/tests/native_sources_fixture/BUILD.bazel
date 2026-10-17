@@ -4,6 +4,7 @@ out."""
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 
 package(default_visibility = ["//flutter/tests:__pkg__"])
 
@@ -16,6 +17,7 @@ genrule(
 cc_library(
     name = "helper",
     srcs = ["helper.c"],
+    target_compatible_with = HOST_COMPATIBLE,
 )
 
 cc_library(
@@ -27,10 +29,12 @@ cc_library(
         ":generated",
     ],
     hdrs = ["bridge.h"],
+    target_compatible_with = HOST_COMPATIBLE,
     deps = [":helper"],
 )
 
 cc_shared_library(
     name = "bridge",
+    target_compatible_with = HOST_COMPATIBLE,
     deps = [":bridge_cc"],
 )

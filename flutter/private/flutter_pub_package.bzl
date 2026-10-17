@@ -27,8 +27,9 @@ extract pattern (replicated, not abstracted, to keep the cross-repo
 surface small).
 """
 
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "derive_language_version", "make_dart_library_build_content")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "derive_language_version", "make_dart_library_build_content", "trim_gzip_trailing_nulls")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_deps", "parse_pubspec_sdk_constraint")
+load("//flutter/private:artifact_urls.bzl", "require_sha256")
 load("//flutter/private:flutter_pubspec.bzl", "parse_flutter_assets_block", "parse_flutter_plugin_block")
 
 # Apple source extensions we sweep into the per-platform plugin library.
@@ -1507,20 +1508,20 @@ def _flutter_pub_package_impl(ctx):
         version = ctx.attr.version,
     )
 
-    # Match `pub_lock_package`'s download/extract semantics, including the
-    # `tar -xzf` workaround for archives with trailing-garbage gzip streams.
+    # Match `pub_lock_package`'s download/extract semantics: verify sha256 on
+    # download, strip any trailing NUL padding past the RFC 1952 gzip trailer,
+    # and unpack with `ctx.extract`.
     ctx.download(
         url = url,
         output = "_archive.tar.gz",
-        sha256 = ctx.attr.sha256 if ctx.attr.sha256 else "",
+        sha256 = require_sha256(ctx.attr.sha256, url),
     )
-    extract = ctx.execute(["tar", "-xzf", "_archive.tar.gz"])
-    if extract.return_code != 0:
-        fail("tar -xzf failed for {url}:\nstdout: {out}\nstderr: {err}".format(
-            url = url,
-            out = extract.stdout,
-            err = extract.stderr,
-        ))
+    raw_archive = ctx.read("_archive.tar.gz", watch = "no")
+    trimmed_archive = trim_gzip_trailing_nulls(raw_archive)
+    if trimmed_archive != raw_archive:
+        ctx.delete("_archive.tar.gz")
+        ctx.file("_archive.tar.gz", trimmed_archive, executable = False)
+    ctx.extract("_archive.tar.gz")
     ctx.delete("_archive.tar.gz")
 
     bazel_deps = []
@@ -1821,7 +1822,7 @@ flutter_pub_package = repository_rule(
             mandatory = True,
         ),
         "sha256": attr.string(
-            doc = "SHA256 hash of the package archive.",
+            doc = "SHA256 hash of the package archive. Taken from the hosted lock entry; an empty value fails the fetch.",
             default = "",
         ),
         "base_url": attr.string(

@@ -15,7 +15,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartPackageInfo")
 load("//flutter:native_assets.bzl", "flutter_data_asset", "flutter_native_asset")
 load("//flutter:providers.bzl", "FlutterNativeAssetInfo")
-load("//flutter/private:common.bzl", "check_unreplaced_hooks")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE", "check_unreplaced_hooks")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "native_asset_framework_name", "native_assets_target_string", "write_native_assets_manifest")
 
 # -- Pure-function tests for the manifest helpers ----------------------
@@ -330,6 +330,7 @@ def native_assets_test_suite(name):
         name = name + "_misowned_code_asset",
         target_under_test = "//flutter/tests/dart_asset_fixture:misowned_asset_fixture",
         expected_substring = "is not namespaced to this package",
+        target_compatible_with = HOST_COMPATIBLE,
     )
 
     # The same check from `flutter_test`. `hook_check_probe` above proves the
@@ -340,6 +341,7 @@ def native_assets_test_suite(name):
         name = name + "_unreplaced_hook_in_test",
         target_under_test = "//flutter/tests/dart_asset_fixture:hook_flutter_test",
         expected_substring = "hook_fixture (hook/build.dart)",
+        target_compatible_with = HOST_COMPATIBLE,
     )
 
     # An application resolves a bundled library inside its bundle slot, so the
@@ -352,6 +354,7 @@ def native_assets_test_suite(name):
         # The distinguishing part: no directory component at all, so the engine
         # resolves it inside the bundle slot rather than anywhere else.
         forbidden_substrings = ["flutter/tests/"],
+        target_compatible_with = HOST_COMPATIBLE,
     )
 
     # A test has no bundle, so the same asset must be named by where it sits in
@@ -363,6 +366,7 @@ def native_assets_test_suite(name):
         size = "small",
         target_under_test = ":_layout_runfiles",
         expected_substrings = ["\"flutter/tests/liblayout_probe.dylib\""],
+        target_compatible_with = HOST_COMPATIBLE,
     )
 
     unittest.suite(

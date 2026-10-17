@@ -26,7 +26,7 @@ silently mis-merge a variant manifest it does not fully understand.
 
 load("@rules_android//providers:providers.bzl", "StarlarkAndroidResourcesInfo")
 
-_TOOL = Label("//flutter/private/tools:merge_android_manifests.dart")
+_TOOL = Label("//flutter/private/tools:merge_android_manifests")
 
 def _exported_library_manifests(libraries):
     """The manifests rules_android would merge into a binary over `libraries`.
@@ -46,15 +46,11 @@ def _exported_library_manifests(libraries):
     return [node.manifest for node in nodes.to_list() if node.exports_manifest]
 
 def _flutter_android_manifest_merge_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
-
-    tool = ctx.file._merge_tool
+    tool = ctx.executable._merge_tool
     output = ctx.actions.declare_file(ctx.label.name + "/AndroidManifest.xml")
 
     libraries = _exported_library_manifests(ctx.attr.libraries)
     args = ctx.actions.args()
-    args.add(tool)
     args.add("--base", ctx.file.base)
     if ctx.file.overlay:
         args.add("--overlay", ctx.file.overlay)
@@ -63,11 +59,10 @@ def _flutter_android_manifest_merge_impl(ctx):
     args.add("--output", output)
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = tool,
         arguments = [args],
         inputs = depset(
-            direct = [tool, ctx.file.base] + ([ctx.file.overlay] if ctx.file.overlay else []) + libraries,
-            transitive = [flutter_sdk_info.tool_files],
+            direct = [ctx.file.base] + ([ctx.file.overlay] if ctx.file.overlay else []) + libraries,
         ),
         outputs = [output],
         mnemonic = "FlutterManifestMerge",
@@ -103,7 +98,8 @@ flutter_android_manifest_merge = rule(
         ),
         "_merge_tool": attr.label(
             default = _TOOL,
-            allow_single_file = True,
+            executable = True,
+            cfg = "exec",
         ),
     },
     toolchains = [

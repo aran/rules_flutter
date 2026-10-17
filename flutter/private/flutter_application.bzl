@@ -15,17 +15,16 @@ This rule produces outputs that platform-specific wrappers consume:
 
 load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "dart_link_hook_actions", "link_hook_runner_attr")
+load("@rules_dart//dart:utils.bzl", "dart_link_hook_actions", "link_hook_runner_attr")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args", "shader_sources")
+load("//flutter/private:common.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args", "resolve_flutter_sdk_info", "shader_sources")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
 load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
 
 def _flutter_application_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    flutter_sdk_info = resolve_flutter_sdk_info(ctx)
 
     mode = flutter_build_mode(ctx)
     is_debug = mode == "debug"
@@ -35,13 +34,22 @@ def _flutter_application_impl(ctx):
     strip = ctx.var["COMPILATION_MODE"] == "opt"
 
     # Guard: AOT cross-compilation between desktop OSes is not supported.
-    # gen_snapshot can only produce native code for the host OS.
     # target_os is non-empty only for cross-compilation toolchains.
     if not is_debug and flutter_sdk_info.target_os in ("linux", "macos", "windows"):
         fail(
             "AOT cross-compilation between desktop platforms is not supported. " +
             "Flutter's gen_snapshot can only produce native code for the host OS. " +
             "Build on the target platform, or use debug mode (-c dbg).",
+        )
+    if not is_debug and not flutter_sdk_info.gen_snapshot:
+        fail(
+            (
+                "No target-compatible AOT gen_snapshot toolchain is registered for this " +
+                "host and target platform (target_os=%s). Apple AOT snapshots require a " +
+                "Darwin-target gen_snapshot on a macOS host; build on macOS or use debug mode (-c dbg)."
+            ) % (
+                flutter_sdk_info.target_os or "native",
+            ),
         )
 
     # Detect the target platform for platform-aware plugin registration.
@@ -166,7 +174,6 @@ def _flutter_application_impl(ctx):
             flutter_aot_macho_action(
                 ctx = ctx,
                 gen_snapshot = flutter_sdk_info.gen_snapshot,
-                flutter_sdk_files = flutter_sdk_info.tool_files,
                 kernel_dill = kernel_dill,
                 output = aot_output,
                 strip = strip,
@@ -179,7 +186,6 @@ def _flutter_application_impl(ctx):
             flutter_aot_elf_action(
                 ctx = ctx,
                 gen_snapshot = flutter_sdk_info.gen_snapshot,
-                flutter_sdk_files = flutter_sdk_info.tool_files,
                 kernel_dill = kernel_dill,
                 output = aot_output,
                 strip = strip,
@@ -470,7 +476,9 @@ flutter_application = rule(
     ),
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
-        "@rules_dart//dart:exec_tools_toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:product_tools_toolchain_type", mandatory = False),
+        config_common.toolchain_type("@rules_flutter//flutter/private:aot_toolchain_type", mandatory = False),
+        config_common.toolchain_type("@rules_dart//dart:exec_tools_toolchain_type", mandatory = False),
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,
     doc = "Compiles a Flutter application to AOT native code + asset bundle (release) or kernel .dill + assets (debug).",
 )

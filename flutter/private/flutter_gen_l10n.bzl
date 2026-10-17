@@ -135,10 +135,14 @@ def _flutter_gen_l10n_impl(ctx):
     if ctx.attr.suppress_warnings:
         argv.append("--suppress-warnings")
 
+    exec_sdk = ctx.toolchains["@rules_dart//dart:exec_tools_toolchain_type"].dart_sdk_info
     ctx.actions.run(
-        executable = ctx.executable._generator,
-        arguments = argv,
-        inputs = srcs,
+        executable = exec_sdk.dart,
+        arguments = [ctx.executable._generator.path] + argv,
+        inputs = depset(
+            direct = srcs + [ctx.executable._generator],
+            transitive = [exec_sdk.runtime_files],
+        ),
         outputs = outs,
         mnemonic = "FlutterGenL10n",
         progress_message = "Generating localizations for %{label}",
@@ -211,5 +215,6 @@ flutter_gen_l10n = rule(
             cfg = "exec",
         ),
     },
+    toolchains = ["@rules_dart//dart:exec_tools_toolchain_type"],
     doc = "Generates Flutter `AppLocalizations` Dart from `.arb` files.",
 )

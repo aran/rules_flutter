@@ -134,6 +134,10 @@ final _managedServiceWorkerConstructs = <RegExp, String>{
 };
 
 Future<void> main(List<String> args) async {
+  if (args.isNotEmpty && args.first == 'compile') {
+    _runWebCompile(args.sublist(1));
+    return;
+  }
   if (args.length != 2 || args[0] != '--config') {
     stderr.writeln('Usage: web_template.dart --config <config.json>');
     exit(1);
@@ -355,3 +359,191 @@ Map<String, String> _resolveBuiltins(
 /// The 1-based line [offset] falls on.
 int _lineOf(String content, int offset) =>
     RegExp(r'\r\n|\r|\n').allMatches(content.substring(0, offset)).length + 1;
+
+/// Runs `dart2wasm` or `dart2js` directly via `dartaotruntime`, bypassing
+/// `dartdev` (which probes `execroot/bin` outside declared inputs) and
+/// normalizing output paths so compilation is sandbox-confined and
+/// workspace-path-independent.
+void _runWebCompile(List<String> args) {
+  final subcommand = args.isNotEmpty ? args.first : '';
+  if (subcommand == 'wasm') {
+    _runDart2Wasm(args.sublist(1));
+  } else if (subcommand == 'js') {
+    _runDart2Js(args.sublist(1));
+  } else {
+    stderr.writeln('web_template compile: unknown subcommand "$subcommand"');
+    exit(64);
+  }
+}
+
+void _runDart2Wasm(List<String> args) {
+  final sdkBin = File(Platform.resolvedExecutable).parent.path;
+  final dartaotruntime = '$sdkBin/dartaotruntime';
+
+  String? packagesPath;
+  String? outputWasm;
+  String? mainDart;
+  var noSourceMaps = false;
+  final extraOptions = <String>[];
+  final forwardArgs = <String>[];
+
+  for (var i = 0; i < args.length; i++) {
+    final arg = args[i];
+    if (arg.startsWith('--packages=')) {
+      packagesPath = arg.substring('--packages='.length);
+    } else if (arg.startsWith('--extra-compiler-option=')) {
+      extraOptions.add(arg.substring('--extra-compiler-option='.length));
+    } else if (arg == '-o') {
+      outputWasm = args[++i];
+    } else if (arg.startsWith('-o=')) {
+      outputWasm = arg.substring('-o='.length);
+    } else if (arg == '--no-source-maps') {
+      noSourceMaps = true;
+      forwardArgs.add(arg);
+    } else if (arg.startsWith('-')) {
+      forwardArgs.add(arg);
+    } else {
+      mainDart = arg;
+    }
+  }
+
+  if (packagesPath == null || outputWasm == null || mainDart == null) {
+    stderr.writeln(
+      'web_template compile wasm: --packages, -o, and entrypoint are required',
+    );
+    exit(64);
+  }
+
+  final tmpDir = Directory.systemTemp.createTempSync('flutter_dart2wasm_');
+  try {
+    final cwdPath = Directory.current.absolute.path;
+    final cwdPrefix = cwdPath.endsWith('/') ? cwdPath : '$cwdPath/';
+    final pkgFile = File(packagesPath).absolute;
+    final pkgJson =
+        json.decode(pkgFile.readAsStringSync()) as Map<String, dynamic>;
+    final pkgs = (pkgJson['packages'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    for (final p in pkgs) {
+      final rootUri = p['rootUri'] as String;
+      final resolved = pkgFile.uri.resolve(rootUri);
+      if (resolved.scheme == 'file') {
+        final fsPath = resolved.toFilePath();
+        if (fsPath.startsWith(cwdPrefix)) {
+          var rel = fsPath.substring(cwdPrefix.length);
+          if (rel.endsWith('/') && rel.length > 1) {
+            rel = rel.substring(0, rel.length - 1);
+          }
+          p['rootUri'] = 'org-dartlang-app:///$rel';
+        } else if (fsPath == cwdPath || fsPath == cwdPrefix) {
+          p['rootUri'] = 'org-dartlang-app:///';
+        } else {
+          p['rootUri'] = resolved.toString();
+        }
+      }
+    }
+    final rewrittenPkgPath = '${tmpDir.path}/package_config.json';
+    File(rewrittenPkgPath).writeAsStringSync(json.encode(pkgJson));
+
+    final tmpWasm = '${tmpDir.path}/main.dart.wasm';
+    final wasmArgs = <String>[
+      '$sdkBin/snapshots/dart2wasm_product.snapshot',
+      ...extraOptions,
+      '--packages=$rewrittenPkgPath',
+      '--multi-root-scheme=org-dartlang-app',
+      '--multi-root=$cwdPath',
+      '--wasm-opt=$sdkBin/utils/wasm-opt',
+      ...forwardArgs,
+      'org-dartlang-app:///$mainDart',
+      tmpWasm,
+    ];
+    final res = Process.runSync(dartaotruntime, wasmArgs);
+    if (res.exitCode != 0) {
+      stdout.write(res.stdout as String);
+      stderr.write(res.stderr as String);
+      exit(res.exitCode);
+    }
+
+    final outWasmFile = File(outputWasm)..parent.createSync(recursive: true);
+    File(tmpWasm).copySync(outWasmFile.path);
+
+    final outputMjs = outputWasm.endsWith('.wasm')
+        ? '${outputWasm.substring(0, outputWasm.length - 5)}.mjs'
+        : '$outputWasm.mjs';
+    File('${tmpDir.path}/main.dart.mjs').copySync(outputMjs);
+
+    if (!noSourceMaps) {
+      final tmpMap = File('$tmpWasm.map');
+      if (tmpMap.existsSync()) {
+        tmpMap.copySync('$outputWasm.map');
+      }
+    }
+  } finally {
+    tmpDir.deleteSync(recursive: true);
+  }
+}
+
+void _runDart2Js(List<String> args) {
+  final sdkBin = File(Platform.resolvedExecutable).parent.path;
+  final dartaotruntime = '$sdkBin/dartaotruntime';
+
+  String? outJs;
+  for (var i = 0; i < args.length; i++) {
+    final arg = args[i];
+    if (arg == '-o' && i + 1 < args.length) {
+      outJs = args[i + 1];
+    } else if (arg.startsWith('-o=')) {
+      outJs = arg.substring('-o='.length);
+    }
+  }
+
+  final res = Process.runSync(dartaotruntime, [
+    '$sdkBin/snapshots/dart2js_aot.dart.snapshot',
+    '--invoker=dart_cli',
+    ...args,
+  ]);
+  if (res.exitCode != 0) {
+    stdout.write(res.stdout as String);
+    stderr.write(res.stderr as String);
+    exit(res.exitCode);
+  }
+
+  if (outJs != null) {
+    final outDir = File(outJs).parent;
+    if (outDir.existsSync()) {
+      final cwdUriPrefix = Uri.directory(Directory.current.absolute.path)
+          .toString();
+      final entries = outDir.listSync(recursive: true)
+        ..sort((a, b) => a.path.compareTo(b.path));
+      for (final entity in entries) {
+        if (entity is File &&
+            (entity.path.endsWith('.deps') ||
+                entity.path.endsWith('.info.json') ||
+                entity.path.endsWith('.map'))) {
+          var content = entity.readAsStringSync();
+          var changed = false;
+          if (content.contains(cwdUriPrefix)) {
+            content = content.replaceAll(cwdUriPrefix, 'org-dartlang-app:///');
+            changed = true;
+          }
+          if (entity.path.endsWith('.info.json')) {
+            content = content
+                .replaceAllMapped(
+                  RegExp(r'"compilationMoment":\s*"[^"]*"'),
+                  (_) => '"compilationMoment": "1970-01-01 00:00:00.000000"',
+                )
+                .replaceAllMapped(
+                  RegExp(
+                    r'"(compilationDuration|toJsonDuration|dumpInfoDuration)":\s*\d+',
+                  ),
+                  (m) => '"${m.group(1)}": 0',
+                );
+            changed = true;
+          }
+          if (changed) {
+            entity.writeAsStringSync(content);
+          }
+        }
+      }
+    }
+  }
+}

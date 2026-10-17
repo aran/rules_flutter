@@ -11,6 +11,8 @@ selected based on the target platform.
 # - Android/Linux/Windows: SKSL + GLES + GLES3 + Vulkan
 # - Web: SKSL only (with --json)
 # - flutter_tester (`flutter test`): SKSL + Vulkan, Impeller's backend there
+load("//flutter:providers.bzl", "resolve_exec_dart_vm")
+
 SHADER_PLATFORM_FLAGS = {
     "ios": ["--runtime-stage-metal"],
     "macos": ["--sksl", "--runtime-stage-metal"],
@@ -45,8 +47,6 @@ def flutter_shader_compile_action(
         target_platform,
         is_web = False,
         includes = [],
-        dart = None,
-        dart_files = None,
         compile_tool = None,
         require_sksl = False):
     """Compile a single shader file to .iplr format using impellerc.
@@ -61,11 +61,9 @@ def flutter_shader_compile_action(
         is_web: If True, emit JSON format (for web targets).
         includes: Files the shader may `#include` — inputs the sandbox
             needs, found relative to the shader's own directory.
-        dart: The Dart executable that runs `compile_tool`.
-        dart_files: depset of the files `dart` needs.
-        compile_tool: `compile_shader.dart`, which retries a shader whose
-            SkSL stage fails without it, as `flutter build` does. Used only
-            where the flags include SkSL beside other stages.
+        compile_tool: The compiled `compile_shader` executable File, which
+            retries a shader whose SkSL stage fails without it, as `flutter build`
+            does. Used only where the flags include SkSL beside other stages.
         require_sksl: Make an SkSL failure an error instead of a warning.
     """
     platform_flags = get_shader_platform_flags(target_platform)
@@ -80,7 +78,7 @@ def flutter_shader_compile_action(
 
     # impellerc requires a --spirv intermediate output alongside --sl when
     # using runtime stages (not platform flags). Declare it as a secondary output.
-    spirv_output = ctx.actions.declare_file(output.path + ".spirv")
+    spirv_output = ctx.actions.declare_file(output.basename + ".spirv", sibling = output)
 
     args = ctx.actions.args()
     for flag in platform_flags:
@@ -99,17 +97,20 @@ def flutter_shader_compile_action(
     inputs = [shader] + shader_lib + list(includes)
     retry_possible = "--sksl" in platform_flags and len(platform_flags) > 1
     if retry_possible:
+        dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx)
         wrapper_args = ctx.actions.args()
-        wrapper_args.add(compile_tool)
         wrapper_args.add("--impellerc", impellerc)
         wrapper_args.add("--shader", shader.short_path)
         if require_sksl:
             wrapper_args.add("--require-sksl")
         wrapper_args.add("--")
         ctx.actions.run(
-            executable = dart,
-            arguments = [wrapper_args, args],
-            inputs = depset(inputs + [impellerc, compile_tool], transitive = [dart_files]),
+            executable = dart_exe,
+            arguments = [compile_tool.path, wrapper_args, args],
+            inputs = depset(
+                direct = inputs + [impellerc, compile_tool],
+                transitive = [dart_vm_files],
+            ),
             outputs = [output, spirv_output],
             mnemonic = "FlutterShaderCompile",
             progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),

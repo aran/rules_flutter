@@ -22,7 +22,7 @@ Output bundle structure:
 
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:cc_runner_compile.bzl", "compile_and_link_runner")
-load("//flutter/private:common.bzl", "compute_desktop_bundle_copies")
+load("//flutter/private:common.bzl", "compute_desktop_bundle_copies", "resolve_exec_dart_vm", "resolve_flutter_sdk_info")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir", "linux_multiarch_triple")
 
 # GTK3 include subdirectories within the Chromium sysroot.
@@ -130,6 +130,9 @@ def _c_string_literal(value):
 def linux_runner_defines(gtk_app_id, window_title):
     """The local defines the built-in Linux runner reads.
 
+    `APPLICATION_ID` carries the same id for a `linux/runner/` from
+    `flutter create`, whose CMake build defines it under that name.
+
     Args:
       gtk_app_id: GTK application identifier.
       window_title: Title of the runner's window.
@@ -139,12 +142,12 @@ def linux_runner_defines(gtk_app_id, window_title):
     """
     return [
         "GTK_APP_ID=" + _c_string_literal(gtk_app_id),
+        "APPLICATION_ID=" + _c_string_literal(gtk_app_id),
         "WINDOW_TITLE=" + _c_string_literal(window_title),
     ]
 
 def _flutter_linux_runner_lib_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    flutter_sdk_info = resolve_flutter_sdk_info(ctx)
 
     # Get engine files from the engine target.
     engine_files = ctx.attr.engine[DefaultInfo].files.to_list()
@@ -400,6 +403,7 @@ flutter_linux_runner_lib = rule(
     toolchains = [
         "@bazel_tools//tools/cpp:toolchain_type",
         "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:desktop_engine_toolchain_type", mandatory = False),
     ],
     doc = "Compiles a GTK Linux runner binary from C++ sources with engine and registrant.",
 )
@@ -416,8 +420,7 @@ def _flutter_linux_bundle_impl(ctx):
     native_libs.extend(app_info.bundled_code_assets.to_list())
     is_debug = app_info.is_debug
 
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    flutter_sdk_info = resolve_flutter_sdk_info(ctx)
 
     app_name = ctx.attr.app_name or ctx.label.name
 
@@ -476,18 +479,19 @@ def _flutter_linux_bundle_impl(ctx):
     config_file = ctx.actions.declare_file(ctx.label.name + "_bundle_config.json")
     ctx.actions.write(config_file, json.encode(config))
 
-    inputs = [ctx.file._bundle_tool, config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
+    inputs = [config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
 
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = dart_exe,
         arguments = [
-            ctx.file._bundle_tool.path,
+            ctx.executable._bundle_tool.path,
             "--config",
             config_file.path,
         ],
         inputs = depset(
-            direct = inputs,
-            transitive = [flutter_sdk_info.tool_files],
+            direct = inputs + [ctx.executable._bundle_tool],
+            transitive = [dart_vm_files],
         ),
         outputs = [bundle_dir],
         mnemonic = "FlutterLinuxBundle",
@@ -512,12 +516,14 @@ flutter_linux_bundle_rule = rule(
             doc = "Name of the application binary and bundle directory (defaults to target name).",
         ),
         "_bundle_tool": attr.label(
-            default = Label("//flutter/private/tools:bundle_app.dart"),
-            allow_single_file = True,
+            default = Label("//flutter/private/tools:bundle_app"),
+            executable = True,
+            cfg = "exec",
         ),
     },
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:desktop_engine_toolchain_type", mandatory = False),
     ],
     doc = "Assembles a Linux application directory from a pre-compiled runner and flutter_application artifacts.",
 )

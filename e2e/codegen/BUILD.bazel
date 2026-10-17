@@ -229,6 +229,13 @@ build_test(
     targets = [":app"],
 )
 
+_HOST_COMPATIBLE = select({
+    "@platforms//os:linux": [],
+    "@platforms//os:macos": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 # Exercises: a flutter_test that imports `package:codegen_e2e/user.dart` —
 # whose source-tree sibling has `part 'user.g.dart'` produced by `:user_json`
 # in `bazel-out`. The test's `package:` URI must resolve to a single
@@ -242,6 +249,7 @@ flutter_test(
         ":user_json",
     ],
     main = "test/user_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -257,6 +265,7 @@ flutter_test(
     name = "native_asset_test",
     package_name = "codegen_e2e",
     main = "test/native_asset_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "//native_add",
         "@deps//:flutter",
@@ -411,6 +420,7 @@ flutter_test(
     package_name = "codegen_e2e",
     srcs = [":app_l10n"],
     main = "test/l10n_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_localizations",
@@ -427,6 +437,7 @@ flutter_test(
     package_name = "codegen_e2e",
     data = glob(["test/goldens/**"]),
     main = "test/golden_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -439,6 +450,7 @@ flutter_test(
     name = "golden_undeclared_test",
     package_name = "codegen_e2e",
     main = "test/golden_undeclared_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -453,5 +465,6 @@ flutter_test(
     name = "test_api_only_test",
     package_name = "codegen_e2e",
     main = "test/test_api_only_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = ["@deps//:test_api"],
 )

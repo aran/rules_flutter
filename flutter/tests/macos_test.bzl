@@ -2,9 +2,41 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//flutter:providers.bzl", "FlutterDarwinFrameworkInfo")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//flutter:macos.bzl", "flutter_apple_plugin_library", "flutter_macos_app")
 load("//flutter/private:flutter_macos_application.bzl", "flutter_macos_framework", "flutter_macos_native_libs")
+load("//flutter/private:flutter_xtool_bundle.bzl", "flutter_xtool_macos_bundle")
 load("//flutter/private:validation.bzl", "is_valid_bundle_id", "minimum_os_version_is_below")
-load(":apple_bundling.bzl", "fake_application", "outputs_under_target_dir_test")
+load(":apple_bundling.bzl", "fake_application", "fake_macho_binary", "fake_xcframework", "outputs_under_target_dir_test")
+
+def _macos_arm64_transition_impl(_settings, _attr):
+    return {
+        "//command_line_option:platforms": str(Label("//flutter/platforms:macos_arm64")),
+        "//flutter/settings:apple_backend": "xtool",
+    }
+
+_macos_arm64_transition = transition(
+    implementation = _macos_arm64_transition_impl,
+    inputs = [],
+    outputs = [
+        "//command_line_option:platforms",
+        "//flutter/settings:apple_backend",
+    ],
+)
+
+def _platform_target_impl(ctx):
+    files = []
+    for t in ctx.attr.targets:
+        files.append(t[DefaultInfo].files)
+    return [DefaultInfo(files = depset(transitive = files))]
+
+_macos_arm64_targets = rule(
+    implementation = _platform_target_impl,
+    attrs = {
+        "targets": attr.label_list(cfg = _macos_arm64_transition, mandatory = True),
+    },
+)
 
 def _valid_bundle_id_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -133,8 +165,8 @@ def _native_libs_staged_test_impl(ctx):
     asserts.equals(
         env,
         sorted(sources),
-        sorted([f.path for f in actions[0].inputs.to_list()]),
-        "the action's inputs must be exactly the libraries it copies",
+        sorted([f.path for f in actions[0].inputs.to_list() if f.path.endswith(".dylib")]),
+        "the action's .dylib inputs must be exactly the libraries it copies",
     )
     return analysistest.end(env)
 
@@ -170,6 +202,46 @@ _expect_failure_test = analysistest.make(
         "expected_substrings": attr.string_list(mandatory = True),
     },
 )
+
+
+def _xtool_macos_app_actions_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    tut = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+    mnemonics = [a.mnemonic for a in actions]
+    asserts.true(
+        env,
+        "FlutterXtoolRunner" in mnemonics,
+        "Expected FlutterXtoolRunner action in flutter_macos_app, got: %s" % mnemonics,
+    )
+    asserts.true(
+        env,
+        "FlutterXtoolMacosBundle" in mnemonics,
+        "Expected FlutterXtoolMacosBundle action in flutter_macos_app, got: %s" % mnemonics,
+    )
+    runner_actions = [a for a in actions if a.mnemonic == "FlutterXtoolRunner"]
+    runner_inputs = [f.short_path for f in runner_actions[0].inputs.to_list()]
+    asserts.true(
+        env,
+        any([p.endswith("AppDelegate.swift") for p in runner_inputs]),
+        "Expected AppDelegate.swift in FlutterXtoolRunner inputs, got: %s" % runner_inputs,
+    )
+    asserts.true(
+        env,
+        any([p.endswith("_native_plugin_registrant.swift") for p in runner_inputs]),
+        "Expected GeneratedPluginRegistrant.swift in FlutterXtoolRunner inputs, got: %s" % runner_inputs,
+    )
+    asserts.true(
+        env,
+        any([p.endswith(".modulemap") for p in runner_inputs]),
+        "Expected plugin .modulemap in FlutterXtoolRunner inputs, got: %s" % runner_inputs,
+    )
+    files = tut[DefaultInfo].files.to_list()
+    asserts.equals(env, 1, len(files))
+    asserts.true(env, files[0].short_path.endswith(".app.zip"))
+    return analysistest.end(env)
+
+_xtool_macos_app_actions_test = analysistest.make(_xtool_macos_app_actions_test_impl)
 
 def _bundling_tests(name):
     """Declare the bundling fixtures and the tests over them.
@@ -262,6 +334,110 @@ def _bundling_tests(name):
         application = name + "_fake_app_other",
         tags = ["manual"],
     )
+
+    # Debug and release (real synthetic Mach-O AOT dylib) framework fixtures,
+    # plus xtool macOS bundle assembly on any host (Linux or macOS).
+    fake_application(
+        name = name + "_fake_debug_app",
+        debug = True,
+        tags = ["manual"],
+    )
+    flutter_macos_framework(
+        name = name + "_fake_debug_app_framework",
+        application = name + "_fake_debug_app",
+        tags = ["manual"],
+    )
+    fake_application(
+        name = name + "_fake_release_macho_app",
+        debug = False,
+        macho_aot = True,
+        tags = ["manual"],
+    )
+    flutter_macos_framework(
+        name = name + "_fake_release_macho_app_framework",
+        application = name + "_fake_release_macho_app",
+        tags = ["manual"],
+    )
+    fake_macho_binary(
+        name = name + "_fake_macos_runner_bin",
+        platform = "macos",
+        tags = ["manual"],
+    )
+    flutter_xtool_macos_bundle(
+        name = name + "_fake_xtool_macos_bundle",
+        app_name = "Runner",
+        bundle_id = "com.example.runner",
+        executable = name + "_fake_macos_runner_bin",
+        frameworks = [name + "_fake_release_macho_app_framework"],
+        native_libs = [name + "_native_libs"],
+        tags = ["manual"],
+    )
+    fake_xcframework(
+        name = name + "_fake_macos_xcframework",
+        framework_name = "FlutterMacOS",
+        platform = "macos",
+        tags = ["manual"],
+    )
+    write_file(
+        name = name + "_sample_macos_plugin_swift",
+        out = name + "_SampleMacosPlugin.swift",
+        content = ["import FlutterMacOS", "public class SampleMacosPlugin {}"],
+        tags = ["manual"],
+    )
+    write_file(
+        name = name + "_sample_macos_plugin_hdr",
+        out = name + "_SampleMacosPlugin.h",
+        content = ["#pragma once"],
+        tags = ["manual"],
+    )
+    flutter_apple_plugin_library(
+        name = name + "_sample_macos_plugin_lib",
+        srcs = [
+            ":" + name + "_sample_macos_plugin_swift",
+            ":" + name + "_sample_macos_plugin_hdr",
+        ],
+        module_name = "sample_macos_plugin",
+        platform = "macos",
+        engine = ":" + name + "_fake_macos_xcframework",
+        tags = ["manual"],
+    )
+    write_file(
+        name = name + "_sample_macos_entitlements",
+        out = name + "_DebugProfile.entitlements",
+        content = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>',
+        ],
+        tags = ["manual"],
+    )
+    flutter_macos_app(
+        name = name + "_e2e_macos_app",
+        application = ":" + name + "_fake_release_macho_app",
+        bundle_id = "com.example.e2e.macos",
+        srcs = [
+            "@rules_flutter//flutter/private/runners/macos:AppDelegate.swift",
+            "@rules_flutter//flutter/private/runners/macos:MainFlutterWindow.swift",
+        ],
+        info_plist = "@rules_flutter//flutter/private/runners/macos:Info.plist",
+        menu_xib = "@rules_flutter//flutter/private/runners/macos:MainMenu.xib",
+        entitlements = ":" + name + "_sample_macos_entitlements",
+        engine = ":" + name + "_fake_macos_xcframework",
+        runner_deps = [":" + name + "_sample_macos_plugin_lib"],
+        backend = "xtool",
+        tags = ["manual"],
+    )
+    _macos_arm64_targets(
+        name = name + "_macos_arm64_release_targets",
+        targets = [
+            name + "_fake_debug_app_framework",
+            name + "_fake_release_macho_app_framework",
+            name + "_fake_xtool_macos_bundle",
+            name + "_sample_macos_plugin_lib",
+            name + "_e2e_macos_app",
+        ],
+        tags = ["manual"],
+    )
+
     build_test(
         name = name + "_two_apps_one_package",
         targets = [
@@ -269,7 +445,13 @@ def _bundling_tests(name):
             name + "_fake_app_other_framework",
             name + "_native_libs",
             name + "_native_libs_other",
+            name + "_macos_arm64_release_targets",
         ],
+    )
+
+    _xtool_macos_app_actions_test(
+        name = name + "_xtool_macos_app_actions",
+        target_under_test = name + "_e2e_macos_app",
     )
 
     return [
@@ -277,6 +459,7 @@ def _bundling_tests(name):
         name + "_native_libs_staged",
         name + "_native_libs_nothing_to_bundle",
         name + "_native_libs_duplicate_basename_fails",
+        name + "_xtool_macos_app_actions",
         name + "_two_apps_one_package",
     ]
 
