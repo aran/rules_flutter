@@ -59,7 +59,8 @@ const _keepEnvVar = 'E2E_KEEP_WORKSPACES';
 /// Outside any workspace so it survives them, and outside the repo so no
 /// build or `git clean` sees it. Bounded by [_diskCacheMaxSize] and
 /// [_diskCacheMaxAge], and safe to delete outright at any time; the next run
-/// just pays the cold cost again.
+/// just pays the cold cost again. A `--disk_cache` in the source workspace's
+/// `.bazelrc.user` replaces this one, since that file is appended after it.
 String get _diskCache =>
     p.join(_homeDirectory, '.cache', 'rules_flutter_e2e_disk');
 
