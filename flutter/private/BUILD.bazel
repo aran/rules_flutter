@@ -439,8 +439,10 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":common",
+        ":flutter_compile",
         ":flutter_module",
         "//flutter:providers",
+        "@bazel_skylib//rules:common_settings",
     ],
 )
 

@@ -21,7 +21,9 @@ Wire-up:
      point, and all of it linked into the one `.dill` flutter_tester loads.
      A test therefore recompiles only its own files, and a change to a shared
      library recompiles that library's module and those downstream of it once,
-     not every test that reaches it.
+     not every test that reaches it. With
+     `--@rules_dart//dart:modular_kernel=false` the test instead compiles its
+     whole program from source, as `flutter_application` does.
   3. The runner binary spawns `flutter_tester` with the dill, hosts a localhost
      WebSocket harness, drives the `package:test` MultiChannel protocol, and
      reports per-test pass/fail.
@@ -52,10 +54,11 @@ source tree; the same flag under `bazel test` is refused, because a test action
 cannot write there.
 """
 
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartKernelSdkInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_link_kernel_action", "derive_lib_root", "module_defines_transition", "runfiles_path")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_link_kernel_action", "derive_lib_root", "module_defines_transition", "runfiles_path")
 load("//flutter:providers.bzl", "FlutterInfo")
-load("//flutter/private:app_entrypoint.bzl", "synthesize_app_package")
+load("//flutter/private:app_entrypoint.bzl", "compile_package_config", "synthesize_app_package")
 load(
     "//flutter/private:common.bzl",
     "FLUTTER_APPLICATION_ATTRS",
@@ -68,6 +71,7 @@ load(
     "host_target_arch",
     "merge_dart_defines",
 )
+load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
 
@@ -305,10 +309,19 @@ def _flutter_test_impl(ctx):
             target_file = ctx.file._golden_comparator_src,
         )
 
+    # `--@rules_dart//dart:modular_kernel=false` turns per-library compilation
+    # off build-wide; the aspect then compiles nothing, and the test compiles
+    # its whole program from source.
+    modular = ctx.attr._modular_kernel[BuildSettingInfo].value
+
     # Per-target bootstrap. Imports the user's test by a path relative to the
-    # bootstrap, as both files sit under the kernel filesystem roots.
+    # bootstrap: under the kernel filesystem roots when modular, through the
+    # exec root otherwise.
     bootstrap = ctx.actions.declare_file(ctx.label.name + "_bootstrap.dart")
-    test_import = "../" * _kernel_root_path(bootstrap.short_path).count("/") + _kernel_root_path(ctx.file.main.short_path)
+    if modular:
+        test_import = "../" * _kernel_root_path(bootstrap.short_path).count("/") + _kernel_root_path(ctx.file.main.short_path)
+    else:
+        test_import = "../" * len(bootstrap.dirname.split("/")) + ctx.file.main.path
     ctx.actions.write(bootstrap, make_bootstrap_content(
         test_import,
         golden_comparator_import = staged_comparator.basename if staged_comparator else None,
@@ -324,31 +337,14 @@ def _flutter_test_impl(ctx):
         ctx.attr.language_version,
     )
 
-    # Every library in `deps` arrives compiled, once per configuration, as a
-    # kernel module; only the test's own files are compiled here, against
-    # them, and the two are linked into the program flutter_tester runs.
     own_srcs = list(ctx.files.srcs) + [ctx.file.main]
     if staged_comparator:
         own_srcs.append(staged_comparator)
-    modules = collect_modules(ctx.attr.deps)
-    entry_dill = ctx.actions.declare_file(ctx.label.name + ".entry.dill")
-    linked = dart_entry_kernel_action(
-        ctx,
-        sdk = ctx.attr._kernel_sdk[DartKernelSdkInfo],
-        kernel_tool = ctx.executable._kernel_tool,
-        main = bootstrap,
-        srcs = own_srcs,
-        packages = packages,
-        modules = modules,
-        deps = ctx.attr.deps,
-        # `synthesize_app_package` appends the test's own package last.
-        own_package = packages[-1],
-        output = entry_dill,
-        defines = merge_dart_defines(ctx),
-        native_assets_yaml = native_assets_manifest,
-    )
     kernel_dill = ctx.actions.declare_file(ctx.label.name + ".dill")
-    dart_link_kernel_action(ctx, ctx.executable._kernel_tool, entry_dill, linked, kernel_dill)
+    if modular:
+        _link_modules(ctx, bootstrap, own_srcs, packages, native_assets_manifest, kernel_dill)
+    else:
+        _compile_whole_program(ctx, flutter_sdk_info, bootstrap, own_srcs, packages, native_assets_manifest, kernel_dill)
 
     # Build a `flutter_assets/` tree for the test. Material widgets pull
     # `shaders/ink_sparkle.frag` at first paint, and pub-package fonts/assets
@@ -490,6 +486,59 @@ def _flutter_test_impl(ctx):
         ),
     ]
 
+def _link_modules(ctx, bootstrap, own_srcs, packages, native_assets_manifest, kernel_dill):
+    """Compiles the test's own files against its deps' modules, and links them.
+
+    Every library in `deps` arrives compiled, once per configuration, as a
+    kernel module; only the test's own files are compiled here, against them,
+    and the two are linked into the program flutter_tester runs.
+    """
+    entry_dill = ctx.actions.declare_file(ctx.label.name + ".entry.dill")
+    linked = dart_entry_kernel_action(
+        ctx,
+        sdk = ctx.attr._kernel_sdk[DartKernelSdkInfo],
+        kernel_tool = ctx.executable._kernel_tool,
+        main = bootstrap,
+        srcs = own_srcs,
+        packages = packages,
+        modules = collect_modules(ctx.attr.deps),
+        deps = ctx.attr.deps,
+        # `synthesize_app_package` appends the test's own package last.
+        own_package = packages[-1],
+        output = entry_dill,
+        defines = merge_dart_defines(ctx),
+        native_assets_yaml = native_assets_manifest,
+    )
+    dart_link_kernel_action(ctx, ctx.executable._kernel_tool, entry_dill, linked, kernel_dill)
+
+def _compile_whole_program(ctx, flutter_sdk_info, bootstrap, own_srcs, packages, native_assets_manifest, kernel_dill):
+    """Compiles the bootstrap and everything it reaches from source, as `flutter_application` does.
+
+    Packages whose hand-written and generated sources straddle the source tree
+    and `bazel-out` are co-located first, so `part` directives and a package's
+    single `rootUri` resolve.
+    """
+    all_srcs = collect_transitive_srcs(ctx.attr.deps).to_list() + own_srcs + [bootstrap]
+    pc = compile_package_config(ctx, packages, all_srcs)
+    flutter_kernel_compile_action(
+        ctx = ctx,
+        dartaotruntime = flutter_sdk_info.dartaotruntime,
+        dart = flutter_sdk_info.dart,
+        kernel_filter_tool = ctx.file._kernel_filter_tool,
+        flutter_sdk_files = flutter_sdk_info.tool_files,
+        frontend_server = flutter_sdk_info.frontend_server,
+        # The debug platform: asserts on, as `flutter test` compiles.
+        platform_dill = flutter_sdk_info.platform_kernel_dill,
+        main = bootstrap,
+        srcs = pc.srcs,
+        package_config = pc.config_file,
+        output = kernel_dill,
+        aot = False,
+        defines = merge_dart_defines(ctx),
+        target = "flutter",
+        native_assets_manifest = native_assets_manifest,
+    )
+
 # flutter_test takes the compilation attrs plus the asset-bundle attrs.
 # Material widgets implicitly require `shaders/ink_sparkle.frag` and the
 # MaterialIcons font, so a flutter_assets/ tree is built and passed to
@@ -515,6 +564,7 @@ _TEST_ATTRS = {
         "shader_includes",
         "require_sksl_shaders",
         "_shader_compile_tool",
+        "_kernel_filter_tool",
         "license_files",
         "tree_shake_icons",
         "_asset_bundle_tool",
@@ -579,6 +629,10 @@ _TEST_ATTRS["deps"] = attr.label_list(
     providers = [DartInfo],
     aspects = [flutter_module_aspect],
     cfg = module_defines_transition,
+)
+_TEST_ATTRS["_modular_kernel"] = attr.label(
+    default = Label("@rules_dart//dart:modular_kernel"),
+    providers = [BuildSettingInfo],
 )
 _TEST_ATTRS["_kernel_sdk"] = attr.label(
     default = Label("//flutter/private:flutter_kernel_sdk"),

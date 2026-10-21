@@ -15,6 +15,7 @@ load(
     "flutter_macos_runner_lib_gen",
 )
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
+load(":whole_program_test.bzl", "whole_program_test")
 
 # The generator scripts this package's codegen rules invoke by file label.
 # Named once here because the `dart_binary` analysis handles below iterate it.
@@ -455,3 +456,20 @@ flutter_test(
     main = "test/test_api_only_test.dart",
     deps = ["@deps//:test_api"],
 )
+
+# The same tests compiled whole-program, as `--@rules_dart//dart:modular_kernel=false`
+# compiles every one: generated `part`s co-located, native assets, the
+# `test_api`-only bootstrap and goldens, on the path the flag falls back to.
+[
+    whole_program_test(
+        name = test + "_whole_program",
+        test = ":" + test,
+    )
+    for test in [
+        "golden_test",
+        "l10n_test",
+        "native_asset_test",
+        "test_api_only_test",
+        "user_test",
+    ]
+]
