@@ -13,9 +13,9 @@ def _plain_title_test_impl(ctx):
         env,
         [
             "GTK_APP_ID=\"com.example.notes\"",
-            "WINDOW_TITLE=\"Rainstorm Notes\"",
+            "WINDOW_TITLE=\"Cordita Notes\"",
         ],
-        linux_runner_defines("com.example.notes", "Rainstorm Notes"),
+        linux_runner_defines("com.example.notes", "Cordita Notes"),
     )
     return unittest.end(env)
 

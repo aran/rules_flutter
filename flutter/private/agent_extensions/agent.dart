@@ -1284,7 +1284,7 @@ final Map<String, LogicalKeyboardKey> _logicalByName = {
 /// Flutter calls the US apostrophe key's physical key "Quote", and "Quote" is
 /// also the name of the logical key for `"` — the apostrophe is "Quote Single".
 /// Pairing by name pressed ⌘' as ⌘", which a shortcut bound to `quoteSingle`
-/// never answers (reported by rainstorm, whose Block Quote is ⌘'). Checked
+/// never answers (reported by Cordita, whose Block Quote is ⌘'). Checked
 /// against the SDK's key tables for every key in the dev tool's US layout: this
 /// is the only one the names pair wrongly.
 const Map<String, LogicalKeyboardKey> _logicalForCode = {
@@ -2247,7 +2247,7 @@ _Selector _selector(Map<String, String> params, {bool textIsSelector = true}) {
     // The string the widget shows, read the way `getText` reads it. Comparing
     // `Text.data` alone never matched a `Text.rich`, whose `data` is null —
     // `getText` read one that `waitFor` and `tap` could not find (reported by
-    // rainstorm). `flutter_test`'s `find.text` matches it the same way.
+    // Cordita). `flutter_test`'s `find.text` matches it the same way.
     return _Selector(
       'text "$text"',
       (el) => _displayedText(el.widget) == text,
