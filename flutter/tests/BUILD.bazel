@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load(":app_defines_test.bzl", "app_defines_test_suite")
 load(":app_entrypoint_test.bzl", "app_entrypoint_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
@@ -82,6 +83,8 @@ language_version_test_suite(name = "language_version_test")
 profile_mode_test_suite(name = "profile_mode_test")
 
 app_entrypoint_test_suite(name = "app_entrypoint_test")
+
+app_defines_test_suite(name = "app_defines_test")
 
 pub_lock_sdks_test_suite(name = "pub_lock_sdks_test")
 

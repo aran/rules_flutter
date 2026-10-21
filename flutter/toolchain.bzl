@@ -13,6 +13,7 @@ def _flutter_toolchain_impl(ctx):
         gen_snapshot = ctx.file.gen_snapshot,
         flutter_tester = ctx.file.flutter_tester,
         frontend_server = ctx.file.frontend_server,
+        kernel_worker = ctx.file.kernel_worker,
         libraries_spec = ctx.file.libraries_spec,
         platform_kernel_dill = ctx.file.platform_kernel_dill,
         platform_kernel_dill_product = ctx.file.platform_kernel_dill_product,
@@ -84,6 +85,10 @@ flutter_toolchain = rule(
         "frontend_server": attr.label(
             doc = "The `frontend_server_aot.dart.snapshot` file.",
             mandatory = True,
+            allow_single_file = True,
+        ),
+        "kernel_worker": attr.label(
+            doc = "The `kernel_worker_aot.dart.snapshot`, which compiles one library target to a kernel module.",
             allow_single_file = True,
         ),
         "libraries_spec": attr.label(

@@ -279,6 +279,7 @@ flutter_toolchain(
 {engine_library_attr}
     flutter_tester = "host-tools/flutter_tester{exe_suffix}",
     frontend_server = "host-tools/frontend_server_aot.dart.snapshot",
+    kernel_worker = "dart-sdk/bin/snapshots/kernel_worker_aot.dart.snapshot",
     libraries_spec = "{flutter_libraries_spec}",
 {gen_snapshot_attr}
     icu_data = "host-tools/icudtl.dat",

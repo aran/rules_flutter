@@ -273,8 +273,7 @@ flutter_test(
 )
 
 # Verifies Dart environment defines: the `defines` attr, the
-# --@rules_flutter//flutter:extra_dart_defines flag (set in .bazelrc, value
-# contains a comma to prove repeatable-flag no-split semantics), and
+# --@rules_flutter//flutter:extra_dart_defines flag (set in .bazelrc), and
 # flag-beats-attr precedence.
 flutter_test(
     name = "dart_defines_test",

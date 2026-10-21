@@ -12,6 +12,8 @@ FlutterSdkInfo = provider(
                           "used to run widget tests (`flutter_test` rule). None if the host SDK " +
                           "doesn't include it (e.g. cross-compilation targets).",
         "frontend_server": "File: The `frontend_server_aot.dart.snapshot` for kernel compilation.",
+        "kernel_worker": "File or None: `kernel_worker_aot.dart.snapshot`, which compiles one " +
+                         "library target to a kernel module. None where `flutter_tester` is None.",
         "libraries_spec": "File or None: A `libraries.json` whose `flutter` target names the dart: " +
                           "libraries a Flutter program can import. It lists names only and is " +
                           "not for compiling. None where `flutter_tester` is None.",

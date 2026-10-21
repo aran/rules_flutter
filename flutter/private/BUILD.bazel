@@ -1,4 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(":flutter_module.bzl", "flutter_kernel_sdk")
 
 # Compilation mode config_settings for select() in macros.
 # compilation_mode is preserved across platform transitions (e.g. iOS).
@@ -43,6 +44,22 @@ bzl_library(
     name = "artifact_urls",
     srcs = ["artifact_urls.bzl"],
     visibility = ["//flutter:__subpackages__"],
+)
+
+# The Flutter SDK as `flutter_module_aspect` compiles kernel modules against it.
+flutter_kernel_sdk(
+    name = "flutter_kernel_sdk",
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "flutter_module",
+    srcs = ["flutter_module.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        "@rules_dart//dart:providers",
+        "@rules_dart//dart:utils",
+    ],
 )
 
 bzl_library(
@@ -422,6 +439,7 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":common",
+        ":flutter_module",
         "//flutter:providers",
     ],
 )
