@@ -16,6 +16,7 @@ _LIB_DEPS = [
     "@dev_tool_deps//:shelf",
     "@dev_tool_deps//:vm_service",
     "@dev_tool_deps//:watcher",
+    "@dev_tool_deps//:webkit_inspection_protocol",
     "@rules_dart//dart/runfiles",
 ]
 
