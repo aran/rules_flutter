@@ -20,7 +20,7 @@ so we skip the frontend_server kernel compilation step used by desktop/mobile.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config", "import_check_validation")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
@@ -338,6 +338,9 @@ def _flutter_web_bundle_impl(ctx):
     # siblings — that's what lets `main.dart`'s relative imports resolve to
     # the assembled (codegen-co-located) copies of its package siblings.
     packages = synthesize_app_package(ctx.label, packages, ctx.attr.package_name, lib_root, ctx.attr.language_version)
+
+    # `synthesize_app_package` appends the app's own package last.
+    import_checks = import_check_validation(ctx, ctx.executable._kernel_tool, [ctx.file.main] + ctx.files.srcs, packages[-1], ctx.attr.deps)
 
     # Hot-reload dev metadata (debug only): a multi-root dev package_config so a
     # source-assembled (codegen) app resolves package: URIs across the live
@@ -930,6 +933,7 @@ def _flutter_web_bundle_impl(ctx):
     # is off, so the group always exists and always says the truth.
     output_groups = OutputGroupInfo(
         dump_info = depset([dump_info_file] if dump_info_file else []),
+        _validation = import_checks,
     )
 
     # What lets rules_dart's analysis check a web app. Until this existed the rule handed out no Dart provider at all, so every web

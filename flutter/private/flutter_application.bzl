@@ -427,10 +427,10 @@ def _flutter_application_impl(ctx):
     }
     if debug_info_output:
         output_groups["debug_info"] = depset([debug_info_output])
-    if link_hook_validation:
-        # Every hook runs whenever the app builds, even one that emits no
-        # asset, so its verdict on the program is never skipped.
-        output_groups["_validation"] = depset(link_hook_validation)
+
+    # Every hook runs whenever the app builds, even one that emits no asset,
+    # so its verdict on the program is never skipped.
+    output_groups["_validation"] = depset(link_hook_validation, transitive = [compilation.import_checks])
 
     providers = [
         DefaultInfo(files = depset(default_files)),

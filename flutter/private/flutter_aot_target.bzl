@@ -18,15 +18,17 @@ def _flutter_aot_target_impl(ctx):
     is_debug = flutter_build_mode(ctx) == "debug"
 
     # Step 1: Kernel compilation.
-    kernel_dill = flutter_compile_kernel(
+    compilation = flutter_compile_kernel(
         ctx,
         flutter_sdk_info,
         aot = not is_debug,
-    ).kernel_dill
+    )
+    kernel_dill = compilation.kernel_dill
+    import_checks = OutputGroupInfo(_validation = compilation.import_checks)
 
     # In debug mode, return the kernel .dill directly (JIT, no gen_snapshot).
     if is_debug:
-        return [DefaultInfo(files = depset([kernel_dill]))]
+        return [DefaultInfo(files = depset([kernel_dill])), import_checks]
 
     # Step 2: AOT compile — choose format based on target platform.
     is_ios = ctx.target_platform_has_constraint(
@@ -61,6 +63,7 @@ def _flutter_aot_target_impl(ctx):
 
     return [
         DefaultInfo(files = depset([output])),
+        import_checks,
     ]
 
 # The compile inputs arrive as a bundle, the gen_snapshot options by name.

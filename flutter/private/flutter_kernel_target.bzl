@@ -15,10 +15,11 @@ def _flutter_kernel_target_impl(ctx):
     # None lets flutter_compile_kernel decide based on COMPILATION_MODE;
     # True forces AOT even in debug mode.
     aot = True if ctx.attr.aot else None
-    kernel_dill = flutter_compile_kernel(ctx, flutter_sdk_info, aot = aot).kernel_dill
+    compilation = flutter_compile_kernel(ctx, flutter_sdk_info, aot = aot)
 
     return [
-        DefaultInfo(files = depset([kernel_dill])),
+        DefaultInfo(files = depset([compilation.kernel_dill])),
+        OutputGroupInfo(_validation = compilation.import_checks),
     ]
 
 flutter_kernel_target = rule(

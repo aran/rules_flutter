@@ -56,7 +56,7 @@ cannot write there.
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartKernelSdkInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_link_kernel_action", "derive_lib_root", "module_defines_transition", "runfiles_path")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_import_check_aspect", "dart_link_kernel_action", "derive_lib_root", "import_check_validation", "module_defines_transition", "runfiles_path")
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:app_entrypoint.bzl", "compile_package_config", "synthesize_app_package")
 load(
@@ -443,6 +443,18 @@ def _flutter_test_impl(ctx):
         ),
         env_info,
         instrumented_files_info,
+        # The test's own files and every library it reaches import only what
+        # their `deps` provide, in either compile mode. The generated bootstrap
+        # and golden comparator are the rule's, not the user's, and are not
+        # checked.
+        OutputGroupInfo(_validation = import_check_validation(
+            ctx,
+            ctx.executable._kernel_tool,
+            [ctx.file.main] + ctx.files.srcs,
+            # `synthesize_app_package` appends the test's own package last.
+            packages[-1],
+            ctx.attr.deps,
+        )),
         # What lets rules_dart's analysis check a `flutter_test`. The test's
         # `main` belongs to no package's `lib/`, so no
         # `DartInfo` can name it and it reaches the analyzer only through here.
@@ -502,7 +514,6 @@ def _link_modules(ctx, bootstrap, own_srcs, packages, native_assets_manifest, ke
         srcs = own_srcs,
         packages = packages,
         modules = collect_modules(ctx.attr.deps),
-        deps = ctx.attr.deps,
         # `synthesize_app_package` appends the test's own package last.
         own_package = packages[-1],
         output = entry_dill,
@@ -619,15 +630,15 @@ _TEST_ATTRS["env"] = attr.string_dict(
 _TEST_ATTRS.update(PLATFORM_CONSTRAINT_ATTRS)
 _TEST_ATTRS.update(KERNEL_TOOL_ATTR)
 
-# Each library in `deps` is compiled into a kernel module by the aspect, with
-# the test's own `defines` (the transition) so a dependency's
+# Each library in `deps` is compiled into a kernel module by the aspect, and its
+# imports checked by another, with the test's own `defines` (the transition) so a dependency's
 # `bool.fromEnvironment` const agrees with the test's.
 _TEST_ATTRS["deps"] = attr.label_list(
     doc = "`dart_library` or `flutter_library` dependencies. List " +
           "`@rules_flutter//flutter:material_icons` to bundle " +
           "`MaterialIcons-Regular.otf` for Material widgets.",
     providers = [DartInfo],
-    aspects = [flutter_module_aspect],
+    aspects = [flutter_module_aspect, dart_import_check_aspect],
     cfg = module_defines_transition,
 )
 _TEST_ATTRS["_modular_kernel"] = attr.label(

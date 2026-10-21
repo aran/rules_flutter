@@ -7,7 +7,7 @@ flutter_application, flutter_android_bundle, and flutter_ios_application.
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "collect_packages", "collect_transitive_srcs", "derive_lib_root", "generate_dev_package_config")
+load("@rules_dart//dart:utils.bzl", "KERNEL_TOOL_ATTR", "collect_packages", "collect_transitive_srcs", "dart_import_check_aspect", "derive_lib_root", "generate_dev_package_config", "import_check_validation")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "app_main_location", "app_scheme_location", "app_scheme_sources", "compile_package_config", "resolve_kernel_entrypoint", "synthesize_app_package", "with_root")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
@@ -273,7 +273,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
             AOT compiles only.
 
     Returns:
-        struct with kernel_dill (File) and package_config (File).
+        struct with kernel_dill (File), package_config (File) and
+        import_checks (the depset of the app's and its libraries' import
+        checks, for the `_validation` output group).
     """
     all_srcs = list(ctx.files.srcs) + collect_transitive_srcs(ctx.attr.deps).to_list()
     packages = collect_packages(ctx.attr.deps)
@@ -297,6 +299,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
         app_lib_root,
         ctx.attr.language_version,
     )
+
+    # `synthesize_app_package` appends the app's own package last.
+    import_checks = import_check_validation(ctx, ctx.executable._kernel_tool, [ctx.file.main] + ctx.files.srcs, packages[-1], ctx.attr.deps)
 
     # Include the app's own `main` so the synthesized package keyed as
     # `package:<name>/main.dart` (hot-reload URI parity) is co-located with
@@ -490,6 +495,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     return struct(
         kernel_dill = kernel_dill,
         package_config = config_file,
+        import_checks = import_checks,
         # Dev-loop plugin registrants, keyed by platform (empty outside
         # debug). The dev tool replays the entry matching the running app's
         # platform on its resident frontend_server so the engine hook keeps
@@ -1134,11 +1140,14 @@ KERNEL_COMPILE_ATTRS = {
               "`flutter_assets/` for Material widgets; the rules that emit only " +
               "a kernel or an AOT artifact have no bundle for it to reach.",
         providers = [DartInfo],
+        # Each library's imports are checked against its own `deps`, in the
+        # `_validation` output group.
+        aspects = [dart_import_check_aspect],
     ),
     "defines": attr.string_list(
         doc = "Dart environment defines (-D flags).",
     ),
-} | EXTRA_DART_DEFINES_ATTR | BUILD_MODE_ATTR
+} | EXTRA_DART_DEFINES_ATTR | BUILD_MODE_ATTR | KERNEL_TOOL_ATTR
 
 # Shared attrs for all flutter application rules.
 FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {

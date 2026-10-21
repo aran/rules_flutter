@@ -15,5 +15,8 @@ dart_binary(
     compile_mode = "exe",
     main = "main.dart",
     visibility = ["//flutter:__subpackages__"],
-    deps = ["@flutter_gen_l10n//:gen_l10n"],
+    deps = [
+        "@flutter_gen_l10n//:gen_l10n",
+        "@gen_l10n_deps//:file",
+    ],
 )
