@@ -173,6 +173,7 @@ bzl_library(
         "//flutter/private:flutter_profile_repo",
         "//flutter/private:flutter_sky_engine_repo",
         "//flutter/private:flutter_web_sdk_repo",
+        "//flutter/private:libraries_spec",
         "//flutter/private:toolchains_repo",
         "//flutter/private:versions",
     ],

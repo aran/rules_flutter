@@ -13,6 +13,7 @@ def _flutter_toolchain_impl(ctx):
         gen_snapshot = ctx.file.gen_snapshot,
         flutter_tester = ctx.file.flutter_tester,
         frontend_server = ctx.file.frontend_server,
+        libraries_spec = ctx.file.libraries_spec,
         platform_kernel_dill = ctx.file.platform_kernel_dill,
         platform_kernel_dill_product = ctx.file.platform_kernel_dill_product,
         patched_sdk = ctx.attr.patched_sdk,
@@ -83,6 +84,11 @@ flutter_toolchain = rule(
         "frontend_server": attr.label(
             doc = "The `frontend_server_aot.dart.snapshot` file.",
             mandatory = True,
+            allow_single_file = True,
+        ),
+        "libraries_spec": attr.label(
+            doc = "A `libraries.json` whose `flutter` target names the dart: libraries a " +
+                  "Flutter program can import.",
             allow_single_file = True,
         ),
         "platform_kernel_dill": attr.label(
