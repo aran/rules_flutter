@@ -1,0 +1,35 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+exports_files(["shaders/test_shader.frag"])
+
+flutter_library(
+    name = "shared_shader_lib",
+    package_name = "shared_shader_fixture",
+    srcs = ["lib/shared.dart"],
+    pkg_shaders = {"shaders/test_shader.frag": "shaders/pkg_shader.frag"},
+    shaders = ["shaders/test_shader.frag"],
+    tags = ["manual"],
+)
+
+# Second library in the same package sharing the same shader basename.
+# Tests that aspects declare output files with target names in their path,
+# avoiding action conflicts when multiple libraries share a package.
+flutter_library(
+    name = "shared_shader_lib_2",
+    package_name = "shared_shader_fixture_2",
+    srcs = ["lib/shared.dart"],
+    pkg_shaders = {"shaders/test_shader.frag": "shaders/pkg_shader.frag"},
+    shaders = ["shaders/test_shader.frag"],
+    tags = ["manual"],
+)
+
+flutter_library(
+    name = "shader_with_includes_lib",
+    package_name = "shader_with_includes",
+    srcs = ["lib/shared.dart"],
+    shader_includes = ["shaders/common.glsl"],
+    shaders = ["shaders/with_include.frag"],
+    tags = ["manual"],
+)

@@ -128,38 +128,98 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
   required String aspect,
   required String outputGroup,
 }) {
+  final scanned = _scanBuildEvents(
+    events,
+    aspect: aspect,
+    outputGroup: outputGroup,
+  );
+  final resolved = _resolveNamedSets(scanned.sets, scanned.roots);
+  return BazelAspectOutputs(
+    exitCode: 0,
+    files: resolved.files,
+    executionRoot: resolved.executionRoot,
+    stderr: '',
+  );
+}
+
+/// Named file sets and output-group root ids from a build event stream.
+typedef _ScannedEvents = ({
+  Map<String, Map<String, Object?>> sets,
+  List<String> roots,
+});
+
+/// Read the named sets and the output-group root ids out of [events].
+_ScannedEvents _scanBuildEvents(
+  String events, {
+  required String aspect,
+  required String outputGroup,
+}) {
   final sets = <String, Map<String, Object?>>{};
   final roots = <String>[];
   for (final line in LineSplitter.split(events)) {
     if (line.trim().isEmpty) continue;
     final event = jsonDecode(line) as Map<String, Object?>;
-    final id = event['id'] as Map<String, Object?>? ?? const {};
-    final namedSet = id['namedSet'] as Map<String, Object?>?;
-    if (namedSet != null) {
-      sets[namedSet['id'] as String] =
-          event['namedSetOfFiles'] as Map<String, Object?>? ?? const {};
-      continue;
-    }
-    final completed = id['targetCompleted'] as Map<String, Object?>?;
-    // Matched on the aspect's own name: the event spells the repository in
-    // its canonical form (`@@rules_flutter+//…`), which is not what was passed.
-    final completedAspect = completed?['aspect'] as String?;
-    if (completedAspect == null ||
-        completedAspect.split('%').last != aspect.split('%').last) {
-      continue;
-    }
-    final groups =
-        (event['completed'] as Map<String, Object?>?)?['outputGroup']
-            as List? ??
-        const [];
-    for (final group in groups.cast<Map<String, Object?>>()) {
-      if (group['name'] != outputGroup) continue;
-      for (final set in (group['fileSets'] as List? ?? const [])) {
-        roots.add((set as Map<String, Object?>)['id'] as String);
-      }
+    if (_recordNamedSet(event, sets)) continue;
+    roots.addAll(_outputGroupRoots(event, aspect, outputGroup));
+  }
+  return (sets: sets, roots: roots);
+}
+
+/// Record a `namedSetOfFiles` event in [sets]; true when the line was one.
+bool _recordNamedSet(
+  Map<String, Object?> event,
+  Map<String, Map<String, Object?>> sets,
+) {
+  final id = event['id'] as Map<String, Object?>? ?? const {};
+  final namedSet = id['namedSet'] as Map<String, Object?>?;
+  if (namedSet == null) return false;
+  sets[namedSet['id'] as String] =
+      event['namedSetOfFiles'] as Map<String, Object?>? ?? const {};
+  return true;
+}
+
+/// The file-set ids [event] contributes to [outputGroup] of [aspect].
+///
+/// Matched on the aspect's own name: the event spells the repository in
+/// its canonical form (`@@rules_flutter+//…`), which is not what was passed.
+List<String> _outputGroupRoots(
+  Map<String, Object?> event,
+  String aspect,
+  String outputGroup,
+) {
+  final id = event['id'] as Map<String, Object?>? ?? const {};
+  final completed = id['targetCompleted'] as Map<String, Object?>?;
+  final completedAspect = completed?['aspect'] as String?;
+  if (completedAspect == null ||
+      completedAspect.split('%').last != aspect.split('%').last) {
+    return const [];
+  }
+  final groups =
+      (event['completed'] as Map<String, Object?>?)?['outputGroup'] as List? ??
+      const [];
+  final roots = <String>[];
+  for (final group in groups.cast<Map<String, Object?>>()) {
+    if (group['name'] != outputGroup) continue;
+    for (final set in (group['fileSets'] as List? ?? const [])) {
+      roots.add((set as Map<String, Object?>)['id'] as String);
     }
   }
+  return roots;
+}
 
+/// Resolved files and execution root from named [sets] under [roots].
+typedef _ResolvedSets = ({List<String> files, String? executionRoot});
+
+/// Close [roots] over [sets]: the files plus the execution root.
+///
+/// The execution root comes from a built file's `uri`: the event gives the
+/// path under it (`pathPrefix` + `name`) as well as the absolute location, and
+/// the difference is the root. Source files carry no prefix and live elsewhere,
+/// so only a built file can answer.
+_ResolvedSets _resolveNamedSets(
+  Map<String, Map<String, Object?>> sets,
+  List<String> roots,
+) {
   final files = <String>{};
   String? executionRoot;
   final seen = <String>{};
@@ -170,28 +230,35 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
     final set = sets[setId] ?? const {};
     for (final file in (set['files'] as List? ?? const [])) {
       final entry = file as Map<String, Object?>;
-      final uri = entry['uri'] as String?;
-      if (uri == null || !uri.startsWith('file://')) continue;
-      final path = Uri.parse(uri).toFilePath();
+      final path = _setFilePath(entry);
+      if (path == null) continue;
       files.add(path);
-      final prefix = (entry['pathPrefix'] as List? ?? const []).cast<String>();
-      if (executionRoot == null && prefix.isNotEmpty) {
-        final relative = [...prefix, entry['name'] as String].join('/');
-        if (path.endsWith('/$relative')) {
-          executionRoot = path.substring(0, path.length - relative.length - 1);
-        }
-      }
+      executionRoot ??= _executionRootOf(entry, path);
     }
     for (final nested in (set['fileSets'] as List? ?? const [])) {
       pending.add((nested as Map<String, Object?>)['id'] as String);
     }
   }
-  return BazelAspectOutputs(
-    exitCode: 0,
-    files: files.toList()..sort(),
-    executionRoot: executionRoot,
-    stderr: '',
-  );
+  return (files: files.toList()..sort(), executionRoot: executionRoot);
+}
+
+/// The absolute path a file-set [entry] names, or null for a non-file uri.
+String? _setFilePath(Map<String, Object?> entry) {
+  final uri = entry['uri'] as String?;
+  if (uri == null || !uri.startsWith('file://')) return null;
+  return Uri.parse(uri).toFilePath();
+}
+
+/// The execution root [entry] witnesses at [path], or null.
+///
+/// The event gives the path under the root (`pathPrefix` + `name`) as well as
+/// the absolute location, and the difference is the root.
+String? _executionRootOf(Map<String, Object?> entry, String path) {
+  final prefix = (entry['pathPrefix'] as List? ?? const []).cast<String>();
+  if (prefix.isEmpty) return null;
+  final relative = [...prefix, entry['name'] as String].join('/');
+  if (!path.endsWith('/$relative')) return null;
+  return path.substring(0, path.length - relative.length - 1);
 }
 
 class _TailedOutput extends SubprocessOutput {

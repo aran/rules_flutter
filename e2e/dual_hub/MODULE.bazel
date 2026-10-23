@@ -27,6 +27,12 @@ local_path_override(
     path = "../..",
 )
 
+git_override(
+    module_name = "rules_dart",
+    commit = "dc0b9a23bf74fc832c89a8f5a0f95d999c8a6f0a",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 flutter.pub(
     name = "hub_a",

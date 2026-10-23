@@ -1,0 +1,17 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_library")
+
+package(
+    default_visibility = ["//sub:__pkg__"],
+)
+
+exports_files(
+    ["assets/brand.txt"],
+    visibility = ["//:__pkg__"],
+)
+
+flutter_library(
+    name = "brand",
+    package_name = "brand",
+    srcs = ["lib/brand.dart"],
+    assets = ["assets/brand.txt"],
+)

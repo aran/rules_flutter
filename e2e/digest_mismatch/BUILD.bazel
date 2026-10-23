@@ -1,0 +1,3 @@
+# Fetch-only workspace: the digest red path (`bazel fetch @red_sky_engine//...`)
+# is driven by CI, which expects the fetch to fail on the wrong checksum.
+# There are no build targets here by design.

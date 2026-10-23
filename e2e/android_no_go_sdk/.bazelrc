@@ -1,0 +1,11 @@
+# Use a remote JDK so the Android build works without a local Java installation.
+common --java_runtime_version=remotejdk_25
+common --tool_java_language_version=25
+common --tool_java_runtime_version=remotejdk_25
+
+# Every e2e workspace leaves its lock stale: each one is overridden onto a
+# sibling rules_dart in local development, and refreshing produces a large
+# diff that nothing checks.
+common --lockfile_mode=off
+
+try-import %workspace%/.bazelrc.user

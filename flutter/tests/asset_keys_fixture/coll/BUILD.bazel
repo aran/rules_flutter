@@ -1,0 +1,20 @@
+"""Second fixture package, so a key collision can span two packages."""
+
+load("//flutter:defs.bzl", "flutter_library")
+
+package(
+    default_visibility = [
+        "//flutter/tests:__pkg__",
+        "//flutter/tests/asset_keys_fixture:__pkg__",
+    ],
+)
+
+exports_files(["assets/dup.txt"])
+
+flutter_library(
+    name = "dup_b",
+    package_name = "dup",
+    srcs = ["lib.dart"],
+    assets = ["assets/dup.txt"],
+    tags = ["manual"],
+)

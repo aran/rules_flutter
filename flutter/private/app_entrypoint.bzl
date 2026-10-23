@@ -16,7 +16,8 @@ root-isolate launch (see plugin_registrant.bzl), which is what keeps it
 alive across hot restart.
 """
 
-load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config")
+load("@rules_dart//dart:providers.bzl", "DartPackageInfo")
+load("@rules_dart//dart:utils.bzl", "generate_stable_package_config", "package_of_source")
 
 # The file-system scheme a file with no `package:` URI is compiled under — a
 # `main` outside its package's `lib/`, and the generated plugin registrant. One
@@ -26,6 +27,20 @@ load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_confi
 # same scheme, and a frontend_server mounts one scheme at a time, so there is no
 # second name to choose.
 APP_SCHEME = "org-dartlang-app"
+
+def app_scheme_rel_path(file):
+    """The path of `file` under `APP_SCHEME` (without leading slash).
+
+    Args:
+        file: A `File`.
+
+    Returns:
+        Workspace-relative path (`external/<repo>/...` for external repos).
+    """
+    rel = file.short_path
+    if rel.startswith("../"):
+        rel = "external/" + rel[len("../"):]
+    return rel
 
 def app_scheme_location(file):
     """Where `file` sits under `APP_SCHEME`, and the root it sits under.
@@ -45,13 +60,140 @@ def app_scheme_location(file):
         struct(uri, root): `org-dartlang-app:///<path>`, and the
         exec-root-relative directory to mount for it (`""` for the exec root).
     """
-    rel = file.short_path
-    if rel.startswith("../"):
-        rel = "external/" + rel[len("../"):]
+    rel = app_scheme_rel_path(file)
     if not file.path.endswith(rel):
         fail("%s: cannot place %s under a file-system root: its path does not end in %s" % (file.owner, file.path, rel))
     root = file.path[:len(file.path) - len(rel)].rstrip("/")
     return struct(uri = "%s:///%s" % (APP_SCHEME, rel), root = root)
+
+def _source_stage_prefix(scope, seen, salt, stable_root):
+    """Staging directory prefix for the `include_sources` path.
+
+    A fixed `<scope>.incr.stage` name when `stable_root` is True, so adding or
+    removing a source file does not move the root a warm incremental compiler
+    sees; otherwise the manifest-hashed `<scope>.<hash>.stage` name.
+    """
+    if stable_root:
+        return "%s.incr.stage" % scope
+    manifest_items = sorted(seen.keys())
+    if salt:
+        manifest_items = manifest_items + [salt]
+    manifest_hash = hash("\n".join(manifest_items)) & 0xffffffff
+    return "%s.%x.stage" % (scope, manifest_hash)
+
+def _note_include_source(ctx, seen, rel, f):
+    """Records `f` under `rel` for the `include_sources` staging path.
+
+    A generated file wins over a source at the same path (the compiler
+    resolves it there); two generated files at one path fail, since no
+    staging can serve both.
+    """
+    prev = seen.get(rel)
+    if prev == None:
+        seen[rel] = f
+        return
+    if prev == f:
+        return
+    if not prev.is_source and not f.is_source:
+        fail("%s: conflicting generated inputs at %s: %s and %s" % (
+            ctx.label,
+            rel,
+            prev.path,
+            f.path,
+        ))
+    if prev.is_source and not f.is_source:
+        seen[rel] = f
+
+def _note_generated_only(ctx, seen, rel, f):
+    """Records `f` under `rel` for the generated-only staging path.
+
+    Two distinct files at one path fail, since no staging can serve both.
+    """
+    prev = seen.get(rel)
+    if prev == None:
+        seen[rel] = f
+        return
+    if prev != f:
+        fail("%s: conflicting generated inputs at %s: %s and %s" % (
+            ctx.label,
+            rel,
+            prev.path,
+            f.path,
+        ))
+
+def _link_staged_files(ctx, seen, stage_prefix):
+    """Symlinks every recorded input into the staging directory.
+
+    Returns `struct(root, files)` where `root` is the exec-root-relative
+    staging directory path and `files` the staged symlinks for the action
+    inputs.
+    """
+    staged = []
+    root = None
+    for rel, f in seen.items():
+        link = ctx.actions.declare_file(stage_prefix + "/" + rel)
+        ctx.actions.symlink(output = link, target_file = f)
+        staged.append(link)
+        if root == None:
+            root = link.path[:len(link.path) - len(rel) - 1]
+    return struct(
+        root = root,
+        files = staged,
+    )
+
+def stage_generated_inputs(ctx, files, scope, include_sources = False, salt = "", stable_root = False):
+    """Stages declared `files` into a per-action multi-root directory.
+
+    Instead of mounting `ctx.bin_dir.path` (which leaks stale generated outputs
+    under `--spawn_strategy=local` or persistent workers and misses generated
+    inputs from transitioned configurations), symlinks declared inputs into a
+    staging directory under `<app_scheme_rel_path>`.
+
+    When `include_sources` is False, only generated inputs (`not f.is_source`)
+    are staged into `<scope>.stage/<app_scheme_rel_path>`. When `include_sources`
+    is True, both source and generated inputs are staged into a manifest-hashed
+    `<scope>.<hash>.stage/<app_scheme_rel_path>` directory so the compiler can
+    mount only the staging root without exposing undeclared workspace files.
+
+    Args:
+        ctx: Rule or aspect context.
+        files: Iterable of `File`s to inspect.
+        scope: Action-unique prefix (e.g. `output.basename`) for the staging
+            directory under the current package.
+        include_sources: If True, stage source files as well as generated files.
+        salt: Optional string mixed into the staging directory hash when
+            `include_sources = True` so changes to generated wrapper/registrant
+            contents or compilation defines produce a distinct staging root.
+        stable_root: If True, stage into a fixed `<scope>.incr.stage`
+            directory instead of hashing the file list into the name, so
+            adding or removing a source file does not change the root path a
+            warm incremental compiler sees. Only the incremental worker passes
+            True; every other caller keeps the hashed name.
+
+    Returns:
+        `struct(root, files)` where `root` is the exec-root-relative staging
+        directory path (or `None` when no files were staged) and `files` is the
+        list of staged symlink `File`s to add to action inputs.
+    """
+    seen = {}
+    if include_sources:
+        for f in files:
+            if f == None or f.is_directory:
+                continue
+            _note_include_source(ctx, seen, app_scheme_rel_path(f), f)
+        if not seen:
+            return struct(root = None, files = [])
+        return _link_staged_files(
+            ctx,
+            seen,
+            _source_stage_prefix(scope, seen, salt, stable_root),
+        )
+
+    for f in files:
+        if f == None or f.is_source or f.is_directory:
+            continue
+        _note_generated_only(ctx, seen, app_scheme_rel_path(f), f)
+    return _link_staged_files(ctx, seen, scope + ".stage")
 
 def with_root(roots, root):
     """`roots` with `root` appended unless it is None or already there.
@@ -226,10 +368,10 @@ def resolve_wrapper_main_import(package_name, lib_root, main_short_path, main_pa
 
     Used by the web bootstrap wrapper (`make_web_wrapper_main_content`).
     Prefers `package:<name>/<main-rel-to-lib>` when the app is a Dart package
-    and `main` sits under its `lib/` — this URI flows through the assembled
+    and `main` sits under its `lib/` — this URI flows through the stable
     `rootUri` written into `package_config.json` by `compile_package_config`,
     so codegen siblings (`.g.dart`, `.freezed.dart`) reach the wrapper's
-    consuming compile via the same co-located directory. Falls back to a
+    consuming compile via the same staged directory. Falls back to a
     relative file path from the wrapper otherwise.
 
     Takes both of `main`'s paths because the two branches need different ones:
@@ -249,34 +391,149 @@ def resolve_wrapper_main_import(package_name, lib_root, main_short_path, main_pa
     """
     return app_main_package_uri(package_name, lib_root, main_short_path) or compute_wrapper_main_import(wrapper_depth, main_path)
 
-def compile_package_config(ctx, packages, all_srcs):
-    """Co-locate packages and write the matching `package_config.json`.
+def _is_absolute_root(root):
+    """Whether an `extra_roots` value is an absolute path on any host OS."""
+    if root.startswith("/") or root.startswith("\\"):
+        return True
+    return len(root) >= 2 and root[1] == ":" and root[0].isalpha()
 
-    The co-location step assembles any package whose hand-written + generated
-    sources straddle the source tree and `bazel-out` (e.g. a `dart_codegen`
-    `part`) into one real directory, then rewrites that package's `lib_root`
-    to the assembled directory's `short_path`. The package_config is written
-    using the exec-root-relative generator so an assembled package's
-    `rootUri` resolves to its bazel-out tree artifact. The two steps are
-    locked together — writing the config with the prefix-based generator
-    against a colocated `lib_root` would yield the wrong `rootUri`.
+def validate_extra_roots(extra_roots):
+    """Fails when an `extra_roots` entry is not an exec-root-relative path.
+
+    Roots become `rootUri` entries in the emitted `package_config.json` and
+    must name declared inputs below the exec root. An absolute root, a `..`
+    escape, or an empty root would instead resolve outside the declared
+    inputs; the compiler would fail only after reading there. Fail at
+    analysis naming the package and the value instead.
 
     Args:
-      ctx: The rule context (must carry `COPY_TO_DIRECTORY_TOOLCHAINS`).
+        extra_roots: Dict of package name to exec-root-relative root.
+    """
+    for package in sorted(extra_roots.keys()):
+        root = extra_roots[package]
+        if not root or _is_absolute_root(root) or ".." in root.split("/") or ".." in root.split("\\"):
+            fail((
+                "compile_package_config: extra_roots[{package}] is {root}: " +
+                "extra_roots values must be exec-root-relative directories " +
+                "(e.g. \"flutter/tests\"), never absolute, empty, or " +
+                "escaping with \"..\""
+            ).format(package = repr(package), root = repr(root)))
+
+def _sourced_package_names(packages, all_srcs):
+    """Names of `packages` owning a file in `all_srcs`, via `package_of_source`.
+
+    A root found from the files wins: only a package no file names can take
+    its config root from `extra_roots`.
+    """
+    sourced = {}
+    for f in all_srcs:
+        name = package_of_source(f.short_path, packages)
+        if name != None:
+            sourced[name] = True
+    return sourced
+
+def _extra_root_record(pkg, lib_root):
+    """The `pkg` record re-rooted at `lib_root`, keeping every fact it carries.
+
+    Construction is getattr-tolerant: a record predating an optional field —
+    or the synthesized struct `synthesize_app_package` appends — carries no
+    value to keep, and the config generators only read what is there.
+    """
+    fields = {"package_name": pkg.package_name, "lib_root": lib_root}
+    for name in ["version", "language_version", "code_assets", "has_unreplaced_hook", "link_hook"]:
+        value = getattr(pkg, name, None)
+        if value != None:
+            fields[name] = value
+    return DartPackageInfo(**fields)
+
+def compile_package_config(ctx, packages, all_srcs, extra_roots = {}):
+    """Write a multi-root `package_config.json` under `APP_SCHEME`, copying no sources.
+
+    Every package's `rootUri` is `org-dartlang-app:///<stable_path>`, which
+    `flutter_kernel_compile_action` resolves across the staging root via
+    `--filesystem-root` and `--filesystem-scheme org-dartlang-app`. Sources in
+    the source tree and generated siblings (`.g.dart`, `.freezed.dart`) in
+    `bazel-out` resolve under one `package:` URI — the compile stages every
+    declared input by workspace path — so the compiled `.dill` embeds stable
+    `org-dartlang-app:///` URIs instead of machine-specific sandbox `file://`
+    paths. The same generator backs `compile_kernel_package_config`, so a
+    public custom pipeline and the stock rules emit the same entries, and the
+    dill is byte-identical across output bases, machines and runs.
+
+    Args:
+      ctx: The rule context.
       packages: List of `DartPackageInfo` (already synthesized via
         `synthesize_app_package` when applicable).
       all_srcs: Flat list of transitive source Files; should include the
-        app's own `main` if the consumer wants `main` co-located with its
-        package siblings.
+        app's own `main` so the entrypoint resolves through the staging root.
+      extra_roots: Optional dict of package name to exec-root-relative root,
+        for packages with no sources in `all_srcs` (flutter, flutter_test,
+        sky_engine from the toolchain) so they still get entries. Only the
+        keys keep a package; a package some file names keeps the root its
+        record states (a root found from the files wins), while a sourceless
+        one is re-rooted at the given value under the stable scheme. Every
+        value is validated at analysis — an absolute, empty, or `..`-escaping
+        root fails the build naming the package and the value. The caller must
+        also make those roots' files action inputs — an entry whose files the
+        compile action did not declare resolves nowhere at compile time under
+        the sandbox (the compile fails there); unsandboxed the compiler reads
+        it off the exec root and the post-compile read-set check refuses the
+        undeclared read.
 
     Returns:
-      `struct(config_file, srcs, packages)` — `srcs` and `packages` are
-      the post-colocation values to feed the compile action.
+      `struct(config_file, srcs, packages)` — `srcs` and `packages` are the
+      values to feed the compile action.
     """
-    packages2, srcs2 = colocate_packages(ctx, packages, all_srcs)
+    validate_extra_roots(extra_roots)
+    sourced = _sourced_package_names(packages, all_srcs)
+    kept = [
+        _extra_root_record(pkg, extra_roots[pkg.package_name]) if pkg.package_name in extra_roots and pkg.package_name not in sourced else pkg
+        for pkg in packages
+    ]
     config_file = ctx.actions.declare_file(ctx.label.name + ".package_config.json")
-    ctx.actions.write(config_file, generate_package_config(packages2, srcs2, config_file))
-    return struct(config_file = config_file, srcs = srcs2, packages = packages2)
+    ctx.actions.write(
+        config_file,
+        generate_stable_package_config(
+            kept,
+            all_srcs,
+            roots = {name: True for name in extra_roots},
+            scheme = APP_SCHEME,
+        ),
+    )
+    return struct(config_file = config_file, srcs = all_srcs, packages = kept)
+
+def compile_kernel_package_config(ctx, packages, all_srcs, roots = None):
+    """Write a multi-root `package_config.json` under `APP_SCHEME` with no source copying.
+
+    Every package's `rootUri` is `org-dartlang-app:///<stable_path>`, which
+    `flutter_kernel_compile_action` resolves across `[ctx.bin_dir.path, "."]` via
+    `--filesystem-root` and `--filesystem-scheme org-dartlang-app`. Hand-written
+    sources in the source tree and generated `.g.dart` parts in `bazel-out`
+    resolve under one `package:` URI without `DartCopyTree` colocation, and the
+    compiled `.dill` embeds stable `org-dartlang-app:///` URIs instead of
+    machine-specific sandbox `file://` paths.
+
+    Args:
+      ctx: The rule context.
+      packages: List of `DartPackageInfo` (already synthesized via
+        `synthesize_app_package` when applicable).
+      all_srcs: Flat list of transitive source Files.
+      roots: Optional dict of package names to always retain in the config.
+
+    Returns:
+      `struct(config_file, srcs, packages)`.
+    """
+    config_file = ctx.actions.declare_file(ctx.label.name + ".package_config.json")
+    ctx.actions.write(
+        config_file,
+        generate_stable_package_config(
+            packages,
+            all_srcs,
+            roots = roots,
+            scheme = APP_SCHEME,
+        ),
+    )
+    return struct(config_file = config_file, srcs = all_srcs, packages = packages)
 
 def compute_wrapper_main_import(wrapper_dir_depth, main_path):
     """Relative import path from a generated wrapper to the original main.

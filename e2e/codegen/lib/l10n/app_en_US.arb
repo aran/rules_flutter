@@ -1,0 +1,6 @@
+{
+  "@@locale": "en_US",
+  "greeting": "Howdy, {name}!",
+  "bookCount": "{count, plural, =0{Zero books} =1{One book} other{{count} books}}",
+  "pronoun": "{gender, select, male{He reads} female{She reads} other{They read}}"
+}

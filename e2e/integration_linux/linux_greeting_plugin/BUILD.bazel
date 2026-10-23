@@ -1,0 +1,21 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+load("@rules_flutter//flutter:linux.bzl", "flutter_linux_plugin_library")
+
+flutter_linux_plugin_library(
+    name = "linux_greeting_plugin_linux",
+    srcs = ["linux/linux_greeting_plugin.cc"],
+    hdrs = ["linux/include/linux_greeting_plugin/linux_greeting_plugin.h"],
+    includes = ["linux/include"],
+    visibility = ["//visibility:public"],
+)
+
+flutter_plugin(
+    name = "linux_greeting_plugin",
+    package_name = "linux_greeting_plugin",
+    srcs = ["lib/linux_greeting_plugin.dart"],
+    linux_libs = [":linux_greeting_plugin_linux"],
+    platforms = ["linux"],
+    plugin_class = "LinuxGreetingPlugin",
+    visibility = ["//visibility:public"],
+    deps = ["@deps//:flutter"],
+)

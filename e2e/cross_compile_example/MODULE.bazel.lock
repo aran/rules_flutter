@@ -22,9 +22,9 @@
     "https://bcr.bazel.build/modules/apple_support/1.21.0/MODULE.bazel": "ac1824ed5edf17dee2fdd4927ada30c9f8c3b520be1b5fd02a5da15bc10bff3e",
     "https://bcr.bazel.build/modules/apple_support/1.21.1/MODULE.bazel": "5809fa3efab15d1f3c3c635af6974044bac8a4919c62238cce06acee8a8c11f1",
     "https://bcr.bazel.build/modules/apple_support/1.24.2/MODULE.bazel": "0e62471818affb9f0b26f128831d5c40b074d32e6dda5a0d3852847215a41ca4",
+    "https://bcr.bazel.build/modules/apple_support/2.2.0/MODULE.bazel": "5e32bc42e413a4544df7afee7fa4c7aff73e670a44e56e8e45ce1954332034ad",
     "https://bcr.bazel.build/modules/apple_support/2.5.2/MODULE.bazel": "bb1b7081e390a8d3885f642cb0073dfcf8e7a36525e079fa8f5835af7079c0fe",
     "https://bcr.bazel.build/modules/apple_support/2.8.0/MODULE.bazel": "c45f5176057092afba0be6c48a9ea02101666802f8be536947e099e94757f8ed",
-    "https://bcr.bazel.build/modules/apple_support/2.8.3/MODULE.bazel": "4afffdeb3a37825fdae637efb14ead4de27fe6310dbae96d071059e4e7b2e431",
     "https://bcr.bazel.build/modules/apple_support/2.8.4/MODULE.bazel": "83ae0682db2a4ea86d20416a9b3bdba7f6c2a81e136b4d210e5986e30436585e",
     "https://bcr.bazel.build/modules/apple_support/2.9.1/MODULE.bazel": "fb209b83ed172af587419acb3340389cfe3260669e5f1c05e1ac3974aca614e0",
     "https://bcr.bazel.build/modules/apple_support/2.9.1/source.json": "247d9f86d94c546533fb01e6e18b018486f9a6dff5faccae8838ef12e659b2a7",
@@ -63,8 +63,7 @@
     "https://bcr.bazel.build/modules/bazel_lib/3.0.0/MODULE.bazel": "22b70b80ac89ad3f3772526cd9feee2fa412c2b01933fea7ed13238a448d370d",
     "https://bcr.bazel.build/modules/bazel_lib/3.1.0/MODULE.bazel": "6809765c14e3c766a9b9286c7b0ec56ed87a73326e48fe01749f0c0fdcfe3287",
     "https://bcr.bazel.build/modules/bazel_lib/3.2.2/MODULE.bazel": "e2c890c8a515d6bca9c66d47718aa9e44b458fde64ec7204b8030bf2d349058c",
-    "https://bcr.bazel.build/modules/bazel_lib/3.7.2/MODULE.bazel": "cbc920fff00a55b2fd663d40850560a6fb17fd5ef3a9f3d6cbf0d32908dd8a40",
-    "https://bcr.bazel.build/modules/bazel_lib/3.7.2/source.json": "7a9c2b06a113c4962d329bb68befdb90d0447788a19aabaa32b476a0458e7d28",
+    "https://bcr.bazel.build/modules/bazel_lib/3.2.2/source.json": "9e84e115c20e14652c5c21401ae85ff4daa8702e265b5c0b3bf89353f17aa212",
     "https://bcr.bazel.build/modules/bazel_linux_packages/0.4.1/MODULE.bazel": "9bcd612b78aa98db07f01ca7edc3129148aced24d3726884bba1f321031e724d",
     "https://bcr.bazel.build/modules/bazel_linux_packages/0.4.1/source.json": "f3bbbf0f046fbc692b5e00f317088c6163b1874213027f1047bf505a1b9c647b",
     "https://bcr.bazel.build/modules/bazel_skylib/1.0.3/MODULE.bazel": "bcb0fd896384802d1ad283b4e4eb4d718eebd8cb820b0a2c3a347fb971afd9d8",
@@ -184,8 +183,8 @@
     "https://bcr.bazel.build/modules/rules_android/0.8.0/source.json": "efec84c34a78d0b6a23b7a07d51e810942428a5b980857284806d0a59762591f",
     "https://bcr.bazel.build/modules/rules_apple/3.16.0/MODULE.bazel": "0d1caf0b8375942ce98ea944be754a18874041e4e0459401d925577624d3a54a",
     "https://bcr.bazel.build/modules/rules_apple/4.1.0/MODULE.bazel": "76e10fd4a48038d3fc7c5dc6e63b7063bbf5304a2e3bd42edda6ec660eebea68",
-    "https://bcr.bazel.build/modules/rules_apple/5.2.0/MODULE.bazel": "9b46da6889ba44e1b61dda2b4456f69606064cf38a95c1aacab5ae408f2aa735",
-    "https://bcr.bazel.build/modules/rules_apple/5.2.0/source.json": "78c5c54eeabdae3e1dfd4f67f079c0672db5df715016fdce2b09bf9b4c88bedf",
+    "https://bcr.bazel.build/modules/rules_apple/4.5.3/MODULE.bazel": "1df77451a8dd806c0ac738fbcbde41d2ef45bc72706396dbf29cdd3091846e14",
+    "https://bcr.bazel.build/modules/rules_apple/4.5.3/source.json": "388e76fb2fb92ac70471b8477ae0de70dbedb36a8e35de6b67bb20bac7e77a85",
     "https://bcr.bazel.build/modules/rules_cc/0.0.1/MODULE.bazel": "cb2aa0747f84c6c3a78dad4e2049c154f08ab9d166b1273835a8174940365647",
     "https://bcr.bazel.build/modules/rules_cc/0.0.10/MODULE.bazel": "ec1705118f7eaedd6e118508d3d26deba2a4e76476ada7e0e3965211be012002",
     "https://bcr.bazel.build/modules/rules_cc/0.0.13/MODULE.bazel": "0e8529ed7b323dad0775ff924d2ae5af7640b23553dfcd4d34344c7e7a867191",
@@ -213,8 +212,6 @@
     "https://bcr.bazel.build/modules/rules_cc/0.2.4/MODULE.bazel": "1ff1223dfd24f3ecf8f028446d4a27608aa43c3f41e346d22838a4223980b8cc",
     "https://bcr.bazel.build/modules/rules_cc/0.2.8/MODULE.bazel": "f1df20f0bf22c28192a794f29b501ee2018fa37a3862a1a2132ae2940a23a642",
     "https://bcr.bazel.build/modules/rules_cc/0.2.9/MODULE.bazel": "34263f1dca62ea664265438cef714d7db124c03e1ed55ebb4f1dc860164308d1",
-    "https://bcr.bazel.build/modules/rules_dart/0.7.3/MODULE.bazel": "10fd30dd5f0c2a30c5374b1ccbdc94ce7d983d680955cbdfd5f49594600050cb",
-    "https://bcr.bazel.build/modules/rules_dart/0.7.3/source.json": "b397df57f4a8a0c74300db999224bf0737315fa6d05f3b55b5a55c275b21c03b",
     "https://bcr.bazel.build/modules/rules_foreign_cc/0.9.0/MODULE.bazel": "c9e8c682bf75b0e7c704166d79b599f93b72cfca5ad7477df596947891feeef6",
     "https://bcr.bazel.build/modules/rules_fuzzing/0.5.2/MODULE.bazel": "40c97d1144356f52905566c55811f13b299453a14ac7769dfba2ac38192337a8",
     "https://bcr.bazel.build/modules/rules_go/0.41.0/MODULE.bazel": "55861d8e8bb0e62cbd2896f60ff303f62ffcb0eddb74ecb0e5c0cbe36fc292c8",
@@ -293,8 +290,7 @@
     "https://bcr.bazel.build/modules/rules_python/1.6.3/MODULE.bazel": "a7b80c42cb3de5ee2a5fa1abc119684593704fcd2fec83165ebe615dec76574f",
     "https://bcr.bazel.build/modules/rules_python/1.7.0/MODULE.bazel": "d01f995ecd137abf30238ad9ce97f8fc3ac57289c8b24bd0bf53324d937a14f8",
     "https://bcr.bazel.build/modules/rules_python/1.8.0/MODULE.bazel": "c151c025dbcc93d8f62ab68ecc313c9176a868a0e6386981bf2a12aec77cbe7b",
-    "https://bcr.bazel.build/modules/rules_python/2.4.0/MODULE.bazel": "7b8ebb58f392fd15a0c79283c28fe5959eab0dffeffa8efd5310c1477a7871f7",
-    "https://bcr.bazel.build/modules/rules_python/2.4.0/source.json": "bbe86ca8cbcf55cacc8ba81bbd90789d6dddce343486857dfcba03ccb55aa1a8",
+    "https://bcr.bazel.build/modules/rules_python/1.8.0/source.json": "356397eed5b46971d8c585c92098d70495078a80bf18bebcb4209f44b495f3e6",
     "https://bcr.bazel.build/modules/rules_robolectric/4.14.1.2/MODULE.bazel": "d44fec647d0aeb67b9f3b980cf68ba634976f3ae7ccd6c07d790b59b87a4f251",
     "https://bcr.bazel.build/modules/rules_robolectric/4.14.1.2/source.json": "37c10335f2361c337c5c1f34ed36d2da70534c23088062b33a8bdaab68aa9dea",
     "https://bcr.bazel.build/modules/rules_shell/0.1.2/MODULE.bazel": "66e4ca3ce084b04af0b9ff05ff14cab4e5df7503973818bb91cbc6cda08d32fc",
@@ -308,7 +304,7 @@
     "https://bcr.bazel.build/modules/rules_swift/2.1.1/MODULE.bazel": "494900a80f944fc7aa61500c2073d9729dff0b764f0e89b824eb746959bc1046",
     "https://bcr.bazel.build/modules/rules_swift/2.4.0/MODULE.bazel": "1639617eb1ede28d774d967a738b4a68b0accb40650beadb57c21846beab5efd",
     "https://bcr.bazel.build/modules/rules_swift/3.1.2/MODULE.bazel": "72c8f5cf9d26427cee6c76c8e3853eb46ce6b0412a081b2b6db6e8ad56267400",
-    "https://bcr.bazel.build/modules/rules_swift/4.1.1/MODULE.bazel": "74bc181e75147cadab7c5040ef59813168f50cf68f48b1c669cb928de4dc4148",
+    "https://bcr.bazel.build/modules/rules_swift/3.5.0/MODULE.bazel": "e71b6024213df1cb5ed2f327b273f6f4a406611db1e2444f09a37a837eee941d",
     "https://bcr.bazel.build/modules/rules_swift/4.1.2/MODULE.bazel": "a76383e8994cee3ddaf75367083d0cf70a97b3f310c4d136b4d4c53d22c4fd45",
     "https://bcr.bazel.build/modules/rules_swift/4.1.2/source.json": "7fa51e2602cacfcdaf4444485714513819cd8b24adf36ec41fae9eec56b4eb34",
     "https://bcr.bazel.build/modules/sqlite3/3.53.4/MODULE.bazel": "1827a71c19204893597a5cd8450d4ca0a64ddea87641522499051407f9c13b77",
@@ -318,6 +314,7 @@
     "https://bcr.bazel.build/modules/stardoc/0.6.2/MODULE.bazel": "7060193196395f5dd668eda046ccbeacebfd98efc77fed418dbe2b82ffaa39fd",
     "https://bcr.bazel.build/modules/stardoc/0.7.0/MODULE.bazel": "05e3d6d30c099b6770e97da986c53bd31844d7f13d41412480ea265ac9e8079c",
     "https://bcr.bazel.build/modules/stardoc/0.7.2/MODULE.bazel": "fc152419aa2ea0f51c29583fab1e8c99ddefd5b3778421845606ee628629e0e5",
+    "https://bcr.bazel.build/modules/stardoc/0.7.2/source.json": "58b029e5e901d6802967754adf0a9056747e8176f017cfe3607c0851f4d42216",
     "https://bcr.bazel.build/modules/swift_argument_parser/1.3.1.1/MODULE.bazel": "5e463fbfba7b1701d957555ed45097d7f984211330106ccd1352c6e0af0dcf91",
     "https://bcr.bazel.build/modules/swift_argument_parser/1.3.1.2/MODULE.bazel": "75aab2373a4bbe2a1260b9bf2a1ebbdbf872d3bd36f80bff058dccd82e89422f",
     "https://bcr.bazel.build/modules/swift_argument_parser/1.7.0/MODULE.bazel": "40d4e44950e44973dcf8590bcee637591de196b5dbe3696d07eb342b74d53672",
@@ -325,14 +322,11 @@
     "https://bcr.bazel.build/modules/tar.bzl/0.10.4/MODULE.bazel": "e8f9ff79199e8d9eaad7f1b0a77ad74b30bb82d794b87d8ca942bead5de83ae9",
     "https://bcr.bazel.build/modules/tar.bzl/0.10.4/source.json": "20143442376c03426f6135292ba02d825cb75308aa47e6bf42dd4cc5a435c2ff",
     "https://bcr.bazel.build/modules/toml.bzl/0.3.0/MODULE.bazel": "5016e5dd1ad2200e119a4b28b2b3935e276c4b480f2fe3e952bea7eeba88f578",
-    "https://bcr.bazel.build/modules/toml.bzl/0.4.1/MODULE.bazel": "6bc0b938f03ade8d58c2fca0ad5c3fa12b4764e1e1927ad50b0c860286db2167",
-    "https://bcr.bazel.build/modules/toml.bzl/0.4.1/source.json": "86a90afd8b43c9b69ad31f5c03998c3adcf4b08175e621addb93e3a38eec538b",
+    "https://bcr.bazel.build/modules/toml.bzl/0.3.0/source.json": "0cf7c878c419b37ddb55f3dd93dd7c0c409bd7c4efacb3da504e0748780b2fa9",
     "https://bcr.bazel.build/modules/upb/0.0.0-20220923-a547704/MODULE.bazel": "7298990c00040a0e2f121f6c32544bab27d4452f80d9ce51349b1a28f3005c43",
     "https://bcr.bazel.build/modules/upb/0.0.0-20230516-61a97ef/MODULE.bazel": "c0df5e35ad55e264160417fd0875932ee3c9dda63d9fccace35ac62f45e1b6f9",
     "https://bcr.bazel.build/modules/with_cfg.bzl/0.12.0/MODULE.bazel": "b573395fe63aef4299ba095173e2f62ccfee5ad9bbf7acaa95dba73af9fc2b38",
     "https://bcr.bazel.build/modules/with_cfg.bzl/0.12.0/source.json": "3f3fbaeafecaf629877ad152a2c9def21f8d330d91aa94c5dc75bbb98c10b8b8",
-    "https://bcr.bazel.build/modules/xctestrunner/0.2.16-20260212-4c6f493/MODULE.bazel": "df9d74c77698e7dbc52a65ebdd6de5727044e98121ac309b5d046f2d04121d56",
-    "https://bcr.bazel.build/modules/xctestrunner/0.2.16-20260212-4c6f493/source.json": "73a5421c8ef51cd455a572dee5bb9415351ab5acbcb65d4efa56a574790bd2f2",
     "https://bcr.bazel.build/modules/yaml.bzl/0.1.2/MODULE.bazel": "bd9b2434761c3b1ee41e77fcda787af3bcd7874513d1a5eba4a7395cbd5ed618",
     "https://bcr.bazel.build/modules/yaml.bzl/0.1.2/source.json": "fc9af4a6e1ebc109f7d9d85cd75f112d495b448a8defa88af9c2a2148be0498a",
     "https://bcr.bazel.build/modules/zlib-ng/2.3.3.bcr.2/MODULE.bazel": "86130924115bf8dfc4aba286fb49a2ec8d32430a21771db9ccf5381acf0d10cc",
@@ -347,12 +341,26 @@
   },
   "selectedYankedVersions": {},
   "moduleExtensions": {
+    "@@protobuf+//python/dist:system_python.bzl%system_python_extension": {
+      "general": {
+        "bzlTransitiveDigest": "pmsA+awieucfllLc2n7k8xEoPp0i5LF9Hw6mGX0cqSQ=",
+        "usagesDigest": "A+RWmbKdBBwZcBbNGNvfPbqG2vYZRjVrFp6x1iRUrAk=",
+        "recordedInputs": [],
+        "generatedRepoSpecs": {
+          "system_python": {
+            "repoRuleId": "@@protobuf+//python/dist:system_python.bzl%system_python",
+            "attributes": {
+              "minimum_python_version": "3.9"
+            }
+          }
+        }
+      }
+    },
     "@@rules_dart+//dart/pub:extensions.bzl%pub": {
       "general": {
-        "bzlTransitiveDigest": "vWv+vK3TkahBKIFUvsYo0CqXwEZIlAGmg1Agce6t2mk=",
-        "usagesDigest": "fMZb3Ge9XX3eTcqbMciVTUcNTBBCOb/hxwFKg6IYw5k=",
+        "bzlTransitiveDigest": "MZmsWlI0sZJnsy98BPRVmtTOu7nd7g5m0iuoBUe/K78=",
+        "usagesDigest": "mDJKd26L5bPbn+60Xm+FZB2sj/ECVzhIGBELk2wu6JI=",
         "recordedInputs": [
-          "REPO_MAPPING:rules_dart+,yaml.bzl yaml.bzl+",
           "FILE:@@rules_dart+//dart/ext/pubspec.lock ae866f3a1d4ebad9a74f9b9efab33c74dfbf904ae0d69dfe94192029d4955188"
         ],
         "generatedRepoSpecs": {
@@ -458,8 +466,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__analyzer": {
@@ -564,8 +574,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__analyzer_buffer": {
@@ -670,8 +682,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__args": {
@@ -776,8 +790,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__async": {
@@ -882,8 +898,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__bazel_worker": {
@@ -988,8 +1006,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__boolean_selector": {
@@ -1094,8 +1114,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__build": {
@@ -1200,8 +1222,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__build_config": {
@@ -1306,8 +1330,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__built_collection": {
@@ -1412,8 +1438,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__built_value": {
@@ -1518,8 +1546,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__built_value_generator": {
@@ -1624,8 +1654,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__charcode": {
@@ -1730,8 +1762,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__checked_yaml": {
@@ -1836,8 +1870,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__cli_config": {
@@ -1942,8 +1978,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__cli_util": {
@@ -2048,8 +2086,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__clock": {
@@ -2154,8 +2194,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__code_assets": {
@@ -2260,8 +2302,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__code_builder": {
@@ -2366,8 +2410,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__collection": {
@@ -2472,8 +2518,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__convert": {
@@ -2578,8 +2626,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__copy_with_extension": {
@@ -2684,8 +2734,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__copy_with_extension_gen": {
@@ -2790,8 +2842,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__coverage": {
@@ -2896,8 +2950,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__crypto": {
@@ -3002,8 +3058,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__dart_style": {
@@ -3108,8 +3166,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__data_assets": {
@@ -3214,8 +3274,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__drift": {
@@ -3320,8 +3382,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__drift_dev": {
@@ -3426,8 +3490,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__ffi": {
@@ -3532,8 +3598,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__file": {
@@ -3638,8 +3706,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__fixnum": {
@@ -3744,8 +3814,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__freezed": {
@@ -3850,8 +3922,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__freezed_annotation": {
@@ -3956,8 +4030,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__frontend_server_client": {
@@ -4062,8 +4138,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__get_it": {
@@ -4168,8 +4246,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__glob": {
@@ -4274,8 +4354,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__go_router_builder": {
@@ -4380,8 +4462,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__hooks": {
@@ -4486,8 +4570,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__http_multi_server": {
@@ -4592,8 +4678,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__http_parser": {
@@ -4698,8 +4786,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__io": {
@@ -4804,8 +4894,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__json_annotation": {
@@ -4910,8 +5002,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__json_serializable": {
@@ -5016,8 +5110,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__logger": {
@@ -5122,8 +5218,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__logging": {
@@ -5228,8 +5326,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__matcher": {
@@ -5334,8 +5434,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__meta": {
@@ -5440,8 +5542,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__mime": {
@@ -5546,8 +5650,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__mockito": {
@@ -5652,8 +5758,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__native_toolchain_c": {
@@ -5758,8 +5866,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__node_preamble": {
@@ -5864,8 +5974,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__package_config": {
@@ -5970,8 +6082,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__path": {
@@ -6076,8 +6190,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__platform": {
@@ -6182,8 +6298,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__pool": {
@@ -6288,8 +6406,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__process": {
@@ -6394,8 +6514,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__protobuf": {
@@ -6500,8 +6622,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__pub_semver": {
@@ -6606,8 +6730,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__pubspec_parse": {
@@ -6712,8 +6838,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__recase": {
@@ -6818,8 +6946,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__record_use": {
@@ -6924,8 +7054,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__shelf": {
@@ -7030,8 +7162,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__shelf_packages_handler": {
@@ -7136,8 +7270,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__shelf_static": {
@@ -7242,8 +7378,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__shelf_web_socket": {
@@ -7348,8 +7486,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__source_gen": {
@@ -7454,8 +7594,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__source_helper": {
@@ -7560,8 +7702,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__source_map_stack_trace": {
@@ -7666,8 +7810,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__source_maps": {
@@ -7772,8 +7918,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__source_span": {
@@ -7878,8 +8026,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__sqlite3": {
@@ -7984,10 +8134,12 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [
                 "@rules_dart//dart/ext/sqlite3:code_asset"
               ],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__sqlparser": {
@@ -8092,8 +8244,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__stack_trace": {
@@ -8198,8 +8352,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__stacked_generator": {
@@ -8304,8 +8460,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__stacked_shared": {
@@ -8410,8 +8568,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__stream_channel": {
@@ -8516,8 +8676,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__stream_transform": {
@@ -8622,8 +8784,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__string_scanner": {
@@ -8728,8 +8892,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__term_glyph": {
@@ -8834,8 +9000,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__test": {
@@ -8940,8 +9108,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__test_api": {
@@ -9046,8 +9216,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__test_core": {
@@ -9152,8 +9324,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__typed_data": {
@@ -9258,8 +9432,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__vm_service": {
@@ -9364,8 +9540,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__watcher": {
@@ -9470,8 +9648,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__web": {
@@ -9576,8 +9756,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__web_socket": {
@@ -9682,8 +9864,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__web_socket_channel": {
@@ -9788,8 +9972,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__webkit_inspection_protocol": {
@@ -9894,8 +10080,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__yaml": {
@@ -10000,8 +10188,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "dart_pub__yaml_edit": {
@@ -10106,8 +10296,10 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
-              "ignore_hook": false
+              "ignore_hook": false,
+              "scc_targets": {}
             }
           },
           "ext_pub_deps": {
@@ -10208,7 +10400,9 @@
                 "webkit_inspection_protocol",
                 "yaml",
                 "yaml_edit"
-              ]
+              ],
+              "explicit_packages": [],
+              "scc_targets": {}
             }
           }
         },
@@ -10220,10 +10414,178 @@
         }
       }
     },
+    "@@rules_python+//python/extensions:config.bzl%config": {
+      "general": {
+        "bzlTransitiveDigest": "sJuhZihyVty+0xOVsXH1eSSGv2ufRPo9x8QCFFNs90s=",
+        "usagesDigest": "EocbSr4I3/Shk4QaFool8b8navUiUFqgzF9bOaaYfFk=",
+        "recordedInputs": [
+          "REPO_MAPPING:rules_python+,bazel_tools bazel_tools",
+          "REPO_MAPPING:rules_python+,pypi__build rules_python++config+pypi__build",
+          "REPO_MAPPING:rules_python+,pypi__click rules_python++config+pypi__click",
+          "REPO_MAPPING:rules_python+,pypi__colorama rules_python++config+pypi__colorama",
+          "REPO_MAPPING:rules_python+,pypi__importlib_metadata rules_python++config+pypi__importlib_metadata",
+          "REPO_MAPPING:rules_python+,pypi__installer rules_python++config+pypi__installer",
+          "REPO_MAPPING:rules_python+,pypi__more_itertools rules_python++config+pypi__more_itertools",
+          "REPO_MAPPING:rules_python+,pypi__packaging rules_python++config+pypi__packaging",
+          "REPO_MAPPING:rules_python+,pypi__pep517 rules_python++config+pypi__pep517",
+          "REPO_MAPPING:rules_python+,pypi__pip rules_python++config+pypi__pip",
+          "REPO_MAPPING:rules_python+,pypi__pip_tools rules_python++config+pypi__pip_tools",
+          "REPO_MAPPING:rules_python+,pypi__pyproject_hooks rules_python++config+pypi__pyproject_hooks",
+          "REPO_MAPPING:rules_python+,pypi__setuptools rules_python++config+pypi__setuptools",
+          "REPO_MAPPING:rules_python+,pypi__tomli rules_python++config+pypi__tomli",
+          "REPO_MAPPING:rules_python+,pypi__wheel rules_python++config+pypi__wheel",
+          "REPO_MAPPING:rules_python+,pypi__zipp rules_python++config+pypi__zipp"
+        ],
+        "generatedRepoSpecs": {
+          "rules_python_internal": {
+            "repoRuleId": "@@rules_python+//python/private:internal_config_repo.bzl%internal_config_repo",
+            "attributes": {
+              "transition_setting_generators": {},
+              "transition_settings": []
+            }
+          },
+          "pypi__build": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/e2/03/f3c8ba0a6b6e30d7d18c40faab90807c9bb5e9a1e3b2fe2008af624a9c97/build-1.2.1-py3-none-any.whl",
+              "sha256": "75e10f767a433d9a86e50d83f418e83efc18ede923ee5ff7df93b6cb0306c5d4",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__click": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/00/2e/d53fa4befbf2cfa713304affc7ca780ce4fc1fd8710527771b58311a3229/click-8.1.7-py3-none-any.whl",
+              "sha256": "ae74fb96c20a0277a1d615f1e4d73c8414f5a98db8b799a7931d1582f3390c28",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__colorama": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl",
+              "sha256": "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__importlib_metadata": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/2d/0a/679461c511447ffaf176567d5c496d1de27cbe34a87df6677d7171b2fbd4/importlib_metadata-7.1.0-py3-none-any.whl",
+              "sha256": "30962b96c0c223483ed6cc7280e7f0199feb01a0e40cfae4d4450fc6fab1f570",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__installer": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/e5/ca/1172b6638d52f2d6caa2dd262ec4c811ba59eee96d54a7701930726bce18/installer-0.7.0-py3-none-any.whl",
+              "sha256": "05d1933f0a5ba7d8d6296bb6d5018e7c94fa473ceb10cf198a92ccea19c27b53",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__more_itertools": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/50/e2/8e10e465ee3987bb7c9ab69efb91d867d93959095f4807db102d07995d94/more_itertools-10.2.0-py3-none-any.whl",
+              "sha256": "686b06abe565edfab151cb8fd385a05651e1fdf8f0a14191e4439283421f8684",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__packaging": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/49/df/1fceb2f8900f8639e278b056416d49134fb8d84c5942ffaa01ad34782422/packaging-24.0-py3-none-any.whl",
+              "sha256": "2ddfb553fdf02fb784c234c7ba6ccc288296ceabec964ad2eae3777778130bc5",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__pep517": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/25/6e/ca4a5434eb0e502210f591b97537d322546e4833dcb4d470a48c375c5540/pep517-0.13.1-py3-none-any.whl",
+              "sha256": "31b206f67165b3536dd577c5c3f1518e8fbaf38cbc57efff8369a392feff1721",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__pip": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/8a/6a/19e9fe04fca059ccf770861c7d5721ab4c2aebc539889e97c7977528a53b/pip-24.0-py3-none-any.whl",
+              "sha256": "ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__pip_tools": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/0d/dc/38f4ce065e92c66f058ea7a368a9c5de4e702272b479c0992059f7693941/pip_tools-7.4.1-py3-none-any.whl",
+              "sha256": "4c690e5fbae2f21e87843e89c26191f0d9454f362d8acdbd695716493ec8b3a9",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__pyproject_hooks": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/ae/f3/431b9d5fe7d14af7a32340792ef43b8a714e7726f1d7b69cc4e8e7a3f1d7/pyproject_hooks-1.1.0-py3-none-any.whl",
+              "sha256": "7ceeefe9aec63a1064c18d939bdc3adf2d8aa1988a510afec15151578b232aa2",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__setuptools": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/90/99/158ad0609729111163fc1f674a5a42f2605371a4cf036d0441070e2f7455/setuptools-78.1.1-py3-none-any.whl",
+              "sha256": "c3a9c4211ff4c309edb8b8c4f1cbfa7ae324c4ba9f91ff254e3d305b9fd54561",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__tomli": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/97/75/10a9ebee3fd790d20926a90a2547f0bf78f371b2f13aa822c759680ca7b9/tomli-2.0.1-py3-none-any.whl",
+              "sha256": "939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__wheel": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/7d/cd/d7460c9a869b16c3dd4e1e403cce337df165368c71d6af229a74699622ce/wheel-0.43.0-py3-none-any.whl",
+              "sha256": "55c570405f142630c6b9f72fe09d9b67cf1477fcf543ae5b8dcb1f5b7377da81",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          },
+          "pypi__zipp": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:http.bzl%http_archive",
+            "attributes": {
+              "url": "https://files.pythonhosted.org/packages/da/55/a03fd7240714916507e1fcf7ae355bd9d9ed2e6db492595f1a67f61681be/zipp-3.18.2-py3-none-any.whl",
+              "sha256": "dce197b859eb796242b0622af1b8beb0a722d52aa2f57133ead08edd5bf5374e",
+              "type": "zip",
+              "build_file_content": "package(default_visibility = [\"//visibility:public\"])\n\nload(\"@rules_python//python:py_library.bzl\", \"py_library\")\n\npy_library(\n    name = \"lib\",\n    srcs = glob([\"**/*.py\"]),\n    data = glob([\"**/*\"], exclude=[\n        # These entries include those put into user-installed dependencies by\n        # data_exclude to avoid non-determinism.\n        \"**/*.py\",\n        \"**/*.pyc\",\n        \"**/*.pyc.*\",  # During pyc creation, temp files named *.pyc.NNN are created\n        \"**/*.dist-info/RECORD\",\n        \"BUILD\",\n        \"WORKSPACE\",\n    ]),\n    # This makes this directory a top-level in the python import\n    # search path for anything that depends on this.\n    imports = [\".\"],\n)\n"
+            }
+          }
+        }
+      }
+    },
     "@@rules_python+//python/uv:uv.bzl%uv": {
       "general": {
-        "bzlTransitiveDigest": "+9d3Xk+XLM+3cS8xVHR6XRn3dYpPmBavXbfU8v/qtnc=",
-        "usagesDigest": "uW8G4FSL0y/KjfY1+VDIWSOyPVNT6LVkLUO+HFKkqTg=",
+        "bzlTransitiveDigest": "IgkgxNrtlAec7OnaFrWoCC5NQhHcY/aIz4jsqcNMm8Y=",
+        "usagesDigest": "yXvWfXAzpBeW71mWgwU3AqAzXX/dFACnx12eYvBsJ8w=",
         "recordedInputs": [
           "REPO_MAPPING:rules_python+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_python+,platforms platforms"

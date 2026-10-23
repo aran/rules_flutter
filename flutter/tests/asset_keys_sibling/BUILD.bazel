@@ -1,0 +1,11 @@
+"""Sibling fixture package: outside the asset-keys fixture's directory.
+
+`//flutter/tests/asset_keys_fixture` targets that list `:asset.txt` must fail
+analysis — a sibling directory is outside the listing directory tree.
+"""
+
+package(
+    default_visibility = ["//flutter/tests/asset_keys_fixture:__pkg__"],
+)
+
+exports_files(["asset.txt"])

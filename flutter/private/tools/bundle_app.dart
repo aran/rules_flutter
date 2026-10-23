@@ -34,6 +34,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'chmod.dart' as chmodlib;
+
 Future<void> main(List<String> args) async {
   if (args.length != 2 || args[0] != '--config') {
     stderr.writeln('Usage: bundle_app.dart --config <config.json>');
@@ -107,14 +109,16 @@ Future<void> main(List<String> args) async {
     file.parent.createSync(recursive: true);
     file.writeAsStringSync(content);
     if (executable && !Platform.isWindows) {
-      Process.runSync('chmod', ['+x', path]);
+      chmodlib.chmodFile(path, 0x1ed);
     }
   }
 }
 
 void _copyDirectory(Directory src, Directory dst, List<String> exclude) {
   dst.createSync(recursive: true);
-  for (final entity in src.listSync(recursive: false)) {
+  final entities = src.listSync(recursive: false)
+    ..sort((a, b) => a.path.compareTo(b.path));
+  for (final entity in entities) {
     final name = entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
     if (_excluded(name, exclude)) continue;
     final dstPath = '${dst.path}/$name';

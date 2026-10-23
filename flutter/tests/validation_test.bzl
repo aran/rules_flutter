@@ -1,6 +1,6 @@
-"""Unit tests for validation.bzl dart-define and Swift module name helpers."""
+"""Unit and analysis tests for validation.bzl dart-define and Swift module name helpers."""
 
-load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
 load("//flutter/private:validation.bzl", "is_valid_dart_define", "is_valid_swift_module_name")
 
@@ -21,10 +21,14 @@ def _accepts_equals_in_value_test_impl(ctx):
     asserts.true(env, is_valid_dart_define("FOO=a=b"))
     return unittest.end(env)
 
-def _accepts_nonreserved_dart_vm_key_test_impl(ctx):
-    """Only the two mode keys are reserved, not the whole dart.vm. namespace."""
+def _rejects_reserved_namespaces_test_impl(ctx):
+    """Reserved namespaces (dart.vm.*, dart.library.*, dart.tool.*, flutter.*) are rejected."""
     env = unittest.begin(ctx)
-    asserts.true(env, is_valid_dart_define("dart.vm.other=x"))
+    asserts.false(env, is_valid_dart_define("dart.vm.other=x"))
+    asserts.false(env, is_valid_dart_define("dart.library.io=true"))
+    asserts.false(env, is_valid_dart_define("dart.tool.package_config=x"))
+    asserts.false(env, is_valid_dart_define("flutter.inspector.structuredErrors=true"))
+    asserts.false(env, is_valid_dart_define("=value"))
     return unittest.end(env)
 
 def _rejects_reserved_profile_test_impl(ctx):
@@ -44,6 +48,9 @@ def _rejects_bare_reserved_key_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.false(env, is_valid_dart_define("dart.vm.product"))
     asserts.false(env, is_valid_dart_define("dart.vm.profile"))
+    asserts.false(env, is_valid_dart_define("dart.library.html"))
+    asserts.false(env, is_valid_dart_define("dart.tool.foo"))
+    asserts.false(env, is_valid_dart_define("flutter.bar"))
     return unittest.end(env)
 
 def _rejects_registrant_define_test_impl(ctx):
@@ -109,10 +116,32 @@ def _runner_module_is_injective_test_impl(ctx):
     asserts.equals(env, len(modules), len({m: None for m in modules}))
     return unittest.end(env)
 
+def _reserved_extra_dart_define_fails_test_impl(ctx):
+    """A reserved define in `//flutter:extra_dart_defines` fails analysis with the named error."""
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "Invalid Dart define")
+    asserts.expect_failure(env, "extra_dart_defines")
+    asserts.expect_failure(env, "reserved defines")
+    asserts.expect_failure(env, ctx.attr.expected_define)
+    return analysistest.end(env)
+
+def _make_reserved_extra_define_test(define):
+    return analysistest.make(
+        _reserved_extra_dart_define_fails_test_impl,
+        expect_failure = True,
+        attrs = {"expected_define": attr.string(default = define)},
+        config_settings = {str(Label("//flutter:extra_dart_defines")): [define]},
+    )
+
+_reserved_dart_vm_define_fails_test = _make_reserved_extra_define_test("dart.vm.other=1")
+_reserved_dart_library_define_fails_test = _make_reserved_extra_define_test("dart.library.io=false")
+_reserved_dart_tool_define_fails_test = _make_reserved_extra_define_test("dart.tool.package_config=x")
+_reserved_flutter_define_fails_test = _make_reserved_extra_define_test("flutter.custom=1")
+
 _t0_test = unittest.make(_accepts_simple_define_test_impl)
 _t1_test = unittest.make(_accepts_comma_in_value_test_impl)
 _t2_test = unittest.make(_accepts_equals_in_value_test_impl)
-_t3_test = unittest.make(_accepts_nonreserved_dart_vm_key_test_impl)
+_t3_test = unittest.make(_rejects_reserved_namespaces_test_impl)
 _t4_test = unittest.make(_rejects_reserved_profile_test_impl)
 _t5_test = unittest.make(_rejects_reserved_product_test_impl)
 _t6_test = unittest.make(_rejects_bare_reserved_key_test_impl)
@@ -125,8 +154,29 @@ _t12_test = unittest.make(_runner_module_is_distinct_test_impl)
 _t13_test = unittest.make(_runner_module_is_injective_test_impl)
 
 def validation_test_suite(name):
+    """Defines unit and analysis tests for `validation.bzl` and `extra_dart_defines`.
+
+    Args:
+      name: The test_suite target name.
+    """
+    _reserved_dart_vm_define_fails_test(
+        name = name + "_reserved_dart_vm_extra_define_fails",
+        target_under_test = "//flutter:extra_dart_defines",
+    )
+    _reserved_dart_library_define_fails_test(
+        name = name + "_reserved_dart_library_extra_define_fails",
+        target_under_test = "//flutter:extra_dart_defines",
+    )
+    _reserved_dart_tool_define_fails_test(
+        name = name + "_reserved_dart_tool_extra_define_fails",
+        target_under_test = "//flutter:extra_dart_defines",
+    )
+    _reserved_flutter_define_fails_test(
+        name = name + "_reserved_flutter_extra_define_fails",
+        target_under_test = "//flutter:extra_dart_defines",
+    )
     unittest.suite(
-        name,
+        name + "_unit",
         _t0_test,
         _t1_test,
         _t2_test,
@@ -141,4 +191,14 @@ def validation_test_suite(name):
         _t11_test,
         _t12_test,
         _t13_test,
+    )
+    native.test_suite(
+        name = name,
+        tests = [
+            ":" + name + "_unit",
+            ":" + name + "_reserved_dart_vm_extra_define_fails",
+            ":" + name + "_reserved_dart_library_extra_define_fails",
+            ":" + name + "_reserved_dart_tool_extra_define_fails",
+            ":" + name + "_reserved_flutter_extra_define_fails",
+        ],
     )

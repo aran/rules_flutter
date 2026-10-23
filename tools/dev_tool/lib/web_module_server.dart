@@ -859,46 +859,7 @@ class WebModuleServer implements AssetReader {
   /// whose offsets do not fit (`memory_fs.dart:40-48`). Skipping is what makes
   /// the failure invisible, so we report instead.
   void updateModules(String dillPath, {required bool full}) {
-    final manifestFile = File('$dillPath.json');
-    final sourcesFile = File('$dillPath.sources');
-    final mapFile = File('$dillPath.map');
-    final metadataFile = File('$dillPath.metadata');
-
-    if (!manifestFile.existsSync()) {
-      throw DevToolException(
-        _missingArtifact(
-          manifestFile.path,
-          dillPath,
-          'the manifest naming every module the page loads',
-        ),
-      );
-    }
-    if (!sourcesFile.existsSync()) {
-      throw DevToolException(
-        _missingArtifact(
-          sourcesFile.path,
-          dillPath,
-          'the JavaScript that the manifest slices each module out of',
-        ),
-      );
-    }
-
-    final Map<String, dynamic> manifest;
-    try {
-      manifest =
-          json.decode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
-    } catch (e) {
-      throw DevToolException(
-        'The DDC module manifest ${manifestFile.path} is not a JSON object '
-        'of module offsets: $e\n'
-        'Nothing from this compile can be served.',
-      );
-    }
-    final sourcesBytes = sourcesFile.readAsBytesSync();
-    final mapBytes = mapFile.existsSync() ? mapFile.readAsBytesSync() : null;
-    final metadataBytes = metadataFile.existsSync()
-        ? metadataFile.readAsBytesSync()
-        : null;
+    final batch = _ModuleBatch.load(this, dillPath, full: full);
 
     // A full compile produces the whole program, so what it does not name is
     // no longer part of it — the description is rebuilt rather than added to,
@@ -916,212 +877,10 @@ class WebModuleServer implements AssetReader {
 
     // Merge into existing state — incremental compiles only contain changed
     // modules, and unchanged modules must remain available.
-    final reloadedSources = <Map<String, dynamic>>[];
-    final digests = <String, String>{if (!full) ..._moduleDigests};
-    // Modules the compiler described without usable metadata. Collected and
-    // reported once: with no metadata there is no library list, and
-    // `$dartReloadModifiedModules` reloads modules by library — so an edit in
-    // one of these reports as reloaded and does not take effect. Per-module
-    // warnings would be one line per module in the app.
-    final withoutMetadata = <String>[];
-
-    for (final entry in manifest.entries) {
-      var modulePath = entry.key;
-      if (modulePath.startsWith('/')) {
-        modulePath = modulePath.substring(1);
-      }
-      final rawOffsets = entry.value;
-      if (rawOffsets is! Map<String, dynamic>) {
-        throw DevToolException(
-          'The DDC module manifest ${manifestFile.path} describes module '
-          '${entry.key} with ${rawOffsets.runtimeType}, not a map of '
-          'section offsets.',
-        );
-      }
-      final offsets = rawOffsets;
-      final moduleName = modulePath.replaceAll('.lib.js', '');
-
-      // Code (JS source). Required: a manifest entry with no servable code is
-      // a module request that 404s.
-      _modules[modulePath] = _slice(
-        sourcesBytes,
-        offsets: offsets,
-        section: 'code',
-        module: moduleName,
-        artifact: sourcesFile.path,
-      );
-      final reloadEntry = <String, dynamic>{
-        'src': '${uri ?? ''}/$modulePath',
-        'module': moduleName,
-        'libraries': <String>[],
-      };
-      reloadedSources.add(reloadEntry);
-      digests[moduleName] = _modules[modulePath]!.length.toRadixString(16);
-
-      // Source maps. The manifest is the contract: a declared section whose
-      // file is absent is inconsistent output, not an optional extra.
-      if (offsets.containsKey('sourcemap')) {
-        if (mapBytes == null) {
-          throw DevToolException(
-            _missingArtifact(
-              mapFile.path,
-              dillPath,
-              'the source maps its manifest declares for module $moduleName',
-            ),
-          );
-        }
-        _sourcemaps['$modulePath.map'] = _slice(
-          mapBytes,
-          offsets: offsets,
-          section: 'sourcemap',
-          module: moduleName,
-          artifact: mapFile.path,
-        );
-      }
-
-      // Metadata (for DWDS module resolution).
-      if (!offsets.containsKey('metadata')) {
-        withoutMetadata.add(moduleName);
-        continue;
-      }
-      if (metadataBytes == null) {
-        throw DevToolException(
-          _missingArtifact(
-            metadataFile.path,
-            dillPath,
-            'the module metadata its manifest declares for module '
-            '$moduleName',
-          ),
-        );
-      }
-      final metaSlice = _slice(
-        metadataBytes,
-        offsets: offsets,
-        section: 'metadata',
-        module: moduleName,
-        artifact: metadataFile.path,
-      );
-      _metadata['$modulePath.metadata'] = metaSlice;
-      final metaStr = utf8.decode(metaSlice);
-      if (metaStr.isEmpty) {
-        withoutMetadata.add(moduleName);
-        continue;
-      }
-      _metadataByModule[modulePath] = metaStr;
-
-      // Extract libraries from metadata for reloaded_sources.
-      final Map<String, dynamic> metaJson;
-      try {
-        metaJson = json.decode(metaStr) as Map<String, dynamic>;
-      } catch (e) {
-        // Not survivable, and not only ours to survive: these same bytes go
-        // into the merged metadata DWDS parses line by line, where a bad line
-        // rethrows out of `MetadataProvider._processMetadata` with no module
-        // named. Reported here it names one.
-        throw DevToolException(
-          _badMetadata(
-            moduleName,
-            metadataFile.path,
-            'is not a JSON object: $e',
-          ),
-        );
-      }
-      // Use metadata name for module field when available.
-      final metaName = metaJson['name'];
-      if (metaName != null) {
-        if (metaName is! String) {
-          throw DevToolException(
-            _badMetadata(
-              moduleName,
-              metadataFile.path,
-              'names the module with ${json.encode(metaName)}, not a string',
-            ),
-          );
-        }
-        reloadEntry['module'] = metaName;
-      }
-      final libs = metaJson['libraries'];
-      if (libs != null) {
-        if (libs is! List) {
-          throw DevToolException(
-            _badMetadata(
-              moduleName,
-              metadataFile.path,
-              'lists its libraries as ${json.encode(libs)}, not an array',
-            ),
-          );
-        }
-        final libraryUris = <String>[];
-        for (final lib in libs) {
-          if (lib is! Map) {
-            throw DevToolException(
-              _badMetadata(
-                moduleName,
-                metadataFile.path,
-                'describes a library with ${json.encode(lib)}, not an object',
-              ),
-            );
-          }
-          final importUri = lib['importUri'];
-          if (importUri != null && importUri is! String) {
-            throw DevToolException(
-              _badMetadata(
-                moduleName,
-                metadataFile.path,
-                'gives a library the import URI ${json.encode(importUri)}, '
-                'not a string',
-              ),
-            );
-          }
-          if (importUri != null) libraryUris.add(importUri as String);
-        }
-        reloadEntry['libraries'] = libraryUris;
-      }
+    for (final entry in batch.manifest.entries) {
+      batch.ingest(entry);
     }
-
-    if (withoutMetadata.isNotEmpty) {
-      _logger.warning({
-        'message': 'ddc_modules_without_metadata',
-        'text':
-            'Warning: the DDC compiler returned ${withoutMetadata.length} '
-            'module(s) with no metadata (${withoutMetadata.join(', ')}). Hot '
-            'reload identifies modules by the libraries in their metadata, so '
-            'edits to those libraries will report as reloaded and will not '
-            'take effect.',
-        'modules': withoutMetadata,
-        'dill': dillPath,
-      });
-    }
-
-    // Only populate reloaded_sources.json after the first compile.
-    // On initial load, it must be empty — DWDS's hot reload fetches it
-    // and tries to reload every listed module. Matching Flutter's behavior.
-    if (_initialCompileDone) {
-      if (reloadedSources.isEmpty) {
-        throw DevToolException(
-          'The DDC compiler recompiled nothing for $dillPath: its manifest '
-          '${manifestFile.path} names no modules.\n'
-          'A recompile only happens here once something is known to have '
-          'changed, so an empty result means the invalidated libraries never '
-          'reached the compiler. `reloaded_sources.json` would list no '
-          'modules, `\$dartReloadModifiedModules` would reload none, and the '
-          'reload would report success while the page kept running the code '
-          'it already had.',
-        );
-      }
-      _reloadedSources = reloadedSources;
-    } else {
-      if (_modules.isEmpty) {
-        throw DevToolException(
-          'The first DDC compile of $dillPath produced no modules: its '
-          'manifest ${manifestFile.path} is empty.\n'
-          'The page loads its entrypoint and every module behind it from '
-          'this server, so it would 404 its way to a blank screen.',
-        );
-      }
-      _initialCompileDone = true;
-    }
-    _moduleDigests = digests;
+    batch.commit();
   }
 
   /// The message for module metadata that is not the shape DDC emits.
@@ -1554,5 +1313,358 @@ class WebModuleServer implements AssetReader {
       );
       return shelf.Response.internalServerError(body: 'Error: $e');
     }
+  }
+}
+
+/// One [WebModuleServer.updateModules] call's working state.
+///
+/// The manifest loop merges each entry's code, source map and metadata into
+/// five server maps while filling three accumulators; one object holds the
+/// artifacts and the accumulators so the per-entry phases stay small.
+class _ModuleBatch {
+  final WebModuleServer server;
+  final String dillPath;
+  final String manifestPath;
+  final String sourcesPath;
+  final String mapPath;
+  final String metadataPath;
+  final Map<String, dynamic> manifest;
+  final Uint8List sourcesBytes;
+  final Uint8List? mapBytes;
+  final Uint8List? metadataBytes;
+
+  /// Descriptors for `reloaded_sources.json`, in manifest order.
+  final List<Map<String, dynamic>> reloadedSources = [];
+
+  /// Module name to content hash, seeded from the previous compile unless
+  /// this is a full one.
+  final Map<String, String> digests;
+
+  // Modules the compiler described without usable metadata. Collected and
+  // reported once: with no metadata there is no library list, and
+  // `$dartReloadModifiedModules` reloads modules by library — so an edit in
+  // one of these reports as reloaded and does not take effect. Per-module
+  // warnings would be one line per module in the app.
+  final List<String> withoutMetadata = [];
+
+  _ModuleBatch._({
+    required this.server,
+    required this.dillPath,
+    required this.manifestPath,
+    required this.sourcesPath,
+    required this.mapPath,
+    required this.metadataPath,
+    required this.manifest,
+    required this.sourcesBytes,
+    required this.mapBytes,
+    required this.metadataBytes,
+    required this.digests,
+  });
+
+  /// Read and validate the compile's artifacts. Every failure below means the
+  /// compile did not write what a successful compile promises; serving from
+  /// it would 404 the page or silently skip the reload, so each throws a
+  /// [DevToolException] naming the artifact and what the run loses with it.
+  factory _ModuleBatch.load(
+    WebModuleServer server,
+    String dillPath, {
+    required bool full,
+  }) {
+    final manifestFile = File('$dillPath.json');
+    final sourcesFile = File('$dillPath.sources');
+    final mapFile = File('$dillPath.map');
+    final metadataFile = File('$dillPath.metadata');
+
+    if (!manifestFile.existsSync()) {
+      throw DevToolException(
+        WebModuleServer._missingArtifact(
+          manifestFile.path,
+          dillPath,
+          'the manifest naming every module the page loads',
+        ),
+      );
+    }
+    if (!sourcesFile.existsSync()) {
+      throw DevToolException(
+        WebModuleServer._missingArtifact(
+          sourcesFile.path,
+          dillPath,
+          'the JavaScript that the manifest slices each module out of',
+        ),
+      );
+    }
+
+    final Map<String, dynamic> manifest;
+    try {
+      manifest =
+          json.decode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+    } catch (e) {
+      throw DevToolException(
+        'The DDC module manifest ${manifestFile.path} is not a JSON object '
+        'of module offsets: $e\n'
+        'Nothing from this compile can be served.',
+      );
+    }
+    final sourcesBytes = sourcesFile.readAsBytesSync();
+    final mapBytes = mapFile.existsSync() ? mapFile.readAsBytesSync() : null;
+    final metadataBytes = metadataFile.existsSync()
+        ? metadataFile.readAsBytesSync()
+        : null;
+    return _ModuleBatch._(
+      server: server,
+      dillPath: dillPath,
+      manifestPath: manifestFile.path,
+      sourcesPath: sourcesFile.path,
+      mapPath: mapFile.path,
+      metadataPath: metadataFile.path,
+      manifest: manifest,
+      sourcesBytes: sourcesBytes,
+      mapBytes: mapBytes,
+      metadataBytes: metadataBytes,
+      digests: {if (!full) ...server._moduleDigests},
+    );
+  }
+
+  /// Merge one manifest entry's code, source map and metadata into the server.
+  void ingest(MapEntry<String, dynamic> entry) {
+    var modulePath = entry.key;
+    if (modulePath.startsWith('/')) {
+      modulePath = modulePath.substring(1);
+    }
+    final rawOffsets = entry.value;
+    if (rawOffsets is! Map<String, dynamic>) {
+      throw DevToolException(
+        'The DDC module manifest $manifestPath describes module '
+        '${entry.key} with ${rawOffsets.runtimeType}, not a map of '
+        'section offsets.',
+      );
+    }
+    final offsets = rawOffsets;
+    final moduleName = modulePath.replaceAll('.lib.js', '');
+
+    final reloadEntry = _storeCode(modulePath, moduleName, offsets);
+    _storeSourcemap(modulePath, moduleName, offsets);
+    _storeMetadata(modulePath, moduleName, offsets, reloadEntry);
+  }
+
+  /// The entry's JavaScript, plus its `reloaded_sources.json` descriptor.
+  Map<String, dynamic> _storeCode(
+    String modulePath,
+    String moduleName,
+    Map<String, dynamic> offsets,
+  ) {
+    // Code (JS source). Required: a manifest entry with no servable code is
+    // a module request that 404s.
+    server._modules[modulePath] = WebModuleServer._slice(
+      sourcesBytes,
+      offsets: offsets,
+      section: 'code',
+      module: moduleName,
+      artifact: sourcesPath,
+    );
+    final reloadEntry = <String, dynamic>{
+      'src': '${server.uri ?? ''}/$modulePath',
+      'module': moduleName,
+      'libraries': <String>[],
+    };
+    reloadedSources.add(reloadEntry);
+    digests[moduleName] = server._modules[modulePath]!.length.toRadixString(16);
+    return reloadEntry;
+  }
+
+  /// The entry's source map, sliced from the map artifact.
+  void _storeSourcemap(
+    String modulePath,
+    String moduleName,
+    Map<String, dynamic> offsets,
+  ) {
+    // Source maps. The manifest is the contract: a declared section whose
+    // file is absent is inconsistent output, not an optional extra.
+    if (offsets.containsKey('sourcemap')) {
+      final map = mapBytes;
+      if (map == null) {
+        throw DevToolException(
+          WebModuleServer._missingArtifact(
+            mapPath,
+            dillPath,
+            'the source maps its manifest declares for module $moduleName',
+          ),
+        );
+      }
+      server._sourcemaps['$modulePath.map'] = WebModuleServer._slice(
+        map,
+        offsets: offsets,
+        section: 'sourcemap',
+        module: moduleName,
+        artifact: mapPath,
+      );
+    }
+  }
+
+  /// The entry's DWDS metadata: raw slice, decoded text, module name and
+  /// library list. Entries without usable metadata are recorded, not served
+  /// half-described — the commit reports them once.
+  void _storeMetadata(
+    String modulePath,
+    String moduleName,
+    Map<String, dynamic> offsets,
+    Map<String, dynamic> reloadEntry,
+  ) {
+    // Metadata (for DWDS module resolution).
+    if (!offsets.containsKey('metadata')) {
+      withoutMetadata.add(moduleName);
+      return;
+    }
+    final metadata = metadataBytes;
+    if (metadata == null) {
+      throw DevToolException(
+        WebModuleServer._missingArtifact(
+          metadataPath,
+          dillPath,
+          'the module metadata its manifest declares for module '
+          '$moduleName',
+        ),
+      );
+    }
+    final metaSlice = WebModuleServer._slice(
+      metadata,
+      offsets: offsets,
+      section: 'metadata',
+      module: moduleName,
+      artifact: metadataPath,
+    );
+    server._metadata['$modulePath.metadata'] = metaSlice;
+    final metaStr = utf8.decode(metaSlice);
+    if (metaStr.isEmpty) {
+      withoutMetadata.add(moduleName);
+      return;
+    }
+    server._metadataByModule[modulePath] = metaStr;
+
+    // Extract libraries from metadata for reloaded_sources.
+    final Map<String, dynamic> metaJson;
+    try {
+      metaJson = json.decode(metaStr) as Map<String, dynamic>;
+    } catch (e) {
+      // Not survivable, and not only ours to survive: these same bytes go
+      // into the merged metadata DWDS parses line by line, where a bad line
+      // rethrows out of `MetadataProvider._processMetadata` with no module
+      // named. Reported here it names one.
+      throw DevToolException(
+        WebModuleServer._badMetadata(
+          moduleName,
+          metadataPath,
+          'is not a JSON object: $e',
+        ),
+      );
+    }
+    // Use metadata name for module field when available.
+    final metaName = metaJson['name'];
+    if (metaName != null) {
+      if (metaName is! String) {
+        throw DevToolException(
+          WebModuleServer._badMetadata(
+            moduleName,
+            metadataPath,
+            'names the module with ${json.encode(metaName)}, not a string',
+          ),
+        );
+      }
+      reloadEntry['module'] = metaName;
+    }
+    _readLibraries(metaJson, moduleName, reloadEntry);
+  }
+
+  /// The library import URIs hot reload uses to find the entry's libraries.
+  void _readLibraries(
+    Map<String, dynamic> metaJson,
+    String moduleName,
+    Map<String, dynamic> reloadEntry,
+  ) {
+    final libs = metaJson['libraries'];
+    if (libs != null) {
+      if (libs is! List) {
+        throw DevToolException(
+          WebModuleServer._badMetadata(
+            moduleName,
+            metadataPath,
+            'lists its libraries as ${json.encode(libs)}, not an array',
+          ),
+        );
+      }
+      final libraryUris = <String>[];
+      for (final lib in libs) {
+        if (lib is! Map) {
+          throw DevToolException(
+            WebModuleServer._badMetadata(
+              moduleName,
+              metadataPath,
+              'describes a library with ${json.encode(lib)}, not an object',
+            ),
+          );
+        }
+        final importUri = lib['importUri'];
+        if (importUri != null && importUri is! String) {
+          throw DevToolException(
+            WebModuleServer._badMetadata(
+              moduleName,
+              metadataPath,
+              'gives a library the import URI ${json.encode(importUri)}, '
+              'not a string',
+            ),
+          );
+        }
+        if (importUri != null) libraryUris.add(importUri as String);
+      }
+      reloadEntry['libraries'] = libraryUris;
+    }
+  }
+
+  /// Warn about metadata-less modules, then publish the batch: incremental
+  /// results merge into the served state, the first compile arms it.
+  void commit() {
+    if (withoutMetadata.isNotEmpty) {
+      _logger.warning({
+        'message': 'ddc_modules_without_metadata',
+        'text':
+            'Warning: the DDC compiler returned ${withoutMetadata.length} '
+            'module(s) with no metadata (${withoutMetadata.join(', ')}). Hot '
+            'reload identifies modules by the libraries in their metadata, so '
+            'edits to those libraries will report as reloaded and will not '
+            'take effect.',
+        'modules': withoutMetadata,
+        'dill': dillPath,
+      });
+    }
+
+    // Only populate reloaded_sources.json after the first compile.
+    // On initial load, it must be empty — DWDS's hot reload fetches it
+    // and tries to reload every listed module. Matching Flutter's behavior.
+    if (server._initialCompileDone) {
+      if (reloadedSources.isEmpty) {
+        throw DevToolException(
+          'The DDC compiler recompiled nothing for $dillPath: its manifest '
+          '${manifestPath} names no modules.\n'
+          'A recompile only happens here once something is known to have '
+          'changed, so an empty result means the invalidated libraries never '
+          'reached the compiler. `reloaded_sources.json` would list no '
+          'modules, `\$dartReloadModifiedModules` would reload none, and the '
+          'reload would report success while the page kept running the code '
+          'it already had.',
+        );
+      }
+      server._reloadedSources = reloadedSources;
+    } else {
+      if (server._modules.isEmpty) {
+        throw DevToolException(
+          'The first DDC compile of $dillPath produced no modules: its '
+          'manifest $manifestPath is empty.\n'
+          'The page loads its entrypoint and every module behind it from '
+          'this server, so it would 404 its way to a blank screen.',
+        );
+      }
+      server._initialCompileDone = true;
+    }
+    server._moduleDigests = digests;
   }
 }

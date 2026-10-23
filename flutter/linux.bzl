@@ -57,10 +57,13 @@ Cross-compilation: build from macOS/Windows for Linux with:
     bazel build //target --platforms=@rules_flutter//flutter/platforms:linux_x64
 """
 
+load("//flutter/private:flutter_integration_test.bzl", _flutter_integration_test = "flutter_integration_test")
 load("//flutter/private:flutter_linux_application.bzl", _flutter_linux_bundle_rule = "flutter_linux_bundle_rule", _flutter_linux_runner_lib = "flutter_linux_runner_lib")
 load("//flutter/private:flutter_linux_engine_rule.bzl", _flutter_linux_engine_rule = "flutter_linux_engine_rule")
 load("//flutter/private:flutter_linux_plugin_library.bzl", _flutter_linux_plugin_library = "flutter_linux_plugin_library")
 load("//flutter/private:flutter_linux_registrant.bzl", _flutter_linux_registrant = "flutter_linux_registrant")
+
+flutter_integration_test = _flutter_integration_test
 
 # -- Composable rules (Tier 2) ------------------------------------------------
 

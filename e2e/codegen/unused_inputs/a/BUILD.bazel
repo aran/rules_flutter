@@ -1,0 +1,14 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+dart_library(
+    name = "a",
+    package_name = "unused_a",
+    srcs = ["lib/adopt.dart"],
+    tags = ["no-dart-analyze"],  # adopted-part fixture: legal for the compiler, unresolvable for the analyzer
+    visibility = ["//:__pkg__"],
+    deps = [
+        "//unused_inputs/b",
+        "//unused_inputs/c",
+        "//unused_inputs/d",
+    ],
+)

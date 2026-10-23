@@ -1,0 +1,21 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+# Its own Bazel package, apart from the `modular_api_fixture` libraries:
+# each library derives its `lib_root` from `ctx.label.package`, so sharing
+# the fixture package would claim the same `rootUri` for `package:flutter_test`
+# and `package:modular_api_a`, and two packages cannot share one in a
+# `package_config.json`.
+package(default_visibility = ["//flutter/tests:__pkg__"])
+
+# Stand-in for `package:flutter_test`: the kernel module aspect emits the
+# shared base dill for the package named `flutter_test`, so the
+# `use_base_dill` callers delta-link against this base the way a real custom
+# pipeline delta-links against the SDK's. Depending on it also exposes
+# `package:flutter_test`, so those callers stage the golden comparator —
+# exactly the closure a real `flutter_test` depending suite carries.
+flutter_library(
+    name = "fake_flutter_test_sdk",
+    package_name = "flutter_test",
+    srcs = ["lib/fake_flutter_test.dart"],
+    tags = ["manual"],
+)

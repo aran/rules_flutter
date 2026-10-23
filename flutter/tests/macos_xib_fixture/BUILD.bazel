@@ -1,0 +1,32 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//flutter:macos.bzl", "flutter_macos_app")
+load("//flutter/tests:apple_bundling.bzl", "fake_application")
+
+fake_application(
+    name = "fake_app",
+    debug = False,
+    macho_aot = True,
+    tags = ["manual"],
+)
+
+write_file(
+    name = "sample_entitlements",
+    out = "DebugProfile.entitlements",
+    content = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>',
+    ],
+    tags = ["manual"],
+)
+
+flutter_macos_app(
+    name = "discovered_menu_xib_app",
+    srcs = ["@rules_flutter//flutter/private/runners/macos:AppDelegate.swift"],
+    application = ":fake_app",
+    backend = "xtool",
+    bundle_id = "com.example.macos.discoveredxib",
+    entitlements = ":sample_entitlements",
+    info_plist = "@rules_flutter//flutter/private/runners/macos:Info.plist",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+)

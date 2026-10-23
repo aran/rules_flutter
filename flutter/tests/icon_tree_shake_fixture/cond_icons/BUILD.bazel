@@ -1,0 +1,14 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+flutter_library(
+    name = "cond_icons",
+    package_name = "cond_icons",
+    srcs = [
+        "lib/cond_icons.dart",
+        "lib/src/icon_vm.dart",
+        "lib/src/icon_web.dart",
+    ],
+    deps = ["//flutter/tests/icon_tree_shake_fixture:flutter_stub"],
+)

@@ -20,6 +20,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dwds/dwds.dart' show AppConnection;
 import 'package:path/path.dart' as p;
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
     show ChromeConnection;
@@ -116,297 +117,22 @@ class WebPipelineAssembler {
   /// loop and let the run serve the last build statically.
   Future<void> assemble(List<String> outputFiles) async {
     try {
-      // Find dev config in build outputs (emitted by flutter_web_bundle in -c dbg).
-      final devConfigPath = findDevConfig(outputFiles);
-      if (devConfigPath == null) {
-        throw DevToolException(
-          'No _dev_config.json found in build outputs.\n'
-          'Ensure you are building with -c dbg (debug mode).',
-        );
-      }
-
-      plan.logger.fine({
-        'message': 'parsing_dev_config',
-        'text': 'Parsing dev config from $devConfigPath...',
-        'path': devConfigPath,
-      });
-      final devConfig = parseDevConfig(devConfigPath);
-      requireDeclaredFilesExist(devConfig);
-
-      // Build web toolchain paths and find web output dir from build outputs.
-      final webToolchain = buildWebToolchainFromOutputs(
-        outputFiles,
-        devConfig,
+      final config = _loadDevConfig(outputFiles);
+      _rejectShadowedSources(config.devConfig);
+      final syntheticDir = await _stageSyntheticEntrypoint(config.devConfig);
+      final servers = await _startModuleServer(config: config);
+      final fs = await _startFrontendServer(
+        config: config,
+        syntheticDir: syntheticDir,
       );
-      final webOutputDir = findWebOutputDir(outputFiles);
-
-      // The page's boot path comes from the build, not from here. A dev config
-      // without it is a rules/dev-tool version skew, and the alternative to
-      // saying so is generating a bootstrap that ignores the target's template
-      // and every `web_defines` entry in it.
-      if (devConfig.flutterBootstrapJs.isEmpty) {
-        throw DevToolException(
-          'The dev config at $devConfigPath names no flutter_bootstrap.js.\n'
-          'The build substitutes that file from the target\'s bootstrap '
-          'template; without it the page has nothing to boot. The app and this '
-          'dev tool were built from different revisions of rules_flutter.',
-        );
-      }
-
-      // The BUILD package_config, named by the build rather than picked out of
-      // the outputs by filename. Two of them end in `package_config.json` — the
-      // build's and the dev one — and matching on the suffix would choose
-      // between them by the order `bazel cquery --output=files` happens to
-      // print, which is the dev one. For a source-assembled (codegen) app that
-      // is the wrong answer for this consumer: its `rootUri`s are
-      // `<filesystemScheme>:///<lib_root>`, and DWDS resolves a `package:` URI
-      // through this config only to open the result as a file —
-      // `Uri.toFilePath()` throws `Cannot extract a file path from a
-      // org-dartlang-app URI`, so every first-party library shows a blank
-      // source pane in the debugger.
-      //
-      // The compiler below wants the opposite config, and gets it by name too.
-      // Neither is "the" package config, which is exactly why neither is
-      // discovered.
-      if (devConfig.buildPackageConfig.isEmpty) {
-        throw DevToolException(
-          'The dev config at $devConfigPath names no buildPackageConfig.\n'
-          'DWDS resolves every package: URI through it to read the source off '
-          'disk; without it the debugger can show no source at all. The app '
-          'and this dev tool were built from different revisions of '
-          'rules_flutter.',
-        );
-      }
-      final packageConfig = devConfig.buildPackageConfig;
-
-      // The generated files below are staged in the compiler's FIRST
-      // `--filesystem-root`, so each one answers its `org-dartlang-app:///`
-      // name ahead of the workspace. An app source outside every package that
-      // sits at the workspace root under one of those names would be shadowed
-      // by it — the dev loop would compile the generated file in its place,
-      // and nothing would say so. Upstream stages the same way; refused here
-      // by name instead of left to surface as the wrong program.
-      for (final source in devConfig.appSources) {
-        for (final staged in _stagedNames) {
-          if (source.uri == 'org-dartlang-app:///$staged') {
-            throw DevToolException(
-              '${source.path} is compiled as ${source.uri}, the name the dev '
-              "loop's generated $staged takes, so the generated file would be "
-              'compiled in its place. Rename it, or move it out of the '
-              'workspace root.',
-            );
-          }
-        }
-      }
-
-      // Generate synthetic web_entrypoint.dart with bootstrapEngine() + plugin registrant.
-      final syntheticDir = syntheticDirectory = await createTempDir(
-        'flutter_ddc_',
-      );
-      final syntheticMain = File(
-        p.join(syntheticDir.path, 'web_entrypoint.dart'),
-      );
-
-      // Stage the build's web plugin registrant next to the synthetic
-      // entrypoint and import it relatively — exactly what Flutter's
-      // `resident_web_runner` does (`web_plugin_registrant.dart` written
-      // into the same generated-entrypoint directory). `syntheticDir` is the
-      // first `--filesystem-root`, so `org-dartlang-app:/web_entrypoint.dart`
-      // resolves the sibling import there. The registrant's own
-      // `package:` imports resolve through the frontend server's
-      // package_config like any other library.
-      //
-      // The path is named explicitly by the build in `_dev_config.json`;
-      // nothing here derives or searches for a filename.
-      String? pluginRegistrantImport;
-      if (devConfig.webPluginRegistrant.isNotEmpty) {
-        const stagedName = 'web_plugin_registrant.dart';
-        File(p.join(syntheticDir.path, stagedName)).writeAsStringSync(
-          File(devConfig.webPluginRegistrant).readAsStringSync(),
-        );
-        pluginRegistrantImport = stagedName;
-      }
-
-      // The agent extensions ride in the same way, and for the same reason:
-      // the entrypoint that imports them is generated here, so the file has
-      // to be somewhere that entrypoint can name. Native gets this from the
-      // engine's pre-main registrant hook instead — there is no such hook on
-      // web, so registration happens inside the generated `main()`.
-      String? agentExtensionsImport;
-      if (devConfig.agentExtensions.isNotEmpty) {
-        const stagedName = 'agent_extensions.dart';
-        File(
-          p.join(syntheticDir.path, stagedName),
-        ).writeAsStringSync(File(devConfig.agentExtensions).readAsStringSync());
-        agentExtensionsImport = stagedName;
-      }
-
-      syntheticMain.writeAsStringSync(
-        generateSyntheticMainDart(
-          appEntrypoint: devConfig.appEntrypoint,
-          pluginRegistrantEntrypoint: pluginRegistrantImport,
-          agentExtensionsEntrypoint: agentExtensionsImport,
-        ),
-      );
-
-      pipeline.entrypoint = 'org-dartlang-app:/web_entrypoint.dart';
-
-      // Create the module server with workspace root and package config
-      // for DWDS source resolution. Held in a non-null local as well: the
-      // browser-connection listener wired below outlives this block, and the
-      // captured field is nulled on the failure path.
-      final moduleServer = WebModuleServer(
-        webToolchain: webToolchain,
-        buildOutputDir: webOutputDir,
-        entrypointFilename: 'web_entrypoint.dart',
-        flutterBootstrapJsPath: devConfig.flutterBootstrapJs,
-        dartExecutable: plan.toolchain.dart,
-        workspaceRoot: plan.workspace,
-        packageConfigPath: packageConfig,
-        nativeNullAssertions: devConfig.nativeNullAssertions,
-        options: plan.webServer,
-      );
-      this.moduleServer = moduleServer;
-
-      // Write first-upload bootstrap files to in-memory server.
-      moduleServer.writeFile(
-        'manifest.json',
-        '{"info":"manifest not generated in run mode."}',
-      );
-      moduleServer.writeFile(
-        'flutter_service_worker.js',
-        '// Service worker not loaded in run mode.',
-      );
-
-      // Start HTTP server first (without DWDS) to get the server URI.
-      final serverUri = await moduleServer.start();
-
-      // Set up frontend server with web compiler config + filesystem roots.
-      // For a source-assembled (codegen) app, add the dev multi-root dirs
-      // (live source + generated bazel-out) so package: URIs resolve to live
-      // edits + regenerated parts. devConfig roots are empty for non-codegen
-      // apps.
-      //
-      // Always the dev package_config, never the build's. The build's maps
-      // `package:` URIs into the frozen `.pkgsrcs` tree the bundle was
-      // assembled from, so a dev loop compiling through it would read a copy of
-      // the source instead of the source: every edit would compile cleanly,
-      // report a successful reload, and change nothing on screen. A fallback to
-      // it when `devPackageConfig` is empty cannot fire — the rule declares and
-      // writes the file under the same `is_debug` condition that decides
-      // whether this `_dev_config.json` is emitted at all — and would be silent
-      // if it ever did.
-      if (devConfig.devPackageConfig.isEmpty) {
-        throw DevToolException(
-          'The build emitted a dev config at $devConfigPath with no '
-          'devPackageConfig. Without it the dev loop has no package config '
-          'that resolves to live sources, and every hot reload would '
-          'recompile the copy of the tree the bundle was assembled from.',
-        );
-      }
-      // Repointed off Bazel's per-command execroot forest, so a concurrent build
-      // cannot delete the package roots this compiler reads. See
-      // [stabilizePackageRoots]; the build-emitted file is left untouched.
-      // Its own directory, deliberately not [syntheticDir]: that one is a
-      // `--filesystem-root`, so anything written into it becomes addressable as
-      // `org-dartlang-app:///<name>` and would collide with the live source tree.
-      final packageConfigDir = await createTempDir('flutter_pkgcfg_');
-      await host.teardown.add(() => deleteTempDir(packageConfigDir));
-      final stabilized = stabilizePackageRoots(
-        devConfig.devPackageConfig,
-        into: packageConfigDir,
-      );
-      plan.logger.info({
-        'message': 'package_roots_stabilized',
-        'text':
-            'Repointed ${stabilized.repointed.length} package root(s) off '
-            "Bazel's per-command execroot so a concurrent build cannot delete "
-            'them mid-compile.',
-        'packages': stabilized.repointed,
-        'packageConfig': stabilized.path,
-      });
-      final webPackageConfig = stabilized.path;
-      final compilerConfig = WebCompilerConfig(
-        webToolchain: webToolchain,
-        fileSystemRoots: [
-          syntheticDir.path,
-          plan.workspace,
-          ...devConfig.filesystemRoots,
-        ],
-        dartDefines: devConfig.dartDefines,
-        enableExperiments: devConfig.enableExperiments,
-      );
-      final fs = pipeline.frontendServer = FrontendServer(
-        dartaotruntimePath: devConfig.dartaotruntime,
-        frontendServerPath: devConfig.frontendServer,
-        config: compilerConfig,
-        packageConfig: webPackageConfig,
-      );
-      await fs.start();
-      await host.teardown.add(fs.shutdown);
-
-      // DWDS after the compiler, not before: the debugger's expression
-      // evaluation is that same compiler, asked a different question, and
-      // handing it over at construction is what makes the flag real rather than
-      // a value nobody reads. Nothing in DWDS's setup needs the compiler to have
-      // compiled anything yet, and nothing in the compiler needs DWDS.
-      //
-      // Chrome has not launched either — the connection callback is lazy.
       final webDevice = plan.devices.first as WebDevice;
-      await moduleServer.initDwds(
-        chromeConnection: () async {
-          final cdpPort = webDevice.cdpPort;
-          if (cdpPort == null) {
-            throw StateError('Chrome CDP port not yet discovered');
-          }
-          return ChromeConnection('localhost', cdpPort);
-        },
-        serverUri: serverUri,
-        expressionCompiler: plan.webOptions!.enableExpressionEvaluation
-            ? FrontendServerExpressionCompiler(fs)
-            : null,
+      await _initDebugger(
+        moduleServer: servers.server,
+        serverUri: servers.serverUri,
+        fs: fs,
+        webDevice: webDevice,
       );
-
-      // What the page is about to be running, read BEFORE the compile that
-      // produces it — which is the whole of the ordering here.
-      //
-      // The resolver keys every source file (app + deps) by the URI the
-      // frontend_server keys its library by — `package:` through the dev
-      // package_config, or for the app's sources outside every package the
-      // app-scheme URI the build declared — so an invalidation actually hits
-      // them.
-      //
-      // Deliberately NOT [AppliedVersions.seedFromBuild], which native uses.
-      // The two are answering the same question about different moments. On
-      // native the app is already running the bazel-built kernel and the
-      // compiler's first compile is only a baseline for deltas, so the truth is
-      // the bazel build and `builtBefore` is the cutoff. Here the page has not
-      // launched — Chrome starts after this whole assembly — and what it first
-      // loads is exactly `initialResult.dillPath` below. The truth is therefore
-      // this compile, and the compile reads live sources: the dev package
-      // config resolves `package:` URIs to the live tree, not to the frozen
-      // `.pkgsrcs` the bundle was assembled from.
-      //
-      // Which is why the snapshot is cut here rather than after the compile.
-      // Taken afterwards it would record the *post-edit* version of a file
-      // edited while the compiler was reading — the compile may well have
-      // missed it, and nothing would say so: the first reload would find no
-      // change, and no watch event would cover it either, because the watcher
-      // is started later still. Cut beforehand, the worst case is a file the
-      // compile did pick up being re-sent once. `builtBefore` is not the cutoff
-      // for any of this; it governs the asset tree below, which really is
-      // bazel-built.
-      final res = pipeline.resolver = SourceUriResolver(
-        workspaceRoot: plan.workspace,
-        sourcePackages: devConfig.sourcePackages,
-        appSources: devConfig.appSources,
-      );
-      final ws = pipeline.workspaceView = Workspace(
-        resolver: res,
-        generatedFiles: devConfig.generatedFileUris,
-      );
-      final initialSnap = ws.snapshot();
-
+      final initialSnap = _snapshotSources(config.devConfig);
       // Compile the synthetic entrypoint.
       //
       // A failure here is not different in kind from any later compile: it
@@ -423,344 +149,24 @@ class WebPipelineAssembler {
       // the page — see [ReloadPipeline.webBaselineFailure] and
       // [DwdsReloadStrategy.loadFirstProgram].
       final initialResult = await fs.compile(pipeline.entrypoint);
-      if (!initialResult.success) {
-        // The one failure here that nothing later can undo. `recoverable` is a
-        // field of its own rather than a turn of phrase in `text`, because JSON
-        // mode drops `text` outright (see `logging.dart`) — an IDE or agent
-        // driving this run would otherwise be told a compile failed and never
-        // told whether the session it is holding is worth keeping.
-        if (!fs.isRunning) {
-          plan.logger.severe({
-            'message': 'initial_compile_failed',
-            'text':
-                'The incremental compiler stopped running during the first '
-                'compile, so this run has no hot reload or hot restart and the '
-                'browser has no app to show. Restart the run.'
-                '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}',
-            'diagnostics': initialResult.diagnostics,
-            'recoverable': false,
-          });
-          throw DevToolException(
-            'The compiler stopped running during the initial DDC compile.\n'
-            '${initialResult.diagnostics}',
-          );
-        }
-        // The verdict a failed compile is owed, and the same one a failed reload
-        // compile gets: accept only what the page can be said to be running,
-        // which is nothing.
-        await fs.reject();
-        plan.logger.severe({
-          'message': 'initial_compile_failed',
-          'text':
-              'The first compile of the working tree failed, so the browser '
-              'page has no app on it yet. The session keeps its compiler: fix '
-              'the error below and save, and the next reload compiles the whole '
-              'program and loads it.'
-              '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}',
-          'diagnostics': initialResult.diagnostics,
-          'recoverable': true,
-        });
-        // What every later request reads to know the page holds no program.
-        // `appliedVersions` is deliberately left empty alongside it, so every
-        // file is still pending and the recovering compile reads all of them.
-        pipeline.webBaselineFailure =
-            'The first compile of the working tree failed and the page has been '
-            'showing nothing since.'
-            '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}';
-      } else {
-        fs.accept();
-        // The first compile produces every module, so it defines the
-        // program rather than adding to one.
-        moduleServer.updateModules(initialResult.dillPath, full: true);
-        // Committed only now: the baseline describes code the page can actually
-        // load, and until `updateModules` there is none.
-        pipeline.appliedVersions.markApplied(
-          initialSnap,
-          files: initialSnap.fileUris.toSet(),
-        );
-      }
-      // One rebuild of the web bundle, shared by the two reasons to want
-      // one: regenerating a codegen app's sources, and refreshing the asset
-      // tree. Both produce the same outputs from the same target, so they
-      // must not be two builds that can disagree.
-      //
-      // `plan.extraArgs`, which includes `--build-arg`: the *initial* build
-      // passes it, so the output directory the tracker watches lives in that
-      // configuration, and rebuilding without it writes a different one — a
-      // build that reports success, a diff that finds nothing, and a dropped
-      // edit. The native `_rebuildBundle` comment describes the same family of
-      // mistake.
-      Future<bool> rebuildWebBundle() async {
-        final r = await host.bazel.build(
-          plan.target,
-          workspace: plan.workspace,
-          compilationMode: 'dbg',
-          extraArgs: plan.extraArgs,
-        );
-        return r.success;
-      }
-
-      // The native modules the page instantiates, if the build declared any.
-      // Same physics as a `dlopen`ed library: `initBridge()` instantiates the
-      // module once, a hot reload does not re-run `main()`, so the instance
-      // outlives the increment — and new bindings over an instantiated module
-      // are worse here than on native, because a wasm trap poisons the instance
-      // rather than failing one call.
-      //
-      // Declared rather than found: this directory also holds the app's own
-      // `main.dart.wasm`, which moves on every Dart edit.
-      if (devConfig.nativeLibs.isNotEmpty) {
-        final nativeLibs = await NativeLibsWatch.of(
-          devConfig.nativeLibContracts,
-        );
-        pipeline.nativeLibsVerdict = nativeLibs.verdict;
-        // What a restart settles on web, and what no restart can settle on
-        // native. A hot restart re-runs `main()` in the live page and Dart
-        // statics reset with it, so `initBridge()` fetches the module URL again
-        // and instantiates what the rebuilt bundle now serves. A native process
-        // keeps every image it mapped, which is why there the same re-baseline
-        // belongs to the relauncher that replaced the process.
-        pipeline.markNativeLibsLive = nativeLibs.markLive;
-      }
-
+      await _settleInitialCompile(
+        fs: fs,
+        moduleServer: servers.server,
+        initialSnap: initialSnap,
+        initialResult: initialResult,
+      );
+      await _wireNativeLibs(config);
       // Codegen apps: rebuild generated sources via bazel before each web
       // reload (regenerates `.g.dart`, keeps the execroot forest intact).
-      if (devConfig.generatedSourceUris.isNotEmpty) {
-        pipeline.refreshGenerated = rebuildWebBundle;
+      if (config.devConfig.generatedSourceUris.isNotEmpty) {
+        pipeline.refreshGenerated = _rebuildWebBundle;
       }
 
-      // The module server serves `assets/` straight off this directory on
-      // every request, so a rebuilt asset is on the wire the moment it is on
-      // disk. Tracking it is what turns that into a reload: it says whether
-      // a build is worth running, and which archive paths the page has to be
-      // told to stop trusting its caches for.
-      pipeline.assetTracker = AssetTracker(
-        AssetBundle(
-          directory: p.join(webOutputDir, 'assets'),
-          workspaceRoot: plan.workspace,
-          shaders: devConfig.shaders,
-        ),
-        builtBefore: builtBefore,
+      _trackAssets(config, moduleServer: servers.server);
+      await _wireBrowserConnection(
+        moduleServer: servers.server,
+        webDevice: webDevice,
       );
-      pipeline.rebuildAssets = rebuildWebBundle;
-      plan.logger.info({
-        'message': 'frontend_server_ready',
-        'text':
-            'DDC frontend server ready. Module server at ${moduleServer.uri}',
-        // Structured as well as prose: this is the base URL every web
-        // asset is served from, so a client driving the tool (or a test)
-        // can address the server without parsing the sentence above.
-        'uri': moduleServer.uri.toString(),
-      });
-
-      // Set module server on WebDevice before launch.
-      webDevice.setModuleServer(moduleServer);
-
-      // Wire the browser connection BEFORE Chrome launches. `connectedApps`
-      // is a broadcast stream, so anything it emits with no listener
-      // attached is dropped on the floor — and a browser that connects fast
-      // does exactly that, losing the AppConnection, never sending `runMain()`,
-      // and leaving DWDS holding `main()` back: a blank page forever with no
-      // diagnostics. Nothing here needs Chrome to exist yet.
-      final connectedApps = moduleServer.connectedApps;
-      if (connectedApps == null) {
-        // `initDwds` either wires DWDS up or throws, so a live module server
-        // always has this stream. Reaching here means that invariant broke.
-        // Skipping the block instead would leave the run with no reload
-        // strategy, no VM service and no `markDebugReady`, and say nothing
-        // about any of it.
-        throw StateError(
-          'The web module server is running but DWDS exposes no '
-          'connectedApps stream: DWDS initialization did not complete.',
-        );
-      }
-      // Set up the VM service on EVERY browser connection — not just the
-      // first. Hot restart preserves the page, but a genuine navigation (the
-      // user hitting reload, a crash) still tears down the page's isolate and
-      // VM service; re-attaching on each (re)connection lets the next hot
-      // reload use the live connection instead of a dead one. Matches
-      // Flutter's resident_web_runner, which re-attaches per connection.
-      final dwdsReload = DwdsReloadStrategy(
-        moduleServer: moduleServer,
-        // Read at call time, not now: this runs before Chrome launches, so there
-        // is no debugging port to capture yet. The listener above is what makes
-        // the navigation safe — it re-wires the VM service, the session and the
-        // log forwarder on the reconnection, exactly as it does for a user
-        // pressing reload.
-        loadFirstProgram: () async {
-          final cdpPort = webDevice.cdpPort;
-          if (cdpPort == null) {
-            throw StateError(
-              'the browser announced no debugging port, so the page cannot be '
-              'told to load the program it never got',
-            );
-          }
-          await cdpPageReload(cdpPort, appUrl: webDevice.appUrl);
-        },
-      );
-      pipeline.strategy = dwdsReload;
-      VmServiceLogForwarder? webLogForwarder;
-
-      connectedApps.listen((appConnection) async {
-        plan.logger.info({
-          'message': 'dwds_connected',
-          'text':
-              'DWDS: Browser connected (app: ${appConnection.request.appId})',
-        });
-        try {
-          final debugConnection = await moduleServer.debugConnection(
-            appConnection,
-          );
-          // Awaited, not searched for: the listener is attached before the
-          // launch loop runs, so on a fast connection the session may not
-          // exist yet and `sessions.firstWhere` would throw.
-          final session = await webSession.future;
-
-          // DWDS runs the DDS, so `debugConnection.uri` already *is* the DDS
-          // websocket. Everything — our client, DevTools, DWDS's own client —
-          // attaches there, and DDS multiplexes them.
-          final wsUri = Uri.parse(debugConnection.uri);
-          final webClient = VmServiceClient();
-          await webClient.connect(
-            httpUriFromWebSocketUri(wsUri),
-            createDevFS: false,
-          );
-          session.vmClient = webClient;
-          final webVmService = webClient.service!;
-          await dwdsReload.attachVmService(webVmService);
-          // Announced on web too: the event exists to say where a run's VM
-          // service is, and a `--machine` client has no other way to find a
-          // browser run's.
-          host.protocol.appDebugPort(
-            session.appId,
-            wsUri,
-            httpUriFromWebSocketUri(wsUri),
-          );
-
-          // Claim hot reload on the DDS, as flutter_tools does. Without it a
-          // DevTools-initiated reload bypasses us and calls DWDS's raw
-          // `reloadSources` directly — no recompile from our frontend
-          // server, and a second concurrent reload that DWDS does not
-          // serialise. Registering does not capture our own raw call: DDS
-          // resolves only namespaced (`sN.`) names against registrations.
-          await webVmService.registerService(
-            'reloadSources',
-            'rules_flutter dev_tool',
-          );
-
-          // DevTools comes from the DDS that DWDS started, already carrying
-          // the VM service URI — no separate `dart devtools` process, and no
-          // URL for the user to wire up by hand. Setting it before
-          // `markDebugReady` is what tells the session not to launch one.
-          session.devToolsUrl = debugConnection.devToolsUri;
-          session.markDebugReady();
-
-          // A handover is the app starting, not the app painted. Web takes the
-          // same first-frame wait native does.
-          unawaited(session.waitUntilDrivable(host.protocol));
-
-          // A browser page has no process pipes, so the VM service is the
-          // app's log source here. Re-attached on every connection because a
-          // page that navigates replaces the isolate and its VM service;
-          // without this, output stops after the first such reload.
-          await webLogForwarder?.dispose();
-          webLogForwarder = await forwardVmServiceLogs(
-            webVmService,
-            session.appInstance.logs,
-          );
-
-          plan.logger.info({
-            'message': 'dwds_vm_service',
-            'text': 'DWDS VM service ready — hot reload enabled.',
-          });
-        } catch (e) {
-          // The same rule as the native abort in the launch loop below,
-          // applied where web can apply it. `!isWebDevice` guards that check
-          // because a browser's VM service arrives asynchronously, so the
-          // decision cannot be made inline at launch — it belongs here, at
-          // the one moment web knows the answer.
-          //
-          // A browser that has not connected *yet* never reaches this: the
-          // listener only fires on a connection that arrived. Upstream makes
-          // the same distinction deliberately — an unconnected client is
-          // `Recompile complete. No client connected.`, not an error —
-          // and so does this. What is fatal is a connection that arrived and
-          // then failed to wire: no VM service, no hot reload, no DevTools,
-          // no app console.
-          if (plan.allowNoVmService) {
-            plan.logger.warning({
-              'message': 'dwds_vm_service_error',
-              'text':
-                  'Continuing without a DWDS VM service connection '
-                  '(--allow-no-vm-service): $e',
-              'error': '$e',
-            });
-          } else {
-            fail(
-              DevToolException(
-                'No VM service connection for the browser session: $e\n'
-                'Hot reload, DevTools, and the app console would all be '
-                'unavailable. Pass --allow-no-vm-service to run anyway.',
-              ),
-            );
-            return;
-          }
-        }
-        // Tell the browser to run main() — sends RunRequest via SSE. Must
-        // happen after debug setup so DWDS can set breakpoints.
-        //
-        // With --start-paused it is held back instead. There is no engine
-        // switch to pass a browser: DWDS is what gates `main()`, so pausing
-        // means simply not sending the request until a debugger resumes the
-        // isolate. `pause_isolates_on_start` is set alongside it so isolates
-        // the app spawns later stop too, matching what the flag does
-        // everywhere else.
-        if (!plan.startPaused) {
-          appConnection.runMain();
-          return;
-        }
-        // Holding a browser app is not an engine switch — DWDS is what gates
-        // `main()`, so pausing is simply not sending the run request. What
-        // releases it is DWDS itself: its `resume` handler runs `main()` when
-        // the app has not started yet, so a debugger's resume button is the
-        // resume, with nothing here to relay it.
-        final webVm = (await webSession.future).vmClient?.service;
-        if (webVm == null) {
-          // Nothing can resume it, so holding main() back would be a hang
-          // with no way out. Run, and say why it is not paused.
-          plan.logger.severe({
-            'message': 'start_paused_unavailable',
-            'text':
-                'Could not hold the browser app at main(): this run has '
-                'no VM service to resume it from. Starting it normally.',
-          });
-          appConnection.runMain();
-          return;
-        }
-        // Not what withholds `main()` — that is the missing `runMain()`
-        // above. This is what makes the state legible: with the flag set,
-        // DWDS reports the isolate as paused at start, so a debugger shows a
-        // stopped app with a resume button instead of a running one that
-        // renders nothing.
-        try {
-          await webVm.setFlag('pause_isolates_on_start', 'true');
-        } catch (e) {
-          plan.logger.warning({
-            'message': 'pause_isolates_flag_failed',
-            'text':
-                'The browser VM would not take pause_isolates_on_start '
-                '($e); main() is still held back and a resume still starts '
-                'it, but a debugger will show the app as running.',
-            'error': '$e',
-          });
-        }
-        plan.logger.info({
-          'message': 'start_paused',
-          'text':
-              'Holding the browser app at main(). Attach a debugger and '
-              'resume — nothing renders until then.',
-        });
-      });
 
       // Last statement in the block on purpose: signalled any earlier, a throw
       // in between leaves the gate open while `frontendServer` is reset to
@@ -802,6 +208,768 @@ class WebPipelineAssembler {
         'DDC dev server failed; hot reload unavailable: $e',
       );
     }
+  }
+}
+
+/// The validated build outputs [WebPipelineAssembler.assemble] wires into
+/// a dev loop: the dev config, the toolchain and output paths it names, and
+/// the build package config DWDS reads sources through.
+class _WebConfig {
+  final String devConfigPath;
+  final DevConfig devConfig;
+  final WebToolchainPaths webToolchain;
+  final String webOutputDir;
+  final String packageConfig;
+
+  const _WebConfig({
+    required this.devConfigPath,
+    required this.devConfig,
+    required this.webToolchain,
+    required this.webOutputDir,
+    required this.packageConfig,
+  });
+}
+
+/// The per-connection state the browser listener threads through its
+/// callbacks. The log forwarder is replaced on every (re)connection, so it
+/// lives here rather than in a captured local: the callbacks are methods now.
+class _BrowserWiring {
+  final WebModuleServer moduleServer;
+  final DwdsReloadStrategy dwdsReload;
+  final WebDevice webDevice;
+  VmServiceLogForwarder? logForwarder;
+
+  _BrowserWiring({
+    required this.moduleServer,
+    required this.dwdsReload,
+    required this.webDevice,
+  });
+}
+
+extension _WebAssembly on WebPipelineAssembler {
+  /// Find the build's dev config in its outputs and validate what it names.
+  /// Every failure below is a build/dev-tool version skew or a misconfigured
+  /// target, so each throws naming the file and what the run loses with it.
+  _WebConfig _loadDevConfig(List<String> outputFiles) {
+    // Find dev config in build outputs (emitted by flutter_web_bundle in -c dbg).
+    final devConfigPath = findDevConfig(outputFiles);
+    if (devConfigPath == null) {
+      throw DevToolException(
+        'No _dev_config.json found in build outputs.\n'
+        'Ensure you are building with -c dbg (debug mode).',
+      );
+    }
+
+    plan.logger.fine({
+      'message': 'parsing_dev_config',
+      'text': 'Parsing dev config from $devConfigPath...',
+      'path': devConfigPath,
+    });
+    final devConfig = parseDevConfig(devConfigPath);
+    requireDeclaredFilesExist(devConfig);
+
+    // Build web toolchain paths and find web output dir from build outputs.
+    final webToolchain = buildWebToolchainFromOutputs(
+      outputFiles,
+      devConfig,
+    );
+    final webOutputDir = findWebOutputDir(outputFiles);
+
+    // The page's boot path comes from the build, not from here. A dev config
+    // without it is a rules/dev-tool version skew, and the alternative to
+    // saying so is generating a bootstrap that ignores the target's template
+    // and every `web_defines` entry in it.
+    if (devConfig.flutterBootstrapJs.isEmpty) {
+      throw DevToolException(
+        'The dev config at $devConfigPath names no flutter_bootstrap.js.\n'
+        'The build substitutes that file from the target\'s bootstrap '
+        'template; without it the page has nothing to boot. The app and this '
+        'dev tool were built from different revisions of rules_flutter.',
+      );
+    }
+
+    // The BUILD package_config, named by the build rather than picked out of
+    // the outputs by filename. Two of them end in `package_config.json` — the
+    // build's and the dev one — and matching on the suffix would choose
+    // between them by the order `bazel cquery --output=files` happens to
+    // print, which is the dev one. For a source-assembled (codegen) app that
+    // is the wrong answer for this consumer: its `rootUri`s are
+    // `<filesystemScheme>:///<lib_root>`, and DWDS resolves a `package:` URI
+    // through this config only to open the result as a file —
+    // `Uri.toFilePath()` throws `Cannot extract a file path from a
+    // org-dartlang-app URI`, so every first-party library shows a blank
+    // source pane in the debugger.
+    //
+    // The compiler below wants the opposite config, and gets it by name too.
+    // Neither is "the" package config, which is exactly why neither is
+    // discovered.
+    if (devConfig.buildPackageConfig.isEmpty) {
+      throw DevToolException(
+        'The dev config at $devConfigPath names no buildPackageConfig.\n'
+        'DWDS resolves every package: URI through it to read the source off '
+        'disk; without it the debugger can show no source at all. The app '
+        'and this dev tool were built from different revisions of '
+        'rules_flutter.',
+      );
+    }
+    final packageConfig = devConfig.buildPackageConfig;
+    return _WebConfig(
+      devConfigPath: devConfigPath,
+      devConfig: devConfig,
+      webToolchain: webToolchain,
+      webOutputDir: webOutputDir,
+      packageConfig: packageConfig,
+    );
+  }
+
+  /// Refuse an app source that would compile as a generated file's name.
+  void _rejectShadowedSources(DevConfig devConfig) {
+    // The generated files below are staged in the compiler's FIRST
+    // `--filesystem-root`, so each one answers its `org-dartlang-app:///`
+    // name ahead of the workspace. An app source outside every package that
+    // sits at the workspace root under one of those names would be shadowed
+    // by it — the dev loop would compile the generated file in its place,
+    // and nothing would say so. Upstream stages the same way; refused here
+    // by name instead of left to surface as the wrong program.
+    for (final source in devConfig.appSources) {
+      for (final staged in _stagedNames) {
+        if (source.uri == 'org-dartlang-app:///$staged') {
+          throw DevToolException(
+            '${source.path} is compiled as ${source.uri}, the name the dev '
+            "loop's generated $staged takes, so the generated file would be "
+            'compiled in its place. Rename it, or move it out of the '
+            'workspace root.',
+          );
+        }
+      }
+    }
+  }
+
+  /// Stage the generated entrypoint (and registrant, and agent extensions)
+  /// the compiler resolves first, and point the pipeline at it.
+  Future<Directory> _stageSyntheticEntrypoint(DevConfig devConfig) async {
+    // Generate synthetic web_entrypoint.dart with bootstrapEngine() + plugin registrant.
+    final syntheticDir = syntheticDirectory = await createTempDir(
+      'flutter_ddc_',
+    );
+    final syntheticMain = File(
+      p.join(syntheticDir.path, 'web_entrypoint.dart'),
+    );
+
+    // Stage the build's web plugin registrant next to the synthetic
+    // entrypoint and import it relatively — exactly what Flutter's
+    // `resident_web_runner` does (`web_plugin_registrant.dart` written
+    // into the same generated-entrypoint directory). `syntheticDir` is the
+    // first `--filesystem-root`, so `org-dartlang-app:/web_entrypoint.dart`
+    // resolves the sibling import there. The registrant's own
+    // `package:` imports resolve through the frontend server's
+    // package_config like any other library.
+    //
+    // The path is named explicitly by the build in `_dev_config.json`;
+    // nothing here derives or searches for a filename.
+    String? pluginRegistrantImport;
+    if (devConfig.webPluginRegistrant.isNotEmpty) {
+      const stagedName = 'web_plugin_registrant.dart';
+      File(p.join(syntheticDir.path, stagedName)).writeAsStringSync(
+        File(devConfig.webPluginRegistrant).readAsStringSync(),
+      );
+      pluginRegistrantImport = stagedName;
+    }
+
+    // The agent extensions ride in the same way, and for the same reason:
+    // the entrypoint that imports them is generated here, so the file has
+    // to be somewhere that entrypoint can name. Native gets this from the
+    // engine's pre-main registrant hook instead — there is no such hook on
+    // web, so registration happens inside the generated `main()`.
+    String? agentExtensionsImport;
+    if (devConfig.agentExtensions.isNotEmpty) {
+      const stagedName = 'agent_extensions.dart';
+      File(
+        p.join(syntheticDir.path, stagedName),
+      ).writeAsStringSync(File(devConfig.agentExtensions).readAsStringSync());
+      agentExtensionsImport = stagedName;
+    }
+
+    syntheticMain.writeAsStringSync(
+      generateSyntheticMainDart(
+        appEntrypoint: devConfig.appEntrypoint,
+        pluginRegistrantEntrypoint: pluginRegistrantImport,
+        agentExtensionsEntrypoint: agentExtensionsImport,
+      ),
+    );
+
+    pipeline.entrypoint = 'org-dartlang-app:/web_entrypoint.dart';
+    return syntheticDir;
+  }
+
+  /// Serve the build's web outputs over HTTP, with DWDS attached lazily.
+  Future<({WebModuleServer server, Uri serverUri})> _startModuleServer({
+    required _WebConfig config,
+  }) async {
+    // Create the module server with workspace root and package config
+    // for DWDS source resolution. Held in a non-null local as well: the
+    // browser-connection listener wired below outlives this block, and the
+    // captured field is nulled on the failure path.
+    final moduleServer = WebModuleServer(
+      webToolchain: config.webToolchain,
+      buildOutputDir: config.webOutputDir,
+      entrypointFilename: 'web_entrypoint.dart',
+      flutterBootstrapJsPath: config.devConfig.flutterBootstrapJs,
+      dartExecutable: plan.toolchain.dart,
+      workspaceRoot: plan.workspace,
+      packageConfigPath: config.packageConfig,
+      nativeNullAssertions: config.devConfig.nativeNullAssertions,
+      options: plan.webServer,
+    );
+    this.moduleServer = moduleServer;
+
+    // Write first-upload bootstrap files to in-memory server.
+    moduleServer.writeFile(
+      'manifest.json',
+      '{"info":"manifest not generated in run mode."}',
+    );
+    moduleServer.writeFile(
+      'flutter_service_worker.js',
+      '// Service worker not loaded in run mode.',
+    );
+
+    // Start HTTP server first (without DWDS) to get the server URI.
+    final serverUri = await moduleServer.start();
+    return (server: moduleServer, serverUri: serverUri);
+  }
+
+  /// Start the incremental DDC compiler on live sources, never the frozen
+  /// bundle tree.
+  Future<FrontendServer> _startFrontendServer({
+    required _WebConfig config,
+    required Directory syntheticDir,
+  }) async {
+    // Set up frontend server with web compiler config + filesystem roots.
+    // For a source-assembled (codegen) app, add the dev multi-root dirs
+    // (live source + generated bazel-out) so package: URIs resolve to live
+    // edits + regenerated parts. devConfig roots are empty for non-codegen
+    // apps.
+    //
+    // Always the dev package_config, never the build's. The build's maps
+    // `package:` URIs into the frozen `.pkgsrcs` tree the bundle was
+    // assembled from, so a dev loop compiling through it would read a copy of
+    // the source instead of the source: every edit would compile cleanly,
+    // report a successful reload, and change nothing on screen. A fallback to
+    // it when `devPackageConfig` is empty cannot fire — the rule declares and
+    // writes the file under the same `is_debug` condition that decides
+    // whether this `_dev_config.json` is emitted at all — and would be silent
+    // if it ever did.
+    if (config.devConfig.devPackageConfig.isEmpty) {
+      throw DevToolException(
+        'The build emitted a dev config at ${config.devConfigPath} with no '
+        'devPackageConfig. Without it the dev loop has no package config '
+        'that resolves to live sources, and every hot reload would '
+        'recompile the copy of the tree the bundle was assembled from.',
+      );
+    }
+    // Repointed off Bazel's per-command execroot forest, so a concurrent build
+    // cannot delete the package roots this compiler reads. See
+    // [stabilizePackageRoots]; the build-emitted file is left untouched.
+    // Its own directory, deliberately not [syntheticDir]: that one is a
+    // `--filesystem-root`, so anything written into it becomes addressable as
+    // `org-dartlang-app:///<name>` and would collide with the live source tree.
+    final packageConfigDir = await createTempDir('flutter_pkgcfg_');
+    await host.teardown.add(() => deleteTempDir(packageConfigDir));
+    final stabilized = stabilizePackageRoots(
+      config.devConfig.devPackageConfig,
+      into: packageConfigDir,
+    );
+    plan.logger.info({
+      'message': 'package_roots_stabilized',
+      'text':
+          'Repointed ${stabilized.repointed.length} package root(s) off '
+          "Bazel's per-command execroot so a concurrent build cannot delete "
+          'them mid-compile.',
+      'packages': stabilized.repointed,
+      'packageConfig': stabilized.path,
+    });
+    final webPackageConfig = stabilized.path;
+    final compilerConfig = WebCompilerConfig(
+      webToolchain: config.webToolchain,
+      fileSystemRoots: [
+        syntheticDir.path,
+        plan.workspace,
+        ...config.devConfig.filesystemRoots,
+      ],
+      dartDefines: config.devConfig.dartDefines,
+      enableExperiments: config.devConfig.enableExperiments,
+    );
+    final fs = pipeline.frontendServer = FrontendServer(
+      dartaotruntimePath: config.devConfig.dartaotruntime,
+      frontendServerPath: config.devConfig.frontendServer,
+      config: compilerConfig,
+      packageConfig: webPackageConfig,
+    );
+    await fs.start();
+    await host.teardown.add(fs.shutdown);
+    return fs;
+  }
+
+  /// Attach the debugger to the module server. Chrome has not launched yet;
+  /// the connection callback stays lazy.
+  Future<void> _initDebugger({
+    required WebModuleServer moduleServer,
+    required Uri serverUri,
+    required FrontendServer fs,
+    required WebDevice webDevice,
+  }) async {
+    // DWDS after the compiler, not before: the debugger's expression
+    // evaluation is that same compiler, asked a different question, and
+    // handing it over at construction is what makes the flag real rather than
+    // a value nobody reads. Nothing in DWDS's setup needs the compiler to have
+    // compiled anything yet, and nothing in the compiler needs DWDS.
+    //
+    // Chrome has not launched either — the connection callback is lazy.
+    await moduleServer.initDwds(
+      chromeConnection: () async {
+        final cdpPort = webDevice.cdpPort;
+        if (cdpPort == null) {
+          throw StateError('Chrome CDP port not yet discovered');
+        }
+        return ChromeConnection('localhost', cdpPort);
+      },
+      serverUri: serverUri,
+      expressionCompiler: plan.webOptions!.enableExpressionEvaluation
+          ? FrontendServerExpressionCompiler(fs)
+          : null,
+    );
+  }
+
+  /// Key every source file by the URI the compiler keys its library by, and
+  /// cut the baseline snapshot before the first compile reads them.
+  SourceVersions _snapshotSources(DevConfig devConfig) {
+    // What the page is about to be running, read BEFORE the compile that
+    // produces it — which is the whole of the ordering here.
+    //
+    // The resolver keys every source file (app + deps) by the URI the
+    // frontend_server keys its library by — `package:` through the dev
+    // package_config, or for the app's sources outside every package the
+    // app-scheme URI the build declared — so an invalidation actually hits
+    // them.
+    //
+    // Deliberately NOT [AppliedVersions.seedFromBuild], which native uses.
+    // The two are answering the same question about different moments. On
+    // native the app is already running the bazel-built kernel and the
+    // compiler's first compile is only a baseline for deltas, so the truth is
+    // the bazel build and `builtBefore` is the cutoff. Here the page has not
+    // launched — Chrome starts after this whole assembly — and what it first
+    // loads is exactly `initialResult.dillPath` below. The truth is therefore
+    // this compile, and the compile reads live sources: the dev package
+    // config resolves `package:` URIs to the live tree, not to the frozen
+    // `.pkgsrcs` the bundle was assembled from.
+    //
+    // Which is why the snapshot is cut here rather than after the compile.
+    // Taken afterwards it would record the *post-edit* version of a file
+    // edited while the compiler was reading — the compile may well have
+    // missed it, and nothing would say so: the first reload would find no
+    // change, and no watch event would cover it either, because the watcher
+    // is started later still. Cut beforehand, the worst case is a file the
+    // compile did pick up being re-sent once. `builtBefore` is not the cutoff
+    // for any of this; it governs the asset tree below, which really is
+    // bazel-built.
+    final res = pipeline.resolver = SourceUriResolver(
+      workspaceRoot: plan.workspace,
+      sourcePackages: devConfig.sourcePackages,
+      appSources: devConfig.appSources,
+    );
+    final ws = pipeline.workspaceView = Workspace(
+      resolver: res,
+      generatedFiles: devConfig.generatedFileUris,
+    );
+    final initialSnap = ws.snapshot();
+    return initialSnap;
+  }
+
+  /// Accept the first compile's program, or record a failure the run can
+  /// recover from on the next reload.
+  Future<void> _settleInitialCompile({
+    required FrontendServer fs,
+    required WebModuleServer moduleServer,
+    required SourceVersions initialSnap,
+    required CompileResult initialResult,
+  }) async {
+    if (!initialResult.success) {
+      // The one failure here that nothing later can undo. `recoverable` is a
+      // field of its own rather than a turn of phrase in `text`, because JSON
+      // mode drops `text` outright (see `logging.dart`) — an IDE or agent
+      // driving this run would otherwise be told a compile failed and never
+      // told whether the session it is holding is worth keeping.
+      if (!fs.isRunning) {
+        plan.logger.severe({
+          'message': 'initial_compile_failed',
+          'text':
+              'The incremental compiler stopped running during the first '
+              'compile, so this run has no hot reload or hot restart and the '
+              'browser has no app to show. Restart the run.'
+              '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}',
+          'diagnostics': initialResult.diagnostics,
+          'recoverable': false,
+        });
+        throw DevToolException(
+          'The compiler stopped running during the initial DDC compile.\n'
+          '${initialResult.diagnostics}',
+        );
+      }
+      // The verdict a failed compile is owed, and the same one a failed reload
+      // compile gets: accept only what the page can be said to be running,
+      // which is nothing.
+      await fs.reject();
+      plan.logger.severe({
+        'message': 'initial_compile_failed',
+        'text':
+            'The first compile of the working tree failed, so the browser '
+            'page has no app on it yet. The session keeps its compiler: fix '
+            'the error below and save, and the next reload compiles the whole '
+            'program and loads it.'
+            '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}',
+        'diagnostics': initialResult.diagnostics,
+        'recoverable': true,
+      });
+      // What every later request reads to know the page holds no program.
+      // `appliedVersions` is deliberately left empty alongside it, so every
+      // file is still pending and the recovering compile reads all of them.
+      pipeline.webBaselineFailure =
+          'The first compile of the working tree failed and the page has been '
+          'showing nothing since.'
+          '${initialResult.diagnostics.isEmpty ? '' : '\n${initialResult.diagnostics}'}';
+    } else {
+      fs.accept();
+      // The first compile produces every module, so it defines the
+      // program rather than adding to one.
+      moduleServer.updateModules(initialResult.dillPath, full: true);
+      // Committed only now: the baseline describes code the page can actually
+      // load, and until `updateModules` there is none.
+      pipeline.appliedVersions.markApplied(
+        initialSnap,
+        files: initialSnap.fileUris.toSet(),
+      );
+    }
+  }
+
+  // One rebuild of the web bundle, shared by the two reasons to want
+  // one: regenerating a codegen app's sources, and refreshing the asset
+  // tree. Both produce the same outputs from the same target, so they
+  // must not be two builds that can disagree.
+  //
+  // `plan.extraArgs`, which includes `--build-arg`: the *initial* build
+  // passes it, so the output directory the tracker watches lives in that
+  // configuration, and rebuilding without it writes a different one — a
+  // build that reports success, a diff that finds nothing, and a dropped
+  // edit. The native `_rebuildBundle` comment describes the same family of
+  // mistake.
+  Future<bool> _rebuildWebBundle() async {
+    final r = await host.bazel.build(
+      plan.target,
+      workspace: plan.workspace,
+      compilationMode: 'dbg',
+      extraArgs: plan.extraArgs,
+    );
+    return r.success;
+  }
+
+  /// The native modules the page instantiates, if the build declared any.
+  Future<void> _wireNativeLibs(_WebConfig config) async {
+    // The native modules the page instantiates, if the build declared any.
+    // Same physics as a `dlopen`ed library: `initBridge()` instantiates the
+    // module once, a hot reload does not re-run `main()`, so the instance
+    // outlives the increment — and new bindings over an instantiated module
+    // are worse here than on native, because a wasm trap poisons the instance
+    // rather than failing one call.
+    //
+    // Declared rather than found: this directory also holds the app's own
+    // `main.dart.wasm`, which moves on every Dart edit.
+    if (config.devConfig.nativeLibs.isNotEmpty) {
+      final nativeLibs = await NativeLibsWatch.of(
+        config.devConfig.nativeLibContracts,
+      );
+      pipeline.nativeLibsVerdict = nativeLibs.verdict;
+      // What a restart settles on web, and what no restart can settle on
+      // native. A hot restart re-runs `main()` in the live page and Dart
+      // statics reset with it, so `initBridge()` fetches the module URL again
+      // and instantiates what the rebuilt bundle now serves. A native process
+      // keeps every image it mapped, which is why there the same re-baseline
+      // belongs to the relauncher that replaced the process.
+      pipeline.markNativeLibsLive = nativeLibs.markLive;
+    }
+  }
+
+  /// The module server serves `assets/` straight off the build directory.
+  /// Tracking it is what turns a rebuilt asset into a reload.
+  void _trackAssets(
+    _WebConfig config, {
+    required WebModuleServer moduleServer,
+  }) {
+    // The module server serves `assets/` straight off this directory on
+    // every request, so a rebuilt asset is on the wire the moment it is on
+    // disk. Tracking it is what turns that into a reload: it says whether
+    // a build is worth running, and which archive paths the page has to be
+    // told to stop trusting its caches for.
+    pipeline.assetTracker = AssetTracker(
+      AssetBundle(
+        directory: p.join(config.webOutputDir, 'assets'),
+        workspaceRoot: plan.workspace,
+        shaders: config.devConfig.shaders,
+      ),
+      builtBefore: builtBefore,
+    );
+    pipeline.rebuildAssets = _rebuildWebBundle;
+    plan.logger.info({
+      'message': 'frontend_server_ready',
+      'text': 'DDC frontend server ready. Module server at ${moduleServer.uri}',
+      // Structured as well as prose: this is the base URL every web
+      // asset is served from, so a client driving the tool (or a test)
+      // can address the server without parsing the sentence above.
+      'uri': moduleServer.uri.toString(),
+    });
+  }
+
+  /// Set the module server on the device and wire the browser connection,
+  /// before Chrome launches: the stream is broadcast, so a fast browser
+  /// connecting with no listener attached loses its AppConnection silently.
+  Future<void> _wireBrowserConnection({
+    required WebModuleServer moduleServer,
+    required WebDevice webDevice,
+  }) async {
+    // Set module server on WebDevice before launch.
+    webDevice.setModuleServer(moduleServer);
+
+    // Wire the browser connection BEFORE Chrome launches. `connectedApps`
+    // is a broadcast stream, so anything it emits with no listener
+    // attached is dropped on the floor — and a browser that connects fast
+    // does exactly that, losing the AppConnection, never sending `runMain()`,
+    // and leaving DWDS holding `main()` back: a blank page forever with no
+    // diagnostics. Nothing here needs Chrome to exist yet.
+    final connectedApps = moduleServer.connectedApps;
+    if (connectedApps == null) {
+      // `initDwds` either wires DWDS up or throws, so a live module server
+      // always has this stream. Reaching here means that invariant broke.
+      // Skipping the block instead would leave the run with no reload
+      // strategy, no VM service and no `markDebugReady`, and say nothing
+      // about any of it.
+      throw StateError(
+        'The web module server is running but DWDS exposes no '
+        'connectedApps stream: DWDS initialization did not complete.',
+      );
+    }
+    // Set up the VM service on EVERY browser connection — not just the
+    // first. Hot restart preserves the page, but a genuine navigation (the
+    // user hitting reload, a crash) still tears down the page's isolate and
+    // VM service; re-attaching on each (re)connection lets the next hot
+    // reload use the live connection instead of a dead one. Matches
+    // Flutter's resident_web_runner, which re-attaches per connection.
+    final wiring = _BrowserWiring(
+      moduleServer: moduleServer,
+      dwdsReload: DwdsReloadStrategy(
+        moduleServer: moduleServer,
+        // Read at call time, not now: this runs before Chrome launches, so there
+        // is no debugging port to capture yet. The listener above is what makes
+        // the navigation safe — it re-wires the VM service, the session and the
+        // log forwarder on the reconnection, exactly as it does for a user
+        // pressing reload.
+        loadFirstProgram: () async {
+          final cdpPort = webDevice.cdpPort;
+          if (cdpPort == null) {
+            throw StateError(
+              'the browser announced no debugging port, so the page cannot be '
+              'told to load the program it never got',
+            );
+          }
+          await cdpPageReload(cdpPort, appUrl: webDevice.appUrl);
+        },
+      ),
+      webDevice: webDevice,
+    );
+    pipeline.strategy = wiring.dwdsReload;
+    connectedApps.listen((appConnection) async {
+      await _onBrowserConnected(wiring, appConnection);
+    });
+  }
+
+  /// One browser (re)connection: VM service, reload claim, DevTools URL,
+  /// log forwarding — then release `main()`.
+  Future<void> _onBrowserConnected(
+    _BrowserWiring wiring,
+    AppConnection appConnection,
+  ) async {
+    try {
+      await _wireDebugConnection(wiring, appConnection);
+    } catch (e) {
+      // The same rule as the native abort in the launch loop below,
+      // applied where web can apply it. `!isWebDevice` guards that check
+      // because a browser's VM service arrives asynchronously, so the
+      // decision cannot be made inline at launch — it belongs here, at
+      // the one moment web knows the answer.
+      //
+      // A browser that has not connected *yet* never reaches this: the
+      // listener only fires on a connection that arrived. Upstream makes
+      // the same distinction deliberately — an unconnected client is
+      // `Recompile complete. No client connected.`, not an error —
+      // and so does this. What is fatal is a connection that arrived and
+      // then failed to wire: no VM service, no hot reload, no DevTools,
+      // no app console.
+      if (plan.allowNoVmService) {
+        plan.logger.warning({
+          'message': 'dwds_vm_service_error',
+          'text':
+              'Continuing without a DWDS VM service connection '
+              '(--allow-no-vm-service): $e',
+          'error': '$e',
+        });
+      } else {
+        fail(
+          DevToolException(
+            'No VM service connection for the browser session: $e\n'
+            'Hot reload, DevTools, and the app console would all be '
+            'unavailable. Pass --allow-no-vm-service to run anyway.',
+          ),
+        );
+        return;
+      }
+    }
+    await _releaseMain(wiring, appConnection);
+  }
+
+  /// The VM service handover for one connection: client, reload claim,
+  /// DevTools URL, first-frame wait and log forwarding.
+  Future<void> _wireDebugConnection(
+    _BrowserWiring wiring,
+    AppConnection appConnection,
+  ) async {
+    plan.logger.info({
+      'message': 'dwds_connected',
+      'text': 'DWDS: Browser connected (app: ${appConnection.request.appId})',
+    });
+    final debugConnection = await wiring.moduleServer.debugConnection(
+      appConnection,
+    );
+    // Awaited, not searched for: the listener is attached before the
+    // launch loop runs, so on a fast connection the session may not
+    // exist yet and `sessions.firstWhere` would throw.
+    final session = await webSession.future;
+
+    // DWDS runs the DDS, so `debugConnection.uri` already *is* the DDS
+    // websocket. Everything — our client, DevTools, DWDS's own client —
+    // attaches there, and DDS multiplexes them.
+    final wsUri = Uri.parse(debugConnection.uri);
+    final webClient = VmServiceClient();
+    await webClient.connect(
+      httpUriFromWebSocketUri(wsUri),
+      createDevFS: false,
+    );
+    session.vmClient = webClient;
+    final webVmService = webClient.service!;
+    await wiring.dwdsReload.attachVmService(webVmService);
+    // Announced on web too: the event exists to say where a run's VM
+    // service is, and a `--machine` client has no other way to find a
+    // browser run's.
+    host.protocol.appDebugPort(
+      session.appId,
+      wsUri,
+      httpUriFromWebSocketUri(wsUri),
+    );
+
+    // Claim hot reload on the DDS, as flutter_tools does. Without it a
+    // DevTools-initiated reload bypasses us and calls DWDS's raw
+    // `reloadSources` directly — no recompile from our frontend
+    // server, and a second concurrent reload that DWDS does not
+    // serialise. Registering does not capture our own raw call: DDS
+    // resolves only namespaced (`sN.`) names against registrations.
+    await webVmService.registerService(
+      'reloadSources',
+      'rules_flutter dev_tool',
+    );
+
+    // DevTools comes from the DDS that DWDS started, already carrying
+    // the VM service URI — no separate `dart devtools` process, and no
+    // URL for the user to wire up by hand. Setting it before
+    // `markDebugReady` is what tells the session not to launch one.
+    session.devToolsUrl = debugConnection.devToolsUri;
+    session.markDebugReady();
+
+    // A handover is the app starting, not the app painted. Web takes the
+    // same first-frame wait native does.
+    unawaited(session.waitUntilDrivable(host.protocol));
+
+    // A browser page has no process pipes, so the VM service is the
+    // app's log source here. Re-attached on every connection because a
+    // page that navigates replaces the isolate and its VM service;
+    // without this, output stops after the first such reload.
+    await wiring.logForwarder?.dispose();
+    wiring.logForwarder = await forwardVmServiceLogs(
+      webVmService,
+      session.appInstance.logs,
+    );
+
+    plan.logger.info({
+      'message': 'dwds_vm_service',
+      'text': 'DWDS VM service ready — hot reload enabled.',
+    });
+  }
+
+  /// Tell the browser to run `main()`, or hold it back under `--start-paused`.
+  Future<void> _releaseMain(
+    _BrowserWiring wiring,
+    AppConnection appConnection,
+  ) async {
+    // Tell the browser to run main() — sends RunRequest via SSE. Must
+    // happen after debug setup so DWDS can set breakpoints.
+    //
+    // With --start-paused it is held back instead. There is no engine
+    // switch to pass a browser: DWDS is what gates `main()`, so pausing
+    // means simply not sending the request until a debugger resumes the
+    // isolate. `pause_isolates_on_start` is set alongside it so isolates
+    // the app spawns later stop too, matching what the flag does
+    // everywhere else.
+    if (!plan.startPaused) {
+      appConnection.runMain();
+      return;
+    }
+    // Holding a browser app is not an engine switch — DWDS is what gates
+    // `main()`, so pausing is simply not sending the run request. What
+    // releases it is DWDS itself: its `resume` handler runs `main()` when
+    // the app has not started yet, so a debugger's resume button is the
+    // resume, with nothing here to relay it.
+    final webVm = (await webSession.future).vmClient?.service;
+    if (webVm == null) {
+      // Nothing can resume it, so holding main() back would be a hang
+      // with no way out. Run, and say why it is not paused.
+      plan.logger.severe({
+        'message': 'start_paused_unavailable',
+        'text':
+            'Could not hold the browser app at main(): this run has '
+            'no VM service to resume it from. Starting it normally.',
+      });
+      appConnection.runMain();
+      return;
+    }
+    // Not what withholds `main()` — that is the missing `runMain()`
+    // above. This is what makes the state legible: with the flag set,
+    // DWDS reports the isolate as paused at start, so a debugger shows a
+    // stopped app with a resume button instead of a running one that
+    // renders nothing.
+    try {
+      await webVm.setFlag('pause_isolates_on_start', 'true');
+    } catch (e) {
+      plan.logger.warning({
+        'message': 'pause_isolates_flag_failed',
+        'text':
+            'The browser VM would not take pause_isolates_on_start '
+            '($e); main() is still held back and a resume still starts '
+            'it, but a debugger will show the app as running.',
+        'error': '$e',
+      });
+    }
+    plan.logger.info({
+      'message': 'start_paused',
+      'text':
+          'Holding the browser app at main(). Attach a debugger and '
+          'resume — nothing renders until then.',
+    });
   }
 }
 

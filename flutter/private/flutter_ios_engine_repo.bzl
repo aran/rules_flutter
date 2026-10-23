@@ -10,23 +10,68 @@ instead of having to enumerate a separate `@flutter_ios_engine_debug` repo.
 This is lazy — only fetched when an iOS build target is used.
 """
 
-load(":artifact_urls.bzl", "engine_artifact_url", "ios_engine_artifact_path")
+load(":artifact_urls.bzl", "engine_artifact_url", "ios_engine_artifact_path", "require_sha256")
+load(":download.bzl", "pinned_download_and_extract")
+load(":local_sdk.bzl", "engine_cache_dir", "link_local_dir", "link_local_file", "resolve_local_sdk_root")
 
 def _flutter_ios_engine_repo_impl(repository_ctx):
     engine_revision = repository_ctx.attr.engine_revision
 
+    if getattr(repository_ctx.attr, "local_path", ""):
+        sdk_root = resolve_local_sdk_root(repository_ctx, getattr(repository_ctx.attr, "local_path", ""))
+        release_dir = engine_cache_dir(ios_engine_artifact_path("release"))
+        debug_dir = engine_cache_dir(ios_engine_artifact_path("debug"))
+
+        # Release engine (AOT, device) at the repo root, debug (JIT,
+        # simulator) under debug/ — mirroring the download layout.
+        link_local_dir(
+            repository_ctx,
+            sdk_root,
+            "bin/cache/artifacts/engine/" + release_dir + "/Flutter.xcframework",
+            "Flutter.xcframework",
+            "the release iOS engine",
+        )
+        link_local_file(
+            repository_ctx,
+            sdk_root,
+            "bin/cache/artifacts/engine/" + release_dir + "/gen_snapshot_arm64",
+            "gen_snapshot_arm64",
+            "the release iOS gen_snapshot",
+        )
+        link_local_dir(
+            repository_ctx,
+            sdk_root,
+            "bin/cache/artifacts/engine/" + debug_dir + "/Flutter.xcframework",
+            "debug/Flutter.xcframework",
+            "the debug iOS engine",
+        )
+        repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE)
+        return
+
     # Release engine (AOT, device) at the repo root. The release archive also
     # carries the iOS gen_snapshot used by the macos->ios cross-compile toolchain.
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, ios_engine_artifact_path("release")),
-        sha256 = repository_ctx.attr.release_sha256,
+    release_url = engine_artifact_url(
+        engine_revision,
+        ios_engine_artifact_path("release"),
+        getattr(repository_ctx.attr, "engine_base_url", ""),
+    )
+    pinned_download_and_extract(
+        repository_ctx,
+        url = release_url,
+        sha256 = require_sha256(repository_ctx.attr.release_sha256, release_url),
     )
 
     # Debug engine (JIT, simulator) under debug/ — its Flutter.xcframework would
     # otherwise collide with the release one at the repo root.
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, ios_engine_artifact_path("debug")),
-        sha256 = repository_ctx.attr.debug_sha256,
+    debug_url = engine_artifact_url(
+        engine_revision,
+        ios_engine_artifact_path("debug"),
+        getattr(repository_ctx.attr, "engine_base_url", ""),
+    )
+    pinned_download_and_extract(
+        repository_ctx,
+        url = debug_url,
+        sha256 = require_sha256(repository_ctx.attr.debug_sha256, debug_url),
         output = "debug",
     )
 
@@ -58,8 +103,30 @@ flutter_ios_engine_repo = repository_rule(
     _flutter_ios_engine_repo_impl,
     doc = "Downloads the iOS Flutter engine (Flutter.xcframework) for both release and debug.",
     attrs = {
-        "engine_revision": attr.string(mandatory = True),
-        "release_sha256": attr.string(doc = "Expected SHA-256 of the release archive."),
-        "debug_sha256": attr.string(doc = "Expected SHA-256 of the debug archive."),
+        "engine_revision": attr.string(
+            doc = "The engine commit hash the artifacts are published under. " +
+                  "Empty means a local SDK (with `local_path`).",
+            default = "",
+        ),
+        "engine_base_url": attr.string(
+            doc = "Optional replacement origin for the engine revision " +
+                  "directory (an enterprise build). Empty means the default GCS base.",
+            default = "",
+        ),
+        "local_path": attr.string(
+            doc = "Optional path to a pre-extracted Flutter SDK " +
+                  "(bin/cache layout) to source every artifact from instead " +
+                  "of the network. Mutually exclusive with downloading.",
+            default = "",
+        ),
+        "release_sha256": attr.string(
+            doc = "Expected SHA-256 of the release archive. Unused with `local_path`.",
+            default = "",
+        ),
+        "debug_sha256": attr.string(
+            doc = "Expected SHA-256 of the debug archive. Unused with `local_path`.",
+            default = "",
+        ),
+        "profile_repo_name": attr.string(default = "", doc = "Optional profile engine repo name."),
     },
 )

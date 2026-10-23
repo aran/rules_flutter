@@ -1,0 +1,1 @@
+pinned-download fixture: these bytes are fetched with file:// URLs, never over the network.

@@ -33,6 +33,7 @@ compiler.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_dart//dart:providers.bzl", "DartAnalyzableInfo")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 load("//flutter/private:flutter_aot_target.bzl", "flutter_aot_target")
 load("//flutter/private:flutter_application.bzl", "flutter_application")
 load("//flutter/private:flutter_kernel_target.bzl", "flutter_kernel_target")
@@ -185,6 +186,7 @@ def language_version_test_suite(name):
     _flutter_test_test(
         name = name + "_flutter_test",
         target_under_test = ":_lv_flutter_test",
+        target_compatible_with = HOST_COMPATIBLE,
     )
     _web_test(
         name = name + "_web",

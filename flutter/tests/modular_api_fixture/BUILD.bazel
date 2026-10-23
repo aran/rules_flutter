@@ -1,0 +1,26 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+# Its own Bazel package, not targets beside the suite, because each library
+# derives its `lib_root` from `ctx.label.package`: declared next to the suite
+# they would claim the same `rootUri`, and two packages cannot share one in a
+# `package_config.json` (the same reason `fake_test_api` sits in its own
+# package).
+package(default_visibility = ["//flutter/tests:__pkg__"])
+
+flutter_library(
+    name = "dep_a",
+    package_name = "modular_api_a",
+    srcs = ["lib/a.dart"],
+    tags = ["manual"],
+)
+
+flutter_library(
+    name = "dep_b",
+    package_name = "modular_api_b",
+    srcs = ["lib/b.dart"],
+    tags = ["manual"],
+    deps = [
+        ":dep_a",
+        "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
+    ],
+)

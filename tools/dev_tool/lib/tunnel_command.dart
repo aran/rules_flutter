@@ -43,21 +43,19 @@ Future<Never> executeTunnelCommand() async {
   }
 
   // Start the long-running daemon, forwarding all I/O.
-  // The py_binary needs RUNFILES_MANIFEST_FILE to find its venv.
   //
-  // PYTHONDONTWRITEBYTECODE for the same reason as the `sudo bazel run`
-  // warning above: running as root, Python would write its `__pycache__`
-  // directories into the runfiles tree, inside the output base, owned by
-  // root. Bazel then cannot rearrange that tree, and a later build that moves
-  // a Python package fails with "Error creating runfiles ... Operation not
-  // permitted" until someone deletes them with sudo.
+  // The driver reads no runfiles (its program is embedded, its Python is the
+  // host's), so unlike the old py_binary it needs no RUNFILES_MANIFEST_FILE.
+  //
+  // PYTHONDONTWRITEBYTECODE stays: running as root, Python would otherwise
+  // write `__pycache__` next to the user's installed pymobiledevice3, owned by
+  // root. Nothing of ours lives in the runfiles tree any more, so the old
+  // root-owned-output-base failure is gone either way.
   final process = await Process.start(
     resolved.path,
     [],
     mode: ProcessStartMode.inheritStdio,
     environment: {
-      if (resolved.manifestPath != null)
-        'RUNFILES_MANIFEST_FILE': resolved.manifestPath!,
       'PYTHONDONTWRITEBYTECODE': '1',
     },
   );

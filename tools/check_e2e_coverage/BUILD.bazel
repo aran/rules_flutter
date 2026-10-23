@@ -1,0 +1,18 @@
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_test")
+
+# Fails when an e2e module is in no CI workflow without a recorded reason:
+# `bazel run //tools/check_e2e_coverage` from the repo root. CI runs it as
+# the e2e-coverage job.
+dart_binary(
+    name = "check_e2e_coverage",
+    srcs = ["coverage.dart"],
+    main = "check_e2e_coverage.dart",
+)
+
+dart_test(
+    name = "coverage_test",
+    size = "small",
+    srcs = ["coverage.dart"],
+    main = "test/coverage_test.dart",
+    deps = ["@dev_tool_deps//:test"],
+)

@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("//flutter/private:build_settings.bzl", "dart_defines_flag")
 load("//flutter/private:flutter_material_icons.bzl", "flutter_material_icons")
 load("//flutter/private:flutter_pub.bzl", "flutter_pub")
@@ -9,6 +9,38 @@ load("//flutter/private:flutter_pub.bzl", "flutter_pub")
 # See https://docs.bazel.build/versions/main/toolchains.html#writing-rules-that-use-toolchains
 toolchain_type(
     name = "toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+# Public aliases for the optional lazy sub-toolchain types consumed via
+# `resolve_flutter_sdk_info(ctx)`.
+alias(
+    name = "product_tools_toolchain_type",
+    actual = "//flutter/private:product_tools_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "aot_toolchain_type",
+    actual = "//flutter/private:aot_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "desktop_engine_toolchain_type",
+    actual = "//flutter/private:desktop_engine_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "material_icons_toolchain_type",
+    actual = "//flutter/private:material_icons_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "font_subset_toolchain_type",
+    actual = "//flutter/private:font_subset_toolchain_type",
     visibility = ["//visibility:public"],
 )
 
@@ -32,6 +64,83 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
+# Whether `flutter_android_app` builds rules_android's Go host tools in
+# rules_go pure mode (no C++ toolchain, so the hermetic LLVM runtimes are never
+# compiled from source). Default on; opt out with
+# `--@rules_flutter//flutter:android_pure_go=false`, for example when the app's
+# own subtree needs cgo. Scoped to the app: nothing outside a Flutter Android
+# app's build sees it.
+bool_flag(
+    name = "android_pure_go",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# `flutter_android_app` finishes its APK by injecting the Flutter payload after
+# resource linking and re-running the stock zipalign/sign steps. The signature
+# schemes follow `@rules_android//flags:apk_signing_method`, read here so the
+# overlay signs exactly like the android_binary would have.
+config_setting(
+    name = "apk_signing_v1",
+    flag_values = {"@rules_android//flags:apk_signing_method": "v1"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "apk_signing_v2",
+    flag_values = {"@rules_android//flags:apk_signing_method": "v2"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "apk_signing_v4",
+    flag_values = {"@rules_android//flags:apk_signing_method": "v4"},
+    visibility = ["//visibility:public"],
+)
+
+# Release keystore for `flutter_android_app` (`flutter_android_apk_overlay`).
+# A target that sets the `keystore` attribute always signs with it; a target
+# that sets none takes the keystore from these flags, so CI can inject a
+# secret without editing BUILD files:
+#
+#   bazel build //app --@rules_flutter//flutter:android_release_keystore=//secret:upload
+#     --@rules_flutter//flutter:android_release_keystore_password_file=//secret:store_pass
+#     --@rules_flutter//flutter:android_release_key_alias=upload
+#
+# A flag counts as set as soon as it names any target but its default below:
+# that target must hold exactly one file, or analysis fails naming the flag,
+# the target and the file count. Never point a flag at an `allow_empty` glob.
+#
+# With neither the attribute nor the flag set, the overlay signs with the
+# debug keystore exactly as before.
+filegroup(
+    name = "_android_release_keystore_none",
+    srcs = [],
+)
+
+filegroup(
+    name = "_android_release_keystore_password_file_none",
+    srcs = [],
+)
+
+label_flag(
+    name = "android_release_keystore",
+    build_setting_default = ":_android_release_keystore_none",
+    visibility = ["//visibility:public"],
+)
+
+label_flag(
+    name = "android_release_keystore_password_file",
+    build_setting_default = ":_android_release_keystore_password_file_none",
+    visibility = ["//visibility:public"],
+)
+
+string_flag(
+    name = "android_release_key_alias",
+    build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+
 # Extra Dart environment defines folded into every Dart compile after any
 # target-level `defines`. Repeatable:
 #   bazel build //app --@rules_flutter//flutter:extra_dart_defines=FOO=bar
@@ -39,6 +148,25 @@ config_setting(
 dart_defines_flag(
     name = "extra_dart_defines",
     build_setting_default = [],
+    visibility = ["//visibility:public"],
+)
+
+# Opt-in incremental Flutter kernel compiles: when true, debug JIT
+# `FlutterKernelCompile` actions run through a persistent `frontend_server`
+# worker (`//flutter/private/tools:incr_fkc_worker`) instead of a batch
+# compile behind `kernel_filter`:
+#
+#   bazel build -c dbg --@rules_flutter//flutter:incremental_kernel //app
+#
+# Scope: debug JIT whole-program compiles only — never AOT, web,
+# `from_dill`, `import_dill` or `recorded_uses` compiles. Off by default; a
+# build with the flag off runs byte-identical actions to a build without it.
+# One warm server holds about 1.75 GiB; bound worker processes with
+# `--worker_max_instances=FlutterKernelCompile=N` (each worker keeps at most
+# one warm server by default).
+bool_flag(
+    name = "incremental_kernel",
+    build_setting_default = False,
     visibility = ["//visibility:public"],
 )
 
@@ -72,9 +200,11 @@ bzl_library(
         "//flutter/private:flutter_aot_target",
         "//flutter/private:flutter_application",
         "//flutter/private:flutter_asset_bundle",
+        "//flutter/private:flutter_integration_test",
         "//flutter/private:flutter_kernel_target",
         "//flutter/private:flutter_library",
         "//flutter/private:flutter_plugin",
+        "//flutter/private:flutter_prebuilt_test",
         "//flutter/private:flutter_test",
     ],
 )
@@ -85,6 +215,7 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "//flutter/private:flutter_android_application",
+        "//flutter/private:flutter_android_binary_proxy",
         "//flutter/private:flutter_android_manifest_merge",
         "@bazel_skylib//rules:expand_template",
         "@bazel_skylib//rules:write_file",
@@ -114,6 +245,7 @@ bzl_library(
         "//flutter/private:flutter_ios_application",
         "//flutter/private:flutter_ios_registrant",
         "//flutter/private:flutter_plist_merge",
+        "//flutter/private:flutter_xtool_bundle",
         "//flutter/private:runner_module",
     ],
 )
@@ -126,6 +258,7 @@ bzl_library(
         "//flutter/private:flutter_macos_application",
         "//flutter/private:flutter_macos_registrant",
         "//flutter/private:flutter_plist_merge",
+        "//flutter/private:flutter_xtool_bundle",
         "//flutter/private:runner_module",
     ],
 )
@@ -135,6 +268,7 @@ bzl_library(
     srcs = ["web.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:flutter_integration_test",
         "//flutter/private:flutter_web_application",
         "@bazel_skylib//rules:expand_template",
     ],
@@ -152,6 +286,18 @@ bzl_library(
 )
 
 bzl_library(
+    name = "utils",
+    srcs = ["utils.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":providers",
+        "//flutter/private:app_entrypoint",
+        "//flutter/private:flutter_compile",
+        "//flutter/private:flutter_test_common",
+    ],
+)
+
+bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],
     visibility = ["//visibility:public"],
@@ -162,7 +308,9 @@ bzl_library(
     srcs = ["repositories.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:android_headless_runtime_repo",
         "//flutter/private:artifact_urls",
+        "//flutter/private:chrome_headless_shell_repo",
         "//flutter/private:engine_helpers",
         "//flutter/private:flutter_android_engine_repo",
         "//flutter/private:flutter_cross_repo",
@@ -173,8 +321,10 @@ bzl_library(
         "//flutter/private:flutter_profile_repo",
         "//flutter/private:flutter_sky_engine_repo",
         "//flutter/private:flutter_web_sdk_repo",
+        "//flutter/private:linux_headless_runtime_repo",
         "//flutter/private:toolchains_repo",
         "//flutter/private:versions",
+        "//flutter/private:xtool_darwin_sdk_repo",
     ],
 )
 

@@ -1,0 +1,10 @@
+name: path_probe
+description: Fixture path package exercising spoke hermeticity (android dir, shader, example state).
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+flutter:
+  shaders:
+    - shaders/ripple.frag

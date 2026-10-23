@@ -1,7 +1,15 @@
 """Unit tests for plugin_registrant.bzl pure functions."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:plugin_registrant.bzl", "make_android_registrant_content", "make_registrant_content")
+load(
+    "//flutter/private:plugin_registrant.bzl",
+    "filter_excluded_native_plugins",
+    "make_android_registrant_content",
+    "make_ios_objc_header_content",
+    "make_ios_objc_impl_content",
+    "make_ios_registrant_content",
+    "make_registrant_content",
+)
 
 def _no_plugins_returns_empty_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -284,5 +292,122 @@ def _android_registrant_names_the_declared_package_test_impl(ctx):
 
 _t15_test = unittest.make(_android_registrant_names_the_declared_package_test_impl)
 
+# -- iOS registrants (Swift and ObjC) ------------------------------------------
+#
+# These assert structure (imports, registration calls, exclusions). That the
+# ObjC bytes equal the flutter tool's own
+# `_objcPluginRegistryHeaderTemplate` /
+# `_objcPluginRegistryImplementationTemplate` from
+# `packages/flutter_tools/lib/src/flutter_plugins.dart` is guarded by the
+# `objc_drift_test` suite, which renders those templates with the tool's
+# mustache semantics and compares against the rule's output.
+
+_IOS_GOLDEN_PLUGINS = [
+    struct(name = "path_provider_foundation", plugin_class = "PathProviderPlugin"),
+    struct(name = "url_launcher_ios", plugin_class = "URLLauncherPlugin"),
+]
+
+def _ios_swift_empty_test_impl(ctx):
+    """An app with no iOS plugins still gets a registrant with no imports."""
+    env = unittest.begin(ctx)
+    result = make_ios_registrant_content([])
+    asserts.true(env, "import Flutter" in result, result)
+    asserts.true(env, "class GeneratedPluginRegistrant" in result, result)
+    asserts.true(env, "register(with:" not in result, result)
+    return unittest.end(env)
+
+def _ios_swift_several_plugins_test_impl(ctx):
+    """Every plugin gets an import and a registration call."""
+    env = unittest.begin(ctx)
+    result = make_ios_registrant_content(_IOS_GOLDEN_PLUGINS)
+    for p in _IOS_GOLDEN_PLUGINS:
+        asserts.true(env, "import %s" % p.name in result, result)
+        asserts.true(
+            env,
+            '%s.register(with: registry.registrar(forPlugin: "%s")!)' % (p.plugin_class, p.plugin_class) in result,
+            result,
+        )
+    return unittest.end(env)
+
+def _ios_swift_exclusion_test_impl(ctx):
+    """An excluded plugin gets no import and no registration call."""
+    env = unittest.begin(ctx)
+    remaining = filter_excluded_native_plugins(_IOS_GOLDEN_PLUGINS, ["url_launcher_ios"], "ios")
+    asserts.equals(env, 1, len(remaining))
+    result = make_ios_registrant_content(remaining)
+    asserts.true(env, "url_launcher_ios" not in result, result)
+    asserts.true(env, "URLLauncherPlugin" not in result, result)
+    asserts.true(env, "import path_provider_foundation" in result, result)
+    asserts.true(env, "PathProviderPlugin.register(with:" in result, result)
+    return unittest.end(env)
+
+def _ios_objc_header_test_impl(ctx):
+    """The ObjC header declares the registry entry point (it names no plugin)."""
+    env = unittest.begin(ctx)
+    result = make_ios_objc_header_content()
+    asserts.true(env, result.startswith("//\n//  Generated file. Do not edit."), result)
+    asserts.true(env, "#import <Flutter/Flutter.h>" in result, result)
+    asserts.true(
+        env,
+        "+ (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry;" in result,
+        result,
+    )
+    return unittest.end(env)
+
+def _ios_objc_empty_impl_test_impl(ctx):
+    """An app with no iOS plugins gets an empty ObjC registrant."""
+    env = unittest.begin(ctx)
+    result = make_ios_objc_impl_content([])
+    asserts.true(env, result.startswith("//\n//  Generated file. Do not edit."), result)
+    asserts.true(env, '#import "GeneratedPluginRegistrant.h"' in result, result)
+    asserts.true(env, "@implementation GeneratedPluginRegistrant" in result, result)
+    asserts.true(env, "registerWithRegistrar" not in result, result)
+    return unittest.end(env)
+
+def _ios_objc_two_plugin_impl_test_impl(ctx):
+    """Every plugin gets an import fallback and a registration call."""
+    env = unittest.begin(ctx)
+    result = make_ios_objc_impl_content(_IOS_GOLDEN_PLUGINS)
+    for p in _IOS_GOLDEN_PLUGINS:
+        asserts.true(
+            env,
+            "#if __has_include(<%s/%s.h>)" % (p.name, p.plugin_class) in result,
+            result,
+        )
+        asserts.true(env, "@import %s;" % p.name in result, result)
+        asserts.true(
+            env,
+            '[%s registerWithRegistrar:[registry registrarForPlugin:@"%s"]];' % (p.plugin_class, p.plugin_class) in result,
+            result,
+        )
+    return unittest.end(env)
+
+def _ios_objc_exclusion_test_impl(ctx):
+    """An excluded plugin gets no import and no registration call in ObjC."""
+    env = unittest.begin(ctx)
+    remaining = filter_excluded_native_plugins(_IOS_GOLDEN_PLUGINS, ["url_launcher_ios"], "ios")
+    result = make_ios_objc_impl_content(remaining)
+    asserts.true(env, "url_launcher_ios" not in result, result)
+    asserts.true(env, "URLLauncherPlugin" not in result, result)
+    asserts.true(
+        env,
+        "#if __has_include(<path_provider_foundation/PathProviderPlugin.h>)" in result,
+        result,
+    )
+    asserts.true(
+        env,
+        '[PathProviderPlugin registerWithRegistrar:[registry registrarForPlugin:@"PathProviderPlugin"]];' in result,
+        result,
+    )
+    return unittest.end(env)
+
+_t16_test = unittest.make(_ios_swift_empty_test_impl)
+_t17_test = unittest.make(_ios_swift_several_plugins_test_impl)
+_t18_test = unittest.make(_ios_swift_exclusion_test_impl)
+_t19_test = unittest.make(_ios_objc_header_test_impl)
+_t20_test = unittest.make(_ios_objc_empty_impl_test_impl)
+_t21_test = unittest.make(_ios_objc_two_plugin_impl_test_impl)
+_t22_test = unittest.make(_ios_objc_exclusion_test_impl)
+
 def plugin_registrant_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test, _t14_test, _t15_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test, _t9_test, _t10_test, _t11_test, _t12_test, _t13_test, _t14_test, _t15_test, _t16_test, _t17_test, _t18_test, _t19_test, _t20_test, _t21_test, _t22_test)

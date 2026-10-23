@@ -7,9 +7,6 @@ on:
       tag_name:
         required: true
         type: string
-    secrets:
-      publish_token:
-        required: true
   # Or, developers can manually push a tag from their clone
   push:
     tags:
@@ -18,17 +15,65 @@ permissions:
   id-token: write
   attestations: write
   contents: write
+  actions: read
 jobs:
+  # Releases wait for the ci.yaml (push-CI matrix) AND full.yaml (macOS +
+  # Android matrix) runs that pushing this tag itself triggered, and publish
+  # only if both concluded `success` on the tagged commit: pushing the tag
+  # starts all three workflows, and this job polls until the tag's own runs
+  # succeed. It fails closed: a run from another event (schedule, dispatch,
+  # workflow_call), a cached dispatch, a run on another branch or commit, a
+  # failed tag run, or no passing tag runs within the timeout all block the
+  # release. Tag pushes run both workflows uncached (no disk cache and no
+  # external-repository cache restored, nothing saved; only the
+  # content-addressed repository cache and the bazelisk cache restore), so a
+  # green gate means every test actually executed on the tagged commit. The
+  # wait's deadline covers the uncached runs' real duration (cold rebuilds;
+  # GitHub allows 6 h per job).
+  gate-tag-matrix:
+    name: CI and Full passed for this tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Wait for the tag's CI and Full workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag_name || github.ref_name }}"
+          sha="${{ github.sha }}"
+          deadline=$((SECONDS + 350 * 60))
+          while true; do
+            ci_runs="$(gh run list --repo '${{ github.repository }}' --workflow ci.yaml --commit "$sha" --limit 50 --json databaseId,status,conclusion,event,headBranch,headSha || echo '[]')"
+            full_runs="$(gh run list --repo '${{ github.repository }}' --workflow full.yaml --commit "$sha" --limit 50 --json databaseId,status,conclusion,event,headBranch,headSha || echo '[]')"
+            ci_ok="$(echo "$ci_runs" | jq --arg tag "$tag" --arg sha "$sha" '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha and .conclusion == "success")] | length > 0')"
+            full_ok="$(echo "$full_runs" | jq --arg tag "$tag" --arg sha "$sha" '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha and .conclusion == "success")] | length > 0')"
+            if [ "$ci_ok" = "true" ] && [ "$full_ok" = "true" ]; then
+              echo "CI and Full workflows passed for tag $tag ($sha)"
+              exit 0
+            fi
+            ci_bad="$(echo "$ci_runs" | jq --arg tag "$tag" --arg sha "$sha" '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha and .status == "completed" and (.conclusion | IN("failure", "cancelled", "timed_out", "action_required")))] | length > 0')"
+            full_bad="$(echo "$full_runs" | jq --arg tag "$tag" --arg sha "$sha" '[.[] | select(.event == "push" and .headBranch == $tag and .headSha == $sha and .status == "completed" and (.conclusion | IN("failure", "cancelled", "timed_out", "action_required")))] | length > 0')"
+            if [ "$ci_bad" = "true" ] || [ "$full_bad" = "true" ]; then
+              echo "CI or Full workflow failed for tag $tag ($sha):"
+              echo "$ci_runs" | jq .
+              echo "$full_runs" | jq .
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for the CI and Full workflows for tag $tag ($sha):"
+              echo "$ci_runs" | jq .
+              echo "$full_runs" | jq .
+              exit 1
+            fi
+            echo "Waiting for the CI and Full workflows for tag $tag ($sha) ..."
+            sleep 60
+          done
+  # A reusable-workflow call: `uses:` jobs take no timeout-minutes (only the
+  # called workflow's own jobs can carry one).
   release:
-    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.7.0
+    needs: gate-tag-matrix
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@1d798ff015ed0696433e01e2c3ccbb2abefadad7 # v7.7.0
     with:
       release_files: rules_flutter-*.tar.gz
       prerelease: false
       tag_name: ${{ inputs.tag_name || github.ref_name }}
-  publish:
-    needs: release
-    uses: ./.github/workflows/publish.yaml
-    with:
-      tag_name: ${{ inputs.tag_name || github.ref_name }}
-    secrets:
-      publish_token: ${{ secrets.publish_token || secrets.BCR_PUBLISH_TOKEN }}

@@ -2,7 +2,29 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load(
+    "//flutter/private:common.bzl",
+    "make_web_plugins_stub_content",
+    "make_web_ui_web_stub_content",
+)
 load("//flutter/private:flutter_web_application.bzl", "flutter_web_bundle")
+load(
+    "//flutter/private:flutter_web_compile.bzl",
+    "default_dart2js_optimization_level",
+    "default_dart2wasm_optimization_level",
+    "flutter_dart2js_action",
+    "make_dart2js_request",
+    "resolve_web_minify",
+    "resolve_web_optimization_level",
+    "web_mode_defines",
+)
+load(
+    "//flutter/private:flutter_web_sdk_repo.bzl",
+    "flutter_web_sdk_repo_impl",
+    "generate_web_sdk_build",
+    "resolve_web_sdk_host_repos",
+    "rewrite_web_sdk_libraries_json",
+)
 load("//flutter/private:validation.bzl", "escape_html", "is_valid_web_compiler_renderer", "web_renderer")
 load(
     "//flutter/private:web_service_worker.bzl",
@@ -230,6 +252,53 @@ def _assert_optimization_level(env, action, expected):
         "%s must state exactly one optimization level" % action.mnemonic,
     )
 
+def _assert_dart2js_platform_binaries(env, action):
+    """Assert dart2js receives `--platform-binaries=<.../web-sdk/kernel>` and exec-platform `--libraries-spec`."""
+    if action == None:
+        return
+    flags = [a for a in action.argv if a.startswith("--platform-binaries=")]
+    asserts.equals(
+        env,
+        1,
+        len(flags),
+        "FlutterDart2JS must state --platform-binaries once: %s" % action.argv,
+    )
+    if flags:
+        asserts.true(
+            env,
+            flags[0].endswith("/web-sdk/kernel"),
+            "--platform-binaries must point at web-sdk/kernel, got %r" % flags[0],
+        )
+    spec_flags = [a for a in action.argv if a.startswith("--libraries-spec=")]
+    asserts.equals(
+        env,
+        1,
+        len(spec_flags),
+        "FlutterDart2JS must state --libraries-spec once: %s" % action.argv,
+    )
+    if spec_flags:
+        asserts.false(
+            env,
+            spec_flags[0].endswith("/web-sdk/libraries.json"),
+            "--libraries-spec must select exec-platform libraries.<platform>.json, got %r" % spec_flags[0],
+        )
+        asserts.true(
+            env,
+            "/web-sdk/libraries." in spec_flags[0] and spec_flags[0].endswith(".json"),
+            "--libraries-spec must point at web-sdk/libraries.<platform>.json, got %r" % spec_flags[0],
+        )
+    input_paths = [f.path for f in action.inputs.to_list()]
+    asserts.true(
+        env,
+        any(["/web-sdk/libraries." in p and not p.endswith("/web-sdk/libraries.json") for p in input_paths]),
+        "FlutterDart2JS inputs must contain exec-platform web-sdk/libraries.<platform>.json: %s" % input_paths,
+    )
+    asserts.true(
+        env,
+        any([p.endswith("/dart-sdk/lib/libraries.json") for p in input_paths]),
+        "FlutterDart2JS inputs must contain the exec platform's dart-sdk/lib/libraries.json: %s" % input_paths,
+    )
+
 def _default_basenames(env):
     target = analysistest.target_under_test(env)
     return [f.basename for f in target[DefaultInfo].files.to_list()]
@@ -307,7 +376,10 @@ def _dbg_web_defines_test_impl(ctx):
 
 _dbg_web_defines_test = analysistest.make(
     _dbg_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _profile_web_defines_test_impl(ctx):
@@ -363,7 +435,10 @@ def _profile_web_defines_test_impl(ctx):
 
 _profile_web_defines_test = analysistest.make(
     _profile_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _opt_web_defines_test_impl(ctx):
@@ -390,6 +465,7 @@ def _opt_web_defines_test_impl(ctx):
         present = ["-Ddart.vm.product=true", "--minify", "--native-null-assertions"],
         absent_substrings = ["enable-asserts", "dart.vm.profile"],
     )
+    _assert_dart2js_platform_binaries(env, _action(env, "FlutterDart2JS"))
 
     # The release levels, and the reason they differ: dart2js goes to 4, while
     # dart2wasm stops at 2 because that is the highest level using only sound
@@ -408,6 +484,15 @@ def _opt_web_defines_test_impl(ctx):
             "dev-loop file %s leaked into release outputs" % basename,
         )
 
+    # A release web bundle with no fonts and no language experiments skips the
+    # redundant icon tree-shaking kernel compile.
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterKernelCompile"],
+        "a fontless release web build must skip FlutterKernelCompile",
+    )
+
     # Nothing serves a release bundle but a web server, so an index.html that
     # inlines the bootstrap is a legitimate single-request deployment here.
     _assert_template_wiring(env, expect_dev_loop_guard = False)
@@ -415,7 +500,58 @@ def _opt_web_defines_test_impl(ctx):
 
 _opt_web_defines_test = analysistest.make(
     _opt_web_defines_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _fastbuild_web_defines_test_impl(ctx):
+    """A `fastbuild` web build is a release build: product define, no asserts, and `-O2` on dart2wasm.
+
+    `fastbuild` maps to `"release"` in `flutter_build_mode`, so both `fastbuild`
+    and `opt` web builds use `dart2wasm`'s release optimization level (`-O2`)
+    and `dart2js`'s release optimization level (`-O4`), matching upstream's
+    `flutter build web --wasm` release configuration.
+    """
+    env = analysistest.begin(ctx)
+    _assert_argv(
+        env,
+        _action(env, "FlutterDart2Wasm"),
+        present = [
+            "-Ddart.vm.product=true",
+            "--minify",
+            "--strip-wasm",
+            "--extra-compiler-option=--delete-tostring-package-uri=dart:ui",
+            "--extra-compiler-option=--delete-tostring-package-uri=package:flutter",
+        ],
+        absent_substrings = ["enable-asserts", "dart.vm.profile", "--no-minify", "--no-strip-wasm"],
+    )
+    _assert_argv(
+        env,
+        _action(env, "FlutterDart2JS"),
+        present = ["-Ddart.vm.product=true", "--minify", "--native-null-assertions"],
+        absent_substrings = ["enable-asserts", "dart.vm.profile", "--no-minify"],
+    )
+    _assert_dart2js_platform_binaries(env, _action(env, "FlutterDart2JS"))
+    _assert_optimization_level(env, _action(env, "FlutterDart2Wasm"), 2)
+    _assert_optimization_level(env, _action(env, "FlutterDart2JS"), 4)
+    return analysistest.end(env)
+
+_fastbuild_web_defines_test = analysistest.make(
+    _fastbuild_web_defines_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "fastbuild",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+_profile_flag_web_defines_test = analysistest.make(
+    _profile_web_defines_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): True,
+    },
 )
 
 def _dev_config_test_impl(ctx):
@@ -516,7 +652,10 @@ def _dev_config_test_impl(ctx):
 
 _dev_config_test = analysistest.make(
     _dev_config_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
     attrs = {"expect_entrypoint": attr.string(mandatory = True)},
 )
 
@@ -557,7 +696,10 @@ def _main_outside_lib_test_impl(ctx):
 
 _main_outside_lib_test = analysistest.make(
     _main_outside_lib_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _dev_config_overrides_test_impl(ctx):
@@ -579,7 +721,10 @@ def _dev_config_overrides_test_impl(ctx):
 
 _dev_config_overrides_test = analysistest.make(
     _dev_config_overrides_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _wasm_source_map_test_impl(ctx):
@@ -654,7 +799,10 @@ def _minify_override_test_impl(ctx):
 
 _minify_override_test = analysistest.make(
     _minify_override_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_override_test_impl(ctx):
@@ -673,7 +821,10 @@ def _optimization_override_test_impl(ctx):
 
 _optimization_override_test = analysistest.make(
     _optimization_override_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "dbg",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_zero_test_impl(ctx):
@@ -691,7 +842,10 @@ def _optimization_zero_test_impl(ctx):
 
 _optimization_zero_test = analysistest.make(
     _optimization_zero_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _js_only_settings_test_impl(ctx):
@@ -726,7 +880,10 @@ def _js_only_settings_test_impl(ctx):
 
 _js_only_settings_test = analysistest.make(
     _js_only_settings_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _optimization_wasm_on_js_refused_test_impl(ctx):
@@ -790,16 +947,243 @@ def _experiments_test_impl(ctx):
     kernels = [
         a
         for a in analysistest.target_actions(env)
-        if a.mnemonic == "FlutterKernelCompile"
+        if a.mnemonic == "FlutterDart2JSCFE"
     ]
     asserts.equals(env, 1, len(kernels), "expected the icon tree-shake kernel compile")
     if kernels:
-        _assert_argv(env, kernels[0], present = [flag])
+        _assert_argv(env, kernels[0], present = [flag, "--cfe-only"])
     return analysistest.end(env)
 
 _experiments_test = analysistest.make(
     _experiments_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _web_conditional_icon_test_impl(ctx):
+    """The icon tree-shake kernel compiles with the web compiler so platform-conditional imports resolve to the web branch.
+
+    `package:cond_icons` exports `icon_vm.dart` normally and `icon_web.dart`
+    when `dart.library.js_interop` is available. The web compilers take the
+    web branch; a `--target flutter` kernel against the VM platform takes the
+    VM branch, so const_finder misses the web icon. Asserted here as the
+    action shape that guarantees the resolution: a `dart compile js
+    --cfe-only` kernel (the same frontend upstream runs to produce the
+    `app.dill` const_finder reads), with the web platform binaries and
+    libraries spec, and both branches' files among the inputs (so editing
+    the web branch re-runs the compile instead of hitting a stale disk-cache
+    entry keyed only on the VM-resolved digest).
+    """
+    env = analysistest.begin(ctx)
+    kernels = [
+        a
+        for a in analysistest.target_actions(env)
+        if a.mnemonic == "FlutterDart2JSCFE"
+    ]
+    asserts.true(env, len(kernels) > 0, "expected at least one icon tree-shake kernel compile")
+    for k in kernels:
+        _assert_argv(
+            env,
+            k,
+            present = [
+                "--cfe-only",
+                "-Ddart.vm.product=true",
+            ],
+            absent_substrings = [
+                "/flutter_patched_sdk",
+                "/flutter_patched_sdk_product/platform_strong.dill",
+            ],
+        )
+        input_paths = [f.path for f in k.inputs.to_list()]
+        asserts.true(
+            env,
+            any(["dart2js_platform.dill" in p for p in input_paths]),
+            "web icon kernel must compile against the web platform dill: %s" % input_paths,
+        )
+        asserts.true(
+            env,
+            any(["cond_icons/lib/src/icon_web.dart" in p for p in input_paths]),
+            "web icon kernel must take the web branch file as an input: %s" % input_paths,
+        )
+        asserts.true(
+            env,
+            any(["cond_icons/lib/src/icon_vm.dart" in p for p in input_paths]),
+            "web icon kernel must take the VM branch file as an input: %s" % input_paths,
+        )
+    return analysistest.end(env)
+
+_web_conditional_icon_test = analysistest.make(
+    _web_conditional_icon_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _font_icon_tree_shake_test_impl(ctx):
+    """A fastbuild web build compiles both shipped renderers' icon tree-shaking kernels with the web compiler.
+
+    The icon tree-shake must see the web program the dart2js/dart2wasm
+    compilers build. Upstream produces that kernel with `dart compile js
+    --cfe-only` (the `app.dill` const_finder reads); here the same frontend
+    compiles one dill per shipped renderer, so `if
+    (dart.library.js_interop)`/`if (dart.library.html)` resolve to the web
+    branch. A `--target flutter` kernel against the VM `platform_strong.dill`
+    would resolve them to the VM branch and miss the web branch's icons,
+    while still type-checking the stubbed sources — which is why the previous
+    VM-based compile passed these tests with a stub Flutter package yet broke
+    real Flutter web builds (`dart:js_interop` types such as `JSAny` do not
+    exist on the VM platform). There is no modular `DartKernel`/`DartKernelLink`
+    step: dependency modules are built against the VM platform, so linking them
+    here would reintroduce the VM resolution.
+    """
+    env = analysistest.begin(ctx)
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "DartKernel"],
+        "web icon tree-shaking must not compile VM-targeted modular kernels",
+    )
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "DartKernelLink"],
+        "web icon tree-shaking must not link VM-targeted modular dills",
+    )
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterKernelCompile"],
+        "web icon tree-shaking must not compile a VM-targeted kernel",
+    )
+    kernels = [
+        a
+        for a in analysistest.target_actions(env)
+        if a.mnemonic == "FlutterDart2JSCFE"
+    ]
+    asserts.equals(env, 2, len(kernels), "expected skwasm and canvaskit fallback icon tree-shake kernel compiles")
+    if len(kernels) == 2:
+        _assert_argv(
+            env,
+            kernels[0],
+            present = [
+                "--cfe-only",
+                "-Ddart.vm.product=true",
+                "-DFLUTTER_WEB_USE_SKIA=false",
+                "-DFLUTTER_WEB_USE_SKWASM=true",
+            ],
+            absent_substrings = [
+                "/flutter_patched_sdk",
+                "/flutter_patched_sdk_product/platform_strong.dill",
+            ],
+        )
+        _assert_argv(
+            env,
+            kernels[1],
+            present = [
+                "--cfe-only",
+                "-Ddart.vm.product=true",
+                "-DFLUTTER_WEB_USE_SKIA=true",
+                "-DFLUTTER_WEB_USE_SKWASM=false",
+            ],
+            absent_substrings = [
+                "/flutter_patched_sdk",
+                "/flutter_patched_sdk_product/platform_strong.dill",
+            ],
+        )
+        for k in kernels:
+            input_paths = [f.path for f in k.inputs.to_list()]
+            asserts.true(
+                env,
+                any(["dart2js_platform.dill" in p for p in input_paths]),
+                "web icon kernel must compile against the web platform dill: %s" % input_paths,
+            )
+
+    asset_cfg = written_json(env, ".asset_bundle_config.json")
+    if asset_cfg != None:
+        asserts.equals(
+            env,
+            2,
+            len(asset_cfg["icon_tree_shaking"]["kernel_dills"]),
+            "expected both skwasm and canvaskit dills in icon_tree_shaking.kernel_dills",
+        )
+    return analysistest.end(env)
+
+_font_icon_tree_shake_test = analysistest.make(
+    _font_icon_tree_shake_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "fastbuild",
+        str(Label("//flutter:profile")): False,
+    },
+)
+
+def _font_icon_tree_shake_opt_test_impl(ctx):
+    """An `-c opt` web build compiles both shipped renderers' icon tree-shaking dills with the web compiler so `kReleaseMode` folds to `true`."""
+    env = analysistest.begin(ctx)
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "DartKernelLink"],
+        "an -c opt web build must not link a debug modular dill for icon tree-shaking",
+    )
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "DartKernel"],
+        "an -c opt web build must not compile VM-targeted modular kernels for icon tree-shaking",
+    )
+    asserts.equals(
+        env,
+        [],
+        [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterKernelCompile"],
+        "an -c opt web build must not compile a VM-targeted kernel for icon tree-shaking",
+    )
+    kernels = [
+        a
+        for a in analysistest.target_actions(env)
+        if a.mnemonic == "FlutterDart2JSCFE"
+    ]
+    asserts.equals(env, 2, len(kernels), "expected skwasm and canvaskit fallback icon tree-shake kernel compiles")
+    if len(kernels) == 2:
+        _assert_argv(
+            env,
+            kernels[0],
+            present = [
+                "--cfe-only",
+                "-Ddart.vm.product=true",
+                "-DFLUTTER_WEB_USE_SKIA=false",
+                "-DFLUTTER_WEB_USE_SKWASM=true",
+            ],
+            absent_substrings = ["/flutter_patched_sdk"],
+        )
+        _assert_argv(
+            env,
+            kernels[1],
+            present = [
+                "--cfe-only",
+                "-Ddart.vm.product=true",
+                "-DFLUTTER_WEB_USE_SKIA=true",
+                "-DFLUTTER_WEB_USE_SKWASM=false",
+            ],
+            absent_substrings = ["/flutter_patched_sdk"],
+        )
+        for k in kernels:
+            input_paths = [f.path for f in k.inputs.to_list()]
+            asserts.true(
+                env,
+                any(["dart2js_platform.dill" in p for p in input_paths]),
+                "web icon kernel must compile against the web platform dill: %s" % input_paths,
+            )
+    return analysistest.end(env)
+
+_font_icon_tree_shake_opt_test = analysistest.make(
+    _font_icon_tree_shake_opt_test_impl,
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _dump_info_test_impl(ctx):
@@ -893,7 +1277,10 @@ def _no_strip_release_test_impl(ctx):
 
 _no_strip_release_test = analysistest.make(
     _no_strip_release_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
+    config_settings = {
+        "//command_line_option:compilation_mode": "opt",
+        str(Label("//flutter:profile")): False,
+    },
 )
 
 def _strip_wasm_on_js_refused_test_impl(ctx):
@@ -1263,6 +1650,13 @@ def _setup_web_fixtures():
         tags = ["manual"],
     )
     flutter_web_bundle(
+        name = "_web_nonlib_generated_src_fixture",
+        srcs = [":_ae_declared_shadow_src"],
+        package_name = "web_fixture",
+        main = "nonlib/nonlib_shadow_main.dart",
+        tags = ["manual"],
+    )
+    flutter_web_bundle(
         name = "_web_map_fixture",
         package_name = "web_fixture",
         main = "lib/web_fixture_main.dart",
@@ -1310,6 +1704,37 @@ def _setup_web_fixtures():
         main = "lib/web_fixture_main.dart",
         enable_experiments = ["test-experiment"],
         tags = ["manual"],
+    )
+
+    flutter_web_bundle(
+        name = "_web_font_fixture",
+        package_name = "web_fixture",
+        main = "lib/web_font_fixture_main.dart",
+        deps = [
+            "//flutter:material_icons",
+            "//flutter/tests/icon_tree_shake_fixture:cupertino_text_font",
+            "//flutter/tests/icon_tree_shake_fixture:icons_suffix_family",
+            "//flutter/tests/icon_tree_shake_fixture:pkg_icons_suffix_family",
+            "//flutter/tests/icon_tree_shake_fixture:roboto_font",
+            "//flutter/tests/icon_tree_shake_fixture:unused_icon_family",
+            "//flutter/tests/icon_tree_shake_fixture/icon_choice_lib",
+        ],
+        tags = ["manual"],
+        visibility = ["//flutter/tests:__subpackages__"],
+    )
+
+    # Platform-conditional icon regression fixture: the app draws the web
+    # branch's icon (0xe04b); the VM branch draws 0xe04c.
+    flutter_web_bundle(
+        name = "_web_cond_fixture",
+        package_name = "web_fixture",
+        main = "lib/web_cond_fixture_main.dart",
+        deps = [
+            "//flutter:material_icons",
+            "//flutter/tests/icon_tree_shake_fixture/cond_icons",
+        ],
+        tags = ["manual"],
+        visibility = ["//flutter/tests:__subpackages__"],
     )
 
     flutter_web_bundle(
@@ -1417,6 +1842,506 @@ def _setup_web_fixtures():
         tags = ["manual"],
     )
 
+    _web_sdk_libraries_json_probe(
+        name = "_web_sdk_missing_include_probe",
+        libraries_json = "fixtures/broken_libraries.json",
+        tags = ["manual"],
+    )
+    _web_sdk_libraries_json_probe(
+        name = "_web_sdk_missing_target_probe",
+        libraries_json = "fixtures/missing_target_libraries.json",
+        tags = ["manual"],
+    )
+    _web_sdk_libraries_json_probe(
+        name = "_web_sdk_missing_file_probe",
+        scenario = "missing_file",
+        tags = ["manual"],
+    )
+    _web_sdk_libraries_json_probe(
+        name = "_web_sdk_missing_libraries_entry_probe",
+        scenario = "missing_libraries_entry",
+        tags = ["manual"],
+    )
+    _web_sdk_exec_probe(
+        name = "_web_sdk_exec_fixture",
+        main = "lib/web_fixture_main.dart",
+        tags = ["manual"],
+    )
+
+    # The web-guard fixtures: `web_guard_fixture/lib/secret.dart` sits on the
+    # host but in no target's `srcs`, and each hostile `main` below imports it
+    # in one undeclared-input spelling. Every web compile runs behind
+    # `web_guard`, so building any hostile fixture must fail with `is not a
+    # declared input` before the compiler runs — under the sandboxed and the
+    # local strategy alike — and embed nothing. They stay `manual`: a passing
+    # `//flutter/...` cannot build a target that must fail. The clean bundle
+    # beside them builds for real (see the suite's build_test), proving the
+    # guard leaves declared imports alone.
+    flutter_web_bundle(
+        name = "_web_guard_clean",
+        package_name = "web_guard_fixture",
+        main = "web_guard_fixture/lib/clean_main.dart",
+        srcs = ["web_guard_fixture/lib/helper.dart"],
+        tags = ["manual"],
+    )
+    for spelling in [
+        "file",
+        "relative",
+        "app_scheme",
+        "double_slash",
+        "schemeless",
+    ]:
+        flutter_web_bundle(
+            name = "_web_guard_hostile_" + spelling,
+            package_name = "web_guard_fixture",
+            main = "web_guard_fixture/lib/hostile/%s_main.dart" % spelling,
+            tags = ["manual"],
+        )
+        flutter_web_bundle(
+            name = "_web_guard_hostile_%s_js" % spelling,
+            package_name = "web_guard_fixture",
+            main = "web_guard_fixture/lib/hostile/%s_main.dart" % spelling,
+            compiler = "dart2js",
+            renderer = "canvaskit",
+            tags = ["manual"],
+        )
+
+_VALID_WEB_SDK_LIBRARIES_JSON = """{
+  "comment:0": "NOTE: THIS FILE IS GENERATED. DO NOT EDIT.",
+  "dartdevc": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dartdevc"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  },
+  "dart2js": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dart2js"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  },
+  "wasm": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "wasm"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  }
+}
+"""
+
+_BROKEN_INCLUDE_LIBRARIES_JSON = """{
+  "dartdevc": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "dartdevc"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  },
+  "dart2js": {
+    "include": [{"path": "../unexpected-sdk/lib/libraries.json", "target": "dart2js"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  },
+  "wasm": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "wasm"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  }
+}
+"""
+
+_MISSING_TARGET_LIBRARIES_JSON = """{
+  "dartdevc": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "dartdevc"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  },
+  "dart2js": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "dart2js"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  }
+}
+"""
+
+_MISSING_LIBRARIES_ENTRY_JSON = """{
+  "dartdevc": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "dartdevc"}],
+    "libraries": {}
+  },
+  "dart2js": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "dart2js"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  },
+  "wasm": {
+    "include": [{"path": "../dart-sdk/lib/libraries.json", "target": "wasm"}],
+    "libraries": {"ui": {"uri": "lib/ui/ui.dart"}, "ui_web": {"uri": "lib/ui_web/ui_web.dart"}}
+  }
+}
+"""
+
+def _web_optimization_level_defaults_test_impl(ctx):
+    """Both `fastbuild` and `opt` release builds default dart2wasm to `-O2`; `dbg` uses `-O0`."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, 0, default_dart2wasm_optimization_level("debug"))
+    asserts.equals(env, 0, default_dart2wasm_optimization_level("debug", "dbg"))
+    asserts.equals(env, 2, default_dart2wasm_optimization_level("profile"))
+    asserts.equals(env, 2, default_dart2wasm_optimization_level("profile", "opt"))
+    asserts.equals(env, 2, default_dart2wasm_optimization_level("release"))
+    asserts.equals(env, 2, default_dart2wasm_optimization_level("release", "fastbuild"))
+    asserts.equals(env, 2, default_dart2wasm_optimization_level("release", "opt"))
+
+    asserts.equals(env, 1, default_dart2js_optimization_level("debug"))
+    asserts.equals(env, 4, default_dart2js_optimization_level("profile"))
+    asserts.equals(env, 4, default_dart2js_optimization_level("release"))
+
+    asserts.equals(env, 2, resolve_web_optimization_level("auto", default_dart2wasm_optimization_level("release", "fastbuild")))
+    asserts.equals(env, 0, resolve_web_optimization_level("auto", default_dart2wasm_optimization_level("debug", "dbg")))
+    asserts.equals(env, 3, resolve_web_optimization_level("3", default_dart2wasm_optimization_level("release")))
+
+    asserts.equals(env, False, resolve_web_minify("auto", "debug"))
+    asserts.equals(env, False, resolve_web_minify("auto", "profile"))
+    asserts.equals(env, True, resolve_web_minify("auto", "release"))
+    asserts.equals(env, ["dart.vm.product=true"], web_mode_defines("release"))
+    asserts.equals(env, ["dart.vm.profile=true"], web_mode_defines("profile"))
+    asserts.equals(env, [], web_mode_defines("debug"))
+
+    return unittest.end(env)
+
+def _web_sdk_repo_rewrite_and_build_test_impl(ctx):
+    """`flutter_web_sdk_repo` locates SDKs by declared `Label`s and rewrites `libraries.json` per exec platform."""
+    env = unittest.begin(ctx)
+
+    rewritten = rewrite_web_sdk_libraries_json(
+        _VALID_WEB_SDK_LIBRARIES_JSON,
+        "custom_sdk_linux_x64",
+    )
+    decoded = json.decode(rewritten)
+    for target in ("dartdevc", "dart2js", "wasm"):
+        asserts.equals(
+            env,
+            "../../custom_sdk_linux_x64/dart-sdk/lib/libraries.json",
+            decoded[target]["include"][0]["path"],
+        )
+        asserts.equals(env, target, decoded[target]["include"][0]["target"])
+        asserts.equals(env, "lib/ui/ui.dart", decoded[target]["libraries"]["ui"]["uri"])
+
+    host_sdks = {
+        Label("@@custom_darwin_arm64_sdk//:dart-sdk/lib/libraries.json"): "darwin-arm64",
+        Label("@@custom_darwin_x64_sdk//:dart-sdk/lib/libraries.json"): "darwin-x64",
+        Label("@@custom_windows_x64_sdk//:dart-sdk/lib/libraries.json"): "windows-x64",
+        Label("@@custom_linux_x64_sdk//:dart-sdk/lib/libraries.json"): "linux-x64",
+        Label("@@custom_linux_arm64_sdk//:dart-sdk/lib/libraries.json"): "linux-arm64",
+    }
+    resolved = resolve_web_sdk_host_repos(host_sdks)
+    asserts.equals(env, "custom_darwin_arm64_sdk", resolved["darwin-arm64"].repo_name)
+    asserts.equals(env, "custom_darwin_x64_sdk", resolved["darwin-x64"].repo_name)
+    asserts.equals(env, "custom_windows_x64_sdk", resolved["windows-x64"].repo_name)
+    asserts.equals(env, "custom_linux_x64_sdk", resolved["linux-x64"].repo_name)
+    asserts.equals(env, "custom_linux_arm64_sdk", resolved["linux-arm64"].repo_name)
+
+    build_content = generate_web_sdk_build(host_sdks)
+    asserts.true(env, '":darwin-arm64": ["web-sdk/libraries.darwin-arm64.json"]' in build_content)
+    asserts.true(env, '":darwin-x64": ["web-sdk/libraries.darwin-x64.json"]' in build_content)
+    asserts.true(env, '":windows-x64": ["web-sdk/libraries.windows-x64.json"]' in build_content)
+    asserts.true(env, '":linux-x64": ["web-sdk/libraries.linux-x64.json"]' in build_content)
+    asserts.true(env, '":linux-arm64": ["web-sdk/libraries.linux-arm64.json"]' in build_content)
+    asserts.true(env, "custom_darwin_arm64_sdk//:dart-sdk/lib/libraries.json" in build_content)
+    asserts.true(env, "custom_darwin_x64_sdk//:dart-sdk/lib/libraries.json" in build_content)
+    asserts.true(env, "custom_windows_x64_sdk//:dart-sdk/lib/libraries.json" in build_content)
+    asserts.true(env, "custom_linux_x64_sdk//:dart-sdk/lib/libraries.json" in build_content)
+    asserts.true(env, "custom_linux_arm64_sdk//:dart-sdk/lib/libraries.json" in build_content)
+    asserts.true(env, "custom_darwin_arm64_sdk//:dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js" in build_content)
+    asserts.true(env, "custom_windows_x64_sdk//:dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js" in build_content)
+    asserts.true(env, "custom_linux_x64_sdk//:dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js" in build_content)
+
+    # Also exercise `flutter_web_sdk_repo_impl` directly with a fake repository_ctx
+    # whose `.path(".")` has a completely arbitrary repository name (not ending in
+    # `_web_sdk` and containing no `+`), proving repo resolution uses declared labels.
+    written_files = {}
+    fake_rctx = struct(
+        name = "arbitrary_web_repo_name",
+        os = struct(name = "mac os x", arch = "aarch64"),
+        attr = struct(
+            engine_revision = "",
+            sha256 = "",
+            user_repository_name = "unused_base",
+            host_sdks = host_sdks,
+            libraries_json = None,
+        ),
+        path = lambda p: struct(exists = (p == "web-sdk/libraries.json"), basename = "arbitrary_web_repo_name"),
+        read = lambda _p: _VALID_WEB_SDK_LIBRARIES_JSON,
+        file = lambda path, content: written_files.update({path: content}),
+    )
+    flutter_web_sdk_repo_impl(fake_rctx)
+    asserts.true(env, "web-sdk/libraries.darwin-arm64.json" in written_files)
+    asserts.true(env, "web-sdk/libraries.darwin-x64.json" in written_files)
+    asserts.true(env, "web-sdk/libraries.windows-x64.json" in written_files)
+    asserts.true(env, "web-sdk/libraries.linux-x64.json" in written_files)
+    asserts.true(env, "web-sdk/libraries.linux-arm64.json" in written_files)
+    asserts.true(env, "../../custom_darwin_arm64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.darwin-arm64.json"])
+    asserts.true(env, "../../custom_darwin_x64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.darwin-x64.json"])
+    asserts.true(env, "../../custom_windows_x64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.windows-x64.json"])
+    asserts.true(env, "../../custom_linux_x64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.linux-x64.json"])
+    asserts.true(env, "../../custom_linux_arm64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.linux-arm64.json"])
+    asserts.true(env, "../../custom_darwin_arm64_sdk/dart-sdk/lib/libraries.json" in written_files["web-sdk/libraries.json"])
+
+    return unittest.end(env)
+
+def _web_stubs_api_surface_test_impl(ctx):
+    """`make_web_ui_web_stub_content` and `make_web_plugins_stub_content` cover the real `flutter_web_plugins` and `dart:ui_web` API surface."""
+    env = unittest.begin(ctx)
+
+    ui_web = make_web_ui_web_stub_content()
+    for required in [
+        "Future<void> bootstrapEngine(",
+        "void setPluginHandler(ui.PlatformMessageCallback handler)",
+        "typedef EventListener =",
+        "typedef PopStateListener =",
+        "abstract interface class PlatformLocation",
+        "class BrowserPlatformLocation implements PlatformLocation",
+        "abstract class UrlStrategy",
+        "UrlStrategy? urlStrategy;",
+        "class HashUrlStrategy extends UrlStrategy",
+    ]:
+        asserts.true(
+            env,
+            required in ui_web,
+            "ui_web stub missing %r" % required,
+        )
+
+    for has_services in (True, False):
+        plugins_stub = make_web_plugins_stub_content(has_flutter_services = has_services)
+        for required in [
+            "class Registrar extends BinaryMessenger",
+            "void registerMessageHandler()",
+            "Future<void> handlePlatformMessage(",
+            "Future<void> handleFrameworkMessage(",
+            "BinaryMessenger get messenger => this;",
+            "Future<ByteData?> send(String channel, ByteData? message)",
+            "void setMessageHandler(String channel, MessageHandler? handler)",
+            "class PluginRegistry extends Registrar",
+            "Registrar registrarFor(Type key) => this;",
+            "final Registrar webPluginRegistrar = PluginRegistry();",
+            "PluginRegistry get webPluginRegistry =>",
+            "BinaryMessenger get pluginBinaryMessenger => webPluginRegistrar;",
+            "class PluginEventChannel<T>",
+            "void setController(StreamController<T>? controller)",
+            "class PathUrlStrategy extends HashUrlStrategy",
+            "void setUrlStrategy(UrlStrategy? strategy)",
+            "void usePathUrlStrategy()",
+            "String extractPathname(String url)",
+            "String checkBaseHref(String? baseHref)",
+            "String ensureLeadingSlash(String path)",
+            "String stripTrailingSlash(String path)",
+        ]:
+            asserts.true(
+                env,
+                required in plugins_stub,
+                "flutter_web_plugins stub (has_flutter_services=%s) missing %r" % (has_services, required),
+            )
+
+    asserts.true(
+        env,
+        "import 'package:flutter/services.dart';" in make_web_plugins_stub_content(has_flutter_services = True),
+    )
+    asserts.true(
+        env,
+        "abstract class BinaryMessenger" in make_web_plugins_stub_content(has_flutter_services = False),
+    )
+
+    return unittest.end(env)
+
+_t6_test = unittest.make(_web_optimization_level_defaults_test_impl)
+_t7_test = unittest.make(_web_sdk_repo_rewrite_and_build_test_impl)
+_t8_test = unittest.make(_web_stubs_api_surface_test_impl)
+
+def _web_sdk_libraries_json_probe_impl(ctx):
+    scenario = ctx.attr.scenario
+    fixture_file = ctx.file.libraries_json
+    source_name = fixture_file.short_path if fixture_file != None else "web-sdk/libraries.json"
+
+    file_exists = True
+    content = _VALID_WEB_SDK_LIBRARIES_JSON
+    if scenario == "missing_file":
+        file_exists = False
+    elif scenario == "missing_libraries_entry":
+        content = _MISSING_LIBRARIES_ENTRY_JSON
+    elif fixture_file != None and fixture_file.basename == "broken_libraries.json":
+        content = _BROKEN_INCLUDE_LIBRARIES_JSON
+    elif fixture_file != None and fixture_file.basename == "missing_target_libraries.json":
+        content = _MISSING_TARGET_LIBRARIES_JSON
+
+    fake_rctx = struct(
+        name = "flutter_web_sdk",
+        attr = struct(
+            engine_revision = "",
+            sha256 = "",
+            user_repository_name = "flutter",
+            host_sdks = {
+                Label("@@flutter_linux-x64//:dart-sdk/lib/libraries.json"): "linux-x64",
+            },
+            libraries_json = ctx.attr.libraries_json.label if ctx.attr.libraries_json != None else None,
+        ),
+        path = lambda _p: struct(exists = file_exists, basename = source_name),
+        read = lambda _p: content,
+        file = lambda _path, _content: None,
+    )
+    flutter_web_sdk_repo_impl(fake_rctx)
+    return [DefaultInfo()]
+
+_web_sdk_libraries_json_probe = rule(
+    implementation = _web_sdk_libraries_json_probe_impl,
+    attrs = {
+        "libraries_json": attr.label(allow_single_file = [".json"]),
+        "scenario": attr.string(default = ""),
+    },
+)
+
+def _web_sdk_libraries_json_failure_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, ctx.attr.expected_error)
+    return analysistest.end(env)
+
+_web_sdk_libraries_json_failure_test = analysistest.make(
+    _web_sdk_libraries_json_failure_test_impl,
+    expect_failure = True,
+    attrs = {
+        "expected_error": attr.string(mandatory = True),
+    },
+)
+
+def _probe_request(ctx, dart, main_dart, package_config, output_dir):
+    """Builds the release-mode dart2js request the exec probe compiles with.
+
+    Mirrors the rule's request shape over the probe's files: no SDK (an empty
+    file set, as the probe passed before), the web SDK's `libraries*.json`
+    files, and the dart2js platform dill.
+    """
+    return make_dart2js_request(
+        struct(
+            dart = dart,
+            flutter_sdk_info = struct(dart2js_files = depset()),
+            dart2wasm_platform_dill = None,
+            dart2js_platform_dill = ctx.file._dart2js_platform_dill,
+            web_sdk_files = [ctx.file._default_libraries_json] + ctx.files._libraries_json,
+            main_dart = main_dart,
+            srcs = [main_dart],
+            package_config = package_config,
+            mode = "release",
+            defines = [],
+            renderer = "canvaskit",
+            stage_salt = "",
+            web_compile_tool = None,
+            web_compile_inputs = [],
+            web_guard_tool = None,
+            enable_experiments = [],
+        ),
+        struct(
+            optimization_level = "auto",
+            minify = "auto",
+            native_null_assertions = True,
+            frequency_based_minification = True,
+            dump_info = False,
+            source_maps = False,
+        ),
+        "canvaskit",
+        output_dir,
+    )
+
+def _web_sdk_exec_probe_impl(ctx):
+    fake_dart = ctx.actions.declare_file(ctx.label.name + "_fake_dart")
+    ctx.actions.write(fake_dart, "", is_executable = True)
+    pkg_cfg = ctx.actions.declare_file(ctx.label.name + "_package_config.json")
+    ctx.actions.write(pkg_cfg, '{"configVersion": 2, "packages": []}\n')
+    out_dir = ctx.actions.declare_directory(ctx.label.name + "_dart2js")
+    flutter_dart2js_action(ctx, _probe_request(ctx, fake_dart, ctx.file.main, pkg_cfg, out_dir))
+    return [DefaultInfo(files = depset(ctx.files._libraries_json + [out_dir]))]
+
+_web_sdk_exec_probe = rule(
+    implementation = _web_sdk_exec_probe_impl,
+    attrs = {
+        "main": attr.label(allow_single_file = [".dart"], mandatory = True),
+        "_default_libraries_json": attr.label(
+            default = Label("@flutter_web_sdk//:web-sdk/libraries.json"),
+            allow_single_file = True,
+            cfg = "exec",
+        ),
+        "_libraries_json": attr.label(
+            default = Label("@flutter_web_sdk//:libraries_json"),
+            cfg = "exec",
+        ),
+        "_dart2js_platform_dill": attr.label(
+            default = Label("@flutter_web_sdk//:web-sdk/kernel/dart2js_platform.dill"),
+            allow_single_file = True,
+            cfg = "exec",
+        ),
+    },
+)
+
+def _web_sdk_exec_platform_selection_test_impl(ctx):
+    """`@flutter_web_sdk//:libraries_json` selects `web-sdk/libraries.<platform>.json`."""
+    env = analysistest.begin(ctx)
+    tut = analysistest.target_under_test(env)
+    files = [f for f in tut[DefaultInfo].files.to_list() if f.basename.endswith(".json")]
+    asserts.equals(env, 1, len(files))
+    if files:
+        asserts.equals(env, ctx.attr.expected_basename, files[0].basename)
+    js_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterDart2JS"]
+    if js_actions:
+        spec_flags = [a for a in js_actions[0].argv if a.startswith("--libraries-spec=")]
+        asserts.equals(env, 1, len(spec_flags))
+        if spec_flags:
+            asserts.true(
+                env,
+                spec_flags[0].endswith("/web-sdk/" + ctx.attr.expected_basename),
+                "--libraries-spec must end with /web-sdk/%s, got %r" % (ctx.attr.expected_basename, spec_flags[0]),
+            )
+    return analysistest.end(env)
+
+def _make_web_sdk_platform_selection_test(platform_label):
+    return analysistest.make(
+        _web_sdk_exec_platform_selection_test_impl,
+        config_settings = {
+            "//command_line_option:platforms": str(Label(platform_label)),
+            "//command_line_option:host_platform": str(Label(platform_label)),
+            "//command_line_option:extra_execution_platforms": [str(Label(platform_label))],
+        },
+        attrs = {
+            "expected_basename": attr.string(mandatory = True),
+        },
+    )
+
+_web_sdk_select_linux_x64_test = _make_web_sdk_platform_selection_test("//flutter/platforms:linux_x64")
+_web_sdk_select_linux_arm64_test = _make_web_sdk_platform_selection_test("//flutter/platforms:linux_arm64")
+_web_sdk_select_macos_arm64_test = _make_web_sdk_platform_selection_test("//flutter/platforms:macos_arm64")
+_web_sdk_select_macos_x64_test = _make_web_sdk_platform_selection_test("//flutter/platforms:macos_x64")
+_web_sdk_select_windows_x64_test = _make_web_sdk_platform_selection_test("//flutter/platforms:windows_x64")
+
 def web_test_suite(name):
     """Instantiate the web-bundle fixtures and the analysis tests over them.
 
@@ -1429,6 +2354,10 @@ def web_test_suite(name):
         name = name + "_dbg_defines",
         target_under_test = ":_web_fixture",
     )
+    _fastbuild_web_defines_test(
+        name = name + "_fastbuild_defines",
+        target_under_test = ":_web_fixture",
+    )
     _opt_web_defines_test(
         name = name + "_opt_defines",
         target_under_test = ":_web_fixture",
@@ -1436,6 +2365,57 @@ def web_test_suite(name):
     _profile_web_defines_test(
         name = name + "_profile_defines",
         target_under_test = ":_web_profile_fixture",
+    )
+    _profile_flag_web_defines_test(
+        name = name + "_profile_flag_defines",
+        target_under_test = ":_web_fixture",
+    )
+
+    _web_sdk_libraries_json_failure_test(
+        name = name + "_web_sdk_missing_include_fails",
+        target_under_test = ":_web_sdk_missing_include_probe",
+        expected_error = "missing_dart_sdk_include",
+    )
+    _web_sdk_libraries_json_failure_test(
+        name = name + "_web_sdk_missing_target_fails",
+        target_under_test = ":_web_sdk_missing_target_probe",
+        expected_error = "missing_target_entry",
+    )
+    _web_sdk_libraries_json_failure_test(
+        name = name + "_web_sdk_missing_file_fails",
+        target_under_test = ":_web_sdk_missing_file_probe",
+        expected_error = "missing_libraries_json",
+    )
+    _web_sdk_libraries_json_failure_test(
+        name = name + "_web_sdk_missing_libraries_entry_fails",
+        target_under_test = ":_web_sdk_missing_libraries_entry_probe",
+        expected_error = "missing_libraries_entry",
+    )
+
+    _web_sdk_select_linux_x64_test(
+        name = name + "_web_sdk_select_linux_x64",
+        target_under_test = ":_web_sdk_exec_fixture",
+        expected_basename = "libraries.linux-x64.json",
+    )
+    _web_sdk_select_linux_arm64_test(
+        name = name + "_web_sdk_select_linux_arm64",
+        target_under_test = ":_web_sdk_exec_fixture",
+        expected_basename = "libraries.linux-arm64.json",
+    )
+    _web_sdk_select_macos_arm64_test(
+        name = name + "_web_sdk_select_macos_arm64",
+        target_under_test = ":_web_sdk_exec_fixture",
+        expected_basename = "libraries.darwin-arm64.json",
+    )
+    _web_sdk_select_macos_x64_test(
+        name = name + "_web_sdk_select_macos_x64",
+        target_under_test = ":_web_sdk_exec_fixture",
+        expected_basename = "libraries.darwin-x64.json",
+    )
+    _web_sdk_select_windows_x64_test(
+        name = name + "_web_sdk_select_windows_x64",
+        target_under_test = ":_web_sdk_exec_fixture",
+        expected_basename = "libraries.windows-x64.json",
     )
 
     # The entrypoint names the file this target actually compiles. It used to
@@ -1516,6 +2496,26 @@ def web_test_suite(name):
         name = name + "_experiments",
         target_under_test = ":_web_experiments_fixture",
     )
+    _font_icon_tree_shake_test(
+        name = name + "_font_icon_tree_shake",
+        target_under_test = ":_web_font_fixture",
+    )
+    _font_icon_tree_shake_opt_test(
+        name = name + "_font_icon_tree_shake_opt",
+        target_under_test = ":_web_font_fixture",
+    )
+    _web_conditional_icon_test(
+        name = name + "_conditional_icon",
+        target_under_test = ":_web_cond_fixture",
+    )
+    build_test(
+        name = name + "_font_icon_tree_shake_build",
+        targets = [":_web_font_fixture"],
+    )
+    build_test(
+        name = name + "_conditional_icon_build",
+        targets = [":_web_cond_fixture"],
+    )
     _dev_config_overrides_test(
         name = name + "_dev_config_overrides",
         target_under_test = ":_web_dev_overrides_fixture",
@@ -1560,5 +2560,18 @@ def web_test_suite(name):
         name = name + "_profile_build",
         targets = [":_web_profile_fixture"],
     )
+    build_test(
+        name = name + "_nonlib_generated_src_build",
+        targets = [":_web_nonlib_generated_src_fixture"],
+    )
 
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test)
+    # The guard's clean control builds for real: declared relative, package
+    # and app-scheme imports compile through `web_guard` untouched on both
+    # compilers. The hostile `_web_guard_hostile_*` fixtures beside it stay
+    # manual-only and must fail instead (see `_setup_web_fixtures`).
+    build_test(
+        name = name + "_guard_clean_build",
+        targets = [":_web_guard_clean"],
+    )
+
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test)

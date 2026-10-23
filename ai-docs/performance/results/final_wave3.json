@@ -1,0 +1,373 @@
+{
+  "label": "final_wave3",
+  "rules_rev": "31b867a",
+  "size": "full",
+  "packages": 30,
+  "files_per_package": 20,
+  "bazel": "bazel 9.2.0",
+  "jobs": 4,
+  "date": "2026-10-15T16:05:39",
+  "output_base": {
+    "bench_analysis": "<bench-scratch>/final_wave3/bench_analysis",
+    "bench": "<bench-scratch>/final_wave3/bench"
+  },
+  "scenarios": {
+    "reanalysis_80pkg_s": 1.23,
+    "reanalysis_80pkg_runs_s": [1.39, 1.23, 1.18],
+    "clean_build": {
+      "wall_s": 80.77,
+      "sandboxed": 96,
+      "actions": {
+        "SymlinkTree": {
+          "n": 38,
+          "cpu_s": 0.15
+        },
+        "FlutterShaderCompile": {
+          "n": 6,
+          "cpu_s": 3.0
+        },
+        "DartKernel": {
+          "n": 90,
+          "cpu_s": 68.02
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 19.09
+        },
+        "DartCompile": {
+          "n": 8,
+          "cpu_s": 37.48
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 31.48
+        },
+        "FlutterKernelCompile": {
+          "n": 3,
+          "cpu_s": 27.79
+        },
+        "FlutterWebTemplate": {
+          "n": 1,
+          "cpu_s": 4.88
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 3.61
+        },
+        "FlutterAssetBundle": {
+          "n": 32,
+          "cpu_s": 3.61
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.35
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 0.08
+        },
+        "DartKernelLink": {
+          "n": 30,
+          "cpu_s": 4.99
+        }
+      }
+    },
+    "fetch_footprint": {
+      "entries": [
+        {
+          "name": "rules_dart+",
+          "mb": 0
+        },
+        {
+          "name": "rules_dart++dart+dart_toolchains",
+          "mb": 1
+        },
+        {
+          "name": "rules_flutter+",
+          "mb": 0
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_desktop_engine_linux-x64",
+          "mb": 22
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_font_subset_linux-x64",
+          "mb": 7
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_linux-x64",
+          "mb": 732
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_linux_sysroot_x64",
+          "mb": 215
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_patched_sdk_product",
+          "mb": 12
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_sky_engine",
+          "mb": 8
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_toolchains",
+          "mb": 1
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_web_sdk",
+          "mb": 118
+        }
+      ],
+      "total_mb": 1116,
+      "rules_dart_linux_sdk_fetched": false
+    },
+    "body_edit_build": {
+      "wall_s": 54.18,
+      "sandboxed": 40,
+      "actions": {
+        "DartKernel": {
+          "n": 59,
+          "cpu_s": 67.37
+        },
+        "FlutterKernelCompile": {
+          "n": 3,
+          "cpu_s": 37.91
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 13.82
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 7.63
+        },
+        "DartKernelLink": {
+          "n": 30,
+          "cpu_s": 25.5
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 4.47
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 0.82
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 31.48
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.09
+        }
+      }
+    },
+    "api_edit_build": {
+      "wall_s": 54.39,
+      "sandboxed": 39,
+      "actions": {
+        "FlutterKernelCompile": {
+          "n": 3,
+          "cpu_s": 66.25
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 31.33
+        },
+        "DartKernel": {
+          "n": 59,
+          "cpu_s": 53.77
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 9.66
+        },
+        "DartKernelLink": {
+          "n": 30,
+          "cpu_s": 12.31
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 3.69
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 12.44
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.14
+        }
+      }
+    },
+    "null_build": {
+      "wall_s": 0.18,
+      "sandboxed": 0,
+      "actions": {}
+    },
+    "null_build_s": 0.18,
+    "test_run": {
+      "wall_s": 9.17,
+      "sandboxed": 30,
+      "actions": {
+        "TestRunner": {
+          "n": 30,
+          "cpu_s": 33.62
+        }
+      },
+      "per_test_s": 1.121
+    },
+    "test_runfiles": {
+      "target": "//packages/pkg5:pkg5_test",
+      "files": 13,
+      "mb": 88
+    },
+    "kernel_inputs": {
+      "target": "//packages/pkg5:pkg5_test",
+      "actions": 1,
+      "inputs": 1949,
+      "mb": 113.8,
+      "external_mb": 53.3,
+      "missing": 0
+    },
+    "lint_clean": {
+      "wall_s": 106.55,
+      "sandboxed": 401,
+      "actions": {
+        "SymlinkTree": {
+          "n": 40,
+          "cpu_s": 0.19
+        },
+        "DartKernel": {
+          "n": 93,
+          "cpu_s": 90.27
+        },
+        "DartCompile": {
+          "n": 11,
+          "cpu_s": 62.14
+        },
+        "FlutterKernelCompile": {
+          "n": 3,
+          "cpu_s": 38.4
+        },
+        "FlutterShaderCompile": {
+          "n": 6,
+          "cpu_s": 29.79
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 32.93
+        },
+        "FlutterAssetBundle": {
+          "n": 32,
+          "cpu_s": 3.03
+        },
+        "FlutterWebTemplate": {
+          "n": 1,
+          "cpu_s": 0.6
+        },
+        "DartCopyTree": {
+          "n": 122,
+          "cpu_s": 14.05
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 14.44
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.27
+        },
+        "DartFormat": {
+          "n": 61,
+          "cpu_s": 10.93
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 3.66
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 1.28
+        },
+        "DartKernelLink": {
+          "n": 30,
+          "cpu_s": 17.34
+        },
+        "DartAnalyzerSdkSummary": {
+          "n": 2,
+          "cpu_s": 3.33
+        },
+        "DartAnalyzerSummary": {
+          "n": 53,
+          "cpu_s": 14.32
+        },
+        "DartAnalyze": {
+          "n": 61,
+          "cpu_s": 9.61
+        }
+      }
+    },
+    "lint_body_edit": {
+      "wall_s": 55.75,
+      "sandboxed": 49,
+      "actions": {
+        "DartCopyTree": {
+          "n": 4,
+          "cpu_s": 22.39
+        },
+        "FlutterKernelCompile": {
+          "n": 3,
+          "cpu_s": 31.95
+        },
+        "DartAnalyze": {
+          "n": 2,
+          "cpu_s": 8.7
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 9.63
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 7.7
+        },
+        "DartFormat": {
+          "n": 2,
+          "cpu_s": 8.49
+        },
+        "DartKernel": {
+          "n": 59,
+          "cpu_s": 41.39
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 0.51
+        },
+        "DartAnalyzerSummary": {
+          "n": 1,
+          "cpu_s": 0.74
+        },
+        "DartKernelLink": {
+          "n": 30,
+          "cpu_s": 10.67
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 31.24
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 21.09
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.13
+        }
+      }
+    }
+  },
+  "rules_dart_rev": "1756ca5"
+}

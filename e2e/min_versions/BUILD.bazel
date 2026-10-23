@@ -1,0 +1,71 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+load("@rules_flutter//flutter:ios.bzl", "flutter_ios_app", "flutter_ios_simulator_build_test")
+load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
+
+# One minimal app per native platform, built against the minimum supported
+# rules_apple/rules_android (pinned in MODULE.bazel). The app targets are
+# manual-tagged and the Apple tests macos-gated, so `bazel test //...` on
+# Linux builds the Dart app plus the Android leg while the Apple legs skip
+# themselves through target_compatible_with; on macOS every leg runs.
+# Loading this package on any host already proves every
+# rules_apple/rules_swift/rules_android load in our macros resolves against
+# the floors.
+
+flutter_application(
+    name = "app",
+    package_name = "min_versions",
+    srcs = glob(["lib/**/*.dart"]),
+    main = "lib/main.dart",
+    deps = ["@deps//:flutter"],
+)
+
+flutter_android_app(
+    name = "app_android",
+    package_name = "com.example.minversions",
+    application = ":app",
+)
+
+build_test(
+    name = "android_build_test",
+    targets = [":app_android"],
+)
+
+flutter_ios_app(
+    name = "app_ios",
+    # No ios/Runner scaffold: build the bundled template runner instead.
+    # (Consumers normally have ios/Runner/*.swift from `flutter create`.)
+    srcs = [
+        "@rules_flutter//flutter/private/runners/ios:AppDelegate.swift",
+        "@rules_flutter//flutter/private/runners/ios:SceneDelegate.swift",
+    ],
+    application = ":app",
+    bundle_id = "com.example.minversions",
+)
+
+flutter_macos_app(
+    name = "app_macos",
+    # No macos/Runner scaffold: build the bundled template runner instead.
+    srcs = [
+        "@rules_flutter//flutter/private/runners/macos:AppDelegate.swift",
+        "@rules_flutter//flutter/private/runners/macos:MainFlutterWindow.swift",
+    ],
+    application = ":app",
+    bundle_id = "com.example.minversions",
+    # No macos/Runner entitlements pair: a single explicit file instead.
+    entitlements = "macos/Entitlements.plist",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+flutter_ios_simulator_build_test(
+    name = "ios_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_ios"],
+)
+
+build_test(
+    name = "macos_build_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [":app_macos"],
+)

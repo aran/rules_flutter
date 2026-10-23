@@ -294,18 +294,30 @@ void main() {
 
         try {
           await runInteractiveSession(
-            sessions: [session],
-            frontendServer: frontendServer,
-            protocol: protocol,
-            commandRunner: CommandRunner(),
-            devToolsEnabled: false,
-            dartExecutable: 'dart',
-            hotReloadUnavailable: null,
-            watcher: watcher,
-            log: (msg) => logs.add(msg),
-            keyboardReader: () => keyboardController.stream,
-            setEchoMode: (_) {},
-            setLineMode: (_) {},
+            targets: (
+              sessions: [session],
+              frontendServer: frontendServer,
+              protocol: protocol,
+              commandRunner: CommandRunner(),
+            ),
+            options: (
+              devToolsEnabled: false,
+              dartExecutable: 'dart',
+              hotReloadUnavailable: null,
+            ),
+            watch: (
+              resolver: null,
+              awaitingAssembly: null,
+              isAsset: null,
+              watcher: watcher,
+            ),
+            terminal: (
+              shutdownSignal: null,
+              log: (msg) => logs.add(msg),
+              keyboardReader: () => keyboardController.stream,
+              setEchoMode: (_) {},
+              setLineMode: (_) {},
+            ),
           );
         } finally {
           await watcher.stop();
@@ -347,17 +359,24 @@ void main() {
 
         final logs = <String>[];
         await runInteractiveSession(
-          sessions: [session],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: commandRunner,
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: [session],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: commandRunner,
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         ).timeout(const Duration(seconds: 5));
 
         expect(
@@ -410,17 +429,24 @@ void main() {
 
         final logs = <String>[];
         await runInteractiveSession(
-          sessions: [session],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: commandRunner,
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: '`--no-hot` was passed',
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: [session],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: commandRunner,
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: '`--no-hot` was passed',
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         ).timeout(const Duration(seconds: 5));
 
         expect(
@@ -467,17 +493,24 @@ void main() {
 
         final logs = <String>[];
         await runInteractiveSession(
-          sessions: [session],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: [session],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         ).timeout(
           const Duration(seconds: 5),
           onTimeout: () => fail('the run never reached the q that ends it'),
@@ -562,25 +595,31 @@ void main() {
         final logs = <String>[];
         var returned = false;
         final loop = runInteractiveSession(
-          sessions: [
-            DeviceSession(
-              device: _TrackingDevice('test_device', onStop: () {}),
-              appInstance: AppInstance(process: process),
-              vmClient: null,
-              appId: 'app_1',
-            ),
-          ],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
-          shutdownSignal: shutdownSignal,
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: [
+              DeviceSession(
+                device: _TrackingDevice('test_device', onStop: () {}),
+                appInstance: AppInstance(process: process),
+                vmClient: null,
+                appId: 'app_1',
+              ),
+            ],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
+          terminal: (
+            shutdownSignal: shutdownSignal,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         )..then((_) => returned = true);
         return (loop: loop, returned: () => returned, logs: logs);
       }
@@ -663,16 +702,24 @@ void main() {
         // lets the caller run its teardown.
         final keys = StreamController<List<int>>();
         final loop = runInteractiveSession(
-          sessions: const [],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: const [],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: null,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         );
 
         await keys.close();
@@ -688,17 +735,24 @@ void main() {
         final logs = <String>[];
 
         await runInteractiveSession(
-          sessions: [],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: 'profile mode builds AOT',
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
+          targets: (
+            sessions: [],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: 'profile mode builds AOT',
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         ).timeout(const Duration(seconds: 5));
 
         final banner = logs.first;
@@ -728,14 +782,24 @@ void main() {
         // No sessions + machine mode → the protocol.enabled branch returns
         // immediately (no exit futures to await).
         await runInteractiveSession(
-          sessions: [],
-          frontendServer: null,
-          protocol: protocol,
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
-          log: (msg) => logs.add(msg),
+          targets: (
+            sessions: [],
+            frontendServer: null,
+            protocol: protocol,
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
+          terminal: (
+            shutdownSignal: null,
+            log: (msg) => logs.add(msg),
+            keyboardReader: null,
+            setEchoMode: null,
+            setLineMode: null,
+          ),
         );
 
         expect(
@@ -767,13 +831,17 @@ void main() {
 
         var loopReturned = false;
         final loop = runInteractiveSession(
-          sessions: [session],
-          frontendServer: null,
-          protocol: MachineProtocol(enabled: true),
-          commandRunner: CommandRunner(),
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: null,
+          targets: (
+            sessions: [session],
+            frontendServer: null,
+            protocol: MachineProtocol(enabled: true),
+            commandRunner: CommandRunner(),
+          ),
+          options: (
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+          ),
         )..then((_) => loopReturned = true);
 
         await session.relaunch(() async {
@@ -961,6 +1029,46 @@ void main() {
       },
     );
 
+    test('a strategy throw is logged next to the compile lines', () async {
+      final (:server, :process) = startedServer();
+      await server.start();
+      addTearDown(() async {
+        process.complete(0);
+        await server.shutdown();
+      });
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      ReloadResult result;
+      try {
+        final reload = recompileAndReload(
+          frontendServer: server,
+          entrypoint: 'lib/main.dart',
+          invalidatedFiles: const ['package:app/main.dart'],
+          sessions: const [],
+          reloadStrategy: _ThrowingReloadStrategy(
+            StateError('no DDC manifest to serve'),
+          ),
+        );
+        emitCleanCompile(process);
+
+        result = await reload.timeout(const Duration(seconds: 5));
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+
+      expect(result.outcome, isA<StrategyThrew>());
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.session')
+            .map((r) => '${r.message}'),
+        contains(contains('reload_apply_threw')),
+      );
+    });
+
     test('a restart whose strategy throws blames the delivery too', () async {
       final (:server, :process) = startedServer();
       await server.start();
@@ -1009,6 +1117,37 @@ void main() {
         strategy.calls,
         isEmpty,
         reason: 'nothing compiled, so nothing may be applied',
+      );
+    });
+
+    test('a throw from the compile is logged, not only verdict', () async {
+      final server = startedServer().server;
+      final strategy = _RecordingReloadStrategy();
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      ReloadResult result;
+      try {
+        result = await recompileAndReload(
+          frontendServer: server,
+          entrypoint: 'lib/main.dart',
+          invalidatedFiles: const ['package:app/main.dart'],
+          sessions: const [],
+          reloadStrategy: strategy,
+        ).timeout(const Duration(seconds: 5));
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+
+      expect(result.compileSuccess, isFalse);
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.session')
+            .map((r) => '${r.message}'),
+        contains(contains('reload_compile_threw')),
       );
     });
   });
@@ -1077,30 +1216,39 @@ void main() {
       // test in this group cannot subscribe to a second time.
       final keys = StreamController<List<int>>();
       final loop = runInteractiveSession(
-        sessions: [
-          DeviceSession(
-            device: _TrackingDevice('test_device', onStop: () {}),
-            appInstance: AppInstance(process: FakeProcess()),
-            vmClient: null,
-            appId: 'app_1',
-          ),
-        ],
-        frontendServer: null,
-        protocol: MachineProtocol(enabled: false),
-        commandRunner: commandRunner,
-        devToolsEnabled: false,
-        dartExecutable: 'dart',
-        hotReloadUnavailable: null,
-        watcher: watcher,
-        // The state under test: no resolver at all, because the build that
-        // would have produced one failed.
-        resolver: () => null,
-        awaitingAssembly: () => awaitingAssembly,
-        log: (_) {},
-        keyboardReader: () => keys.stream,
-        setEchoMode: (_) {},
-        setLineMode: (_) {},
-        shutdownSignal: shutdown.future,
+        targets: (
+          sessions: [
+            DeviceSession(
+              device: _TrackingDevice('test_device', onStop: () {}),
+              appInstance: AppInstance(process: FakeProcess()),
+              vmClient: null,
+              appId: 'app_1',
+            ),
+          ],
+          frontendServer: null,
+          protocol: MachineProtocol(enabled: false),
+          commandRunner: commandRunner,
+        ),
+        options: (
+          devToolsEnabled: false,
+          dartExecutable: 'dart',
+          hotReloadUnavailable: null,
+        ),
+        watch: (
+          isAsset: null,
+          watcher: watcher,
+          // The state under test: no resolver at all, because the build that
+          // would have produced one failed.
+          resolver: () => null,
+          awaitingAssembly: () => awaitingAssembly,
+        ),
+        terminal: (
+          log: (_) {},
+          keyboardReader: () => keys.stream,
+          setEchoMode: (_) {},
+          setLineMode: (_) {},
+          shutdownSignal: shutdown.future,
+        ),
       );
 
       fake.emit(WatchEvent(ChangeType.MODIFY, '/root/lib/main.dart'));
@@ -1269,6 +1417,40 @@ void main() {
         );
       },
     );
+
+    test('a failed first-frame wait is logged, not only gated', () async {
+      final sink = BufferSink();
+      final protocol = MachineProtocol(enabled: true, output: sink);
+      final fake = newFake();
+      // A fault that is not -32601: the poll keeps it as the wait's failure
+      // and the wait throws it, instead of asking again.
+      fake.extensionErrors['ext.flutter.didSendFirstFrameEvent'] = StateError(
+        'connection reset',
+      );
+      final session = sessionOn(
+        _ImpatientDevice(),
+        await connected(fake),
+      );
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      try {
+        await session.waitUntilDrivable(protocol);
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+
+      expect(session.drivable.isReady, isFalse);
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.session')
+            .map((r) => '${r.message}'),
+        contains(contains('first_frame_wait_failed')),
+      );
+    });
 
     test(
       // Web sessions exist before their VM service does: DWDS hands one over

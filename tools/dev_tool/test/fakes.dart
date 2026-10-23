@@ -767,7 +767,11 @@ class FakeVmService implements VmService {
   /// `waitFor` timeout — crosses the VM service as a JSON-RPC error, and
   /// `package:vm_service` completes the call with a throw rather than a
   /// response. A fake that can only answer cannot stand in for that.
-  final Map<String, RPCError> extensionErrors = {};
+  ///
+  /// Keyed by [Object] rather than [RPCError] so a test can also stand in for
+  /// a transport failure below the protocol — a reset connection, not a
+  /// refusal — which the callers under test handle on a different arm.
+  final Map<String, Object> extensionErrors = {};
 
   /// The payload [callServiceExtension] answers with, by method. Lets one fake
   /// be told apart from another by what its app says.

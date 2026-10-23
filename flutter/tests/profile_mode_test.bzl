@@ -9,6 +9,8 @@ actions the rule declares.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
+load("//flutter/private:debug_build.bzl", "debug_build")
 load("//flutter/private:flutter_aot_target.bzl", "flutter_aot_target")
 load("//flutter/private:flutter_application.bzl", "flutter_application")
 
@@ -22,6 +24,7 @@ _PROFILE = {
 
 _RELEASE = {
     "//command_line_option:compilation_mode": "opt",
+    str(Label("//flutter:profile")): False,
 }
 
 def _action(env, mnemonics):
@@ -67,8 +70,24 @@ def _refused_test_impl(ctx):
     asserts.expect_failure(env, "needs -c opt")
     return analysistest.end(env)
 
+def _debug_build_clears_profile_test_impl(ctx):
+    """`debug_build` clears `//flutter:profile` when forcing `-c dbg`."""
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    basenames = [f.basename for f in target[DefaultInfo].files.to_list()]
+    asserts.true(
+        env,
+        "_profile_application.dill" in basenames,
+        "expected debug kernel .dill in debug_build outputs under profile, got %s" % basenames,
+    )
+    return analysistest.end(env)
+
 _profile_test = analysistest.make(_profile_test_impl, config_settings = _PROFILE)
 _release_test = analysistest.make(_release_test_impl, config_settings = _RELEASE)
+_debug_build_clears_profile_test = analysistest.make(
+    _debug_build_clears_profile_test_impl,
+    config_settings = _PROFILE,
+)
 _refused_dbg_test = analysistest.make(
     _refused_test_impl,
     expect_failure = True,
@@ -108,17 +127,33 @@ def profile_mode_test_suite(name):
         main = _MAIN,
         tags = ["manual"],
     )
+    debug_build(
+        name = "_profile_debug_build",
+        targets = [":_profile_application"],
+        tags = ["manual"],
+    )
 
     tests = []
     for fixture in ["_profile_application", "_profile_aot"]:
-        for suffix, rule in [
-            ("profile", _profile_test),
-            ("release", _release_test),
-            ("refused_dbg", _refused_dbg_test),
-            ("refused_fastbuild", _refused_fastbuild_test),
+        for suffix, rule, compatible in [
+            ("profile", _profile_test, HOST_COMPATIBLE),
+            ("release", _release_test, HOST_COMPATIBLE),
+            ("refused_dbg", _refused_dbg_test, []),
+            ("refused_fastbuild", _refused_fastbuild_test, []),
         ]:
             test_name = "%s%s_%s_test" % (name, fixture, suffix)
-            rule(name = test_name, target_under_test = ":" + fixture)
+            rule(
+                name = test_name,
+                target_under_test = ":" + fixture,
+                target_compatible_with = compatible,
+            )
             tests.append(":" + test_name)
+
+    debug_build_test_name = "%s_debug_build_clears_profile_test" % name
+    _debug_build_clears_profile_test(
+        name = debug_build_test_name,
+        target_under_test = ":_profile_debug_build",
+    )
+    tests.append(":" + debug_build_test_name)
 
     native.test_suite(name = name, tests = tests)

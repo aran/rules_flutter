@@ -45,7 +45,10 @@ pipeline is structurally different from AOT platforms.
 """
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("//flutter/private:flutter_integration_test.bzl", _flutter_integration_test = "flutter_integration_test")
 load("//flutter/private:flutter_web_application.bzl", _flutter_web_bundle_rule = "flutter_web_bundle")
+
+flutter_integration_test = _flutter_integration_test
 
 # -- Gen helpers (Tier 2) -----------------------------------------------------
 

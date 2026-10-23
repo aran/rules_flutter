@@ -1,4 +1,5 @@
 load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 
 # The `flutter gen-l10n` entrypoint. The generator itself is vendored out of
 # flutter_tools by `flutter_gen_l10n_repo` (see
@@ -12,8 +13,10 @@ exports_files(
 
 dart_binary(
     name = "gen_l10n",
-    compile_mode = "exe",
+    compile_mode = "kernel",
     main = "main.dart",
+    modular_kernel = False,
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter:__subpackages__"],
     deps = ["@flutter_gen_l10n//:gen_l10n"],
 )

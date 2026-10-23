@@ -135,8 +135,7 @@ void main() {
         'closing it would take the viewport with it', () async {
       await start();
       final hold = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(
           width: 390,
           height: 844,
@@ -167,15 +166,13 @@ void main() {
     test('changes the viewport on the connection it was given', () async {
       await start();
       final first = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(width: 390, height: 844),
         asked: '--web-viewport',
       );
       final opened = chrome.connectionsOpened;
       final second = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(width: 300, height: 500),
         asked: 'app.setViewport',
         hold: first,
@@ -190,15 +187,13 @@ void main() {
     test('replaces a held connection that has closed', () async {
       await start();
       final first = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(width: 390, height: 844),
         asked: '--web-viewport',
       );
       await first.close();
       final second = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(width: 390, height: 844),
         asked: 'app.setViewport',
         hold: first,
@@ -212,8 +207,7 @@ void main() {
     test('waits for a page that has not yet settled at the size', () async {
       await start(unsettledReads: 3);
       final hold = await applyViewportOverCdp(
-        cdpPort: chrome.port,
-        appUrl: _appUrl,
+        page: (cdpPort: chrome.port, appUrl: _appUrl),
         viewport: const WebViewport(width: 390, height: 844),
         asked: '--web-viewport',
         pollInterval: const Duration(milliseconds: 20),
@@ -227,8 +221,7 @@ void main() {
       await start(honoursOverride: false);
       await expectLater(
         applyViewportOverCdp(
-          cdpPort: chrome.port,
-          appUrl: _appUrl,
+          page: (cdpPort: chrome.port, appUrl: _appUrl),
           viewport: const WebViewport(width: 390, height: 844),
           asked: '--web-viewport',
           settleTimeout: const Duration(milliseconds: 400),

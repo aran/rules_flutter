@@ -229,6 +229,13 @@ build_test(
     targets = [":app"],
 )
 
+_HOST_COMPATIBLE = select({
+    "@platforms//os:linux": [],
+    "@platforms//os:macos": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 # Exercises: a flutter_test that imports `package:codegen_e2e/user.dart` —
 # whose source-tree sibling has `part 'user.g.dart'` produced by `:user_json`
 # in `bazel-out`. The test's `package:` URI must resolve to a single
@@ -242,7 +249,26 @@ flutter_test(
         ":user_json",
     ],
     main = "test/user_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# Exercises: the kernel `unused_inputs_list` wiring. `//unused_inputs/a`
+# adopts `//unused_inputs/b`'s `part of` file, re-exports
+# `//unused_inputs/c`, and folds a constant from `//unused_inputs/d`; editing
+# any of those must rebuild to the same dill a clean build produces. A wrongly
+# skipped compile would keep a stale value and fail these expectations after
+# an incremental rebuild.
+flutter_test(
+    name = "unused_inputs_test",
+    package_name = "codegen_e2e",
+    main = "test/unused_inputs_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "//unused_inputs/a",
         "@deps//:flutter",
         "@deps//:flutter_test",
     ],
@@ -257,6 +283,7 @@ flutter_test(
     name = "native_asset_test",
     package_name = "codegen_e2e",
     main = "test/native_asset_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "//native_add",
         "@deps//:flutter",
@@ -397,6 +424,14 @@ dart_library(
 # one Dart file per primary language subtag, so the two collapse into a single
 # app_localizations_es.dart. A rule deriving one output per input arb would
 # declare a file the generator never writes; this target is what holds that.
+# Undeclared regional `.arb` sitting in the same `lib/l10n/` directory; staged
+# via `data` on `:l10n_test` so it is present in the execroot alongside the
+# declared `arbs` of `:app_l10n`.
+filegroup(
+    name = "undeclared_l10n_arb",
+    srcs = ["lib/l10n/app_en_US.arb"],
+)
+
 flutter_gen_l10n(
     name = "app_l10n",
     arbs = [
@@ -410,7 +445,9 @@ flutter_test(
     name = "l10n_test",
     package_name = "codegen_e2e",
     srcs = [":app_l10n"],
+    data = [":undeclared_l10n_arb"],
     main = "test/l10n_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_localizations",
@@ -427,6 +464,7 @@ flutter_test(
     package_name = "codegen_e2e",
     data = glob(["test/goldens/**"]),
     main = "test/golden_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -439,6 +477,7 @@ flutter_test(
     name = "golden_undeclared_test",
     package_name = "codegen_e2e",
     main = "test/golden_undeclared_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -453,5 +492,6 @@ flutter_test(
     name = "test_api_only_test",
     package_name = "codegen_e2e",
     main = "test/test_api_only_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = ["@deps//:test_api"],
 )

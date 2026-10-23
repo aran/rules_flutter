@@ -3,9 +3,55 @@
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "dart_analyzable_info_with_package", "dart_info", "derive_lib_root", "derive_package_name")
 load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter/private:asset_keys.bzl", "library_asset_entries")
 load("//flutter/private:flutter_info.bzl", "LINK_HOOK_ATTR", "flutter_info")
 
-def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict, shader_includes = []):
+def pub_asset_matches_target(flavors, platforms, target_platform, flavor = None):
+    """Whether a pub asset entry bundles on the target platform.
+
+    Mirrors flutter_tools' `_Asset` (`packages/flutter_tools/lib/src/asset.dart`):
+    `matchesFlavor` runs first — a flavor-restricted entry bundles only when
+    the selected flavor is listed (rules_flutter selects no flavor yet, so
+    such entries bundle nowhere) — then `matchesPlatform`: an empty list or
+    the `tester` platform keeps the asset, anything else must name the
+    target's `osName` (`build_info.dart` `TargetPlatform.osName`: `android`,
+    `ios`, `macos`, `linux`, `windows`, `web`).
+
+    Args:
+        flavors: The entry's `flavors` list (empty = unconditional).
+        platforms: The entry's `platforms` list (empty = every platform).
+        target_platform: The bundle's platform (`tester` for test bundles).
+        flavor: The selected flavor, or None (always None for now).
+
+    Returns:
+        True when the entry belongs in the bundle.
+    """
+    if flavors:
+        if flavor == None or flavor not in flavors:
+            return False
+    if not platforms or target_platform == "tester":
+        return True
+    return target_platform in platforms
+
+def _entry_conditions(asset_path, pkg_asset_platforms, pkg_asset_flavors):
+    """The `(platforms, flavors)` condition lists for one asset path.
+
+    Args:
+        asset_path: The package-relative asset path (a `pkg_assets` value).
+        pkg_asset_platforms: `ctx.attr.pkg_asset_platforms` — label string
+            (`":" + path`) to platform list, only for restricted entries.
+        pkg_asset_flavors: `ctx.attr.pkg_asset_flavors` — same shape.
+
+    Returns:
+        A `(platforms, flavors)` tuple of lists (empty = unconditional).
+    """
+    key = ":" + asset_path
+    return (
+        list(pkg_asset_platforms.get(key, [])),
+        list(pkg_asset_flavors.get(key, [])),
+    )
+
+def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict, shader_includes = [], pkg_asset_platforms = {}, pkg_asset_flavors = {}):
     """Build pub_fonts/pub_assets/pub_shaders contribution structs from rule attrs.
 
     Decodes the JSON-encoded font declarations and walks the file dicts,
@@ -29,6 +75,10 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
         shader_includes: list[File] — `ctx.files.shader_includes`, the files
             this package's shaders may `#include`. Each shader carries them
             as `includes` to its compile.
+        pkg_asset_platforms: dict[str, list[str]] — `ctx.attr.pkg_asset_platforms`,
+            `":" + path` to the entry's `platforms`. Absent = unconditional.
+        pkg_asset_flavors: dict[str, list[str]] — `ctx.attr.pkg_asset_flavors`,
+            same shape for the entry's `flavors`.
 
     Returns:
         Tuple of (extra_pub_fonts, extra_pub_assets, extra_pub_shaders) lists.
@@ -71,10 +121,13 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
         files = target.files.to_list()
         if len(files) != 1:
             fail("pkg_assets entry %s must resolve to exactly one File; got %d" % (target.label, len(files)))
+        platforms, flavors = _entry_conditions(asset_path, pkg_asset_platforms, pkg_asset_flavors)
         extra_pub_assets.append(struct(
             package_name = package_name,
             asset_path = asset_path,
             file = files[0],
+            platforms = tuple(platforms),
+            flavors = tuple(flavors),
         ))
 
     extra_pub_shaders = []
@@ -91,7 +144,7 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
 
     return (extra_pub_fonts, extra_pub_assets, extra_pub_shaders)
 
-def aggregate_pub_contributions(deps):
+def aggregate_pub_contributions(deps, target_platform):
     """Walk transitive `FlutterInfo.pub_fonts` / `pub_assets` from deps.
 
     Each contribution carries `package_name` — the empty string sentinel
@@ -101,8 +154,17 @@ def aggregate_pub_contributions(deps):
     finder's tree-shaking key shape (`packages/<pkg>/<family>` only when
     the IconData has a non-null `fontPackage`).
 
+    Pub assets additionally carry `platforms` / `flavors` conditions from
+    the `flutter.assets` entry that listed them. Only entries matching
+    `target_platform` (via `pub_asset_matches_target`: flavor first, then
+    platform, with the `tester` exception) are bundled — the same filter
+    `ManifestAssetBundle` applies. `getattr` defaults keep contributions
+    from older spokes (which state no conditions) unconditional.
+
     Args:
         deps: List of Targets — typically `ctx.attr.deps`.
+        target_platform: The bundle's platform (`android`, `ios`, `macos`,
+            `linux`, `windows`, `web`, or `tester` for test bundles).
 
     Returns:
         Tuple of:
@@ -139,10 +201,32 @@ def aggregate_pub_contributions(deps):
         fonts.append({"family": family_str, "fonts": fonts_descriptors})
 
     for entry in pub_assets:
+        if not pub_asset_matches_target(
+            getattr(entry, "flavors", []),
+            getattr(entry, "platforms", []),
+            target_platform,
+        ):
+            continue
         prefix = "packages/{}/".format(entry.package_name) if entry.package_name else ""
         extra_asset_copies[prefix + entry.asset_path] = entry.file
 
     return (fonts, extra_asset_copies)
+
+def resolve_font_subset_tools(flutter_sdk_info):
+    """Resolve `(const_finder, font_subset)` from the app rule's `flutter_sdk_info`.
+
+    Font subsetting tools are resolved directly from the app rule's toolchain
+    for the execution platform, never from library targets in `deps`.
+
+    Args:
+        flutter_sdk_info: `FlutterSdkInfo` from the active Flutter toolchain, or `None`.
+
+    Returns:
+        A `(const_finder, font_subset)` tuple of `File` or `None`.
+    """
+    const_finder = flutter_sdk_info.const_finder if flutter_sdk_info else None
+    font_subset = flutter_sdk_info.font_subset if flutter_sdk_info else None
+    return (const_finder, font_subset)
 
 # Analysis-only: `package:sky_engine`'s `lib/_embedder.yaml` is the only way the
 # analyzer resolves `dart:ui`. Reaches `flutter_analyzable_info` alone.
@@ -203,6 +287,8 @@ def _flutter_library_impl(ctx):
         ctx.attr.pkg_assets,
         ctx.attr.pkg_shaders,
         ctx.files.shader_includes,
+        ctx.attr.pkg_asset_platforms,
+        ctx.attr.pkg_asset_flavors,
     )
 
     # `resources` names the non-Dart remainder of `lib/`; a Dart source there
@@ -258,7 +344,14 @@ def _flutter_library_impl(ctx):
         flutter_info(
             deps = ctx.attr.deps,
             asset_dirs = ctx.files.assets,
-            shader_srcs = ctx.files.shaders,
+            assets = library_asset_entries(ctx.label, package_name, ctx.files.assets),
+            shader_srcs = [
+                struct(
+                    file = shader,
+                    includes = tuple(ctx.files.shader_includes),
+                )
+                for shader in ctx.files.shaders
+            ],
             pub_fonts = extra_pub_fonts,
             pub_assets = extra_pub_assets,
             pub_shaders = extra_pub_shaders,
@@ -330,9 +423,15 @@ flutter_library = rule(
             doc = "Map of asset File label -> package-relative path (mirrors `flutter.assets` in pubspec.yaml). Bundled at `packages/<package_name>/<path>` (or bare `<path>` when `package_name` is empty); also included in AssetManifest.",
             allow_files = True,
         ),
+        "pkg_asset_platforms": attr.string_list_dict(
+            doc = "Per-asset `platforms` conditions (mirrors the `platforms` key of `flutter.assets` entries). Maps the `\":\" + path` label string of a `pkg_assets` entry to its platform list. An entry listed here bundles only on those platforms (`tester` bundles every platform entry); an entry absent here is unconditional.",
+        ),
+        "pkg_asset_flavors": attr.string_list_dict(
+            doc = "Per-asset `flavors` conditions (mirrors the `flavors` key of `flutter.assets` entries). Same shape as `pkg_asset_platforms`. Rules_flutter selects no flavor yet, so an entry listed here bundles nowhere.",
+        ),
         "_sky_engine": SKY_ENGINE_ATTR,
         "shader_includes": attr.label_list(
-            doc = "Files this package's `pkg_shaders` may `#include` (e.g. " +
+            doc = "Files this package's `shaders` and `pkg_shaders` may `#include` (e.g. " +
                   "`glob([\"shaders/**/*.glsl\"])`). A shader compiles in a " +
                   "sandbox holding only its declared inputs, so an include " +
                   "not listed here is not found.",

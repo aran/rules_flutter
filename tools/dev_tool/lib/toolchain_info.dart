@@ -577,79 +577,120 @@ DevConfig parseDevConfig(String path) {
   final json =
       jsonDecode(File(resolved).readAsStringSync()) as Map<String, dynamic>;
 
-  // Derive execution root: resolved path contains .../execroot/_main/bazel-out/...
-  // Split into path components (separator-agnostic, so it works on Windows
-  // where File.resolveSymbolicLinksSync returns '\'-separated paths) and strip
-  // from the 'bazel-out' segment onward.
-  final parts = p.split(resolved);
-  final bazelOutIdx = parts.indexOf('bazel-out');
-  final execRoot = bazelOutIdx > 0
-      ? p.joinAll(parts.sublist(0, bazelOutIdx))
-      : null;
-
+  final execRoot = _execRootOf(resolved);
   if (execRoot != null) {
-    String abs(String value) =>
-        p.isAbsolute(value) ? value : p.join(execRoot, value);
-
-    // Make execution-root-relative path strings absolute.
-    for (final key in [
-      'dartSdkRoot',
-      'dartaotruntime',
-      'frontendServer',
-      'patchedSdkRoot',
-      'devPackageConfig',
-      'buildPackageConfig',
-      'webPluginRegistrant',
-      'agentExtensions',
-      'flutterBootstrapJs',
-    ]) {
-      final value = json[key];
-      if (value is String && value.isNotEmpty) json[key] = abs(value);
-    }
-    // The per-platform registrant map: absolutize each path value. Empty
-    // values mean "no registrant on that platform" and stay empty.
-    final registrants = json['dartPluginRegistrants'] as Map?;
-    if (registrants != null) {
-      json['dartPluginRegistrants'] = {
-        for (final e in registrants.entries)
-          e.key as String: (e.value as String).isEmpty
-              ? ''
-              : abs(e.value as String),
-      };
-    }
-    // Absolutize the exec-relative path LISTS (roots incl. "" → execroot,
-    // generated output paths, and the built native libraries).
-    // `generatedSourcesTarget` holds bazel labels, not paths — leave it
-    // untouched.
-    for (final key in [
-      'filesystemRoots',
-      'generatedSourcePaths',
-      'nativeLibs',
-    ]) {
-      final list = json[key] as List?;
-      if (list != null) {
-        json[key] = [for (final v in list.cast<String>()) abs(v)];
-      }
-    }
-    // Keys *and* values, for both per-library maps: the keys are the same
-    // library paths `nativeLibs` carries and are matched against them — and
-    // against each other, so a map left relative here would look up nothing.
-    // The values are paths the watch stats; a contract or a source file is
-    // exec-relative the same way a build output is, because the execroot
-    // symlinks the workspace into itself.
-    for (final key in ['nativeLibContracts', 'nativeLibSources']) {
-      final byLibrary = json[key] as Map?;
-      if (byLibrary == null) continue;
-      json[key] = {
-        for (final entry in byLibrary.entries)
-          abs(entry.key as String): [
-            for (final v in (entry.value as List).cast<String>()) abs(v),
-          ],
-      };
-    }
+    _absolutizeDevConfigPaths(json, execRoot);
   }
 
   return DevConfig.fromJson(json);
+}
+
+/// The Bazel execution root holding [resolved], or null outside bazel-out.
+///
+/// Derive from the dev_config.json file's resolved location
+/// (`.../execroot/_main/bazel-out/.../dev_config.json` → strip from
+/// `/bazel-out/` onward). Split into path components (separator-agnostic, so
+/// it works on Windows where File.resolveSymbolicLinksSync returns
+/// '\'-separated paths) and strip from the 'bazel-out' segment onward.
+String? _execRootOf(String resolved) {
+  final parts = p.split(resolved);
+  final bazelOutIdx = parts.indexOf('bazel-out');
+  if (bazelOutIdx <= 0) return null;
+  return p.joinAll(parts.sublist(0, bazelOutIdx));
+}
+
+/// Make the execution-root-relative paths in a dev config map absolute.
+void _absolutizeDevConfigPaths(Map<String, dynamic> json, String execRoot) {
+  String abs(String value) =>
+      p.isAbsolute(value) ? value : p.join(execRoot, value);
+
+  _absolutizeScalarPaths(json, abs);
+  _absolutizeRegistrantPaths(json, abs);
+  _absolutizePathLists(json, abs);
+  _absolutizeLibraryMaps(json, abs);
+}
+
+/// Make execution-root-relative path strings absolute.
+void _absolutizeScalarPaths(
+  Map<String, dynamic> json,
+  String Function(String) abs,
+) {
+  // Make execution-root-relative path strings absolute.
+  for (final key in [
+    'dartSdkRoot',
+    'dartaotruntime',
+    'frontendServer',
+    'patchedSdkRoot',
+    'devPackageConfig',
+    'buildPackageConfig',
+    'webPluginRegistrant',
+    'agentExtensions',
+    'flutterBootstrapJs',
+  ]) {
+    final value = json[key];
+    if (value is String && value.isNotEmpty) json[key] = abs(value);
+  }
+}
+
+/// Absolutize the per-platform registrant map's path values.
+///
+/// Empty values mean "no registrant on that platform" and stay empty.
+void _absolutizeRegistrantPaths(
+  Map<String, dynamic> json,
+  String Function(String) abs,
+) {
+  final registrants = json['dartPluginRegistrants'] as Map?;
+  if (registrants == null) return;
+  json['dartPluginRegistrants'] = {
+    for (final e in registrants.entries)
+      e.key as String: (e.value as String).isEmpty
+          ? ''
+          : abs(e.value as String),
+  };
+}
+
+/// Absolutize the exec-relative path LISTS (roots incl. "" → execroot,
+/// generated output paths, and the built native libraries).
+///
+/// `generatedSourcesTarget` holds bazel labels, not paths — leave it
+/// untouched.
+void _absolutizePathLists(
+  Map<String, dynamic> json,
+  String Function(String) abs,
+) {
+  for (final key in [
+    'filesystemRoots',
+    'generatedSourcePaths',
+    'nativeLibs',
+  ]) {
+    final list = json[key] as List?;
+    if (list != null) {
+      json[key] = [for (final v in list.cast<String>()) abs(v)];
+    }
+  }
+}
+
+/// Absolutize keys *and* values of both per-library maps.
+///
+/// The keys are the same library paths `nativeLibs` carries and are matched
+/// against them — and against each other, so a map left relative here would
+/// look up nothing. The values are paths the watch stats; a contract or a
+/// source file is exec-relative the same way a build output is, because the
+/// execroot symlinks the workspace into itself.
+void _absolutizeLibraryMaps(
+  Map<String, dynamic> json,
+  String Function(String) abs,
+) {
+  for (final key in ['nativeLibContracts', 'nativeLibSources']) {
+    final byLibrary = json[key] as Map?;
+    if (byLibrary == null) continue;
+    json[key] = {
+      for (final entry in byLibrary.entries)
+        abs(entry.key as String): [
+          for (final v in (entry.value as List).cast<String>()) abs(v),
+        ],
+    };
+  }
 }
 
 /// Fail naming a file the build declared and did not write.

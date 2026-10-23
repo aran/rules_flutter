@@ -32,6 +32,9 @@ PN = "PN"
 # PNG's Paeth predictor (RFC 2083 §6.6), named after Alan W. Paeth.
 paeth = "paeth"
 Paeth = "Paeth"
+# GNU `time -v` prints "User time (seconds): N"; the tools/perf replay
+# parser matches that literal, and typos otherwise reads `ser` as `set`.
+ser = "ser"
 
 [files]
 # Xcode's project and interface files are generated, and they are dense with

@@ -1,0 +1,19 @@
+load("//flutter:defs.bzl", "flutter_test")
+
+# Analysis-only (`manual`) witness for the kernel `unused_inputs_list` wiring:
+# `:a` adopts `:b`'s `part of` file, re-exports `:c`, and folds a constant
+# from `:d`, so every dependency shape the list must keep is present. A
+# `flutter_test` cannot build in a non-root Bazel package, so like
+# `flutter_test_analyze_fixture` this target is only analyzed, never run; the
+# running twin lives in `e2e/hello_world/unused_inputs`.
+flutter_test(
+    name = "fixture_test",
+    package_name = "unused_inputs_fixture",
+    main = "test/unused_inputs_main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [
+        "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
+        "//flutter/tests/unused_inputs_fixture/a",
+    ],
+)

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+Single-file stand-in for flutter create's DebugProfile.entitlements, whose
+content this copies: the debug/profile bundle needs JIT and the VM
+service's listen socket. (flutter create emits a sandbox-only
+Release.entitlements alongside; this workspace has no per-mode pair, so
+the debug-capable file covers every mode.)
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

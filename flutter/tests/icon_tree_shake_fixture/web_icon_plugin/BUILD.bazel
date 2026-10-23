@@ -1,0 +1,12 @@
+load("//flutter:defs.bzl", "flutter_plugin")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+flutter_plugin(
+    name = "web_icon_plugin",
+    package_name = "web_icon_plugin",
+    srcs = ["lib/web_icon_plugin.dart"],
+    platforms = ["web"],
+    plugin_class = "WebIconPlugin",
+    deps = ["//flutter/tests/icon_tree_shake_fixture:flutter_stub"],
+)

@@ -70,6 +70,37 @@ export 'host_tools.dart' show HostTool, MissingHostToolException;
 
 final _logger = Logger('dev_tool.device');
 
+/// The inputs [Device.createCompilerConfig] varies by platform.
+///
+/// One object for the values the base implementation threads one argument at
+/// a time: the web toolchain, the filesystem roots and scheme, and the Dart
+/// defines, registrant URI and experiments the compiler is started with.
+typedef CompilerConfigInputs = ({
+  WebToolchainPaths? webToolchain,
+  List<String> fileSystemRoots,
+  String fileSystemScheme,
+  List<String> dartDefines,
+  String dartPluginRegistrantUri,
+  List<String> enableExperiments,
+});
+
+/// How long [ChromeSession.launch] waits for the browser to come up.
+///
+/// One object for the three waits a launch tunes in tests: the debugging-port
+/// announcement, the app page appearing, and the poll interval between looks.
+typedef ChromeLaunchWaits = ({
+  Duration portTimeout,
+  Duration pageTimeout,
+  Duration pollInterval,
+});
+
+/// The browser page [applyViewportOverCdp] drives, by CDP port and app URL.
+///
+/// One object for the two values every viewport call threads together: the
+/// debugging port discovered from Chrome's stderr, and the localhost URL of
+/// the launched tab.
+typedef CdpPageTarget = ({int cdpPort, String appUrl});
+
 /// Report a process the OS would not let us kill.
 ///
 /// Every `stop` implementation kills the process it launched; a refused kill
@@ -419,20 +450,15 @@ abstract class Device {
   ///
   /// Returns null if this device does not support hot reload.
   CompilerConfig? createCompilerConfig(
-    ToolchainPaths toolchain, {
-    WebToolchainPaths? webToolchain,
-    List<String> fileSystemRoots = const [],
-    String fileSystemScheme = '',
-    List<String> dartDefines = const [],
-    String dartPluginRegistrantUri = '',
-    List<String> enableExperiments = const [],
-  }) => NativeCompilerConfig(
+    ToolchainPaths toolchain, [
+    CompilerConfigInputs? inputs,
+  ]) => NativeCompilerConfig(
     patchedSdkRoot: toolchain.patchedSdkRoot,
-    fileSystemRoots: fileSystemRoots,
-    fileSystemScheme: fileSystemScheme,
-    dartDefines: dartDefines,
-    dartPluginRegistrantUri: dartPluginRegistrantUri,
-    enableExperiments: enableExperiments,
+    fileSystemRoots: inputs?.fileSystemRoots ?? const [],
+    fileSystemScheme: inputs?.fileSystemScheme ?? '',
+    dartDefines: inputs?.dartDefines ?? const [],
+    dartPluginRegistrantUri: inputs?.dartPluginRegistrantUri ?? '',
+    enableExperiments: inputs?.enableExperiments ?? const [],
   );
 
   /// Create the reload strategy for this platform.
@@ -990,7 +1016,7 @@ class WindowsDevice extends Device {
       return vmClient.screenshot(outputPath);
     }
     // GDI CopyFromScreen cannot capture D3D/Flutter surfaces.
-    // Use DXGI Desktop Duplication via bundled dxcam py_binary.
+    // Use DXGI Desktop Duplication via the bundled native helper.
     final resolved = resolveRunfileWithManifest(
       'rules_flutter/tools/windows_screenshot/screenshot',
     );
@@ -2720,38 +2746,8 @@ class IOSDevice extends Device {
     _launchAbandoned = false;
     final info = await _resolveInfo();
 
-    // Extract .app from .ipa if needed — devicectl install requires .app.
-    String installPath = appPath;
-    if (appPath.endsWith('.ipa')) {
-      final extracted = await _extractAppFromIpa(appPath, _runProcess);
-      installPath = extracted.appPath;
-      _scratch.hold(extracted.dir);
-    }
-
-    // Install with JSON output to capture installationURL — the only handle on
-    // the process this launch goes on to attach a debugger to.
-    final installationUrl = await withTempDir('flutter_install_', (
-      installJsonDir,
-    ) async {
-      final installJsonPath = p.join(installJsonDir.path, 'install.json');
-
-      final installResult = await _runProcess('xcrun', [
-        'devicectl',
-        'device',
-        'install',
-        'app',
-        '--device',
-        info.udid,
-        '--json-output',
-        installJsonPath,
-        installPath,
-      ]);
-      if (installResult.exitCode != 0) {
-        throw StateError('devicectl install failed: ${installResult.stderr}');
-      }
-
-      return _readInstallationUrl(installJsonPath, installPath);
-    });
+    final installed = await _installAppOnDevice(appPath, info);
+    final installPath = installed.path;
 
     // Extract bundle ID from .app/Info.plist if not provided.
     final bundleId =
@@ -2778,37 +2774,129 @@ class IOSDevice extends Device {
     // devicectl it has a terminal attached in order to redirect stdout"
     // (`ios/core_devices.dart`). That is unnecessary here: devicectl writes
     // the app's console output to these pipes without a pty.
-    _consoleLauncherProcess = await _startHelper('xcrun', [
-      'devicectl',
-      'device',
-      'process',
-      'launch',
-      '--device',
-      info.udid,
-      if (debug) '--start-stopped',
-      '--console',
-      '--environment-variables',
-      '{"OS_ACTIVITY_DT_MODE": "enable"}',
+    _consoleLauncherProcess = await _startConsoleLauncher(
+      info,
       bundleId,
-      '--enable-dart-profiling',
-      // flutter_tools passes this whenever debugging is enabled, which is
-      // debug and profile (`getIOSLaunchArguments`).
-      if (buildMode != BuildMode.release) '--enable-checked-mode',
-      if (startPaused) '--start-paused',
-      // A wireless device is dialed at its own address, so the VM service must
-      // not bind to the device's loopback the way it does by default. Matches
-      // flutter_tools' `DebuggingOptions.buildLaunchArguments`, which adds this
-      // exactly when the connection interface is wireless.
-      if (info.transport == IOSDeviceTransport.wireless)
-        '--vm-service-host=0.0.0.0',
-    ]);
+      debug: debug,
+    );
+    final consolePump = await _awaitLaunchBanner(logs);
 
-    // devicectl sends its own progress banners on one channel and the app's
-    // console output on the other, so both feed the app log stream.
-    //
-    // stderr is deliberately *not* flagged as an error channel: devicectl
-    // routes the app's ordinary console output there, so treating that channel
-    // as errors would mark every `print()` as one.
+    // Step 2: Get PID from running process list. [stop] terminates the app by
+    // it, debugger or not.
+    final processId = await _findAppProcessId(installed.installationUrl);
+    _appPid = processId;
+
+    // Step 3: In debug, attach lldb. Otherwise devicectl, which runs until the
+    // app exits, is both the log source and the process the run watches.
+    final Process process;
+    if (debug) {
+      process = await _attachDebugger(
+        info: info,
+        processId: processId,
+        logs: logs,
+        consoleDone: consolePump.done,
+      );
+    } else {
+      logs.closeWhen([consolePump.done]);
+      process = _consoleLauncherProcess!;
+    }
+
+    // Step 4: Find the VM service by its mDNS advertisement.
+    final vmServiceUri = await _findVmService(
+      info: info,
+      bundleId: bundleId,
+      installPath: installPath,
+      logs: logs,
+    );
+
+    return AppInstance(
+      process: process,
+      vmServiceUri: vmServiceUri,
+      logs: logs,
+      scratchDirs: _scratch.handOver(),
+    );
+  }
+
+  /// Installed app paths: where to install from and the install's handle.
+  ///
+  /// Installs with JSON output to capture installationURL — the only handle on
+  /// the process this launch goes on to attach a debugger to.
+  Future<({String path, String installationUrl})> _installAppOnDevice(
+    String appPath,
+    IOSDeviceInfo info,
+  ) async {
+    // Extract .app from .ipa if needed — devicectl install requires .app.
+    String installPath = appPath;
+    if (appPath.endsWith('.ipa')) {
+      final extracted = await _extractAppFromIpa(appPath, _runProcess);
+      installPath = extracted.appPath;
+      _scratch.hold(extracted.dir);
+    }
+
+    final installationUrl = await withTempDir('flutter_install_', (
+      installJsonDir,
+    ) async {
+      final installJsonPath = p.join(installJsonDir.path, 'install.json');
+
+      final installResult = await _runProcess('xcrun', [
+        'devicectl',
+        'device',
+        'install',
+        'app',
+        '--device',
+        info.udid,
+        '--json-output',
+        installJsonPath,
+        installPath,
+      ]);
+      if (installResult.exitCode != 0) {
+        throw StateError('devicectl install failed: ${installResult.stderr}');
+      }
+
+      return _readInstallationUrl(installJsonPath, installPath);
+    });
+    return (path: installPath, installationUrl: installationUrl);
+  }
+
+  /// Launch devicectl `--console` for [bundleId], capturing app output.
+  Future<Process> _startConsoleLauncher(
+    IOSDeviceInfo info,
+    String bundleId, {
+    required bool debug,
+  }) => _startHelper('xcrun', [
+    'devicectl',
+    'device',
+    'process',
+    'launch',
+    '--device',
+    info.udid,
+    if (debug) '--start-stopped',
+    '--console',
+    '--environment-variables',
+    '{"OS_ACTIVITY_DT_MODE": "enable"}',
+    bundleId,
+    '--enable-dart-profiling',
+    // flutter_tools passes this whenever debugging is enabled, which is
+    // debug and profile (`getIOSLaunchArguments`).
+    if (buildMode != BuildMode.release) '--enable-checked-mode',
+    if (startPaused) '--start-paused',
+    // A wireless device is dialed at its own address, so the VM service must
+    // not bind to the device's loopback the way it does by default. Matches
+    // flutter_tools' `DebuggingOptions.buildLaunchArguments`, which adds this
+    // exactly when the connection interface is wireless.
+    if (info.transport == IOSDeviceTransport.wireless)
+      '--vm-service-host=0.0.0.0',
+  ]);
+
+  /// Pump the console launcher into [logs] and wait for its launch banner.
+  ///
+  /// devicectl sends its own progress banners on one channel and the app's
+  /// console output on the other, so both feed the app log stream.
+  ///
+  /// stderr is deliberately *not* flagged as an error channel: devicectl
+  /// routes the app's ordinary console output there, so treating that channel
+  /// as errors would mark every `print()` as one.
+  Future<AppLogPump> _awaitLaunchBanner(AppLogStream logs) async {
     final consolePump = pumpProcessLines(
       _consoleLauncherProcess!,
       logs,
@@ -2845,41 +2933,7 @@ class IOSDevice extends Device {
     await launchCompleter.future;
     launchTimeout.cancel();
     await bannerSub.cancel();
-
-    // Step 2: Get PID from running process list. [stop] terminates the app by
-    // it, debugger or not.
-    final processId = await _findAppProcessId(installationUrl);
-    _appPid = processId;
-
-    // Step 3: In debug, attach lldb. Otherwise devicectl, which runs until the
-    // app exits, is both the log source and the process the run watches.
-    final Process process;
-    if (debug) {
-      process = await _attachDebugger(
-        info: info,
-        processId: processId,
-        logs: logs,
-        consoleDone: consolePump.done,
-      );
-    } else {
-      logs.closeWhen([consolePump.done]);
-      process = _consoleLauncherProcess!;
-    }
-
-    // Step 4: Find the VM service by its mDNS advertisement.
-    final vmServiceUri = await _findVmService(
-      info: info,
-      bundleId: bundleId,
-      installPath: installPath,
-      logs: logs,
-    );
-
-    return AppInstance(
-      process: process,
-      vmServiceUri: vmServiceUri,
-      logs: logs,
-      scratchDirs: _scratch.handOver(),
-    );
+    return consolePump;
   }
 
   /// Attach lldb to the stopped app, set the JIT page breakpoint, and resume.
@@ -3530,7 +3584,8 @@ if not error.Success():
   /// Instead, we use pymobiledevice3's DVT screenshot, which captures via
   /// Apple's Developer Tools service (same mechanism as Xcode).
   ///
-  /// The screenshot binary is bundled as a Bazel py_binary and resolved from
+  /// The screenshot helper is bundled as a Bazel dart_binary driver (it runs
+  /// its pymobiledevice3 program through a host python3) and resolved from
   /// runfiles. Requires building via `bazel build //tools/dev_tool:flutter_bazel`.
   ///
   /// Prerequisites: the tunnel daemon, running as root in another terminal.
@@ -3558,8 +3613,9 @@ if not error.Success():
       );
     }
 
-    // The py_binary needs RUNFILES_MANIFEST_FILE to find its venv and
-    // bootstrap scripts within the dart_binary's runfiles.
+    // The driver reads no runfiles (its program is embedded, its Python is
+    // the host's), so unlike the old py_binary it needs no
+    // RUNFILES_MANIFEST_FILE forwarded.
     final result = await Process.run(
       resolved.path,
       [
@@ -3567,10 +3623,6 @@ if not error.Success():
         '--udid',
         _addressedUdid,
       ],
-      environment: {
-        if (resolved.manifestPath != null)
-          'RUNFILES_MANIFEST_FILE': resolved.manifestPath!,
-      },
     );
     if (result.exitCode != 0) {
       final err = result.stderr as String;
@@ -3683,6 +3735,24 @@ const chromeDebugFlags = [
   '--disable-translate',
   '--disable-search-engine-choice-screen',
   '--disable-background-timer-throttling',
+  // The rest cut startup work that varies with machine load and buys nothing
+  // the run tests. The window, the sandbox and rendering stay exactly as the
+  // user runs them: a headed browser that still paints the app.
+  //
+  // `--disable-dev-shm-usage`: /dev/shm is tiny on many CI and container
+  // runners, and a renderer that cannot get shared memory stalls or crashes
+  // around the time the browser would announce its debugging port. Backing it
+  // with disk under the profile directory instead removes that shape.
+  '--disable-dev-shm-usage',
+  // `--disable-background-networking`: no component-update, variations-seed
+  // or safebrowsing fetches at startup — the cold-start network variance on a
+  // shared runner. The app itself is served from localhost, which this does
+  // not touch.
+  '--disable-background-networking',
+  // `--password-store=basic`: no D-Bus secret-service negotiation for a
+  // keyring that does not exist under xvfb/CI, which otherwise blocks startup
+  // before falling back.
+  '--password-store=basic',
 ];
 
 /// One launched Chrome, owned end to end: the process, the throwaway profile
@@ -3756,14 +3826,22 @@ class ChromeSession {
   /// Launch Chrome on [url] and wait until it is observably up: debugging
   /// port announced *and* the tab navigated to the app. A failed launch
   /// leaves nothing behind — no browser, no profile directory.
+  ///
+  /// [portTimeout] is generous on purpose: a headed first run with a virgin
+  /// profile does real initialization work before it announces anything, and
+  /// on a loaded shared runner that sometimes takes far longer than the
+  /// second-or-two a warm browser needs. A browser that refuses to start
+  /// still fails fast — its output ending fails the wait before the timeout.
   static Future<ChromeSession> launch({
     required String url,
     required ProcessStarter startProcess,
     BrowserLaunchOptions options = const BrowserLaunchOptions(),
     String? chromePath,
-    Duration portTimeout = const Duration(seconds: 15),
-    Duration pageTimeout = const Duration(seconds: 15),
-    Duration pollInterval = const Duration(milliseconds: 50),
+    ChromeLaunchWaits waits = const (
+      portTimeout: Duration(seconds: 60),
+      pageTimeout: Duration(seconds: 15),
+      pollInterval: Duration(milliseconds: 50),
+    ),
   }) async {
     final exe = chromePath ?? findChrome();
     if (exe == null) {
@@ -3772,6 +3850,10 @@ class ChromeSession {
       );
     }
     final userDataDir = await createTempDir('flutter_chrome_');
+    // How long a healthy browser takes to announce is the number the port
+    // timeout has to clear, so every launch reports it: the next slow start
+    // then arrives with measurements instead of a bare "within Ns".
+    final launchClock = Stopwatch()..start();
     final Process chrome;
     try {
       chrome = await startProcess(
@@ -3795,9 +3877,17 @@ class ChromeSession {
     try {
       final cdpPort = await _discoverCdpPort(
         diagnostics,
-        timeout: portTimeout,
+        timeout: waits.portTimeout,
         requestedPort: options.debugPort,
       );
+      _logger.info({
+        'message': 'chrome_port_announced',
+        'text':
+            'Chrome announced its DevTools debugging port after '
+            '${_secondsText(launchClock.elapsed)}.',
+        'elapsed_ms': launchClock.elapsedMilliseconds,
+        'port': cdpPort,
+      });
       // The announcement is the readiness signal, not merely the number, so
       // it is awaited even when the port was dictated. A browser that takes a
       // different one than it was given is a state nothing here can drive:
@@ -3816,8 +3906,8 @@ class ChromeSession {
       final page = await resolveCdpPageTarget(
         cdpPort,
         appUrl: url,
-        timeout: pageTimeout,
-        pollInterval: pollInterval,
+        timeout: waits.pageTimeout,
+        pollInterval: waits.pollInterval,
       );
       final session = ChromeSession._(
         process: chrome,
@@ -3883,8 +3973,7 @@ class ChromeSession {
   /// measurement quietly describing the wrong viewport.
   Future<void> applyViewport(WebViewport viewport) async {
     viewportHold = await applyViewportOverCdp(
-      cdpPort: cdpPort,
-      appUrl: appUrl,
+      page: (cdpPort: cdpPort, appUrl: appUrl),
       viewport: viewport,
       asked: '--web-viewport',
       hold: viewportHold,
@@ -3984,23 +4073,19 @@ class WebDevice extends Device {
 
   @override
   CompilerConfig? createCompilerConfig(
-    ToolchainPaths toolchain, {
-    WebToolchainPaths? webToolchain,
-    List<String> fileSystemRoots = const [],
-    String fileSystemScheme = '',
-    List<String> dartDefines = const [],
-    String dartPluginRegistrantUri = '',
-    List<String> enableExperiments = const [],
-  }) {
+    ToolchainPaths toolchain, [
+    CompilerConfigInputs? inputs,
+  ]) {
     // Web builds its own filesystem roots (synthetic entrypoint dir + workspace)
     // in run_command; the native roots/scheme args are not used here. The
     // registrant URI is ignored too — the web synthetic main calls
     // registerPlugins() directly and re-runs on page-reload restart.
+    final webToolchain = inputs?.webToolchain;
     if (webToolchain == null) return null;
     return WebCompilerConfig(
       webToolchain: webToolchain,
-      dartDefines: dartDefines,
-      enableExperiments: enableExperiments,
+      dartDefines: inputs?.dartDefines ?? const [],
+      enableExperiments: inputs?.enableExperiments ?? const [],
     );
   }
 
@@ -4246,8 +4331,7 @@ class WebDevice extends Device {
     }
     _holdViewport(
       await applyViewportOverCdp(
-        cdpPort: port,
-        appUrl: url,
+        page: (cdpPort: port, appUrl: url),
         viewport: viewport,
         asked: 'app.setViewport',
         hold: _viewportHold,
@@ -4275,24 +4359,40 @@ final cdpPortPattern = RegExp(r'DevTools listening on ws://\S+?:(\d+)/');
 /// message. Upstream tool-exits in the same situation (`chrome.dart`'s "Unable to
 /// connect to Chrome debug port"). The two causes are reported separately
 /// because they call for different fixes.
+///
+/// The timeout error quotes how long the wait ran and what the browser
+/// printed: a browser still working through a slow first run is otherwise
+/// indistinguishable from one that was never going to announce.
 Future<int> _discoverCdpPort(
   AppLogStream browserDiagnostics, {
-  Duration timeout = const Duration(seconds: 15),
+  Duration timeout = const Duration(seconds: 60),
   int? requestedPort,
 }) async {
+  // Measured, not assumed: the timeout error below quotes how long the wait
+  // actually ran, so a failure says whether the browser was moments or an
+  // eternity from announcing.
+  final waited = Stopwatch()..start();
   final completer = Completer<int>();
   final timer = Timer(timeout, () {
     if (!completer.isCompleted) {
       completer.completeError(
         StateError(
           'Chrome did not announce a DevTools debugging port within '
-          '${timeout.inSeconds}s of launch. Without it there is no debugging '
+          '${timeout.inSeconds}s of launch '
+          '(waited ${_secondsText(waited.elapsed)}). '
+          'Without it there is no debugging '
           'connection: no DWDS VM service, no hot restart, no screenshots.'
           // A dictated port is the one thing about this launch that can be
           // wrong before Chrome even starts, and Chrome says nothing when it
           // cannot take one.
           '${requestedPort == null ? '' : ' --web-browser-debug-port '
-                    '$requestedPort may already be in use.'}',
+                    '$requestedPort may already be in use.'}'
+          // Reaching the timeout means the browser's output never ended: had
+          // it exited, the stream closing would have failed this wait first.
+          // So the browser was still starting up, and what it printed is
+          // where the reason lives.
+          ' Its output had not ended; the browser was still starting up. '
+          '${_browserLastWords(browserDiagnostics, ended: false)}',
         ),
       );
     }
@@ -4346,14 +4446,29 @@ Future<int> _discoverCdpPort(
 /// it rules out every cause that announces itself, and says the search belongs
 /// somewhere other than the browser's output. An empty tail rendered as
 /// nothing at all would instead read as if the quoting had been forgotten.
-String _browserLastWords(AppLogStream browserDiagnostics, {int lines = 20}) {
+///
+/// [ended] selects the phrasing: the browser that exited printed "on the way
+/// out", while one still starting up when the wait ran out has printed
+/// "so far".
+String _browserLastWords(
+  AppLogStream browserDiagnostics, {
+  int lines = 20,
+  bool ended = true,
+}) {
   final tail = browserDiagnostics.read(-lines).lines;
   if (tail.isEmpty) {
-    return 'It printed nothing at all on the way out, so its own output does '
-        'not hold the reason.';
+    return ended
+        ? 'It printed nothing at all on the way out, so its own output does '
+              'not hold the reason.'
+        : 'It had printed nothing at all so far, so its own output does not '
+              'yet hold a reason.';
   }
   return 'It last said:\n${tail.map((l) => '  ${l.text}').join('\n')}';
 }
+
+/// Seconds with one decimal, for launch timings in errors and logs.
+String _secondsText(Duration d) =>
+    '${(d.inMilliseconds / 1000).toStringAsFixed(1)}s';
 
 /// Lay the app's page out at [viewport], and prove that it did.
 ///
@@ -4388,8 +4503,7 @@ String _browserLastWords(AppLogStream browserDiagnostics, {int lines = 20}) {
 /// override that did not take leaves every later screenshot and layout
 /// measurement quietly describing the wrong viewport.
 Future<CdpPageConnection> applyViewportOverCdp({
-  required int cdpPort,
-  required String appUrl,
+  required CdpPageTarget page,
   required WebViewport viewport,
   required String asked,
   CdpPageConnection? hold,
@@ -4399,7 +4513,7 @@ Future<CdpPageConnection> applyViewportOverCdp({
   final reuse = hold != null && !hold.isClosed;
   final connection = reuse
       ? hold
-      : await CdpPageConnection.open(cdpPort, appUrl: appUrl);
+      : await CdpPageConnection.open(page.cdpPort, appUrl: page.appUrl);
   try {
     await connection.send('Emulation.setDeviceMetricsOverride', {
       'width': viewport.width,
@@ -4420,12 +4534,17 @@ Future<CdpPageConnection> applyViewportOverCdp({
     Object? height;
     Object? ratio;
     while (true) {
-      final got = await _sendCdpToPage(cdpPort, appUrl, 'Runtime.evaluate', {
-        'expression':
-            '({w: window.innerWidth, h: window.innerHeight, '
-            'r: window.devicePixelRatio})',
-        'returnByValue': true,
-      });
+      final got = await _sendCdpToPage(
+        page.cdpPort,
+        page.appUrl,
+        'Runtime.evaluate',
+        {
+          'expression':
+              '({w: window.innerWidth, h: window.innerHeight, '
+              'r: window.devicePixelRatio})',
+          'returnByValue': true,
+        },
+      );
       final value = got['result']?['result']?['value'];
       width = value is Map ? value['w'] : null;
       height = value is Map ? value['h'] : null;

@@ -10,9 +10,8 @@ Detects host arch at repo-rule time so users can reference a stable
 
 def _flutter_macos_engine_repo_impl(repository_ctx):
     # Detect host architecture at repo-rule time.
-    result = repository_ctx.execute(["uname", "-m"])
-    machine = result.stdout.strip()
-    if machine == "arm64" or machine == "aarch64":
+    arch = repository_ctx.os.arch
+    if arch == "arm64" or arch == "aarch64":
         host_arch = "arm64"
     else:
         host_arch = "x64"

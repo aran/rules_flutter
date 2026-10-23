@@ -1,0 +1,17 @@
+load("@rules_flutter//flutter:defs.bzl", "flutter_integration_test")
+
+flutter_integration_test(
+    name = "sub_test",
+    package_name = "sub",
+    srcs = ["integration_test/sub_test.dart"],
+    app_srcs = ["lib/main.dart"],
+    assets = ["assets/sub.txt"],
+    platform = "android",
+    shaders = ["shaders/sub.frag"],
+    deps = [
+        "//libs/brand",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+        "@deps//:integration_test",
+    ],
+)

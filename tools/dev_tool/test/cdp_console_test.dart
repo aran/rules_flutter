@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/app_log.dart';
 import 'package:flutter_bazel_dev_tool/cdp_console.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 /// A local WebSocket server standing in for the browser's CDP endpoint, so a
@@ -529,6 +530,28 @@ void main() {
         returnsNormally,
       );
       expect(logs.read(0).lines, isEmpty);
+    });
+
+    test('a dropped event is logged, not swallowed', () async {
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      try {
+        handleCdpConsoleMessage({
+          'method': 'Runtime.consoleAPICalled',
+          'params': 'not-a-map',
+        }, logs);
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.cdp_console')
+            .map((r) => '${r.message}'),
+        contains(contains('cdp_console_malformed')),
+      );
     });
   });
 

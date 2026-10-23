@@ -134,6 +134,58 @@ const Duration _firstFramePollInterval = Duration(milliseconds: 300);
 /// Connects to a running Flutter app and provides hot reload and restart.
 /// Uploads incremental dills through the VM's in-memory devFS, which works for
 /// both local and remote (iOS device) VMs.
+
+/// The mutable state of one first-frame wait, shared with its poll loop.
+///
+/// The loop runs unawaited beside the wait; the two meet here rather than
+/// through return values. Read by the poll loop as its own stop signal:
+/// `rendered.isCompleted` alone is not one, because the loop can still be
+/// inside an in-flight call when the wait returns, and would then write
+/// `queryFailure` that nothing will ever read again.
+class _FirstFrameWait {
+  final Completer<bool> rendered = Completer<bool>();
+
+  var settled = false;
+
+  Object? queryFailure;
+
+  void answer(bool value) {
+    if (!rendered.isCompleted) rendered.complete(value);
+  }
+}
+
+/// What one apply saw on the extension stream while verifying.
+///
+/// Shared with the listener rather than returned by it, because the report
+/// can land during the frame wait, after any return.
+class _ApplyWatch {
+  var applied = false;
+
+  var drew = false;
+
+  FlutterErrorReport? capturedError;
+
+  final Completer<void> settled = Completer<void>();
+
+  final FlutterErrorReport Function(Event event) decodeError;
+
+  _ApplyWatch(this.decodeError);
+
+  void settle() {
+    if (!settled.isCompleted) settled.complete();
+  }
+
+  void onEvent(Event event) {
+    if (event.extensionKind == 'Flutter.Error') {
+      capturedError ??= decodeError(event);
+      if (applied) settle();
+    } else if (event.extensionKind == 'Flutter.Frame' && applied) {
+      drew = true;
+      settle();
+    }
+  }
+}
+
 class VmServiceClient {
   final VmServiceConnector _connector;
   VmService? _service;
@@ -531,7 +583,16 @@ class VmServiceClient {
         } catch (e) {
           // The socket closed and it does not come back. The failure *is* the
           // answer, so it is not rethrown — nothing is awaiting this, and the one
-          // thing it has to do is tell whoever asked.
+          // thing it has to do is tell whoever asked. Said out loud as well as
+          // through [gone]: the cause is what a reader of the log needs, and
+          // the report itself carries no detail.
+          _logger.warning({
+            'message': 'vm_service_reconnect_failed',
+            'text':
+                'The connection to the app closed and the re-dial failed: $e. '
+                'Reporting the app gone.',
+            'error': '$e',
+          });
           _reportGone('$e');
         }
       }),
@@ -927,25 +988,11 @@ class VmServiceClient {
     var delivered = false;
     try {
       return await _withReconnect(() async {
-        var applied = false;
-        var drew = false;
-        FlutterErrorReport? capturedError;
-        final settled = Completer<void>();
-        void settle() {
-          if (!settled.isCompleted) settled.complete();
-        }
+        final watch = _ApplyWatch(_flutterError);
 
         // Subscribe before deliver() so no event between reloadSources and the
         // rebuilt frame can be missed.
-        final sub = _service!.onExtensionEvent.listen((e) {
-          if (e.extensionKind == 'Flutter.Error') {
-            capturedError ??= _flutterError(e);
-            if (applied) settle();
-          } else if (e.extensionKind == 'Flutter.Frame' && applied) {
-            drew = true;
-            settle();
-          }
-        });
+        final sub = _service!.onExtensionEvent.listen(watch.onEvent);
         try {
           final refusal = await deliver();
           if (refusal != null) {
@@ -953,57 +1000,18 @@ class VmServiceClient {
               return _deliveredThenLost(refusal, codeAfterDelivery);
             return VerdictRefused(refusal);
           }
-          applied = true;
+          watch.applied = true;
           delivered = true;
-          if (afterDelivery != null) {
-            try {
-              await afterDelivery.run();
-            } catch (e, stack) {
-              // A dropped connection is this end's transport failing, not the
-              // app's code. Hand it back to [_withReconnect], whose replay
-              // rebuilds the connection and re-runs the apply on it; anything
-              // else is the app, and stops here.
-              if (e is RPCError && _isConnectionDisposed(e)) rethrow;
-              return _afterDeliveryFailed(
-                step: afterDelivery.step,
-                error: e,
-                stack: stack,
-                reported: capturedError,
-                codeAfterDelivery: codeAfterDelivery,
-              );
-            }
-          }
-          // An error may have been reported during reassemble, before
-          // `applied` was set; honor it now.
-          if (capturedError != null) settle();
-          // A backgrounded app draws nothing, so for it the bound below would
-          // be the whole answer: ten seconds, then a success nobody saw. Asked
-          // alongside the wait rather than after it, and dropped the moment
-          // the wait ends, so an app that draws pays nothing for the question.
-          String? notRendering;
-          final waitOver = Completer<void>();
-          unawaited(
-            _whyNoFrame(until: waitOver.future).then((reason) {
-              if (reason == null) return;
-              notRendering = reason;
-              settle();
-            }),
+          final after = await _runAfterDelivery(
+            afterDelivery,
+            watch,
+            codeAfterDelivery,
           );
-          try {
-            await settled.future.timeout(frameTimeout, onTimeout: () {});
-          } finally {
-            waitOver.complete();
-          }
-          final reported = capturedError;
-          if (reported != null) return VerdictAppErrored(reported);
-          if (drew) return const VerdictApplied();
-          return VerdictApplied(
-            notShown:
-                notRendering ??
-                'the app has not drawn a frame since, so nothing on screen '
-                    'shows the change yet: none came within '
-                    '${frameTimeout.inSeconds}s, and the app gave no reason',
-          );
+          if (after != null) return after;
+          // Awaited, not returned: the `finally` below cancels the
+          // subscription, and a bare `return` would run it before the wait
+          // sees the frame it is waiting for.
+          return await _awaitAppliedFrame(watch);
         } finally {
           await sub.cancel();
         }
@@ -1015,6 +1023,75 @@ class VmServiceClient {
       return _deliveredThenLost('$e', codeAfterDelivery, stack);
     }
   }
+
+  /// Run the post-delivery step, or null when there is none.
+  ///
+  /// A dropped connection is rethrown for [_withReconnect], whose replay
+  /// rebuilds the connection and re-runs the apply on it; anything else is
+  /// the app, and stops here.
+  Future<ApplyVerdict?> _runAfterDelivery(
+    ({String step, Future<void> Function() run})? afterDelivery,
+    _ApplyWatch watch,
+    RunningCode codeAfterDelivery,
+  ) async {
+    if (afterDelivery == null) return null;
+    try {
+      await afterDelivery.run();
+    } catch (e, stack) {
+      // A dropped connection is this end's transport failing, not the
+      // app's code. Hand it back to [_withReconnect], whose replay
+      // rebuilds the connection and re-runs the apply on it; anything
+      // else is the app, and stops here.
+      if (e is RPCError && _isConnectionDisposed(e)) rethrow;
+      return _afterDeliveryFailed(
+        step: afterDelivery.step,
+        error: e,
+        stack: stack,
+        reported: watch.capturedError,
+        codeAfterDelivery: codeAfterDelivery,
+      );
+    }
+    // No verdict: the step ran, so the caller continues to the frame wait —
+    // the fall-through main had after a successful post-delivery step.
+    return null;
+  }
+
+  /// Wait for the rebuilt frame, and say what the apply achieved.
+  Future<ApplyVerdict> _awaitAppliedFrame(_ApplyWatch watch) async {
+    // An error may have been reported during reassemble, before
+    // `applied` was set; honor it now.
+    if (watch.capturedError != null) watch.settle();
+    // A backgrounded app draws nothing, so for it the bound below would
+    // be the whole answer: ten seconds, then a success nobody saw. Asked
+    // alongside the wait rather than after it, and dropped the moment
+    // the wait ends, so an app that draws pays nothing for the question.
+    String? notRendering;
+    final waitOver = Completer<void>();
+    unawaited(
+      _whyNoFrame(until: waitOver.future).then((reason) {
+        if (reason == null) return;
+        notRendering = reason;
+        watch.settle();
+      }),
+    );
+    try {
+      await watch.settled.future.timeout(frameTimeout, onTimeout: () {});
+    } finally {
+      waitOver.complete();
+    }
+    final reported = watch.capturedError;
+    if (reported != null) return VerdictAppErrored(reported);
+    if (watch.drew) return const VerdictApplied();
+    return VerdictApplied(
+      notShown:
+          notRendering ??
+          'the app has not drawn a frame since, so nothing on screen '
+              'shows the change yet: none came within '
+              '${frameTimeout.inSeconds}s, and the app gave no reason',
+    );
+  }
+
+  /// Wait for the rebuilt frame, and say what the apply achieved.
 
   /// Why the app will not draw the frame a delivery is waiting for, or null
   /// when it has not said so by the time [until] completes.
@@ -1394,6 +1471,98 @@ class VmServiceClient {
   /// the caller from the device; see `Device.usesWindowsPaths`.
   bool devicePathsAreWindows = Platform.isWindows;
 
+  /// Upload the changed assets into the VM's devFS, or a refusal.
+  ///
+  /// Upload first: `setAssetBundlePath` opens the directory, so it has
+  /// to exist, and the first upload is what creates it.
+  Future<String?> _uploadChangedAssets(
+    String assetsDir,
+    Set<String> changed,
+  ) async {
+    for (final archivePath in changed) {
+      final local = p.joinAll([assetsDir, ...p.url.split(archivePath)]);
+      // Absent means deleted from the bundle. Nothing to send; the evict
+      // below still drops the app's cached copy.
+      if (!File(local).existsSync()) continue;
+      final uploaded = await _uploadToDevFS(
+        local,
+        '$_devFSAssetsDir/$archivePath',
+      );
+      if (uploaded == null) {
+        // Reported by _uploadToDevFS. Failing here rather than carrying
+        // on is the point: the upload *is* the delivery, so continuing
+        // would evict the app's good copy and leave nothing in its place.
+        return '$archivePath could not be uploaded to the app\'s devFS';
+      }
+    }
+    return null;
+  }
+
+  /// Point the engine at the devFS asset directory, once per devFS.
+  Future<void> _sendAssetDirectory(
+    List<({String id, String? isolateId})> views,
+  ) async {
+    if (_assetDirectorySent) return;
+    for (final view in views) {
+      await _service!.callMethod(
+        '_flutter.setAssetBundlePath',
+        isolateId: view.isolateId,
+        args: {'viewId': view.id, 'assetDirectory': _devFSAssetDirectory},
+      );
+    }
+    _assetDirectorySent = true;
+  }
+
+  /// Evict the changed assets from the framework's bundle and image caches.
+  Future<void> _evictChangedAssets(Set<String> changed) async {
+    await requireServiceExtension('ext.flutter.evict');
+    for (final archivePath in changed) {
+      await _service!.callServiceExtension(
+        'ext.flutter.evict',
+        isolateId: _mainIsolateId,
+        args: {'value': archivePath},
+      );
+    }
+  }
+
+  /// Rebuild the engine's font families when a font file changed.
+  ///
+  /// Evicting a font file drops the framework's copy of the bytes but
+  /// not the engine's registered font families, which are what text
+  /// actually renders from. Only the engine can rebuild those.
+  Future<void> _reloadFontsIfTouched(
+    Set<String> changed,
+    List<({String id, String? isolateId})> views,
+  ) async {
+    if (!touchesFonts(changed)) return;
+    await _service!.callMethod(
+      '_flutter.reloadAssetFonts',
+      isolateId: views.first.isolateId,
+      args: {'viewId': views.first.id},
+    );
+  }
+
+  /// Recompile the changed shaders on the engine, as `flutter run` does.
+  ///
+  /// The engine holds a loaded shader as a program, which evicting the bytes
+  /// does not touch.
+  Future<void> _reinitializeShaders(Set<String> shaders) async {
+    if (shaders.isEmpty) return;
+    await requireServiceExtension('ext.ui.window.reinitializeShader');
+    for (final assetKey in shaders) {
+      await _service!.callServiceExtension(
+        'ext.ui.window.reinitializeShader',
+        isolateId: _mainIsolateId,
+        args: {'assetKey': assetKey},
+      );
+    }
+    _logger.info({
+      'message': 'shaders_reinitialized',
+      'text': 'Reloaded shader(s): ${shaders.join(', ')}',
+      'shaders': shaders.toList(),
+    });
+  }
+
   /// Make the running app show the rebuilt asset bundle.
   ///
   /// [changed] is the set of archive paths — bundle-relative, `/`-separated —
@@ -1442,26 +1611,7 @@ class VmServiceClient {
         () async {
           views = await _listViews();
           if (views.isEmpty) return 'the app has no Flutter view to deliver to';
-
-          // Upload first: `setAssetBundlePath` opens the directory, so it has
-          // to exist, and the first upload is what creates it.
-          for (final archivePath in changed) {
-            final local = p.joinAll([assetsDir, ...p.url.split(archivePath)]);
-            // Absent means deleted from the bundle. Nothing to send; the evict
-            // below still drops the app's cached copy.
-            if (!File(local).existsSync()) continue;
-            final uploaded = await _uploadToDevFS(
-              local,
-              '$_devFSAssetsDir/$archivePath',
-            );
-            if (uploaded == null) {
-              // Reported by _uploadToDevFS. Failing here rather than carrying
-              // on is the point: the upload *is* the delivery, so continuing
-              // would evict the app's good copy and leave nothing in its place.
-              return '$archivePath could not be uploaded to the app\'s devFS';
-            }
-          }
-          return null;
+          return _uploadChangedAssets(assetsDir, changed);
         },
         // An asset push moves bytes, never Dart. Whatever happens from here on,
         // the app is running exactly the code it was.
@@ -1472,55 +1622,10 @@ class VmServiceClient {
         afterDelivery: (
           step: 'making the app re-read the changed assets',
           run: () async {
-            if (!_assetDirectorySent) {
-              for (final view in views) {
-                await _service!.callMethod(
-                  '_flutter.setAssetBundlePath',
-                  isolateId: view.isolateId,
-                  args: {
-                    'viewId': view.id,
-                    'assetDirectory': _devFSAssetDirectory,
-                  },
-                );
-              }
-              _assetDirectorySent = true;
-            }
-
-            await requireServiceExtension('ext.flutter.evict');
-            for (final archivePath in changed) {
-              await _service!.callServiceExtension(
-                'ext.flutter.evict',
-                isolateId: _mainIsolateId,
-                args: {'value': archivePath},
-              );
-            }
-
-            // Evicting a font file drops the framework's copy of the bytes but
-            // not the engine's registered font families, which are what text
-            // actually renders from. Only the engine can rebuild those.
-            if (touchesFonts(changed)) {
-              await _service!.callMethod(
-                '_flutter.reloadAssetFonts',
-                isolateId: views.first.isolateId,
-                args: {'viewId': views.first.id},
-              );
-            }
-
-            if (shaders.isNotEmpty) {
-              await requireServiceExtension('ext.ui.window.reinitializeShader');
-              for (final assetKey in shaders) {
-                await _service!.callServiceExtension(
-                  'ext.ui.window.reinitializeShader',
-                  isolateId: _mainIsolateId,
-                  args: {'assetKey': assetKey},
-                );
-              }
-              _logger.info({
-                'message': 'shaders_reinitialized',
-                'text': 'Reloaded shader(s): ${shaders.join(', ')}',
-                'shaders': shaders.toList(),
-              });
-            }
+            await _sendAssetDirectory(views);
+            await _evictChangedAssets(changed);
+            await _reloadFontsIfTouched(changed, views);
+            await _reinitializeShaders(shaders);
 
             await requireServiceExtension('ext.flutter.reassemble');
             await _service!.callServiceExtension(
@@ -1564,9 +1669,16 @@ class VmServiceClient {
     final Isolate isolate;
     try {
       isolate = await _callService((s) => s.getIsolate(_mainIsolateId!));
-    } catch (_) {
+    } catch (e) {
       // Not answerable, so not an answer. Let the caller's own call fail with
       // whatever the real problem is rather than inventing a pause.
+      // Verbose: this probe runs before every agent command, and unanswerable
+      // here is a designed answer, not a dropped failure.
+      _logger.fine({
+        'message': 'pause_state_unreadable',
+        'text': 'Could not read the main isolate\'s pause state: $e.',
+        'error': '$e',
+      });
       return null;
     }
     return switch (isolate.pauseEvent?.kind) {
@@ -1623,10 +1735,16 @@ class VmServiceClient {
         if (isolate.pauseEvent?.kind == EventKind.kPauseStart) {
           return StartPausedState.pausedAtStart;
         }
-      } catch (_) {
+      } catch (e) {
         // A connection still settling; the deadline below is the bound, and
         // `everRead` is what keeps a poll that only ever failed from being
-        // reported as an isolate seen running.
+        // reported as an isolate seen running. Logged, not swallowed: a poll
+        // that only ever failed is how a dead connection reads here.
+        _logger.fine({
+          'message': 'start_paused_poll_unreadable',
+          'text': 'Could not read the main isolate\'s pause state: $e.',
+          'error': '$e',
+        });
       }
       if (!DateTime.now().isBefore(deadline)) {
         return everRead ? StartPausedState.running : StartPausedState.unknown;
@@ -1677,20 +1795,45 @@ class VmServiceClient {
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return false;
 
-    final rendered = Completer<bool>();
-    void answer(bool value) {
-      if (!rendered.isCompleted) rendered.complete(value);
-    }
+    final wait = _FirstFrameWait();
 
     // Subscribed before the query is asked, so a frame drawn between the two
     // is caught by one or the other rather than falling between them.
     final frames = service.onExtensionEvent.listen((e) {
       if (e.extensionKind == 'Flutter.FirstFrame' ||
           e.extensionKind == 'Flutter.FirstFrameRasterized') {
-        answer(true);
+        wait.answer(true);
       }
     });
+    unawaited(_pollForFirstFrame(wait, isolateId));
 
+    final abandon = until?.then((_) => wait.answer(false));
+
+    try {
+      final painted = await wait.rendered.future.timeout(
+        timeout,
+        onTimeout: () => false,
+      );
+      final failure = wait.queryFailure;
+      if (!painted && failure != null) throw failure;
+      return painted;
+    } finally {
+      // Settled explicitly, because `timeout` completes the future it returns
+      // and leaves this one pending for good. The poll loop reads it to know
+      // it is finished, so without this it re-arms its timer forever and the
+      // process never exits.
+      wait.settled = true;
+      wait.answer(false);
+      await frames.cancel();
+      abandon?.ignore();
+    }
+  }
+
+  /// Ask whether the first frame was sent, until the wait settles.
+  Future<void> _pollForFirstFrame(
+    _FirstFrameWait wait,
+    String isolateId,
+  ) async {
     // Asked repeatedly, because on web it is the only one of the two that can
     // answer at all. `Flutter.FirstFrame` is posted from the framework's
     // frame-*timings* callback, and the web engine hands timings over only from
@@ -1706,69 +1849,41 @@ class VmServiceClient {
     // on web the first ask lands in the window where the framework has not
     // registered it yet and answers `-32601`, and a wait that stopped there
     // would fall through to an event that is not coming.
-    Object? queryFailure;
     // Read by the poll loop as its own stop signal. `rendered.isCompleted`
     // alone is not one: the loop can still be inside an in-flight call when the
     // wait returns, and would then write `queryFailure` that nothing will ever
     // read again.
-    var settled = false;
-
-    Future<void> pollForFirstFrame() async {
-      while (!settled && !rendered.isCompleted) {
-        try {
-          final resp = await _callService(
-            (s) => s.callServiceExtension(
-              'ext.flutter.didSendFirstFrameEvent',
-              isolateId: isolateId,
-            ),
-          );
-          // A false is the boot sequence working: the framework is up and has
-          // not painted yet, so ask again.
-          if (resp.json?['enabled'] == 'true') {
-            answer(true);
-            return;
-          }
-        } catch (e) {
-          if (settled) return;
-          // `-32601` is the framework not having registered the extension yet,
-          // which is the boot sequence working; ask again.
-          if (e is! RPCError || e.code != _rpcMethodNotFound) {
-            // Everything else is kept rather than dropped, and kept rather than
-            // answered: the event may still arrive and is the better outcome,
-            // but if nothing does, this is why — and a caller reading "had not
-            // rendered" needs the real fault instead. Caught as `Object`
-            // because this runs unawaited: anything escaping here is an
-            // unhandled async error that takes the run with it.
-            queryFailure = e;
-            return;
-          }
+    while (!wait.settled && !wait.rendered.isCompleted) {
+      try {
+        final resp = await _callService(
+          (s) => s.callServiceExtension(
+            'ext.flutter.didSendFirstFrameEvent',
+            isolateId: isolateId,
+          ),
+        );
+        // A false is the boot sequence working: the framework is up and has
+        // not painted yet, so ask again.
+        if (resp.json?['enabled'] == 'true') {
+          wait.answer(true);
+          return;
         }
-        if (settled || rendered.isCompleted) return;
-        await Future<void>.delayed(_firstFramePollInterval);
+      } catch (e) {
+        if (wait.settled) return;
+        // `-32601` is the framework not having registered the extension yet,
+        // which is the boot sequence working; ask again.
+        if (e is! RPCError || e.code != _rpcMethodNotFound) {
+          // Everything else is kept rather than dropped, and kept rather than
+          // answered: the event may still arrive and is the better outcome,
+          // but if nothing does, this is why — and a caller reading "had not
+          // rendered" needs the real fault instead. Caught as `Object`
+          // because this runs unawaited: anything escaping here is an
+          // unhandled async error that takes the run with it.
+          wait.queryFailure = e;
+          return;
+        }
       }
-    }
-
-    unawaited(pollForFirstFrame());
-
-    final abandon = until?.then((_) => answer(false));
-
-    try {
-      final painted = await rendered.future.timeout(
-        timeout,
-        onTimeout: () => false,
-      );
-      final failure = queryFailure;
-      if (!painted && failure != null) throw failure;
-      return painted;
-    } finally {
-      // Settled explicitly, because `timeout` completes the future it returns
-      // and leaves this one pending for good. The poll loop reads it to know
-      // it is finished, so without this it re-arms its timer forever and the
-      // process never exits.
-      settled = true;
-      answer(false);
-      await frames.cancel();
-      abandon?.ignore();
+      if (wait.settled || wait.rendered.isCompleted) return;
+      await Future<void>.delayed(_firstFramePollInterval);
     }
   }
 

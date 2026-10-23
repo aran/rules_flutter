@@ -1,0 +1,242 @@
+# Full-matrix workflow for rules_flutter ("pre-release").
+#
+# WHAT RUNS WHERE: the complete macOS e2e coverage that push CI (ci.yaml) no
+# longer runs — every workspace's full `bazel test //...` on macOS — plus the
+# Android example (too heavy for push CI) on Linux. Linux and Windows coverage
+# otherwise lives in push CI. Triggered by release tags, nightly, or manually;
+# the release workflow waits for this workflow AND ci.yaml to pass on the
+# tagged commit (see the gate job in release.yaml) before publishing.
+#
+# WHAT IS CACHED: nightly schedule runs restore no disk cache (only the plugin
+# job re-saves its own key, on pushes and schedules). Release-tag pushes
+# (`v*`) run fully uncached — no disk-cache restore, no setup-bazel cache
+# save, no actions/cache save of any kind — so the release gate proves every
+# test actually executed on the tagged commit; only the content-addressed
+# repository cache (and the bazelisk cache) still restore, since every fetch
+# through them is sha256-pinned and they never replay test results. Manual
+# dispatches restore the push-CI shard keys below unless `uncached` is set.
+# Saves are success-gated (no `always()`): a failed run must not persist its
+# half-populated cache.
+# Disk caches are the push-CI shards' keys below, restored only (except the
+# plugin job, which owns its key and re-saves it on pushes and schedules, but
+# never on tags). See ci.yaml for why saves delete the key first.
+permissions:
+  actions: write
+  contents: read
+name: Full
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      uncached:
+        description: Run every job without restoring or saving any Bazel cache
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Nightly at 06:00 UTC.
+    - cron: "0 6 * * *"
+concurrency:
+  # No cancel-in-progress: a run gating a release must not be cancelled by a
+  # newer trigger.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+env:
+  BAZEL_REPOSITORY_CACHE_KEY_FILES: |
+    - MODULE.bazel
+    - MODULE.bazel.lock
+    - e2e/*/MODULE.bazel
+    - flutter/private/versions.bzl
+jobs:
+  e2e-macos:
+    name: E2E full (${{ matrix.workspace }}, macos-latest)
+    runs-on: macos-latest
+    # Cold tag and nightly runs rebuild every workspace from scratch; the
+    # ceiling is GitHub's 6-hour per-job limit.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      # At most 2 of the 5 macOS slots shared with rules_dart, so a push run's
+      # macOS jobs (2) and rules_dart's (1) still get slots while this runs.
+      max-parallel: 2
+      matrix:
+        include:
+          # shard names the push-CI disk keys of the same content; only the
+          # plugin job saves (its own key).
+          - workspace: smoke
+            shard: macos-b
+            cache-save: false
+          - workspace: dual_hub
+            shard: none
+            cache-save: false
+          - workspace: hello_world
+            shard: macos-a
+            cache-save: false
+          - workspace: ffi_example
+            shard: none
+            cache-save: false
+          - workspace: plugin_example
+            shard: macos-plugin
+            cache-save: true
+          - workspace: ffi_plugin_example
+            shard: none
+            cache-save: false
+          - workspace: codegen
+            shard: none
+            cache-save: false
+          # The version-floor fixture: full //... incl. the Android leg (the
+          # runner's unzip/python3 satisfy the AAR extractors) and both
+          # Apple legs, all against the minimum rules_apple.
+          - workspace: min_versions
+            shard: none
+            cache-save: false
+    env:
+      DISK_CACHE_DIR: ~/.cache/bazel-disk
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set disk cache key
+        run: echo "DISK_CACHE_KEY=ff-disk-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'e2e/*/MODULE.bazel', 'flutter/private/versions.bzl') }}" >> "$GITHUB_ENV"
+      # The repository cache is shared per OS with push CI (same key files).
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          repository-cache: ${{ env.BAZEL_REPOSITORY_CACHE_KEY_FILES }}
+          cache-save: ${{ matrix['cache-save'] && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached }}
+      # Workspaces with shard `none` have no push-CI macOS content and rebuild
+      # from the repository cache; the rest restore their push shard's key.
+      - name: Restore disk cache
+        if: matrix.shard != 'none' && github.event_name != 'schedule' && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.DISK_CACHE_DIR }}
+          key: ${{ env.DISK_CACHE_KEY }}
+          restore-keys: ff-disk-${{ runner.os }}-${{ matrix.shard }}-
+      - name: Point Bazel at the disk cache
+        if: matrix.shard != 'none' && github.event_name != 'schedule' && github.ref_type != 'tag' && !inputs.uncached
+        run: |
+          dir="${{ env.DISK_CACHE_DIR }}"
+          case "$dir" in "~"*) dir="$HOME${dir#\~}";; esac
+          mkdir -p "$dir"
+          echo "build --disk_cache=$dir" >> ~/.bazelrc
+      # --test_output=errors so a failure's assertion reaches this log. Without
+      # it the output stays in a test.log on the runner and is discarded with
+      # the machine.
+      - name: bazel test //... (e2e/${{ matrix.workspace }})
+        working-directory: e2e/${{ matrix.workspace }}
+        run: bazel test //... --test_output=errors
+      - name: Report cache sizes
+        if: always()
+        run: du -sh ~/.cache/bazel-disk ~/.cache/bazel-repo 2>/dev/null || true
+      - name: Delete stale disk cache key
+        if: matrix['cache-save'] && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          ids=$(gh api "repos/$REPO/actions/caches?per_page=100" --jq '.actions_caches[] | select(.key == env.DISK_CACHE_KEY and .ref == env.REF) | .id' || true)
+          for id in $ids; do gh api -X DELETE "repos/$REPO/actions/caches/$id" >/dev/null || true; done
+      - name: Save disk cache
+        if: matrix['cache-save'] && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.DISK_CACHE_DIR }}
+          key: ${{ env.DISK_CACHE_KEY }}
+  # The Android example builds on Linux but stays out of push CI: its APK +
+  # Kotlin actions would make a push job the longest one. It runs here,
+  # nightly (and on tags), as `bazel test //...` — the emulator-attached
+  # `verify_android_app_test` is `manual`-tagged and excluded, so no KVM.
+  e2e-linux-nightly:
+    name: E2E nightly (android_example, ubuntu-latest)
+    runs-on: ubuntu-latest
+    # Cold tag and nightly runs rebuild the APK actions from scratch; the
+    # ceiling is GitHub's 6-hour per-job limit.
+    timeout-minutes: 360
+    env:
+      WORKSPACES: android_example
+      DISK_CACHE_DIR: ~/.cache/bazel-disk
+      DISK_CACHE_SHARD: full-linux-android
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set disk cache key
+        run: echo "DISK_CACHE_KEY=ff-disk-${{ runner.os }}-${{ env.DISK_CACHE_SHARD }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'e2e/*/MODULE.bazel', 'flutter/private/versions.bzl') }}" >> "$GITHUB_ENV"
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          repository-cache: ${{ env.BAZEL_REPOSITORY_CACHE_KEY_FILES }}
+          cache-save: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached }}
+      - name: Restore disk cache
+        if: github.event_name != 'schedule' && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.DISK_CACHE_DIR }}
+          key: ${{ env.DISK_CACHE_KEY }}
+          restore-keys: ff-disk-${{ runner.os }}-${{ env.DISK_CACHE_SHARD }}-
+      - name: Point Bazel at the disk cache
+        if: github.event_name != 'schedule' && github.ref_type != 'tag' && !inputs.uncached
+        run: |
+          dir="${{ env.DISK_CACHE_DIR }}"
+          case "$dir" in "~"*) dir="$HOME${dir#\~}";; esac
+          mkdir -p "$dir"
+          echo "build --disk_cache=$dir" >> ~/.bazelrc
+      # The runner's preinstalled Android SDK + NDK, forwarded into
+      # repository rules with --repo_env (repository rules never see the
+      # client environment otherwise). The NDK is derived at runtime: the
+      # image ships several NDK versions side by side and only a versioned
+      # directory works — its `ndk/` parent fails inside rules_android_ndk
+      # with a `readdir()` error (see e2e/android_example/MODULE.bazel).
+      - name: Point Bazel at the runner's Android SDK and NDK
+        run: |
+          test -n "$ANDROID_HOME" || { echo "ANDROID_HOME is not set"; exit 1; }
+          ndk="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)"
+          test -d "$ndk" || { echo "no NDK under $ANDROID_HOME/ndk"; exit 1; }
+          echo "build --repo_env=ANDROID_HOME=$ANDROID_HOME" >> ~/.bazelrc
+          echo "build --repo_env=ANDROID_NDK_HOME=$ndk" >> ~/.bazelrc
+      - name: bazel test //... (shard workspaces)
+        run: |
+          failed=""
+          for ws in $WORKSPACES; do
+            echo "::group::e2e/$ws"
+            if (cd "e2e/$ws" && bazel test //... --test_output=errors); then
+              echo "PASS e2e/$ws"
+            else
+              echo "FAIL e2e/$ws"
+              failed="$failed $ws"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "failing workspaces:$failed"
+            exit 1
+          fi
+      - name: Report cache sizes
+        if: always()
+        run: du -sh ~/.cache/bazel-disk ~/.cache/bazel-repo 2>/dev/null || true
+      - name: Delete stale disk cache key
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          ids=$(gh api "repos/$REPO/actions/caches?per_page=100" --jq '.actions_caches[] | select(.key == env.DISK_CACHE_KEY and .ref == env.REF) | .id' || true)
+          for id in $ids; do gh api -X DELETE "repos/$REPO/actions/caches/$id" >/dev/null || true; done
+      - name: Save disk cache
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref_type != 'tag' && !inputs.uncached
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.DISK_CACHE_DIR }}
+          key: ${{ env.DISK_CACHE_KEY }}
+  conclusion:
+    name: Conclusion
+    needs: [e2e-macos, e2e-linux-nightly]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fail if any job failed
+        run: echo '${{ toJSON(needs) }}' | jq -e 'with_entries(select(.value.result != "success" and .value.result != "skipped")) | length == 0'

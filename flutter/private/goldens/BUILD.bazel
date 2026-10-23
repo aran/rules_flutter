@@ -8,5 +8,9 @@ directly so it resolves `package:flutter_test` through the user's pub-managed
 
 exports_files(
     ["comparator.dart"],
-    visibility = ["//flutter:__subpackages__"],
+    # Public like rules_dart's `kernel_module` tool and
+    # `//flutter/private/tools:kernel_filter`: a rule in another module
+    # composing its own test kernel over `@rules_flutter//flutter:utils.bzl`
+    # names it through `FLUTTER_TEST_BOOTSTRAP_ATTRS`.
+    visibility = ["//visibility:public"],
 )

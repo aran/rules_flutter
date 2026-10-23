@@ -1,5 +1,6 @@
 load("@rules_dart//dart:defs.bzl", "dart_analysis_test")
 load("//flutter:defs.bzl", "flutter_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 
 # The guard on `flutter_test`'s `DartAnalyzableInfo`, in the root workspace so
 # `bazel test //...` covers it. Test sources are the files this whole provider
@@ -47,6 +48,7 @@ flutter_test(
 # `bazel test //...` never hands it to the analysis aspect; this does.
 dart_analysis_test(
     name = "analysis_test",
+    target_compatible_with = HOST_COMPATIBLE,
     targets = [
         ":fixture_test",
     ],

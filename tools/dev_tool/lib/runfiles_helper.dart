@@ -99,18 +99,16 @@ String? resolveRunfile(String path) => resolveRunfileWithManifest(path)?.path;
 bool get hasRunfilesContext => _runfiles != null;
 
 /// Resolve a runfile path and return both the resolved path and the
-/// manifest path (when one is in use). The manifest path is needed when
-/// spawning a `py_binary` subprocess so it can find its own runfiles via
-/// `RUNFILES_MANIFEST_FILE`.
+/// manifest path (when one is in use). The manifest path is forwarded to a
+/// spawned helper when that helper resolves runfiles of its own; helpers
+/// that read none ignore it.
 ResolvedRunfile? resolveRunfileWithManifest(String path) {
-  // On Windows, Bazel py_binary produces .exe — try both the given key and
-  // key.exe so callers don't need to hardcode platform-specific extensions.
-  //
-  // `.exe` FIRST, because a `py_binary` emits *both* launchers side by side:
-  // `screenshot` (the POSIX shell wrapper) and `screenshot.exe`. The bare key
-  // resolves to the shell script, which exists, so resolution succeeds and the
-  // spawn fails instead — `ProcessException: %1 is not a valid Win32
-  // application`, which reads as a corrupt binary rather than the wrong one.
+  // On Windows the executable key may need a `.exe` suffix — try that first,
+  // then the bare key, so callers don't hardcode platform-specific
+  // extensions. Suffix-first: when both keys exist, the bare one can be a
+  // non-executable stub while the real binary sits beside it, and resolving
+  // the stub succeeds only for the spawn to fail with an inscrutable
+  // platform error instead.
   final keys = Platform.isWindows && !path.endsWith('.exe')
       ? ['$path.exe', path]
       : [path];
@@ -131,9 +129,8 @@ ResolvedRunfile? resolveRunfileWithManifest(String path) {
 
 /// Return the path Bazel set via `RUNFILES_MANIFEST_FILE`, or probe for a
 /// manifest next to the running executable. Returns null when only a
-/// runfiles directory is in use (Unix default) — callers that spawn a
-/// `py_binary` subprocess should treat that as "no manifest needs
-/// forwarding"; the directory tree will be inherited via `RUNFILES_DIR`.
+/// runfiles directory is in use (Unix default) — there is then no manifest
+/// to forward; the directory tree reaches helpers through `RUNFILES_DIR`.
 ///
 /// The two probe candidates mirror `Runfiles.create` in
 /// `@rules_dart//dart/runfiles`, which cannot be reused here because it

@@ -1,0 +1,51 @@
+{
+  "comment:0": "Broken fixture: dart2js include does not reference ../dart-sdk/lib/libraries.json.",
+  "dartdevc": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dartdevc"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  },
+  "dart2js": {
+    "include": [
+      {
+        "path": "../unexpected-sdk/lib/libraries.json",
+        "target": "dart2js"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  },
+  "wasm": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "wasm"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  }
+}

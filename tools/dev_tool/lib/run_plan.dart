@@ -48,6 +48,176 @@ void assertModeCanRun(String? compilationMode, List<Device> devices) {
   }
 }
 
+/// Workspace, toolchain and build flags for a run, resolved together.
+///
+/// The native pipeline needs the frontend server and dartaotruntime out of
+/// the toolchain, and DevTools needs the toolchain's `dart` on every platform —
+/// including web, which otherwise never resolves a toolchain at all.
+///
+/// With the flags the run will build with, because the fetch analyses the
+/// target: see [resolveToolchainPaths]. The profile flag is among them, so
+/// the toolchain is resolved in the configuration the build will use.
+typedef _RunBuildInputs = ({
+  String workspace,
+  ToolchainPaths toolchain,
+  List<String> extraArgs,
+});
+
+/// Resolve the workspace root once rather than per callsite.
+///
+/// One answer avoids redundant `bazel info` spawns and gives every consumer
+/// the same one.
+Future<_RunBuildInputs> resolveRunBuildInputs(
+  ArgResults results,
+  Bazel bazel,
+  List<Device> devices, {
+  required List<String> defineFlags,
+  required bool profileMode,
+  required String? compilationMode,
+}) async {
+  final workspace = await bazel.findWorkspaceRoot();
+  final extraArgs = [
+    ...(results['build-arg'] as List<String>),
+    ...defineFlags,
+    ...devices.first.buildArgs,
+    ...modeBuildFlags(profileMode: profileMode),
+  ];
+  final toolchain = await resolveToolchainPaths(
+    results['target'] as String,
+    workspace: workspace,
+    runBazel: bazel.run,
+    buildFlags: [
+      if (compilationMode != null) ...['-c', compilationMode],
+      ...extraArgs,
+    ],
+  );
+  return (workspace: workspace, toolchain: toolchain, extraArgs: extraArgs);
+}
+
+/// Refuse devices that cannot share one build.
+///
+/// All devices must agree on platform build args: one invocation is one
+/// build, and a build cannot be for two platforms at once.
+void requireSharedBuild(List<Device> devices) {
+  final distinctBuildArgs = devices.map((d) => d.buildArgs.join(' ')).toSet();
+  if (distinctBuildArgs.length <= 1) return;
+  final details = devices
+      .where((d) => d.buildArgs.isNotEmpty)
+      .map((d) => '  ${d.name}: ${d.buildArgs.join(' ')}')
+      .join('\n');
+  throw DevToolException(
+    'Cannot build for multiple platforms in one invocation.\n$details',
+  );
+}
+
+/// Fail on a misconfigured host before spending a build on it.
+///
+/// Each device names the external programs its launch drives, so a missing
+/// `aapt2` or an unattached phone is reported here, by name, instead of
+/// surfacing later as an app that never started and a VM service that never
+/// appeared.
+Future<void> preflightDevices(List<Device> devices) async {
+  for (final device in devices) {
+    try {
+      await device.preflight();
+    } on StateError catch (e) {
+      throw DevToolException('Cannot run on ${device.name}: ${e.message}');
+    }
+  }
+}
+
+/// How [prepareDevicesForLaunch] tunes resolved devices for launch.
+///
+/// One object for the launch-time engine arguments and web settings that all
+/// travel from [RunPlan.resolve] to the devices together.
+typedef LaunchPreparation = ({
+  BuildMode buildMode,
+  bool startPaused,
+  WebOptions? webOptions,
+  String? initialRoute,
+  bool traceStartup,
+  bool allowNoVmService,
+});
+
+/// Prepare resolved devices for launch: VM-service, pause and web settings.
+void prepareDevicesForLaunch(
+  List<Device> devices,
+  Logger logger, {
+  required LaunchPreparation preparation,
+}) {
+  // Debug and profile launches await the app's Dart VM service. On Android that
+  // service can only bind if the APK holds android.permission.INTERNET —
+  // enforcement is kernel-level (AID_INET group) and applies even to
+  // 127.0.0.1 — so tell Android devices to preflight the installed package.
+  // --allow-no-vm-service opts out of requiring a VM service, so it also skips
+  // the preflight (mirroring the post-launch no-VM-service abort).
+  if (preparation.buildMode.servesVmService && !preparation.allowNoVmService) {
+    for (final device in devices.whereType<AndroidDevice>()) {
+      device.expectsVmService = true;
+    }
+  }
+
+  // Before launch, because every platform delivers this as a launch-time
+  // engine argument — an intent extra, an env switch, a trailing argv entry.
+  // There is no way to pause an app that has already started.
+  for (final device in devices) {
+    device.startPaused = preparation.startPaused;
+  }
+  // Same reason, same moment: a browser's static-bundle server is built
+  // inside `launch`, so this is the last point at which it can be told how
+  // to serve. The DDC path's server is built by the assembler from the same
+  // options, so the two cannot disagree.
+  if (preparation.webOptions != null) {
+    for (final device in devices.whereType<WebDevice>()) {
+      device.webOptions = preparation.webOptions;
+    }
+  }
+  warnStartPausedSkipsStartup(
+    logger,
+    preparation.initialRoute,
+    preparation.traceStartup,
+    preparation.startPaused,
+  );
+}
+
+/// Warn that startup calls are skipped on a start-paused run.
+void warnStartPausedSkipsStartup(
+  Logger logger,
+  String? initialRoute,
+  bool traceStartup,
+  bool startPaused,
+) {
+  if (!startPaused || (initialRoute == null && !traceStartup)) return;
+  logger.warning({
+    'message': 'start_paused_skips_startup_calls',
+    'text':
+        'A paused app has no framework yet, so '
+        '${[if (initialRoute != null) '--route', if (traceStartup) '--trace-startup'].join(' and ')} '
+        'cannot be applied at launch and are skipped for this run.',
+  });
+}
+
+/// The resolved values [RunPlan._assemblePlan] stores in a plan.
+///
+/// One object for everything [RunPlan.resolve] computes before assembling:
+/// the build inputs, the flags, the devices, and the run's bazel.
+typedef AssembledPlan = ({
+  Bazel bazel,
+  String target,
+  _RunBuildInputs resolved,
+  String? compilationMode,
+  List<Device> devices,
+  bool hotReloadEnabled,
+  bool profileMode,
+  String? initialRoute,
+  bool traceStartup,
+  bool startPaused,
+  bool isMachine,
+  bool allowNoVmService,
+  WebMode? webMode,
+  WebOptions? webOptions,
+});
+
 class RunPlan {
   final String target;
 
@@ -295,6 +465,60 @@ class RunPlan {
   /// Throws [DevToolException] for anything that makes the run impossible: a
   /// misconfigured host, devices that cannot share one build, a mode a device
   /// cannot run. All of it before a build is spent on it.
+  /// The build mode for the run, applied to every device.
+  ///
+  /// Before the preflight: the mode decides which host tools a launch needs
+  /// (an iOS device attaches lldb to a debug app only), as well as how it
+  /// launches.
+  static BuildMode applyBuildMode(
+    List<Device> devices, {
+    required bool profileMode,
+    required String? compilationMode,
+  }) {
+    final buildMode = buildModeFor(
+      profileMode: profileMode,
+      compilationMode: compilationMode,
+    );
+    for (final device in devices) {
+      device.buildMode = buildMode;
+    }
+    return buildMode;
+  }
+
+  /// Assemble the plan from everything [resolve] computed.
+  static RunPlan _assemblePlan(
+    ArgResults results,
+    Logger logger, {
+    required AssembledPlan plan,
+  }) {
+    return RunPlan._(
+      target: plan.target,
+      extraArgs: plan.resolved.extraArgs,
+      userBuildArgs: results['build-arg'] as List<String>,
+      compilationMode: plan.compilationMode,
+      devices: plan.devices,
+      workspace: plan.resolved.workspace,
+      toolchain: plan.resolved.toolchain,
+      hotReloadEnabled: plan.hotReloadEnabled,
+      profileMode: plan.profileMode,
+      initialRoute: plan.initialRoute,
+      traceStartup: plan.traceStartup,
+      startPaused: plan.startPaused,
+      isMachine: plan.isMachine,
+      // Terminal: watch by default. Machine: don't — a client that drives
+      // reloads itself does not want the filesystem doing it too.
+      watchEnabled: watchEnabledFor(results, isMachine: plan.isMachine),
+      wasmMode: results['wasm'] as bool,
+      devToolsEnabled: results['devtools'] as bool,
+      httpChannelEnabled: results['http-control-channel'] as bool,
+      allowNoVmService: plan.allowNoVmService,
+      webMode: plan.webMode,
+      webOptions: plan.webOptions,
+      logger: logger,
+      bazel: plan.bazel,
+    );
+  }
+
   static Future<RunPlan> resolve(
     ArgResults results,
     Logger logger, {
@@ -321,30 +545,13 @@ class RunPlan {
       results['device'] as List<String>,
     );
 
-    // Resolve the workspace root once rather than per callsite: it avoids
-    // redundant `bazel info` spawns and gives every consumer the same answer.
-    final workspace = await bazel.findWorkspaceRoot();
-    // The native pipeline needs the frontend server and dartaotruntime out of
-    // this, and DevTools needs the toolchain's `dart` on every platform —
-    // including web, which otherwise never resolves a toolchain at all.
-    //
-    // With the flags the run will build with, because the fetch analyses the
-    // target: see [resolveToolchainPaths]. The profile flag is among them, so
-    // the toolchain is resolved in the configuration the build will use.
-    final extraArgs = [
-      ...(results['build-arg'] as List<String>),
-      ...defineFlags,
-      ...devices.first.buildArgs,
-      ...modeBuildFlags(profileMode: profileMode),
-    ];
-    final toolchain = await resolveToolchainPaths(
-      target,
-      workspace: workspace,
-      runBazel: bazel.run,
-      buildFlags: [
-        if (compilationMode != null) ...['-c', compilationMode],
-        ...extraArgs,
-      ],
+    final resolved = await resolveRunBuildInputs(
+      results,
+      bazel,
+      devices,
+      defineFlags: defineFlags,
+      profileMode: profileMode,
+      compilationMode: compilationMode,
     );
 
     // What shape of web run this is, and what the web flags mean for it —
@@ -367,106 +574,48 @@ class RunPlan {
       'devices': devices.map((d) => d.name).toList(),
     });
 
-    // All devices must agree on platform build args: one invocation is one
-    // build, and a build cannot be for two platforms at once.
-    final distinctBuildArgs = devices.map((d) => d.buildArgs.join(' ')).toSet();
-    if (distinctBuildArgs.length > 1) {
-      final details = devices
-          .where((d) => d.buildArgs.isNotEmpty)
-          .map((d) => '  ${d.name}: ${d.buildArgs.join(' ')}')
-          .join('\n');
-      throw DevToolException(
-        'Cannot build for multiple platforms in one invocation.\n$details',
-      );
-    }
+    requireSharedBuild(devices);
 
-    // Before the preflight: the mode decides which host tools a launch needs
-    // (an iOS device attaches lldb to a debug app only), as well as how it
-    // launches.
-    final buildMode = buildModeFor(
+    final buildMode = applyBuildMode(
+      devices,
       profileMode: profileMode,
       compilationMode: compilationMode,
     );
-    for (final device in devices) {
-      device.buildMode = buildMode;
-    }
 
-    // Fail on a misconfigured host before spending a build on it. Each device
-    // names the external programs its launch drives, so a missing `aapt2` or an
-    // unattached phone is reported here, by name, instead of surfacing later as
-    // an app that never started and a VM service that never appeared.
-    for (final device in devices) {
-      try {
-        await device.preflight();
-      } on StateError catch (e) {
-        throw DevToolException('Cannot run on ${device.name}: ${e.message}');
-      }
-    }
-
+    await preflightDevices(devices);
     assertModeCanRun(compilationMode, devices);
+    prepareDevicesForLaunch(
+      devices,
+      logger,
+      preparation: (
+        buildMode: buildMode,
+        startPaused: startPaused,
+        webOptions: webOptions,
+        initialRoute: initialRoute,
+        traceStartup: traceStartup,
+        allowNoVmService: allowNoVmService,
+      ),
+    );
 
-    // Debug and profile launches await the app's Dart VM service. On Android that
-    // service can only bind if the APK holds android.permission.INTERNET —
-    // enforcement is kernel-level (AID_INET group) and applies even to
-    // 127.0.0.1 — so tell Android devices to preflight the installed package.
-    // --allow-no-vm-service opts out of requiring a VM service, so it also skips
-    // the preflight (mirroring the post-launch no-VM-service abort).
-    if (buildMode.servesVmService && !allowNoVmService) {
-      for (final device in devices.whereType<AndroidDevice>()) {
-        device.expectsVmService = true;
-      }
-    }
-
-    // Before launch, because every platform delivers this as a launch-time
-    // engine argument — an intent extra, an env switch, a trailing argv entry.
-    // There is no way to pause an app that has already started.
-    for (final device in devices) {
-      device.startPaused = startPaused;
-    }
-    // Same reason, same moment: a browser's static-bundle server is built
-    // inside `launch`, so this is the last point at which it can be told how
-    // to serve. The DDC path's server is built by the assembler from the same
-    // options, so the two cannot disagree.
-    if (webOptions != null) {
-      for (final device in devices.whereType<WebDevice>()) {
-        device.webOptions = webOptions;
-      }
-    }
-    if (startPaused && (initialRoute != null || traceStartup)) {
-      logger.warning({
-        'message': 'start_paused_skips_startup_calls',
-        'text':
-            'A paused app has no framework yet, so '
-            '${[if (initialRoute != null) '--route', if (traceStartup) '--trace-startup'].join(' and ')} '
-            'cannot be applied at launch and are skipped for this run.',
-      });
-    }
-
-    return RunPlan._(
-      target: target,
-      extraArgs: extraArgs,
-      userBuildArgs: results['build-arg'] as List<String>,
-      compilationMode: compilationMode,
-      devices: devices,
-      workspace: workspace,
-      toolchain: toolchain,
-      hotReloadEnabled: hotReloadEnabled,
-      profileMode: profileMode,
-      initialRoute: initialRoute,
-      traceStartup: traceStartup,
-      startPaused: startPaused,
-      isMachine: isMachine,
-      // Terminal: watch by default. Machine: don't — a client that drives
-      // reloads itself does not want the filesystem doing it too.
-      watchEnabled: watchEnabledFor(results, isMachine: isMachine),
-      wasmMode: results['wasm'] as bool,
-      devToolsEnabled: results['devtools'] as bool,
-      httpChannelEnabled: results['http-control-channel'] as bool,
-      allowNoVmService: allowNoVmService,
-      webMode: webMode,
-      webOptions: webOptions,
-      logger: logger,
-      bazel: bazel,
+    return _assemblePlan(
+      results,
+      logger,
+      plan: (
+        bazel: bazel,
+        target: target,
+        resolved: resolved,
+        compilationMode: compilationMode,
+        devices: devices,
+        hotReloadEnabled: hotReloadEnabled,
+        profileMode: profileMode,
+        initialRoute: initialRoute,
+        traceStartup: traceStartup,
+        startPaused: startPaused,
+        isMachine: isMachine,
+        allowNoVmService: allowNoVmService,
+        webMode: webMode,
+        webOptions: webOptions,
+      ),
     );
   }
 

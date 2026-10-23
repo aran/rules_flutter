@@ -1,0 +1,72 @@
+"""Fixture targets for the package-relative asset-key tests.
+
+Every target here exists only for `//flutter/tests:asset_keys_test`; all are
+`manual` so wildcard builds stay green (some fixtures fail analysis on
+purpose).
+"""
+
+load("//flutter:defs.bzl", "flutter_application", "flutter_library")
+
+package(
+    default_visibility = ["//flutter/tests:__pkg__"],
+)
+
+flutter_library(
+    name = "brand",
+    package_name = "brand",
+    srcs = ["lib.dart"],
+    assets = ["assets/brand.txt"],
+    tags = ["manual"],
+)
+
+flutter_library(
+    name = "brand_consumer",
+    package_name = "consumer",
+    srcs = ["lib.dart"],
+    tags = ["manual"],
+    deps = [":brand"],
+)
+
+flutter_application(
+    name = "colliding_bundle",
+    package_name = "colliding",
+    srcs = ["lib.dart"],
+    main = "lib.dart",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/asset_keys_fixture/coll:dup_b",
+        "//flutter/tests/asset_keys_fixture/coll_a:dup_a",
+    ],
+)
+
+flutter_library(
+    name = "gen_lib",
+    package_name = "genlib",
+    srcs = ["lib.dart"],
+    assets = [":gen_asset"],
+    tags = ["manual"],
+)
+
+genrule(
+    name = "gen_asset",
+    outs = ["gen_asset.txt"],
+    cmd = "echo generated > $@",
+    tags = ["manual"],
+)
+
+flutter_application(
+    name = "outside_bundle",
+    package_name = "outside",
+    srcs = ["lib.dart"],
+    assets = ["//flutter/tests/asset_keys_sibling:asset.txt"],
+    main = "lib.dart",
+    tags = ["manual"],
+)
+
+flutter_library(
+    name = "outside_lib",
+    package_name = "outside",
+    srcs = ["lib.dart"],
+    assets = ["//flutter/tests/asset_keys_sibling:asset.txt"],
+    tags = ["manual"],
+)

@@ -6,8 +6,10 @@ load(
     "dart_sdk_artifact_path",
     "desktop_engine_artifact_path",
     "engine_artifact_url",
+    "flutter_source_tarball_url",
     "gen_snapshot_cross_artifact_path",
     "host_artifacts_path",
+    "source_strip_prefix",
 )
 
 def _engine_artifact_url_test_impl(ctx):
@@ -92,5 +94,52 @@ _t2_test = unittest.make(_gen_snapshot_path_test_impl)
 _t3_test = unittest.make(_host_artifacts_path_test_impl)
 _t4_test = unittest.make(_desktop_engine_artifact_path_test_impl)
 
+def _engine_artifact_url_base_override_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(
+        env,
+        "https://eng.example.com/abc123/flutter_patched_sdk.zip",
+        engine_artifact_url("abc123", "flutter_patched_sdk.zip", "https://eng.example.com"),
+    )
+    asserts.equals(
+        env,
+        "https://storage.googleapis.com/flutter_infra_release/flutter/abc123/flutter_patched_sdk.zip",
+        engine_artifact_url("abc123", "flutter_patched_sdk.zip", ""),
+    )
+    return unittest.end(env)
+
+def _source_tarball_url_override_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(
+        env,
+        "https://github.com/flutter/flutter/archive/refs/tags/3.47.7.tar.gz",
+        flutter_source_tarball_url("3.47.7"),
+    )
+    asserts.equals(
+        env,
+        "https://eng.example.com/flutter-3.47.70.tar.gz",
+        flutter_source_tarball_url("3.47.70", "https://eng.example.com/flutter-3.47.70.tar.gz"),
+    )
+    return unittest.end(env)
+
+def _source_strip_prefix_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(env, "flutter-3.47.7/", source_strip_prefix("3.47.7"))
+    asserts.equals(
+        env,
+        "flutter-3.47.7/",
+        source_strip_prefix("3.47.70", "https://github.com/flutter/flutter/archive/refs/tags/3.47.7.tar.gz"),
+    )
+    asserts.equals(
+        env,
+        "flutter-3.47.70/",
+        source_strip_prefix("3.47.70", "https://eng.example.com/flutter-3.47.70.tar.gz"),
+    )
+    return unittest.end(env)
+
+_t5_test = unittest.make(_engine_artifact_url_base_override_test_impl)
+_t6_test = unittest.make(_source_tarball_url_override_test_impl)
+_t7_test = unittest.make(_source_strip_prefix_test_impl)
+
 def artifact_urls_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test)

@@ -564,14 +564,16 @@ void main() {
 
       Future<CompileResult> compileExpression({String expression = 'a + b'}) {
         return server.compileExpressionToJs(
-          libraryUri: 'package:app/main.dart',
-          scriptUri: 'org-dartlang-app:/web_entrypoint.dart',
-          line: 12,
-          column: 4,
-          jsModules: const {'dart': 'dart_sdk'},
-          jsFrameValues: const {'x': '1'},
-          moduleName: 'packages/app/main.dart',
-          expression: expression,
+          (
+            libraryUri: 'package:app/main.dart',
+            scriptUri: 'org-dartlang-app:/web_entrypoint.dart',
+            line: 12,
+            column: 4,
+            jsModules: const {'dart': 'dart_sdk'},
+            jsFrameValues: const {'x': '1'},
+            moduleName: 'packages/app/main.dart',
+            expression: expression,
+          ),
         );
       }
 

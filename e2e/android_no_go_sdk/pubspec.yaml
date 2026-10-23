@@ -1,0 +1,9 @@
+name: android_no_go_sdk
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter

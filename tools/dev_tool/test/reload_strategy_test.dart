@@ -443,6 +443,33 @@ void main() {
       },
     );
 
+    test('a failed DWDS reload is rejected and logged', () async {
+      final service = FakeVmService(isolates: [isolate])..throwOnReload = true;
+      final s = strategy();
+      await s.attachVmService(service);
+
+      final records = <logging.LogRecord>[];
+      final rootLevel = logging.Logger.root.level;
+      logging.Logger.root.level = logging.Level.ALL;
+      final sub = logging.Logger.root.onRecord.listen(records.add);
+      StrategyOutcome outcome;
+      try {
+        outcome = await s.applyReload(compiled, []);
+      } finally {
+        await sub.cancel();
+        logging.Logger.root.level = rootLevel;
+      }
+
+      expect(outcome, isA<StrategyRejected>());
+      expect(outcome.message, contains('DWDS hot reload failed'));
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.reload')
+            .map((r) => '${r.message}'),
+        contains(contains('dwds_hot_reload_failed')),
+      );
+    });
+
     // The window: the page has connected, so there is a VM service and an
     // isolate, but the framework has not registered its extensions yet.
     // Evicting into that gap does nothing, and must not be reported as the page
@@ -631,6 +658,39 @@ void main() {
     });
 
     test(
+      'an eviction that throws unexpectedly is rejected and logged',
+      () async {
+        final service = FakeVmService(isolates: [isolate])
+          ..extensionErrors['ext.flutter.evict'] = StateError(
+            'connection reset',
+          );
+        final s = strategy();
+        await s.attachVmService(service);
+
+        final records = <logging.LogRecord>[];
+        final rootLevel = logging.Logger.root.level;
+        logging.Logger.root.level = logging.Level.ALL;
+        final sub = logging.Logger.root.onRecord.listen(records.add);
+        StrategyOutcome outcome;
+        try {
+          outcome = await s.applyAssets({'assets/a.png'}, []);
+        } finally {
+          await sub.cancel();
+          logging.Logger.root.level = rootLevel;
+        }
+
+        expect(outcome, isA<StrategyRejected>());
+        expect(outcome.message, contains('evicting the changed assets failed'));
+        expect(
+          records
+              .where((r) => r.loggerName == 'dev_tool.reload')
+              .map((r) => '${r.message}'),
+          contains(contains('dwds_evict_failed')),
+        );
+      },
+    );
+
+    test(
       'sends a font change back for a restart instead of claiming success',
       () async {
         // The web engine registers fonts once during binding init and exposes no
@@ -754,6 +814,38 @@ void main() {
           expect(second, isA<StrategyApplied>());
         },
       );
+
+      test('a failed first navigation is rejected and logged', () async {
+        final (:strategy, server: _) = dwds(
+          programAlreadyServed: false,
+          loadFirstProgram: () async =>
+              throw StateError('no debuggable CDP page target'),
+        );
+
+        final records = <logging.LogRecord>[];
+        final rootLevel = logging.Logger.root.level;
+        logging.Logger.root.level = logging.Level.ALL;
+        final sub = logging.Logger.root.onRecord.listen(records.add);
+        StrategyOutcome outcome;
+        try {
+          outcome = await strategy.applyRestart(compiled, []);
+        } finally {
+          await sub.cancel();
+          logging.Logger.root.level = rootLevel;
+        }
+
+        expect(outcome, isA<StrategyRejected>());
+        expect(
+          outcome.message,
+          contains('the page had no program yet and could not be loaded'),
+        );
+        expect(
+          records
+              .where((r) => r.loggerName == 'dev_tool.reload')
+              .map((r) => '${r.message}'),
+          contains(contains('dwds_first_load_failed')),
+        );
+      });
 
       test(
         'a restart stops navigating once the page has connected',
@@ -1228,6 +1320,38 @@ void main() {
         await browser.stop();
       },
     );
+
+    test('a rebuild that throws is rejected and logged', () async {
+      final browser = await _FakeCdpBrowser.start();
+      final strategy = WasmReloadStrategy(
+        cdpPort: browser.port,
+        appUrl: browser.appUrl,
+        rebuild: () async => throw StateError('bazel died'),
+      );
+
+      final records = <logging.LogRecord>[];
+      final rootLevel = logging.Logger.root.level;
+      logging.Logger.root.level = logging.Level.ALL;
+      final sub = logging.Logger.root.onRecord.listen(records.add);
+      StrategyOutcome outcome;
+      try {
+        outcome = await strategy.applyRestart(compiled, const []);
+      } finally {
+        await sub.cancel();
+        logging.Logger.root.level = rootLevel;
+      }
+
+      expect(outcome.isSuccess, isFalse);
+      expect(outcome.message, contains('WASM hot restart failed'));
+      expect(browser.received, isEmpty);
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.reload')
+            .map((r) => '${r.message}'),
+        contains(contains('wasm_restart_failed')),
+      );
+      await browser.stop();
+    });
 
     test(
       'a successful rebuild reloads the page and reports it applied',

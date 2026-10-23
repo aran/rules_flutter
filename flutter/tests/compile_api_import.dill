@@ -1,0 +1,4 @@
+This file is a stub for analysis tests only: it stands in for a
+pre-compiled summary passed as `import_dill` to `flutter_kernel_compile_action`.
+Analysis tests never execute the compile, so its bytes are never read as a
+dill. No `build_test` target sets `import_dill`.

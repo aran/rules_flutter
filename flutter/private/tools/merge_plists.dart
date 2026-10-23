@@ -214,61 +214,87 @@ List<PlistEntry> parsePlist(String xml, String path) {
   final scanner = _Scanner(xml, path);
   scanner.skipInsignificant();
   if (scanner.atEnd) _reject(path, 'the file has no <plist> root element.');
+  if (_openRootDict(scanner)) return [];
 
+  final entries = <PlistEntry>[];
+  final seen = <String>{};
+  while (true) {
+    final entry = _readRootEntry(scanner, seen);
+    if (entry == null) return entries;
+    entries.add(entry);
+  }
+}
+
+/// Consumes the `<plist>` root tag and its `<dict>` child tag. Returns true
+/// when a self-closing tag makes the merge trivially empty.
+bool _openRootDict(_Scanner scanner) {
   final (rootName, rootSelfClosing, rootIsEnd) = scanner.readTag();
   if (rootIsEnd || rootName != 'plist') {
-    _reject(path, 'the root element must be <plist>, found <$rootName>.');
+    _reject(
+      scanner.path,
+      'the root element must be <plist>, found <$rootName>.',
+    );
   }
-  if (rootSelfClosing) return [];
+  if (rootSelfClosing) return true;
 
   scanner.skipInsignificant();
   final (dictName, dictSelfClosing, dictIsEnd) = scanner.readTag();
   if (dictIsEnd || dictName != 'dict') {
     _reject(
-      path,
+      scanner.path,
       'the <plist> root must contain a <dict>, found <$dictName>. '
       'Entitlements and Info.plist files are always dictionaries.',
     );
   }
-  if (dictSelfClosing) return [];
+  return dictSelfClosing;
+}
 
-  final entries = <PlistEntry>[];
-  final seen = <String>{};
-  while (true) {
-    scanner.skipInsignificant();
-    if (scanner.atEnd) _reject(path, 'the root <dict> is never closed.');
-    final save = scanner.pos;
-    final (name, selfClosing, isEnd) = scanner.readTag();
-    if (isEnd) {
-      if (name != 'dict') _reject(path, 'unexpected close tag </$name>.');
-      return entries;
-    }
-    if (name != 'key') {
-      _reject(
-        path,
-        'expected a <key> in the root <dict>, found <$name>. Every value '
-        'in a plist dictionary must be preceded by its key.',
-      );
-    }
-    if (selfClosing) _reject(path, 'found an empty <key/> with no name.');
-    final key = scanner.readText().trim();
-    final (closeName, _, closeIsEnd) = scanner.readTag();
-    if (!closeIsEnd || closeName != 'key') {
-      _reject(path, 'the <key> at offset $save is not closed by </key>.');
-    }
-    if (key.isEmpty) _reject(path, 'found a <key></key> with an empty name.');
-    if (!seen.add(key)) {
-      _reject(path, 'the root <dict> declares the key "$key" twice.');
-    }
-
-    scanner.skipInsignificant();
-    if (scanner.atEnd ||
-        scanner.text[scanner.pos] != '<' ||
-        scanner.text.startsWith('</', scanner.pos)) {
-      _reject(path, 'the key "$key" has no value element.');
-    }
-    entries.add(PlistEntry(key, scanner.readElement()));
+/// Reads one `<key>`/value pair from the root `<dict>`, or null at `</dict>`.
+PlistEntry? _readRootEntry(_Scanner scanner, Set<String> seen) {
+  scanner.skipInsignificant();
+  if (scanner.atEnd) {
+    _reject(scanner.path, 'the root <dict> is never closed.');
   }
+  final save = scanner.pos;
+  final (name, selfClosing, isEnd) = scanner.readTag();
+  if (isEnd) {
+    if (name != 'dict') {
+      _reject(scanner.path, 'unexpected close tag </$name>.');
+    }
+    return null;
+  }
+  if (name != 'key') {
+    _reject(
+      scanner.path,
+      'expected a <key> in the root <dict>, found <$name>. Every value '
+      'in a plist dictionary must be preceded by its key.',
+    );
+  }
+  if (selfClosing) {
+    _reject(scanner.path, 'found an empty <key/> with no name.');
+  }
+  final key = scanner.readText().trim();
+  final (closeName, _, closeIsEnd) = scanner.readTag();
+  if (!closeIsEnd || closeName != 'key') {
+    _reject(
+      scanner.path,
+      'the <key> at offset $save is not closed by </key>.',
+    );
+  }
+  if (key.isEmpty) {
+    _reject(scanner.path, 'found a <key></key> with an empty name.');
+  }
+  if (!seen.add(key)) {
+    _reject(scanner.path, 'the root <dict> declares the key "$key" twice.');
+  }
+
+  scanner.skipInsignificant();
+  if (scanner.atEnd ||
+      scanner.text[scanner.pos] != '<' ||
+      scanner.text.startsWith('</', scanner.pos)) {
+    _reject(scanner.path, 'the key "$key" has no value element.');
+  }
+  return PlistEntry(key, scanner.readElement());
 }
 
 /// The `<string>` items of an `<array>` element's verbatim XML, or null when
@@ -338,45 +364,69 @@ List<PlistEntry> mergeEntries({
 
   for (final (additionPath, entries) in additions) {
     for (final entry in entries) {
-      final existing = merged[entry.key];
-      if (existing == null) {
-        merged[entry.key] = entry;
-        order.add(entry.key);
-        origin[entry.key] = additionPath;
-        continue;
-      }
-      if (_normalize(existing.rawValue) == _normalize(entry.rawValue)) {
-        continue;
-      }
-      switch (mode) {
-        case MergeMode.strictAdd:
-          throw PlistFormatException(
-            'Conflicting value for plist key "${entry.key}":\n'
-            '  ${origin[entry.key]} declares ${_normalize(existing.rawValue)}\n'
-            '  $additionPath declares ${_normalize(entry.rawValue)}\n'
-            'Additions may only add keys, never change one the base '
-            'already sets. Edit the base file if the existing value is '
-            'wrong, or drop the key from the addition.',
-          );
-        case MergeMode.supplement:
-          final baseItems = _stringArrayItems(existing.rawValue);
-          final additionItems = _stringArrayItems(entry.rawValue);
-          if (baseItems != null && additionItems != null) {
-            final union = <String>[...baseItems];
-            for (final item in additionItems) {
-              if (!union.contains(item)) union.add(item);
-            }
-            merged[entry.key] = PlistEntry(
-              entry.key,
-              _renderStringArray(union),
-            );
-          }
-        // Otherwise the base wins and the addition is dropped.
-      }
+      _mergeAdditionEntry(
+        merged: merged,
+        order: order,
+        origin: origin,
+        entry: entry,
+        additionPath: additionPath,
+        mode: mode,
+      );
     }
   }
 
   return [for (final key in order) merged[key]!];
+}
+
+/// Merges one addition entry into [merged] under [mode].
+void _mergeAdditionEntry({
+  required Map<String, PlistEntry> merged,
+  required List<String> order,
+  required Map<String, String> origin,
+  required PlistEntry entry,
+  required String additionPath,
+  required MergeMode mode,
+}) {
+  final existing = merged[entry.key];
+  if (existing == null) {
+    merged[entry.key] = entry;
+    order.add(entry.key);
+    origin[entry.key] = additionPath;
+    return;
+  }
+  if (_normalize(existing.rawValue) == _normalize(entry.rawValue)) {
+    return;
+  }
+  switch (mode) {
+    case MergeMode.strictAdd:
+      throw PlistFormatException(
+        'Conflicting value for plist key "${entry.key}":\n'
+        '  ${origin[entry.key]} declares ${_normalize(existing.rawValue)}\n'
+        '  $additionPath declares ${_normalize(entry.rawValue)}\n'
+        'Additions may only add keys, never change one the base '
+        'already sets. Edit the base file if the existing value is '
+        'wrong, or drop the key from the addition.',
+      );
+    case MergeMode.supplement:
+      final unioned = _unionStringArrays(existing.rawValue, entry.rawValue);
+      if (unioned != null) {
+        merged[entry.key] = PlistEntry(entry.key, unioned);
+      }
+    // Otherwise the base wins and the addition is dropped.
+  }
+}
+
+/// Unions two `<array>` string values, base entries first, or null when
+/// either value is not an array of plain strings (then the base wins).
+String? _unionStringArrays(String baseValue, String additionValue) {
+  final baseItems = _stringArrayItems(baseValue);
+  final additionItems = _stringArrayItems(additionValue);
+  if (baseItems == null || additionItems == null) return null;
+  final union = <String>[...baseItems];
+  for (final item in additionItems) {
+    if (!union.contains(item)) union.add(item);
+  }
+  return _renderStringArray(union);
 }
 
 String renderPlist(List<PlistEntry> entries) {

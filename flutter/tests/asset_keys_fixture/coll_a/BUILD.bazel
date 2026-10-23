@@ -1,0 +1,15 @@
+"""Third fixture package: the other half of the key collision."""
+
+load("//flutter:defs.bzl", "flutter_library")
+
+package(
+    default_visibility = ["//flutter/tests/asset_keys_fixture:__pkg__"],
+)
+
+flutter_library(
+    name = "dup_a",
+    package_name = "dup",
+    srcs = ["lib.dart"],
+    assets = ["assets/dup.txt"],
+    tags = ["manual"],
+)

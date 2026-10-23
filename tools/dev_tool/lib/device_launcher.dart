@@ -22,6 +22,14 @@ import 'session.dart';
 import 'session_host.dart';
 import 'vm_service_client.dart';
 
+/// What the VM-service connect produced: the client, the owned DDS, and why
+/// there is no client.
+typedef _VmConnection = ({
+  VmServiceClient? client,
+  DartDevelopmentService? dds,
+  String? failureReason,
+});
+
 class DeviceLauncher {
   final RunPlan plan;
   final SessionHost host;
@@ -41,6 +49,7 @@ class DeviceLauncher {
   /// native launch produced no VM service connection — that session has no hot
   /// reload, no DevTools and no agent control, which is broken rather than
   /// merely degraded. `--allow-no-vm-service` opts into continuing anyway.
+
   Future<DeviceSession> launch(Device device) async {
     final appId = '${plan.target}_${device.name}'.replaceAll(
       RegExp(r'[^a-zA-Z0-9]'),
@@ -64,6 +73,48 @@ class DeviceLauncher {
       'device': device.name,
     });
 
+    final appInstance = await _launchAppInstance(device, appId);
+    _announceWebUrl(device, appId);
+    final connection = await _connectVmService(device, appId, appInstance);
+    final vmClient = connection.client;
+    final dds = connection.dds;
+    await _ensureVmService(
+      device,
+      appInstance,
+      vmClient,
+      connection.failureReason,
+    );
+    await _applyLaunchOptions(device, vmClient);
+    await _verifyStartPaused(device, vmClient);
+
+    host.protocol.appStarted(appId);
+    host.announceSession(appId);
+    final deviceSession = DeviceSession(
+      device: device,
+      appInstance: appInstance,
+      vmClient: vmClient,
+      appId: appId,
+      dds: dds,
+    );
+    host.sessions.add(deviceSession);
+
+    // Started here and deliberately not awaited. `app.started` has just gone
+    // out and it means what upstream means by it — the app's process is up and
+    // its debug link answers — but the app has not necessarily painted, and on
+    // a physical device it will not for another minute. Commands wait on the
+    // gate this settles; the run itself must not, or every launch would sit
+    // out that minute before the session loop existed.
+    unawaited(deviceSession.waitUntilDrivable(host.protocol));
+
+    await host.teardown.add(() => deviceSession.shutdown(host.protocol));
+    return deviceSession;
+  }
+
+  /// Start the app process, attaching the log sink first.
+  ///
+  /// Registers the launch abandoner before starting, so a teardown racing
+  /// the launch still stops it.
+  Future<AppInstance> _launchAppInstance(Device device, String appId) async {
     // Attached before the launch so startup output — including whatever an
     // app prints on its way to crashing before it ever binds a VM service —
     // is visible as it happens rather than after discovery gives up.
@@ -83,7 +134,11 @@ class DeviceLauncher {
     } on StateError catch (e) {
       throw DevToolException('Launch failed on ${device.name}: ${e.message}');
     }
+    return appInstance;
+  }
 
+  /// Announce the served URL the moment it exists, on web runs.
+  void _announceWebUrl(Device device, String appId) {
     // The served URL, the moment it exists — before the VM-service connect
     // below, which on a browser can take a cold Chrome's worth of seconds, and
     // before `app.started`.
@@ -130,7 +185,66 @@ class DeviceLauncher {
         webSocketDebuggerUrl: page,
       );
     }
+  }
 
+  /// Connect to the VM service through DDS, retrying a slow browser.
+  ///
+  /// A null client means the service never answered; the reason says why.
+  Future<({VmServiceClient? client, String? failureReason})> _connectWithRetry(
+    Device device,
+    Uri serviceUri,
+  ) async {
+    VmServiceClient? vmClient;
+    String? failureReason;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      vmClient = VmServiceClient();
+      try {
+        await vmClient.connect(serviceUri);
+        plan.logger.info({
+          'message': 'vm_service_connected',
+          'text': 'Connected to VM service (${device.name}).',
+          'device': device.name,
+        });
+        break;
+      } catch (e) {
+        if (attempt < 4) {
+          plan.logger.fine({
+            'message': 'vm_service_retry',
+            'text': 'VM service connect attempt ${attempt + 1} failed: $e',
+            'attempt': attempt + 1,
+            'error': '$e',
+          });
+          await Future<void>.delayed(const Duration(seconds: 1));
+        } else {
+          failureReason =
+              'could not connect to the VM service at $serviceUri '
+              'after 5 attempts: $e';
+          plan.logger.severe({
+            'message': 'vm_service_connect_failed',
+            'text':
+                'Could not connect to the VM service on ${device.name} '
+                'after 5 attempts: $e. Hot reload, DevTools, and agent '
+                'control will be unavailable.',
+            'device': device.name,
+            'uri': serviceUri.toString(),
+            'error': '$e',
+          });
+          vmClient = null;
+        }
+      }
+    }
+    return (client: vmClient, failureReason: failureReason);
+  }
+
+  /// Connect to the VM service, owning a DDS for it. Web has none.
+  ///
+  /// Never throws: a launch without a VM service is reported through the
+  /// returned reason, and [_ensureVmService] decides what that means.
+  Future<_VmConnection> _connectVmService(
+    Device device,
+    String appId,
+    AppInstance appInstance,
+  ) async {
     // Connect to VM service (native devices only; web has no VM service).
     //
     // We OWN DDS: start a Dart Development Service on the app's raw VM
@@ -176,43 +290,9 @@ class DeviceLauncher {
           ),
           serviceUri,
         );
-        for (var attempt = 0; attempt < 5; attempt++) {
-          vmClient = VmServiceClient();
-          try {
-            await vmClient.connect(serviceUri);
-            plan.logger.info({
-              'message': 'vm_service_connected',
-              'text': 'Connected to VM service (${device.name}).',
-              'device': device.name,
-            });
-            break;
-          } catch (e) {
-            if (attempt < 4) {
-              plan.logger.fine({
-                'message': 'vm_service_retry',
-                'text': 'VM service connect attempt ${attempt + 1} failed: $e',
-                'attempt': attempt + 1,
-                'error': '$e',
-              });
-              await Future<void>.delayed(const Duration(seconds: 1));
-            } else {
-              vmFailureReason =
-                  'could not connect to the VM service at $serviceUri '
-                  'after 5 attempts: $e';
-              plan.logger.severe({
-                'message': 'vm_service_connect_failed',
-                'text':
-                    'Could not connect to the VM service on ${device.name} '
-                    'after 5 attempts: $e. Hot reload, DevTools, and agent '
-                    'control will be unavailable.',
-                'device': device.name,
-                'uri': serviceUri.toString(),
-                'error': '$e',
-              });
-              vmClient = null;
-            }
-          }
-        }
+        final connected = await _connectWithRetry(device, serviceUri);
+        vmClient = connected.client;
+        vmFailureReason = connected.failureReason ?? vmFailureReason;
       }
     } else if (!plan.isWebDevice) {
       vmFailureReason = 'no VM service URI was discovered at launch';
@@ -225,6 +305,19 @@ class DeviceLauncher {
       });
     }
 
+    return (client: vmClient, dds: dds, failureReason: vmFailureReason);
+  }
+
+  /// Abort a VM-service-less native session, unless opted out.
+  ///
+  /// A release build that never served one is exempt; anything else without
+  /// a client is broken rather than degraded.
+  Future<void> _ensureVmService(
+    Device device,
+    AppInstance appInstance,
+    VmServiceClient? vmClient,
+    String? vmFailureReason,
+  ) async {
     // A native session without a vmClient has no hot reload, no DevTools,
     // and no agent control — it is broken, not merely degraded. Abort by
     // default; --allow-no-vm-service opts into continuing anyway. A release
@@ -265,7 +358,16 @@ class DeviceLauncher {
         );
       }
     }
+  }
 
+  /// Apply the launch-time options that could only be applied now.
+  ///
+  /// Skipped while start-paused: the extension is registered by the
+  /// framework binding, which has not run yet.
+  Future<void> _applyLaunchOptions(
+    Device device,
+    VmServiceClient? vmClient,
+  ) async {
     // Push initial route if specified. Not while paused: the extension is
     // registered by the framework's binding, which has not run, so the call
     // would fail and the message would blame the route.
@@ -307,7 +409,13 @@ class DeviceLauncher {
         });
       }
     }
+  }
 
+  /// Report whether --start-paused took, after seeing it paused.
+  Future<void> _verifyStartPaused(
+    Device device,
+    VmServiceClient? vmClient,
+  ) async {
     // Say it is paused only after seeing it paused. The switch travels a
     // different way on every platform — an intent extra, an env variable, a
     // trailing argv entry — and a target that ignored it would otherwise
@@ -346,27 +454,5 @@ class DeviceLauncher {
           });
       }
     }
-
-    host.protocol.appStarted(appId);
-    host.announceSession(appId);
-    final deviceSession = DeviceSession(
-      device: device,
-      appInstance: appInstance,
-      vmClient: vmClient,
-      appId: appId,
-      dds: dds,
-    );
-    host.sessions.add(deviceSession);
-
-    // Started here and deliberately not awaited. `app.started` has just gone
-    // out and it means what upstream means by it — the app's process is up and
-    // its debug link answers — but the app has not necessarily painted, and on
-    // a physical device it will not for another minute. Commands wait on the
-    // gate this settles; the run itself must not, or every launch would sit
-    // out that minute before the session loop existed.
-    unawaited(deviceSession.waitUntilDrivable(host.protocol));
-
-    await host.teardown.add(() => deviceSession.shutdown(host.protocol));
-    return deviceSession;
   }
 }

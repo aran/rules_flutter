@@ -3,17 +3,6 @@ load("@package_metadata//purl:purl.bzl", "purl")
 load("@package_metadata//rules:package_metadata.bzl", "package_metadata")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options")
 
-# `//tools/pip_lock_guard:pip_facts_test` reads both as data: the lock for the
-# pip facts it checks, MODULE.bazel to confirm it still knows every pip hub
-# those facts come from.
-exports_files(
-    [
-        "MODULE.bazel",
-        "MODULE.bazel.lock",
-    ],
-    visibility = ["//tools/pip_lock_guard:__pkg__"],
-)
-
 # Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
 # aspect `.bazelrc` enables under `bazel test`. Each Dart file is analyzed and
 # format-checked against the nearest listed one above it, as in the IDE; this

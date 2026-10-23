@@ -1,0 +1,33 @@
+load(
+    "@rules_flutter//flutter:android.bzl",
+    "flutter_android_engine",
+    "flutter_android_plugin_library",
+)
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+
+flutter_android_engine(
+    name = "plugin_engine",
+    neverlink = True,
+)
+
+flutter_android_plugin_library(
+    name = "android_greeting_plugin_android",
+    srcs = [
+        "android/src/main/kotlin/com/example/android_greeting_plugin/AndroidGreetingPlugin.kt",
+    ],
+    flutter_engine = ":plugin_engine",
+    java_package = "com.example.android_greeting_plugin",
+    visibility = ["//visibility:public"],
+)
+
+flutter_plugin(
+    name = "android_greeting_plugin",
+    package_name = "android_greeting_plugin",
+    srcs = ["lib/android_greeting_plugin.dart"],
+    android_libs = [":android_greeting_plugin_android"],
+    android_package = "com.example.android_greeting_plugin",
+    platforms = ["android"],
+    plugin_class = "AndroidGreetingPlugin",
+    visibility = ["//visibility:public"],
+    deps = ["@deps//:flutter"],
+)

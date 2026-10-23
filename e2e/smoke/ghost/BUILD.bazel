@@ -1,0 +1,20 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# Sourceless package: it has no files, so a root found from the files can
+# never cover it and its config entry in the root package's `consumer_import`
+# compile exists only through `extra_roots`. (Pointing `extra_roots` at
+# `consumer_dep` instead would prove nothing — its sources already determine
+# its root.)
+#
+# This lives in its own Bazel package on purpose: `lib_root` derives from the
+# containing package, and `rules_dart` refuses a compile whose transitive
+# closure holds two empty-`lib_root` packages. The root `BUILD.bazel` package
+# already owns the empty `lib_root` (via `consumer_dep`), so a sourceless
+# target declared next to it would collide; here the ghost's `lib_root` is
+# `ghost`, and the collision is gone while the package still has no files.
+dart_library(
+    name = "consumer_ghost",
+    package_name = "consumer_ghost",
+    srcs = [],
+    visibility = ["//visibility:public"],
+)

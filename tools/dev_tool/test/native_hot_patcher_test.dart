@@ -136,24 +136,26 @@ void main() {
   tearDown(() => tmp.deleteSync(recursive: true));
 
   Future<NativeHotPatcher?> arm() => NativeHotPatcher.arm(
-    workspace: workspace,
-    build: () async {
-      builds++;
-      return BazelAspectOutputs(
-        exitCode: buildFails ? 1 : 0,
-        files: buildFails ? const [] : builtFiles,
-        executionRoot: buildFails ? null : execRoot,
-        stderr: buildFails ? 'ERROR: mul.c:3: expected ;' : '',
-      );
-    },
-    appFile: appFile,
-    targets: () => apps,
-    logger: Logger('test'),
-    scratch: Directory('${tmp.path}/scratch')..createSync(),
-    runTool: (exe, args, {required workingDirectory}) async {
-      toolCalls.add('$exe ${args.join(' ')}');
-      return ProcessResult(1, 0, toolAnswer(args), '');
-    },
+    (
+      workspace: workspace,
+      build: () async {
+        builds++;
+        return BazelAspectOutputs(
+          exitCode: buildFails ? 1 : 0,
+          files: buildFails ? const [] : builtFiles,
+          executionRoot: buildFails ? null : execRoot,
+          stderr: buildFails ? 'ERROR: mul.c:3: expected ;' : '',
+        );
+      },
+      appFile: appFile,
+      targets: () => apps,
+      logger: Logger('test'),
+      scratch: Directory('${tmp.path}/scratch')..createSync(),
+      runTool: (exe, args, {required workingDirectory}) async {
+        toolCalls.add('$exe ${args.join(' ')}');
+        return ProcessResult(1, 0, toolAnswer(args), '');
+      },
+    ),
   );
 
   /// An edit a stat can see: a different size.

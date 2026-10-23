@@ -20,9 +20,11 @@ If `flutter build` works for you, here is what Bazel adds:
 ## Contents
 
 - [Getting started](#getting-started)
+- [Flutter SDK versions](docs/flutter-sdk-versions.md): pins, custom releases, offline SDKs, mirrors
 - [Dependencies](#dependencies): pub packages, build hooks, native code
 - [Building for each platform](#building-for-each-platform): macOS, iOS, Android, Linux, Windows, web, cross-compiling, release permissions
 - [Rules reference](#rules-reference): libraries, applications, tests, plugins, code generation, providers
+- [Incremental kernel compiles](docs/incremental-kernel.md): the opt-in warm `frontend_server` worker for debug builds
 - [The dev tool](#the-dev-tool): running apps, hot reload, driving an app from a script
 - [Examples](#examples)
 
@@ -42,8 +44,25 @@ If `flutter build` works for you, here is what Bazel adds:
 
 ### MODULE.bazel
 
+`rules_flutter` is released from the [`Mivr/rules_flutter`](https://github.com/Mivr/rules_flutter) fork together with the [`Mivr/rules_dart`](https://github.com/Mivr/rules_dart) fork it builds on. Take both from the GitHub releases with `archive_override` in your root `MODULE.bazel`:
+
 ```starlark
-bazel_dep(name = "rules_flutter", version = "<latest from registry.bazel.build/modules/rules_flutter>")
+bazel_dep(name = "rules_flutter", version = "0.5.0")
+bazel_dep(name = "rules_dart", version = "0.11.1")
+
+archive_override(
+    module_name = "rules_flutter",
+    urls = ["https://github.com/Mivr/rules_flutter/releases/download/v0.5.0/rules_flutter-v0.5.0.tar.gz"],
+    integrity = "sha256-nJoGOvU1GLkZnWw8QrpzyyhkWL5K8Ia5SIksLM8tJhc=",
+    strip_prefix = "rules_flutter-0.5.0",
+)
+
+archive_override(
+    module_name = "rules_dart",
+    urls = ["https://github.com/Mivr/rules_dart/releases/download/v0.11.1/rules_dart-v0.11.1.tar.gz"],
+    integrity = "sha256-cBJ3Yu142yo14j9nlaR4nzR5nef9+RQO/yCy3uwCER8=",
+    strip_prefix = "rules_dart-0.11.1",
+)
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.7")
@@ -69,17 +88,42 @@ Some platforms need one more repository from the same extension. Add it to `use_
 
 Static analysis needs nothing extra. rules_dart's analysis resolves `dart:ui` in a `flutter_library`, `flutter_plugin` or `flutter_test` through the `sky_engine` package, which those rules add to the analyzer's closure themselves. Their compiled output does not change.
 
+### Flutter SDK versions
+
+The stock release is pinned by `flutter.toolchain(flutter_version = ...)`, and every SDK byte it downloads is verified against a sha256 recorded in `flutter/private/versions.bzl` — a missing checksum fails the fetch rather than accepting unverified bytes. Your root module's pin wins over any version a dependency requests.
+
+Two extensions cover the rest. A root-registered custom release (an older stable, a rebuild, an enterprise engine) carries its own pinned checksums through `flutter.version`, and `flutter.toolchain(local_path = ...)` sources every repository out of a pre-extracted SDK on disk instead of the network. To mirror stock bytes, keep the stock version and point Bazel at the mirror with `--downloader_config` so the recorded checksums still verify everything. See [Flutter SDK versions](docs/flutter-sdk-versions.md).
+
+#### Overriding `rules_dart`
+
+`rules_flutter` uses APIs from the [`Mivr/rules_dart`](https://github.com/Mivr/rules_dart) fork (`@rules_dart//dart:hooks.bzl`, `@rules_dart//dart/private:record_use.bzl`, and `dart_codegen(package_name = ...)`) that are not in the `rules_dart` releases on the Bazel Central Registry. Its floor is `rules_dart` 0.11.1, a fork release, so a root module that overrides only `rules_flutter` fails fast with a version error instead of a missing-symbol error at load. The `archive_override` pair in [MODULE.bazel](#modulebazel) above is the supported setup; every downloaded byte is verified against its `integrity` hash.
+
+To live at the forks' heads instead (local development against a checkout of each), replace the two `archive_override` blocks with overrides onto your clones. Because Bzlmod ignores module overrides in non-root modules, the overrides go in your root `MODULE.bazel`:
+
+```starlark
+bazel_dep(name = "rules_dart", version = "0.11.1")
+
+git_override(
+    module_name = "rules_dart",
+    commit = "dc0b9a23bf74fc832c89a8f5a0f95d999c8a6f0a",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+```
+
+with the matching `local_path_override` (or `--override_module`) for `rules_flutter` itself, as the `e2e/*` workspaces show.
+
 ### .bazelrc
 
 Two settings are required. Paste them into your project's `.bazelrc`:
 
 ```bazelrc
-# rules_flutter's Java dependencies (rules_jvm_external 7+, rules_android 0.7.2+)
+# rules_flutter's Java dependencies (rules_jvm_external 7+, rules_android 0.8+)
 # ship tool jars compiled for Java 21+. Bazel's default tool JDK is older.
 common --tool_java_language_version=25
 common --tool_java_runtime_version=remotejdk_25
 
-# Windows only: rules_python 2+ needs symlink support.
+# Windows only: lets Bazel create real symlinks (runfiles trees and SDK
+# layouts use them where available) instead of falling back to copies.
 startup --windows_enable_symlinks
 ```
 
@@ -168,6 +212,36 @@ flutter_application(
 Plugins need no special treatment. A pub package that is a Flutter plugin arrives as a plugin target, and the platform macros register it and build its native code. On Android the hub also exposes `@deps//android:all_android_plugin_libs`, the Kotlin and Java of every plugin, and `flutter_android_app` adds it to the APK for you.
 
 Permissions a plugin declares in its own manifest, such as `record_android`'s `RECORD_AUDIO`, reach the app's manifest as they do under Gradle. You don't need `--merge_android_manifest_permissions`.
+
+### Path dependencies
+
+A `path:` entry with `relative: true` in the lock is resolved against the lock file's own directory and linked into a `flutter_pub_path_package` spoke as a tree of symlinks, so the workspace never copies the package. The spoke links only what its generator reads or exposes — `lib/`, the pubspec, hook scripts, declared assets, fonts, and shaders (plus each shader's own directory), and the plugin's declared platform directories — parsed from the package's own `pubspec.yaml` and mirrored one file at a time into real repository directories. `example/`, `build/`, `.dart_tool/`, dot-directories, undeclared files, and the package's own BUILD files stay unlinked (skipped subtrees are not even watched), so machine-local output such as `example/build/` or a `.plugin_symlinks` cycle can never affect the fetch; real directories (never whole-directory symlinks) mean the generated BUILD files land in the spoke, never in the user's source tree. Every linked file and directory is watched, so adding, changing, or removing one refetches the spoke; without the watch, files added inside nested asset directories would stay invisible until something else retriggered the fetch. A source symlink resolving to the package or one of its ancestors fails the fetch naming the package and the link, and a path that escapes the workspace, or resolves to the workspace root itself, fails the extension evaluation rather than symlinking outside the workspace. Shader `shader_includes` cover only the declared shaders' own directories, so `example/build/` output can never become an include.
+
+The lock must belong to the root module. A `relative: true` path resolves in the lock-owning module, and module-extension label attributes already resolve in the defining module while the spoke's `workspace_root` is always the root module, so a lock owned by a non-root module has no repository-local root to resolve against; resolving it in the consumer workspace would silently link the wrong directory. A path dependency locked by another module therefore fails the extension evaluation, naming the hub, the package, and the owning module — declare the `path:` dependency in the root module's own lock instead.
+
+### Platform- and flavor-conditional assets
+
+A pub package's `flutter.assets` entries may carry `platforms` and `flavors` lists, and the bundle keeps exactly what `flutter_tools` keeps (verified against Flutter 3.47.7: `asset.dart` `matchesFlavor` at line 1532 runs before `matchesPlatform` at line 1544 in `ManifestAssetBundle`, lines 1119–1128; `TargetPlatform.osName` in `build_info.dart`, line 701). Flavor is checked first: a flavor-restricted entry bundles only when a flavor is selected, and rules_flutter selects none yet, so flavor-restricted entries bundle nowhere — on every platform, `tester` included. Then platform: an empty list or the `tester` platform keeps the asset, anything else must name the target platform. So an Android build bundles `android`-listed entries but not `web`-listed ones, while a widget test bundles every platform's entries (but still no flavor-restricted ones).
+
+An entry naming a platform Flutter does not know fails the package fetch, naming the package, the asset entry, and every valid name (`android`, `ios`, `linux`, `macos`, `web`, `windows` — the `_kValidPluginPlatforms` set `flutter_manifest.dart` validates against, lines 20 and 909). A misspelled platform would otherwise bundle nowhere on every target, silently. Directory entries (a trailing-slash `path`) expand to every file underneath at fetch time, each file inheriting the entry's conditions. When several entries expand to the same file, the file bundles on the union of the entries' platforms: any entry without `platforms` makes the file unconditional, otherwise the file ships wherever any of its entries ships. Entries for one file whose `flavors` sets differ fail the package fetch, naming the package, the file and both flavor lists (equal sets in a different order agree). Packages without conditions emit no extra attributes, so their spokes are byte-identical to before.
+
+### Android native (Gradle) dependencies
+
+A plugin's `android/build.gradle` (`build.gradle.kts`) runtime dependencies (`implementation`, `api`, `runtimeOnly`) are translated to `@rules_android_maven` labels automatically. Gradle evaluates exactly one build file per project directory, so when both files are present the rule reads `build.gradle` for everything — dependencies, namespace, native-build and ProGuard detection alike. Common AndroidX artifacts are built in; anything else must be mapped in `MODULE.bazel`:
+
+```starlark
+flutter.pub(
+    name = "deps",
+    lock = "//:pubspec.lock",
+    android_maven_deps = {
+        "com.example:thing": "@rules_android_maven//:com_example_thing_thing",
+    },
+)
+```
+
+A plugin dependency found in neither table fails the spoke fetch naming the package, the build file, and every offending entry — a missing native library would otherwise compile and crash on the device. A coordinate that genuinely needs no label goes in `android_maven_ignore`; declarations that are not Maven coordinates at all (version-catalog `libs.*` refs, variables, local jars) need a plugin overlay instead, via `flutter.plugin_overlays`.
+
+The parser reads the build script statement by statement (comments stripped outside string literals; statements split on newlines, `;`, `{` and `}` at bracket depth 0, so a parenthesised call spanning lines reads as one statement), so layout is insignificant: a single-line `dependencies { implementation '...' }`, two declarations on one line separated by `;`, and Gradle's `add('implementation', '...')` (single- or double-quoted, both DSLs) all resolve. Only `dependencies` blocks outside `buildscript` count. `apply from:` scripts in every DSL spelling (`apply from: 'x.gradle'`, `apply(from: 'x.gradle')`, `apply(from = "x.gradle.kts")`) are read when the path stays inside the package, recursively, with cycle detection and a depth cap. The Android namespace is read from the same statement model (`namespace` in any `android` block, even on one line or nested, or top-level `android.namespace = ...`; the last declaration wins; commented-out or string-embedded declarations never count). Anything unmodellable fails the fetch instead of dropping the dependency: nested blocks such as `constraints {}`, `dependencies` mentions outside the block form (`project.dependencies.add(...)`), map notation, catalog refs, variables, interpolated coordinates, an unbalanced bracket, a non-literal namespace, and `apply from:` with a URL, an absolute or escaping path, a missing file, or a non-literal argument. The plugin's Android namespace must be a valid Java package name, and every `android_maven_deps` value must be a label (`@...` or `//...`); anything else fails naming the plugin or the key.
 
 ### Regenerating pubspec.lock
 
@@ -283,6 +357,21 @@ What a `hot_patch` target builds, and what the library exports, is a small contr
 Patches reach apps on macOS, the iOS simulator, iOS devices and Android. Linux, Windows and web apps report the edit the way they did before: stale until restart.
 
 On the web the same wrapper goes in `flutter_web_bundle`'s `native_modules`, which both serves the `.wasm` module and declares it. The situation is the same: the page instantiates the module once and a hot reload does not re-run `main()`. A web hot restart does re-run `main()`, so it re-fetches the module with no relaunch.
+
+### Bazel modules
+
+What a plain consumer's module graph pulls in, by feature. Floors are what `rules_flutter`'s own `MODULE.bazel` declares; higher versions resolve by MVS as usual, except where noted.
+
+| Feature | Modules | Notes |
+|---|---|---|
+| Every app | `rules_dart` 0.11.1 (the `Mivr` fork release, taken via `archive_override` above), `bazel_skylib`, `platforms`, `package_metadata` | Dart compilation, hooks, codegen. |
+| iOS / macOS bundles | `rules_apple` ≥ 4.5.3, `rules_swift`, `apple_support`, `rules_cc` | 4.5.3 is the proven floor: `e2e/min_versions` pins it exactly and builds both Apple legs. `rules_swift`/`apple_support` float to the graph's maxima (4.5.3 accepts Swift at compatibility level 3). |
+| Android APK | `rules_android` 0.8.0, `rules_kotlin`, `rules_java`, `rules_jvm_external` 7.1, `rules_go` ≥ 0.59.0 | 0.8.0 is the floor: the signing overlay reads `rules_android`'s `apk_signing_method` flag, which exists only in 0.8.0+. The pinned `go_sdk.download` (Go 1.26.2, checksummed) in `rules_flutter`'s `MODULE.bazel` applies to every consumer without its own `go_sdk` block — it sorts before `rules_android`'s bundled unpinned 1.22.4 whatever order the root lists the modules in, while a root `go_sdk` block still wins; plain consumers fetch no Go SDK until a Go toolchain resolves. The `.bazelrc` Java settings above are required, and the build host needs `unzip` and `python3` for the AAR extractors. |
+| xtool Darwin backend (opt-in) | `llvm` 0.8.19, exec-host toolchain archive only | Needs only `flutter.darwin_sdk(url = ..., sha256 = ...)` or `flutter.darwin_sdk(path = ...)` in the root module — no other `MODULE.bazel` lines. Plain consumers fetch no LLVM archive and register no LLVM toolchain (see `docs/dependencies.md`). |
+| Dev tool, `gen_l10n` | Resolved inside `rules_flutter` | `dev_tool_deps` and `gen_l10n_deps` are the ruleset's own `flutter.pub` hubs; consumers never name them. |
+| No feature | No `rules_python` | The iOS screenshot/tunnel helpers are `dart_binary` drivers over a host `python3` (a documented host prerequisite like Xcode), so neither this repo's graph nor any consumer's contains `rules_python`. |
+
+Dev-only and never evaluated by consumers: `rules_multitool`, `buildifier_prebuilt`, `bazelrc-preset.bzl`, the eight `@llvm//toolchain:*` registrations, and the root-only `single_version_override` pinning this repo's own builds to `rules_apple` 5.2.0. (The `go_sdk.download` pin, by contrast, is a regular dependency so every consumer's Android host tools use it; it only downloads when a Go toolchain resolves. `llvm` itself is a regular dependency so the opt-in xtool backend can resolve it, but only a configured `flutter.darwin_sdk` — or this repo's own builds — fetches a toolchain archive.)
 
 ## Building for each platform
 
@@ -403,6 +492,7 @@ flutter_ios_app(
 | `provisioning_profile` | A `.mobileprovision` file, usually a `local_provisioning_profile` target. Required for device builds, unused by simulator builds. See [Running on an iOS device](#running-on-an-ios-device). |
 | `app_icons` | Defaults to the `AppIcon.appiconset` in `ios/Runner/Assets.xcassets`. See [App icons](#app-icons). |
 | `runner_deps` | `swift_library` targets linked into the runner. See [App Intents](#app-intents). |
+| `exclude_plugins` | Plugin module names left out of the registrant. iOS only: the Android, Linux, macOS and Windows registrants take no such attribute and always register every collected native plugin. See [iOS plugin registrant](#ios-plugin-registrant). |
 
 `rules_apple`'s `ios_application` handles the transition to iOS arm64.
 
@@ -538,6 +628,41 @@ load("@rules_flutter//flutter:ios.bzl", "flutter_ios_simulator_build_test")
 flutter_ios_simulator_build_test(
     name = "ios_app_build_test",
     targets = [":app_ios"],
+)
+```
+
+#### iOS plugin registrant
+
+The registrant is always `GeneratedPluginRegistrant.swift`: the runner is Swift and calls it directly. Apps whose runner is Objective-C (`AppDelegate.m`) need the Objective-C registrant instead, which is a composable-rules build: `language = "objc"` on `flutter_ios_registrant_gen` emits `GeneratedPluginRegistrant.h` and `GeneratedPluginRegistrant.m` matching the flutter tool's own template, exposed through the `hdrs` and `srcs` output groups. Wire the groups into your own library — `includes` names the registrant's output directory so other sources can use `#import "GeneratedPluginRegistrant.h"` (the `.m` needs no flag: it imports its sibling header with quotes):
+
+```starlark
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
+flutter_ios_registrant_gen(
+    name = "my_registrant",
+    application = ":my_app",
+    language = "objc",
+)
+
+filegroup(name = "registrant_hdrs", srcs = [":my_registrant"], output_group = "hdrs")
+filegroup(name = "registrant_srcs", srcs = [":my_registrant"], output_group = "srcs")
+
+objc_library(
+    name = "my_registrant_lib",
+    hdrs = [":registrant_hdrs"],
+    srcs = [":registrant_srcs"],
+    includes = ["my_registrant"],
+)
+```
+
+`exclude_plugins` drops named plugin modules from the registrant — no import and no registration call, in either language — for plugins compiled conditionally or linked elsewhere. It is iOS-only: the other platforms' registrants always register every collected native plugin, so an Android or desktop build cannot drop one. A name that is not a native iOS plugin of the application is an error listing the valid names, so a typo fails the build instead of silently shipping an unregistered plugin:
+
+```starlark
+flutter_ios_app(
+    name = "my_app_ios",
+    application = ":my_app",
+    bundle_id = "com.example.myapp",
+    exclude_plugins = ["deferred_plugin"],
 )
 ```
 
@@ -703,6 +828,20 @@ No platform flags are needed to build. `flutter_android_app` transitions the app
 bazel build //:my_app_android
 ```
 
+**Pure Go host tools.** `flutter_android_app` builds rules_android's Go host tools in rules_go pure mode: without a C++ toolchain, so the hermetic LLVM runtimes are never compiled from source. The APK is unchanged (only the host tools' own binaries differ). The setting is scoped to the app — desktop builds and your own Go targets keep their configuration. Opt out with `--@rules_flutter//flutter:android_pure_go=false`; you need that only if the app's own subtree contains cgo Go code, which pure mode cannot compile. Hand-assembled Tier-2 `android_binary` targets are unaffected either way: add the global `--@rules_go//go/config:pure=true` yourself if you want the same saving there and have no cgo Go code.
+
+**Release signing.** The APK signs with the debug keystore, as an `android_binary` does. To ship to Google Play, pass `keystore` (a `.jks` or PKCS#12 `.p12` file) together with `keystore_password_file` and `key_alias`; set `key_password_file` as well when the key has its own password. Both passwords travel as `file:` references to file inputs, so their text never appears on the command line. When `key_password_file` is unset, `--key-pass` is omitted and apksigner unlocks the key with the keystore password. Only each file's first line is read, so end it with a newline. A `keystore` without its password file or alias fails analysis naming the missing attribute. When `keystore` is unset, the `//flutter:android_release_keystore`, `//flutter:android_release_keystore_password_file` and `//flutter:android_release_key_alias` flags supply the same three values, so CI can inject a secret without editing BUILD files; an explicit attribute always wins over its flag. Every secret setting must name a target with exactly one file: a flag or attribute pointing at an empty or multi-file target fails analysis naming the setting, the target and the file count, instead of silently falling back to debug signing. Never hide a secret behind an `allow_empty` glob — a CI secret that was never written would otherwise have shipped a debug-signed release.
+
+The release signing action always runs locally (`no-remote`): Bazel never uploads the keystore or the password files to a remote executor or a remote cache. A password file's content digest would otherwise land in the shared action cache, an execution log or a build event stream, where it is an offline brute-force oracle for a human-chosen password. Keep the secrets out of version control — have CI write them to gitignored files and point the flags at those — and out of remote and disk caches: a secret checked into the source tree is still an action input whose digest is recorded in the local disk cache and in any build event output you keep.
+
+```sh
+# //secret is a gitignored directory the CI job populates, never committed:
+bazel build //:my_app_android \
+  --@rules_flutter//flutter:android_release_keystore=//secret:upload \
+  --@rules_flutter//flutter:android_release_keystore_password_file=//secret:store_pass \
+  --@rules_flutter//flutter:android_release_key_alias=upload
+```
+
 | Attribute | Description |
 |---|---|
 | `application` | A `flutter_application` target. Required. |
@@ -715,6 +854,10 @@ bazel build //:my_app_android
 | `debug_manifest` | A variant manifest whose permissions merge into `-c dbg` builds only. `None` (default) discovers `android/app/src/debug/AndroidManifest.xml`. A label overrides discovery. `False` disables variant handling. |
 | `profile_manifest` | The same for profile builds. `None` (default) discovers `android/app/src/profile/AndroidManifest.xml`. |
 | `permissions` | Permission names added to the manifest in every compilation mode, for example `["android.permission.INTERNET"]`. See [Release builds and permissions](#release-builds-and-permissions). |
+| `keystore` | Release keystore (`.jks` or PKCS#12 `.p12`) signing the APK instead of the debug key. Needs `keystore_password_file` and `key_alias`. See [Release signing](#release-signing). |
+| `keystore_password_file` | File holding the keystore password, read by apksigner through `--ks-pass file:<path>`. Falls back to the `//flutter:android_release_keystore_password_file` flag. |
+| `key_alias` | Alias of the signing key inside `keystore`. Falls back to the `//flutter:android_release_key_alias` flag. |
+| `key_password_file` | File holding the signing key's own password, read through `--key-pass file:<path>`. When unset, `--key-pass` is omitted and the keystore password unlocks the key. |
 | `multidex` | Defaults to `"native"`. |
 
 <details>
@@ -776,7 +919,7 @@ flutter_linux_app(
 |---|---|
 | `application` | A `flutter_application` target. Required. |
 | `app_name` | Binary name. Defaults to the target name. |
-| `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. |
+| `gtk_app_id` | GTK application id. Defaults to `"com.example.flutter"`. A `linux/runner/` from `flutter create` gets it as `APPLICATION_ID`. |
 | `window_title` | Window title. Defaults to `app_name`, then the target name. A `linux/runner/` from `flutter create` sets its own title and ignores this. |
 
 The output directory:
@@ -967,7 +1110,7 @@ So a policy strict enough to be useful cannot live in `web/index.html` today, be
 
 `gen_snapshot`, the AOT compiler, runs on the host and produces code for the target. Flutter publishes a different binary per host and target pair, and not every pair exists.
 
-| Host | Target | AOT (release) | JIT (debug) | Notes |
+| Host | Target | AOT (release / profile) | JIT (debug) | Notes |
 |---|---|:---:|:---:|---|
 | macOS | macOS | Yes | Yes | Native build |
 | macOS | iOS | Yes | Yes | `rules_apple` handles the transition |
@@ -977,13 +1120,22 @@ So a policy strict enough to be useful cannot live in `web/index.html` today, be
 | macOS | Web | Yes | n/a | Web uses dart2wasm or dart2js, not gen_snapshot |
 | Linux | Linux | Yes | Yes | Native build |
 | Linux | Android | Yes | Yes | The Android rules handle the transition |
-| Linux | iOS | No | No | Needs Xcode |
+| Linux | iOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Linux | macOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Linux | Windows | No | Yes | Needs a Windows cross-toolchain |
 | Linux | Web | Yes | n/a | |
 | Windows | Windows | Yes | Yes | Native build |
 | Windows | Android | Yes | Yes | The Android rules handle the transition |
+| Windows | macOS | No | Yes | Debug/JIT kernel only; AOT requires a Darwin-target `gen_snapshot` (macOS host) |
+| Windows | Linux | No | Yes | Needs a Linux cross-toolchain |
 | Windows | Web | Yes | n/a | |
 
-The gap is desktop to desktop: there is no release cross-compile from macOS to Linux or Windows, because Flutter does not publish those `gen_snapshot` binaries. Build debug bundles across, or build release natively on the target.
+The gap is desktop-to-desktop and non-macOS-to-Apple AOT:
+- **Apple release and profile AOT (`ios_*`, `macos_*`) requires a macOS host (or a Darwin-target `gen_snapshot`).** Each `gen_snapshot` binary has its target OS and ABI compiled in at build time (`DART_TARGET_OS_*` in the Dart VM); `--snapshot_kind=app-aot-macho-dylib` only selects the Mach-O container format and does not change the generated machine code's target ABI. In particular, Apple arm64 reserves register `x18` for the platform and uses a different FFI argument ABI from Linux/Android arm64, and `dart:ui` calls the Flutter engine through `@Native` FFI. Because Flutter only publishes Darwin-targeted `gen_snapshot` binaries for macOS hosts, release and profile AOT builds for iOS and macOS are only registered on macOS hosts and fail at analysis on Linux and Windows. Debug/JIT (`-c dbg`) compiles platform-independent kernel `.dill` with `frontend_server` and works from Linux and Windows.
+- **Desktop to desktop:** there is no release or profile AOT cross-compile between desktop OSes (macOS, Linux, Windows), because Flutter does not publish cross-OS desktop `gen_snapshot` binaries. Build debug bundles across with `-c dbg`, or build release/profile natively on the target OS.
+- **Linux-to-Apple debug builds (`backend = "xtool"` and `flutter.darwin_sdk`):** Opt-in Linux-to-iOS/macOS debug cross-compilation (`backend = "xtool"` or `--@rules_flutter//flutter/settings:apple_backend=xtool`) compiles the native Swift/Objective-C runner against an `xtool` `darwin.artifactbundle` (`iPhoneOS.sdk`, `iPhoneSimulator.sdk`, `MacOSX.sdk`) configured via `flutter.darwin_sdk(...)` in your root `MODULE.bazel`.
+  > **Important — Apple SDK licensing:** `rules_flutter` never bundles, hosts, or downloads an Apple SDK by default (`url` and `path` both default to `""`). Apple's Xcode and platform SDKs (`iPhoneOS.sdk`, `iPhoneSimulator.sdk`, `MacOSX.sdk`) are proprietary software governed by the Apple Xcode and Apple SDKs Agreement. You must obtain and supply your own `darwin.artifactbundle` (via `flutter.darwin_sdk(url = ..., sha256 = ...)` from your own private artifact store or `flutter.darwin_sdk(path = ...)` on disk) in compliance with Apple's licensing terms.
+- **Apple `xtool` backend (`backend = "xtool"`):** `flutter_ios_app` and `flutter_macos_app` accept `backend = "xtool"` (with `--@rules_flutter//flutter/settings:apple_backend=xtool`) to assemble `.ipa` and `.app.zip` bundles via `xtool_pack` without instantiating `rules_apple` targets. On macOS, when `menu_xib` is omitted and no `macos/Runner/Base.lproj/MainMenu.xib` is present on disk, the runner builds a default application menu programmatically; passing any `menu_xib` explicitly or leaving a conventional `macos/Runner/Base.lproj/MainMenu.xib` on disk fails at analysis because compiling `.xib` files requires Xcode `ibtool` (remove `macos/Runner/Base.lproj/MainMenu.xib` and omit `menu_xib`, or use `backend = "rules_apple"`). When signing with `zsign` and a PKCS#12 `certificate` (`.p12`), pass the certificate password via `certificate_password_file` (a file label read at execution time) or `certificate_password_env` (an environment variable name read at execution time, forwarded with `--action_env`). Plain-text `certificate_password` is rejected at analysis so signing secrets never appear on action command lines, build event streams, or `bazel aquery` output.
 
 ### Release builds and permissions
 
@@ -1080,7 +1232,7 @@ flutter_library(
 |---|---|
 | `srcs` | Dart source files. Required. |
 | `deps` | `dart_library` or `flutter_library` targets. |
-| `assets` | Asset files: images, fonts, and so on. |
+| `assets` | Asset files: images, fonts, and so on. Each file must sit under the target's package directory; it is bundled at `packages/<package_name>/<path relative to that directory>`. See [Asset keys](#asset-keys). |
 | `pkg_shaders` | The package's fragment shaders, as `{file: path}` mirroring `flutter: shaders:` in `pubspec.yaml`. Bundled at `packages/<package_name>/<path>`, where `FragmentProgram.fromAsset` looks for them. |
 | `shader_includes` | Files the `pkg_shaders` may `#include`, such as `glob(["shaders/**/*.glsl"])`. A shader compiles with only its declared inputs, so an include not listed here is not found. |
 | `shaders` | Shaders bundled at `shaders/<file name>`, as Flutter's own are. A package's own shaders go in `pkg_shaders`. |
@@ -1112,7 +1264,7 @@ flutter_application(
 | `package_name` | The Dart package name, the same as `pubspec.yaml`'s `name:`. Required. It keys the compiled libraries under stable `package:` URIs, which hot reload matches against, and resolves `package:<self>/...` imports. |
 | `srcs` | Other Dart sources in the app package, including generated ones. List here any file a `main` outside `lib/` imports by relative path. |
 | `deps` | `dart_library` or `flutter_library` targets. Add `@rules_flutter//flutter:material_icons` to bundle the Material icon font. |
-| `assets` | Asset files for the bundle. |
+| `assets` | Asset files for the bundle. Each file must sit under the target's package directory; it is bundled at its path relative to that directory. See [Asset keys](#asset-keys). |
 | `native_deps` | Shared libraries to bundle for `dart:ffi`. |
 | `defines` | Dart environment defines, the `-D` flags. |
 | `language_version` | The Dart language version, matching `pubspec.yaml`. |
@@ -1120,7 +1272,7 @@ flutter_application(
 | `split_debug_info` | Write debug info to a separate `.symbols` file. Default `False`. |
 | `extra_gen_snapshot_options` | Extra flags for `gen_snapshot`. |
 | `track_widget_creation` | Record widget creation locations for the DevTools inspector. Default `False`. |
-| `shaders` | Fragment shaders to compile with impellerc. |
+| `shaders` | Fragment shaders to compile with impellerc. Each file must sit under the target's package directory; it is bundled at its path relative to that directory, where `FragmentProgram.fromAsset` looks for it. See [Asset keys](#asset-keys). |
 | `shader_includes` | Files the `shaders` may `#include`. |
 | `require_sksl_shaders` | Fail the build when a shader cannot be compiled for Skia (SkSL). By default such a shader, say one that indexes a uniform array in a loop, is compiled for Impeller alone with a warning, as `flutter build` does, and fails to load only where the app renders with Skia. Web builds always need SkSL. Default `False`. |
 | `tree_shake_icons` | Keep only the icon glyphs the app uses. Default `True`. |
@@ -1128,7 +1280,7 @@ flutter_application(
 | `license_files` | License and NOTICE files to include in `NOTICES.Z`. |
 | `min_os_version` | Minimum Apple deployment target, passed to `gen_snapshot` as `--macho-min-os-version`. |
 
-**Defines from the command line.** The repeatable flag `--@rules_flutter//flutter:extra_dart_defines=KEY=VALUE` adds a define to every Dart compile: native kernel, `flutter_test`, dart2wasm, and dart2js. Each occurrence of the flag is one define, so values may contain commas. When a key is set both by the flag and by the `defines` attribute, the flag wins. The keys `dart.vm.profile` and `dart.vm.product` are set by the build from the compilation mode and cannot be passed. The dev tool's `--dart-define` forwards to this flag and replays the defines on hot reload and restart, matching `flutter run --dart-define`.
+**Defines from the command line.** The repeatable flag `--@rules_flutter//flutter:extra_dart_defines=KEY=VALUE` adds a define to every Dart compile: native kernel, `flutter_test`, dart2wasm, and dart2js. Each occurrence of the flag is one define, so values may contain commas. When a key is set both by the flag and by the `defines` attribute, the flag wins. Reserved defines (`dart.vm.*`, `dart.library.*`, `dart.tool.*`, `flutter.*`) are set by the build and SDK and cannot be passed. The dev tool's `--dart-define` forwards to this flag and replays the defines on hot reload and restart, matching `flutter run --dart-define`.
 
 ### flutter_test
 
@@ -1153,6 +1305,7 @@ Bazel's test protocol applies, as it does to `dart_test`:
 - **Time.** The target's `size` or `timeout` replaces `package:test`'s 30-second default, so a test with no `timeout:` of its own runs as long as Bazel lets the target run. A `timeout:` written on a test still applies, and `Timeout.factor` scales Bazel's limit.
 - **`--test_filter`.** A regular expression matched against each test's full name, group names included, like `flutter test --name`. A target the filter matches nothing in passes, so `bazel test //... --test_filter=x` runs only what it names.
 - **`shard_count`.** Splits the suite's tests into contiguous shares, one per shard.
+- **Tags.** `include_tags` runs only tests matching every one of these `package:test` tag selectors (library, group or test level), as `flutter test --tags` intersects them; each entry is a boolean selector (`a && b`, `a || b`, `!a`, parentheses), and several entries — or comma-separated values in one entry — all have to match. `exclude_tags` skips tests matching any of them, as `flutter test --exclude-tags` unions them, and wins over `include_tags`. An attribute selection that matches no test fails the target, so a misspelled tag is a failure rather than an empty pass; a `--test_env=FLUTTER_TEST_TAGS=...` (or `FLUTTER_TEST_EXCLUDE_TAGS`) selection that matches nothing still passes with a note. A `--test_env=...` value at run time overrides the attribute. A `@Tags` on the test entrypoint itself is extracted at build time and always honoured, reaching every test through the suite's root group; a `@Tags` on a file the entrypoint imports stays invisible, as under `flutter test`.
 - **Results.** Each case is reported in the `test.xml` Bazel collects, so CI shows cases rather than one pass or fail per target.
 
 #### Golden files
@@ -1185,6 +1338,87 @@ Two limits come from Flutter rather than from these rules:
 - **Goldens are host-specific.** Font rendering and antialiasing differ between operating systems, so a PNG generated on macOS may not match on Linux or Windows. Regenerate on the platform that checks them, or keep per-OS golden directories.
 - **Replacing the comparator disables regeneration.** If a test assigns its own `goldenFileComparator`, `--update-goldens` calls that object's `update()`, which for `LocalFileComparator` writes into runfiles. The run passes, prints nothing, and leaves the source PNG unchanged.
 
+#### Modular compilation and the test action's cache key
+
+Each library in a `flutter_test` closure is compiled once into its own outline kernel (a separate, action-cached build action), and the test action links the entry module against those outlines and runs the resulting kernel under `flutter_tester`. Editing one library therefore recompiles only that library's outline plus the link — other libraries' outlines are reused.
+
+A test action re-runs only when its cache key changes. The key is the test kernel plus the `flutter_assets/` tree plus the runner binary plus the test env: editing a library that no test links, touching an asset no test bundles, or changing an unrelated target leaves a passing test cached.
+
+#### flutter_prebuilt_test
+
+Runs an already built test kernel under the same `flutter_tester` runtime — the same runner, protocol, env contract, JUnit XML and golden handling as `flutter_test` — without compiling anything itself. Use it when your own pipeline builds the kernel: split a large suite so one kernel build feeds many test shards, or reuse one kernel across targets whose test env differs. A `flutter_test` exposes exactly what it needs as output groups:
+
+```starlark
+filegroup(
+    name = "widget_test_kernel",
+    srcs = [":widget_test"],
+    output_group = "test_kernel",
+)
+
+filegroup(
+    name = "widget_test_assets",
+    srcs = [":widget_test"],
+    output_group = "test_assets",
+)
+
+flutter_prebuilt_test(
+    name = "widget_prebuilt_test",
+    dill = ":widget_test_kernel",
+    assets = ":widget_test_assets",
+)
+```
+
+`test_kernel` is the test `.dill`, `test_base_kernel` the base dill it links against at run time (empty for whole-program kernels), `test_assets` its `flutter_assets/` tree, and `test_library_tags` the entrypoint's `@Tags` as a `{"tags": [...]}` JSON file, for `flutter_prebuilt_test`'s `library_tags`. To build the assets tree yourself instead, use `flutter_asset_bundle` with the test's shaders (compiled for `flutter_tester`, as `flutter_test` compiles them) and the same `deps`: dep fonts, package assets and the Material shaders land in the bundle the same way.
+
+To compile the kernel yourself, write the bootstrap with `flutter_test_bootstrap` from `@rules_flutter//flutter:utils.bzl` (merging `FLUTTER_TEST_BOOTSTRAP_ATTRS` into your rule's attrs for the golden block) and compile it as the entry point with `flutter_kernel_compile_action` (passing the bootstrap as `main`); then run the resulting dill under `flutter_prebuilt_test`. Extract the suite's `@Tags` with the public `//flutter/private/tools:extract_library_tags` tool and feed the JSON to `library_tags`, or the suite runs without its root-group tags. A kernel compiled from any other entry point does not dial the harness back and fails to connect. `e2e/hello_world/custom_test_kernel.bzl` is this pipeline as a running target, over the same suites its `flutter_test` twins run. For the modular variant — one entry-module compile against the dependency outlines plus a link, so body-only edits never recompile the whole program — use `flutter_modular_test_kernel` instead; `e2e/hello_world/custom_modular_test_kernel.bzl` is that pipeline as a running target, in both link modes. By default the link is complete (`use_base_dill = False`): every reachable module lands in the kernel and it runs under `flutter_prebuilt_test` with no `base_dill` — `:widget_modular_prebuilt_test` is that green run. With `use_base_dill = True` the kernel delta-links against the shared `flutter_test` base dill instead and the returned base dill must reach `flutter_prebuilt_test`'s `base_dill`: the delta is incomplete without it and `flutter_tester` aborts before connecting when it is missing — `:widget_modular_based_prebuilt_test` is that green run, fed from the kernel's `test_base_kernel` group.
+
+### flutter_integration_test
+
+Builds a Flutter application with an integration test (`package:integration_test` / `package:flutter_test` `WidgetTester` code) compiled in as its entrypoint, runs it on the target platform, and collects results as a Bazel test.
+
+```starlark
+load("@rules_flutter//flutter:defs.bzl", "flutter_integration_test")
+
+flutter_integration_test(
+    name = "app_test",
+    platform = "web",
+    package_name = "my_app",
+    main = "integration_test/app_test.dart",
+    app_srcs = glob(["lib/**/*.dart"]),
+    assets = glob(["assets/**"]),
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+        "@deps//:integration_test",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+```
+
+For `platform = "web"`, add `flutter_web_sdk` and `flutter_chrome_headless_shell` to `use_repo(flutter, ...)` in `MODULE.bazel`, and add `integration_test: {sdk: flutter}` under `dev_dependencies` in `pubspec.yaml`. The test runner serves the compiled web bundle from `127.0.0.1` on an ephemeral port, launches the hermetic pinned `chrome-headless-shell` binary with its pinned shared-library closure (`--no-sandbox`, `--disable-dev-shm-usage`), drives the in-app `WidgetTester` suite over a WebSocket channel, and fails the test on any assertion failure, uncaught error, browser crash, or timeout.
+
+For `platform = "linux"`, the rule compiles the Linux desktop GTK runner, Dart kernel (or AOT `libapp.so`), bundled `flutter_assets/`, and any transitive native Linux plugins (`flutter_linux_plugin_library`) into a Linux application bundle. At test time, the runner starts a hermetic `Xvfb` virtual display (`@flutter_linux_headless_runtime`, choosing a free display via `-displayfd`) and runs the app against sha256-pinned GTK3, GLib, fontconfig, and Mesa `llvmpipe` software-rasterizer shared libraries — requiring no host X server, `Xvfb`, or GTK installation.
+
+For `platform = "android"`, add `flutter_android_engine_x64` (or `flutter_android_engine_arm64` for `android_abi = "arm64"`) and `flutter_android_headless_runtime` to `use_repo(flutter, ...)` in `MODULE.bazel`. The rule compiles a full Android APK (`android_binary`) with the integration test as its entrypoint, generated `MainActivity` and `GeneratedPluginRegistrant`, bundled `flutter_assets/`, and any transitive Android plugins (`flutter_android_plugin_library` attached via `flutter_plugin.android_libs`). At test time on Linux (`x86_64` with `/dev/kvm`), the runner boots a hermetic sha256-pinned Android 35 `aosp_atd` `x86_64` emulator headless (`-no-window`, `-gpu swiftshader_indirect`, `-accel on`) against its pinned shared-library closure (`@flutter_android_headless_runtime`), installs and launches the APK via `adb`, forwards the test harness WebSocket port over `adb reverse`, and fails the test on any assertion failure, uncaught error, native crash, ANR, or timeout.
+
+| Attribute | Description |
+|---|---|
+| `platform` | Target platform (`"web"`, `"linux"`, or `"android"`). Defaults to `"web"`. |
+| `main` | Integration test Dart entrypoint. Required if `srcs` does not contain a single file. |
+| `srcs` | Integration test Dart source files. If `main` is omitted and `srcs` has one file, that file is used as `main`. |
+| `app_srcs` | Application Dart source files compiled alongside the integration test. |
+| `deps` | `dart_library`, `flutter_library`, or `flutter_plugin` targets (`@deps//:flutter`, `@deps//:flutter_test`, `@deps//:integration_test`, or application libraries and plugins). |
+| `assets` | Asset files bundled into `flutter_assets/`, keyed as on `flutter_application`. See [Asset keys](#asset-keys). |
+| `package_name` | Dart package name matching `pubspec.yaml`. |
+| `compiler` | Web compiler (`"dart2js"` or `"dart2wasm"`). Defaults to `"dart2js"`. |
+| `renderer` | Web renderer (`"canvaskit"` or `"skwasm"`). Defaults to matching `compiler`. |
+| `gtk_app_id` | Linux GTK application identifier (`platform = "linux"`). Defaults to `"com.example.flutter_integration_test"`. |
+| `window_title` | Linux GTK window title (`platform = "linux"`). Defaults to the target name. |
+| `android_package_name` | Android application package name (`platform = "android"`). Defaults to `"com.example.flutter_integration_test"`. |
+| `android_abi` | Android ABI (`"x64"` or `"arm64"`, `platform = "android"`). Defaults to `"x64"`. |
+| `include_tags` | Run only tests matching every one of these `package:test` tag selectors, as `flutter test --tags` intersects them. An attribute selection that matches no test fails the target. |
+| `exclude_tags` | Skip tests matching any of these `package:test` tag selectors, as `flutter test --exclude-tags` unions them. Wins over `include_tags`. A `--test_env=FLUTTER_TEST_TAGS=...` (or `FLUTTER_TEST_EXCLUDE_TAGS`) value at run time overrides the attribute. A `@Tags` on the test entrypoint itself is extracted at build time and always honoured; a `@Tags` on an imported file stays invisible, as under `flutter test`. |
+
 ### flutter_plugin
 
 Declares a Flutter plugin written in your workspace: its Dart code plus per-platform native implementations. Plugins from pub do not need this; the hub declares them.
@@ -1207,6 +1441,8 @@ flutter_plugin(
 | `dart_plugin_class` | The Dart class registered with the engine at startup. |
 | `plugin_class` | The native plugin class, for plugins with a native registration. |
 | `android_package` | The Java package of the Android `plugin_class`. Required when `platforms` lists `android` with a `plugin_class`. |
+| `android_libs` | `flutter_android_plugin_library` targets auto-wired into `flutter_android_app` and `flutter_integration_test(platform = "android")`. |
+| `linux_libs` | `flutter_linux_plugin_library` targets auto-wired into `flutter_linux_app` and `flutter_integration_test(platform = "linux")`. |
 | `native_deps` | Shared libraries bundled for `dart:ffi`. |
 | `native_assets` | `flutter_native_asset` targets, usually inside a `select()` on platform. |
 | `assets`, `resources` | Asset and resource files. |
@@ -1214,9 +1450,17 @@ flutter_plugin(
 | `package_name`, `language_version`, `version` | The package's name, language version, and version. |
 | `link_hook` | The package's `hook/link.dart`. See [Link hooks](#link-hooks). `flutter_library` takes it too. |
 
-A plugin's native code is its own target. Swift goes in a `flutter_apple_plugin_library` per platform, passed as `apple_libs`. Kotlin or Java goes in a `flutter_android_plugin_library` listed in the app's `flutter_android_app(deps = ...)`, which packages it, registers its plugin class and merges its `manifest` (receivers, services, permissions) into the app's. Its `flutter_engine` is a `flutter_android_engine(neverlink = True)`: the plugin compiles against the engine and the app ships its own, of the app's ABI. `e2e/plugin_example/glass_plugin` shows both, with shaders.
+A plugin's native code is its own target. Swift goes in a `flutter_apple_plugin_library` per platform, passed as `apple_libs`. Kotlin or Java goes in a `flutter_android_plugin_library` passed as `android_libs` on `flutter_plugin` (or listed directly in `flutter_android_app(deps = ...)`), which packages it, registers its plugin class and merges its `manifest` (receivers, services, permissions) into the app's. Its `flutter_engine` is a `flutter_android_engine(neverlink = True)`: the plugin compiles against the engine and the app ships its own, of the app's ABI. `e2e/plugin_example/glass_plugin` and `e2e/integration_android/android_greeting_plugin` show both.
 
 `e2e/ffi_example` shows a plugin built on Native Assets, `e2e/ffi_plugin_example` one with a Dart plugin class and `native_deps`, and `e2e/plugin_example` one with a Dart plugin class only.
+
+### Asset keys
+
+Bundle keys follow the `flutter build` rule, keyed off the package directory of the target that lists the file. An app, test, or bundle target's own `assets` are keyed by their path relative to that directory: `assets/logo.png` listed by `//apps/sub` loads as `assets/logo.png`, not `apps/sub/assets/logo.png`. The target's own `shaders` follow the same rule: `shaders/ripple.frag` listed by `//apps/sub` loads as `shaders/ripple.frag`, which is where `FragmentProgram.fromAsset` looks for it. A `flutter_library` or `flutter_plugin` asset is keyed `packages/<package_name>/<relative path>`, so `assets/brand.txt` on a library with `package_name = "brand"` loads as `packages/brand/assets/brand.txt`. Generated files follow the same directory rule by their repository-relative path, so a genrule output `apps/foo/gen/x.json` listed by `//apps/foo` loads as `gen/x.json`. Dependency keys travel untouched into every bundle on every platform, so app, `flutter_test` (`test_assets`), and `flutter_integration_test` bundles agree.
+
+Two listings, one rule: every file in `assets` or `shaders` must sit under the listing target's package directory. A file from a nested subpackage's directory is still inside, so it keys relative to the listing directory. Only a file outside it — a sibling or parent directory, or another repository — fails the build naming the file and the target: move it into a `flutter_library` with a `package_name` and depend on it instead. Two different files keyed to the same path fail the build naming both. `pkg_assets` keeps its own `packages/<package>/<path>` keying, unchanged.
+
+Migration note: this is a behavior change. Bundles used to key `assets` by raw workspace-relative path, so a target outside the workspace root shipped `apps/sub/assets/logo.png` where `flutter build` ships `assets/logo.png`. If a lookup uses a prefixed key, drop the prefix; if it relied on reaching another package's file through `assets`, move the file into a library and use its `packages/<name>/...` key. Targets at the workspace root keep exactly their old keys. The same change now applies to `shaders`: a target outside the workspace root ships its own shaders at package-relative keys, so a `FragmentProgram.fromAsset` lookup that used the prefixed path must drop the prefix.
 
 ### Link hooks
 
@@ -1254,6 +1498,33 @@ These are what `flutter_application` is made of. Most apps never need them.
 | `flutter_asset_bundle` | Builds the `flutter_assets/` tree: `AssetManifest.bin`, `FontManifest.json`, `NOTICES.Z`, and the asset files. |
 | `flutter_native_library` | Pairs a native library with its binding contract. See [Hot reload across a native rebuild](#hot-reload-across-a-native-rebuild). |
 | `flutter_native_asset`, `flutter_data_asset` | Declare Dart Native Assets, from `@rules_flutter//flutter:native_assets.bzl`. A data asset is bundled at `flutter_assets/packages/<package>/<name>`. |
+
+#### Composing your own compile rules (`flutter:utils.bzl`)
+
+A rule in another module can run the same kernel compile `flutter_application` uses, loading only `@rules_flutter//flutter:utils.bzl`:
+
+```starlark
+load(
+    "@rules_flutter//flutter:utils.bzl",
+    "FLUTTER_KERNEL_COMPILE_ATTRS",
+    "FLUTTER_KERNEL_COMPILE_TOOLCHAINS",
+    "compile_package_config",
+    "flutter_kernel_compile_action",
+    "flutter_kernel_compile_tools",
+)
+```
+
+`flutter_kernel_compile_tools(ctx)` resolves the tool files (`dartaotruntime`, `kernel_filter_tool`, `frontend_server`, `platform_dill` — the release dill with `product = True`), `compile_package_config` writes the `package_config.json` (with `extra_roots` for packages that contribute no sources, such as `flutter` or `sky_engine` from the toolchain — the caller must also make those roots' files action inputs), and `flutter_kernel_compile_action` runs the compile, with optional `vm_flags` (allow-listed Dart VM flags before the snapshot: heap/GC sizing such as `--old-gen-heap-size=1073741824`, and bare diagnostics such as `--enable-asserts`), `import_dill` (a pre-compiled summary passed as `--import-dill`), and `resource_set` (host resource constraints). Merge `FLUTTER_KERNEL_COMPILE_ATTRS` into the rule's `attrs` and declare `FLUTTER_KERNEL_COMPILE_TOOLCHAINS`; the rule keeps its own `main`, `srcs` and `deps`.
+
+Soundness rule for `vm_flags` and `extra_flags`: only the documented tuning flags may precede the snapshot — anything naming a file or a host side effect (`--packages`, `--*-dill`, `--platform`, `--native-assets`, `--timeline-recorder`, `--snapshot*`, `--observe`, `--dfe` and similar in `vm_flags`; any `frontend_server` flag naming a file the compile does not declare in `extra_flags`) fails the build at analysis. The guard behind the compile (`kernel_filter`) takes every allowed read from a manifest the action writes from its declared files — never from the compile argv — so a smuggled flag cannot widen what the compile may read.
+
+Soundness rule for `import_dill`: `frontend_server` re-reads an imported dill's whole source closure on every compile, so the consuming compile must still declare those sources — the guard accepts the declared reads and refuses anything undeclared. Pass `--incremental` (via `extra_flags`) so the compiler does not additionally re-read the dill's own entry main. `e2e/smoke` shows the full chain from another module: a plain kernel, one with `vm_flags` and `resource_set`, and one consuming a real `import_dill` dill.
+
+The same file also publishes the modular path the built-in `flutter_test` and app rules compile with when eligible: `flutter_kernel_module_aspect` (the same aspect object the built-in rules use, so a library's module action keeps its action key across built-in and custom pipelines), the `FlutterKernelModuleInfo` provider it produces, the `FLUTTER_MODULAR_KERNEL_ATTRS` / `FLUTTER_MODULAR_KERNEL_TOOLCHAINS` dicts a calling rule merges and declares, and two entry functions — `flutter_modular_test_kernel(ctx, test_uri, deps, output, use_base_dill = False)`, which writes the `flutter_test` bootstrap protocol entry, compiles it against the dependency outlines and links it (run the result under `flutter_prebuilt_test`), and `flutter_modular_app_kernel(ctx, main, package_name, srcs, deps, output, use_base_dill = False)`, which does the same for an app entry point with the debug platform dill prepended.
+
+Use the whole-program path when the pipeline needs `defines`, native assets, or a flag-bearing global `extra_dart_defines` to reach the compile: those route a custom modular kernel to a build error (it has no whole-program fallback), while the built-in rules silently fall back. Use the modular path when the closure is define-free and incremental rebuilds matter: a body-only edit to one library then recompiles only that library's module plus the entry/link actions, never the whole program — in both link modes. The default complete link (`use_base_dill = False`, as in rules_dart's `modular_executable_kernel`) puts every reachable module in the kernel, which runs with no `base_dill`; pass `use_base_dill = True` to delta-link against the shared `flutter_test` base instead, and feed the returned base dill to `flutter_prebuilt_test`'s `base_dill` exactly as a `flutter_test` kernel's `test_base_kernel` must. The delta pays off when many tests share one SDK base: each per-test dill stays small while the base builds once. The custom `deps` edge resets a non-empty global `extra_dart_defines` for the custom closure (which `kernel_worker` could not parse anyway when a value holds a comma) and leaves the configuration untouched when the flag is empty, so modules keep sharing action keys with the built-in rules. `e2e/hello_world/custom_modular_test_kernel.bzl` is both pipelines as running targets: a custom modular test kernel over two `flutter_library` packages under `flutter_prebuilt_test` (complete and base-linked), and a custom modular app kernel.
+
+Stability note: `flutter:utils.bzl` is stable for external use. New optional parameters may be added to `flutter_kernel_compile_action`, but existing calls keep their command line and action keys.
 
 ### Code generation
 
@@ -1337,31 +1608,42 @@ On Windows, the repository rule extracts all of `packages/flutter_tools` (about 
 
 ### Providers
 
-**`FlutterSdkInfo`** comes from the toolchain and carries the engine binaries and SDK files a custom rule needs:
+**`FlutterSdkInfo`** comes from the toolchain and carries the engine binaries and SDK files a custom rule needs. Core host fields live directly on `@rules_flutter//flutter:toolchain_type`; lazy-fetched fields (`gen_snapshot`, `platform_kernel_dill_product`, `const_finder`, `font_subset`, `engine_library`, `linux_sysroot`, `material_icons_font`) live on optional sub-toolchains so builds only download the repositories they use. Use `resolve_flutter_sdk_info(ctx)` with `FLUTTER_OPTIONAL_TOOLCHAINS` (from `@rules_flutter//flutter:providers.bzl` or `@rules_flutter//flutter:toolchain.bzl`) to merge them:
 
 ```starlark
-sdk = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
+load("@rules_flutter//flutter:providers.bzl", "FLUTTER_OPTIONAL_TOOLCHAINS", "resolve_flutter_sdk_info")
+
+# In rule(..., toolchains = ["@rules_flutter//flutter:toolchain_type"] + FLUTTER_OPTIONAL_TOOLCHAINS):
+sdk = resolve_flutter_sdk_info(ctx)
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `version` | `str` | The Flutter SDK version, for example `"3.47.7"`. |
 | `engine_revision` | `str` | The engine commit hash. |
-| `dart` | `File` | The `dart` executable from the bundled Dart SDK. |
+| `dart` | `File` | Deprecated. The `dart` executable from the bundled Dart SDK; prefer `@rules_dart//dart:exec_tools_toolchain_type`. |
 | `dartaotruntime` | `File` | The runtime for AOT snapshots. |
-| `gen_snapshot` | `File` | The AOT compiler. |
+| `gen_snapshot` | `File` or `None` | The AOT compiler (resolved via `@rules_flutter//flutter:aot_toolchain_type`). |
 | `frontend_server` | `File` | `frontend_server_aot.dart.snapshot`, for kernel compilation. |
 | `platform_kernel_dill` | `File` | `platform_strong.dill`, the debug platform kernel. |
-| `platform_kernel_dill_product` | `File` | `platform_strong_product.dill`, the release platform kernel. |
+| `platform_kernel_dill_product` | `File` or `None` | `platform_strong_product.dill`, the release platform kernel (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
 | `patched_sdk` | `Target` | The Flutter-patched Dart SDK root. |
 | `icu_data` | `File` | `icudtl.dat`. |
-| `tool_files` | `depset[File]` | Everything needed to run the build tools, for action inputs. |
-| `engine_library` | `Target` or `None` | The platform engine runtime library. `None` for mobile and web. |
-| `const_finder` | `File` or `None` | `const_finder.dart.snapshot`, for icon tree shaking. |
-| `font_subset` | `File` or `None` | The `font-subset` binary. |
+| `tool_files` | `depset[File]` | Deprecated. All files in the bundled Dart SDK and patched SDK; prefer `@rules_dart//dart:exec_tools_toolchain_type` or the action-specific `dart_*_files` sets. |
+| `dart_vm_files` | `depset[File]` | Minimal Dart SDK files needed to run the `dart` VM on a snapshot (`bin/dart`, `bin/dartvm`). |
+| `dart_pub_files` | `depset[File]` | Minimal Dart SDK files needed for `dart pub` (`bin/dart`, `bin/dartaotruntime`, `bin/snapshots/dartdev_aot.dart.snapshot`, `version`). |
+| `dart2wasm_files` | `depset[File]` | Minimal Dart SDK files needed for `dart compile wasm` (`bin/dart`, `bin/dartaotruntime`, `bin/snapshots/dart2wasm_product.snapshot`, `bin/wasm-opt`). |
+| `dart2js_files` | `depset[File]` | Minimal Dart SDK files needed for `dart compile js` (`bin/dart`, `bin/dartvm`, `bin/snapshots/dart2js.dart.snapshot`). |
+| `engine_library` | `Target` or `None` | The platform engine runtime library. `None` for mobile and web (resolved via `@rules_flutter//flutter:desktop_engine_toolchain_type`). |
+| `linux_sysroot` | `Target` or `None` | The Chromium sysroot filegroup for Linux GTK3 builds (resolved via `@rules_flutter//flutter:desktop_engine_toolchain_type`). |
+| `const_finder` | `File` or `None` | `const_finder.dart.snapshot`, for icon tree shaking (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
+| `font_subset` | `File` or `None` | The `font-subset` binary (resolved via `@rules_flutter//flutter:product_tools_toolchain_type`). |
+| `material_icons_font` | `File` or `None` | `MaterialIcons-Regular.otf` (resolved via `@rules_flutter//flutter:material_icons_toolchain_type`). |
 | `impellerc` | `File` or `None` | The shader compiler. |
 | `shader_lib` | `list[File]` | Shader include files for impellerc. |
 | `target_os`, `target_arch` | `str` | The cross-compilation target, or empty for a native build. |
+
+A Flutter workspace's Dart toolchain is the Dart SDK bundled with its Flutter release. Analysis, formatting, codegen, `dart_test` and `dart_binary` all use it, so the workspace downloads one Dart SDK, not two. A root module that registers its own Dart toolchain before `@flutter_toolchains` keeps it.
 
 **`FlutterInfo`** is carried by `flutter_library` and `flutter_plugin`:
 
@@ -1818,6 +2100,9 @@ The `e2e/` directory holds working workspaces, each with its own tests:
 | `e2e/linux_example` | A Linux app built three ways, with bundle checks. |
 | `e2e/windows_example` | A Windows app built three ways, with bundle checks. |
 | `e2e/web_example` | WASM and JavaScript web builds with `web_assets`. |
+| `e2e/integration_web` | End-to-end web `flutter_integration_test` running in hermetic `chrome-headless-shell`. |
+| `e2e/integration_linux` | End-to-end Linux desktop `flutter_integration_test` with a native C++ plugin running under hermetic `Xvfb` and Mesa `llvmpipe`. |
+| `e2e/integration_android` | End-to-end Android `flutter_integration_test` with a Kotlin method-channel plugin running in a hermetic headless Android emulator with KVM. |
 | `e2e/cross_compile_example` | A Linux bundle cross-compiled from macOS. |
 | `e2e/multi_window_example` | Multi-window macOS and multi-scene iOS with `FlutterEngineGroup`. |
 | `e2e/dual_hub` | Two pub hubs in one workspace that disagree on a package version. |

@@ -1,0 +1,26 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application")
+
+# One minimal app with an Android leg and no go_sdk block in MODULE.bazel:
+# the Go toolchain for the Android host tools must come from rules_flutter's
+# own pinned download. `bazel test //...` on Linux builds the Dart app plus
+# the Android leg; there are no Apple legs.
+flutter_application(
+    name = "app",
+    package_name = "android_no_go_sdk",
+    srcs = glob(["lib/**/*.dart"]),
+    main = "lib/main.dart",
+    deps = ["@deps//:flutter"],
+)
+
+flutter_android_app(
+    name = "app_android",
+    package_name = "com.example.androidnogosdk",
+    application = ":app",
+)
+
+build_test(
+    name = "android_build_test",
+    targets = [":app_android"],
+)

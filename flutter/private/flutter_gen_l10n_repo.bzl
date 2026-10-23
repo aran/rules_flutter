@@ -54,7 +54,9 @@ applies is a loud failure, where a rewrite would quietly drift.
    another dead-code cut, not a toolchain workaround — see the seventh patch.
 """
 
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
+load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url", "require_sha256")
+load("//flutter/private:download.bzl", "pinned_download_and_extract")
+load("//flutter/private:local_sdk.bzl", "copy_local_file", "read_local_sdk_version", "resolve_local_sdk_root")
 
 # The exact closure of `src/localizations/gen_l10n.dart` once the six import
 # edges are cut. Listed explicitly rather than globbed: the subset boundary is
@@ -99,11 +101,32 @@ _PATCHES = [
 def _flutter_gen_l10n_repo_impl(repository_ctx):
     version = repository_ctx.attr.flutter_version
 
-    repository_ctx.download_and_extract(
-        url = flutter_source_tarball_url(version),
-        sha256 = repository_ctx.attr.sha256,
-        stripPrefix = "flutter-{version}/packages/flutter_tools".format(version = version),
-    )
+    if getattr(repository_ctx.attr, "local_path", ""):
+        # The subset is staged as repo-owned copies, never symlinks:
+        # `repository_ctx.patch` below rewrites the files in place, which must
+        # not write through into the user's SDK tree. Only the subset files
+        # are copied; the tarball's remainder is never needed.
+        sdk_root = resolve_local_sdk_root(repository_ctx, getattr(repository_ctx.attr, "local_path", ""))
+        version = read_local_sdk_version(repository_ctx, sdk_root).flutter_version
+        for src in _SUBSET_SRCS:
+            repository_ctx.file(src + ".keep", "")
+            repository_ctx.delete(src + ".keep")
+        for src in _SUBSET_SRCS:
+            copy_local_file(
+                repository_ctx,
+                str(sdk_root.get_child("packages/flutter_tools/" + src)),
+                str(repository_ctx.path(src)),
+                "the gen-l10n subset file " + src,
+            )
+    else:
+        tarball_url = getattr(repository_ctx.attr, "source_url", "") or flutter_source_tarball_url(version)
+        strip_prefix = getattr(repository_ctx.attr, "source_strip_prefix", "") or "flutter-{}/".format(version)
+        pinned_download_and_extract(
+            repository_ctx,
+            url = tarball_url,
+            sha256 = require_sha256(repository_ctx.attr.sha256, tarball_url),
+            stripPrefix = strip_prefix + "packages/flutter_tools",
+        )
 
     # `-p1` strips the leading `a/`, leaving the `lib/src/...` paths the
     # stripped tarball already uses. A patch that no longer applies stops the
@@ -140,16 +163,37 @@ flutter_gen_l10n_repo = repository_rule(
     implementation = _flutter_gen_l10n_repo_impl,
     attrs = {
         "flutter_version": attr.string(
-            doc = "Flutter release whose flutter_tools the generator is taken from.",
-            mandatory = True,
+            doc = "Flutter release whose flutter_tools the generator is " +
+                  "taken from. Empty means a local SDK (with `local_path`).",
+            default = "",
         ),
         "sha256": attr.string(
             doc = "Checksum of the Flutter source tarball — an unpinned " +
                   "fetch would let the generator's code change under a fixed " +
                   "Flutter version. Guaranteed non-empty by the caller: " +
                   "extensions.bzl reads it through `flutter_source_sha256()`, " +
-                  "which refuses a version with no recorded checksum.",
-            mandatory = True,
+                  "which refuses a version with no recorded checksum. Empty " +
+                  "means a local SDK (with `local_path`).",
+            default = "",
+        ),
+        "source_url": attr.string(
+            doc = "Optional replacement framework source tarball URL from a " +
+                  "custom `flutter.version` registration. Empty means the " +
+                  "default GitHub tag tarball. Plain mirrors stay Bazel's " +
+                  "job (`--downloader_config`), not an attribute.",
+            default = "",
+        ),
+        "source_strip_prefix": attr.string(
+            doc = "Top-level directory the source tarball extracts to. " +
+                  "Empty means the stock `flutter-{version}/` layout (or " +
+                  "`flutter-{tag}/` for a mirrored stock tarball URL).",
+            default = "",
+        ),
+        "local_path": attr.string(
+            doc = "Optional path to a pre-extracted Flutter SDK " +
+                  "(bin/cache layout) to source every artifact from instead " +
+                  "of the network. Mutually exclusive with downloading.",
+            default = "",
         ),
         "hub_name": attr.string(
             doc = "Pub hub supplying the generator's seven dependencies.",

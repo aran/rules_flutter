@@ -1,0 +1,308 @@
+{
+  "label": "t1_one_dart",
+  "rules_rev": "7ba01b7",
+  "size": "full",
+  "packages": 30,
+  "files_per_package": 20,
+  "bazel": "bazel 9.2.0",
+  "jobs": 4,
+  "date": "2026-10-14T17:57:19",
+  "output_base": {
+    "bench_analysis": "<bench-scratch>/t1_one_dart/bench_analysis",
+    "bench": "<bench-scratch>/t1_one_dart/bench"
+  },
+  "scenarios": {
+    "reanalysis_80pkg_s": 7.41,
+    "reanalysis_80pkg_runs_s": [8.36, 7.36, 7.41],
+    "clean_build": {
+      "wall_s": 210.73,
+      "sandboxed": 139,
+      "actions": {
+        "SymlinkTree": {
+          "n": 31,
+          "cpu_s": 3.75
+        },
+        "FlutterShaderCompile": {
+          "n": 64,
+          "cpu_s": 147.31
+        },
+        "FlutterAssetBundle": {
+          "n": 32,
+          "cpu_s": 62.25
+        },
+        "DartCompile": {
+          "n": 1,
+          "cpu_s": 2.79
+        },
+        "FlutterKernelCompile": {
+          "n": 33,
+          "cpu_s": 417.85
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 9.2
+        },
+        "FlutterWebTemplate": {
+          "n": 1,
+          "cpu_s": 4.33
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 27.78
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 0.52
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 36.63
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.27
+        }
+      }
+    },
+    "fetch_footprint": {
+      "entries": [
+        {
+          "name": "rules_dart+",
+          "mb": 0
+        },
+        {
+          "name": "rules_dart++dart+dart_toolchains",
+          "mb": 1
+        },
+        {
+          "name": "rules_flutter+",
+          "mb": 0
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_linux-x64",
+          "mb": 824
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_linux_sysroot_x64",
+          "mb": 215
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_sky_engine",
+          "mb": 8
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_toolchains",
+          "mb": 1
+        },
+        {
+          "name": "rules_flutter++flutter+flutter_web_sdk",
+          "mb": 759
+        }
+      ],
+      "total_mb": 1808,
+      "rules_dart_linux_sdk_fetched": false
+    },
+    "body_edit_build": {
+      "wall_s": 196.97,
+      "sandboxed": 40,
+      "actions": {
+        "FlutterKernelCompile": {
+          "n": 33,
+          "cpu_s": 613.96
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 21.16
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 12.57
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 19.42
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 46.13
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 36.12
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 0.22
+        }
+      }
+    },
+    "api_edit_build": {
+      "wall_s": 179.08,
+      "sandboxed": 39,
+      "actions": {
+        "FlutterKernelCompile": {
+          "n": 33,
+          "cpu_s": 575.66
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 23.11
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 26.75
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 12.6
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 43.64
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 8.49
+        }
+      }
+    },
+    "null_build": {
+      "wall_s": 0.21,
+      "sandboxed": 0,
+      "actions": {}
+    },
+    "null_build_s": 0.21,
+    "test_run": {
+      "wall_s": 14.52,
+      "sandboxed": 30,
+      "actions": {
+        "TestRunner": {
+          "n": 30,
+          "cpu_s": 52.61
+        }
+      },
+      "per_test_s": 1.754
+    },
+    "test_runfiles": {
+      "target": "//packages/pkg5:pkg5_test",
+      "files": 1062,
+      "mb": 752
+    },
+    "kernel_inputs": {
+      "target": "//packages/pkg5:pkg5_test",
+      "actions": 1,
+      "inputs": 2312,
+      "mb": 691.6,
+      "external_mb": 691.5,
+      "missing": 0
+    },
+    "lint_clean": {
+      "wall_s": 648.43,
+      "sandboxed": 1261,
+      "actions": {
+        "SymlinkTree": {
+          "n": 33,
+          "cpu_s": 5.27
+        },
+        "FlutterShaderCompile": {
+          "n": 64,
+          "cpu_s": 109.75
+        },
+        "DartCompile": {
+          "n": 3,
+          "cpu_s": 10.3
+        },
+        "CopyToDirectory": {
+          "n": 998,
+          "cpu_s": 718.13
+        },
+        "DartAnalyze": {
+          "n": 61,
+          "cpu_s": 913.74
+        },
+        "DartFormat": {
+          "n": 61,
+          "cpu_s": 194.51
+        },
+        "FlutterKernelCompile": {
+          "n": 33,
+          "cpu_s": 404.4
+        },
+        "FlutterAssetBundle": {
+          "n": 32,
+          "cpu_s": 58.11
+        },
+        "FlutterWebTemplate": {
+          "n": 1,
+          "cpu_s": 0.7
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 51.49
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 29.38
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 3.5
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 5.11
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 0.81
+        }
+      }
+    },
+    "lint_body_edit": {
+      "wall_s": 535.36,
+      "sandboxed": 223,
+      "actions": {
+        "CopyToDirectory": {
+          "n": 61,
+          "cpu_s": 416.68
+        },
+        "DartFormat": {
+          "n": 61,
+          "cpu_s": 221.15
+        },
+        "DartAnalyze": {
+          "n": 61,
+          "cpu_s": 864.38
+        },
+        "FlutterKernelCompile": {
+          "n": 33,
+          "cpu_s": 460.61
+        },
+        "FlutterAssetBundle": {
+          "n": 2,
+          "cpu_s": 13.27
+        },
+        "FlutterDart2Wasm": {
+          "n": 1,
+          "cpu_s": 48.21
+        },
+        "FlutterDart2JS": {
+          "n": 1,
+          "cpu_s": 38.04
+        },
+        "FlutterAotElf": {
+          "n": 1,
+          "cpu_s": 32.1
+        },
+        "FlutterLinuxBundle": {
+          "n": 1,
+          "cpu_s": 6.8
+        },
+        "FlutterWebBundle": {
+          "n": 1,
+          "cpu_s": 11.88
+        }
+      }
+    }
+  }
+}

@@ -45,43 +45,81 @@ is a hard build error.
 """
 
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_elf_machine_for_abi", "android_platform_for_abi", "compute_android_jni_path")
+load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_elf_machine_for_abi", "android_platform_for_abi", "compute_android_jni_path", "resolve_exec_dart_vm")
 
-def _android_platform_transition_impl(_settings, attr):
-    return {"//command_line_option:platforms": [android_platform_for_abi(attr.android_abi)]}
+def _android_platform_transition_platforms(settings, attr):
+    abi = getattr(attr, "android_abi", "")
+    if abi:
+        return {
+            "//command_line_option:platforms": [android_platform_for_abi(abi)],
+        }
+
+    for platform in settings["//command_line_option:platforms"]:
+        platform_str = str(platform).lower()
+        if "android" in platform_str:
+            return {
+                "//command_line_option:platforms": list(settings["//command_line_option:platforms"]),
+            }
+        if "x86_64" in platform_str or "x64" in platform_str or "amd64" in platform_str:
+            return {
+                "//command_line_option:platforms": [android_platform_for_abi("x86_64")],
+            }
+        if "arm64" in platform_str or "aarch64" in platform_str:
+            return {
+                "//command_line_option:platforms": [android_platform_for_abi("arm64-v8a")],
+            }
+
+    android_platforms = settings["//command_line_option:android_platforms"]
+    if android_platforms:
+        return {
+            "//command_line_option:platforms": list(android_platforms),
+        }
+
+    cpu = settings["//command_line_option:cpu"]
+    if cpu in ("x86_64", "x86", "x64", "amd64"):
+        return {
+            "//command_line_option:platforms": [android_platform_for_abi("x86_64")],
+        }
+    return {
+        "//command_line_option:platforms": [android_platform_for_abi("arm64-v8a")],
+    }
+
+def _android_platform_transition_impl(settings, attr):
+    # Idempotent on every edge: besides the platform, pin `dynamic_mode` to
+    # what rules_android itself uses for the native deps of an android_binary
+    # (`_cc_flags_from_android` sets it to "off"). The bundle, the registrant
+    # sources and the plugin aggregator are each reachable through both a
+    # split `deps` edge (dynamic_mode=off) and an unsplit edge (the binary's
+    # `assets`, the manifest merge's `libraries`), and passing the caller's
+    # value through forked the whole application subgraph — including the AOT
+    # kernel compile and the cross gen_snapshot — into two configurations
+    # with byte-identical outputs. `dynamic_mode` feeds no Dart action, so
+    # the surviving configuration produces the same app.dill and app.so.
+    result = _android_platform_transition_platforms(settings, attr)
+    result["//command_line_option:dynamic_mode"] = "off"
+    return result
 
 # Builds the bundle and everything behind it (the flutter_application, its
 # AOT compile, FFI cc deps, Native Assets) for the Android platform matching
-# `android_abi`. The ABI attribute is the single source of truth: the platform
-# is always derived from it, so the jar's lib/<abi>/ layout and the code inside
-# it cannot disagree — including when android_binary's own split transition
-# (--android_platforms) already re-configured this target.
+# `android_abi` (or the caller's configured Android ABI when `android_abi` is
+# omitted on `flutter_android_registrant`). `//command_line_option:platforms`
+# and `//command_line_option:dynamic_mode` are set; every other setting is
+# the caller's.
 _android_platform_transition = transition(
     implementation = _android_platform_transition_impl,
-    inputs = [],
-    outputs = ["//command_line_option:platforms"],
+    inputs = [
+        "//command_line_option:platforms",
+        "//command_line_option:android_platforms",
+        "//command_line_option:cpu",
+        "//command_line_option:dynamic_mode",
+    ],
+    outputs = [
+        "//command_line_option:platforms",
+        "//command_line_option:dynamic_mode",
+    ],
 )
 
-# Shell function validating that a native library is an ELF shared object
-# with the expected e_machine (2 bytes little-endian at offset 18). Android's
-# linker can only load ELF for the APK's ABI; anything else (e.g. a host
-# Mach-O dylib) would crash at app startup, so packaging fails instead.
-_ELF_VALIDATION_DEF = """\
-validate_android_elf() {
-  local lib="$1" want_machine="$2" abi="$3"
-  local bytes=( $(od -An -v -tu1 -N20 "$lib") )
-  if [ "${#bytes[@]}" -lt 20 ] ||
-      [ "${bytes[0]}" -ne 127 ] || [ "${bytes[1]}" -ne 69 ] ||
-      [ "${bytes[2]}" -ne 76 ] || [ "${bytes[3]}" -ne 70 ]; then
-    echo "ERROR: $lib is not an ELF binary. Android ($abi) cannot load it." >&2
-    exit 1
-  fi
-  local machine=$(( bytes[18] | (bytes[19] << 8) ))
-  if [ "$machine" -ne "$want_machine" ]; then
-    echo "ERROR: $lib has ELF machine $machine; $abi requires $want_machine." >&2
-    exit 1
-  fi
-}"""
+android_platform_transition = _android_platform_transition
 
 def _symlink_to_jni(ctx, src, abi, basename):
     """Create a symlink placing a native lib into the jni/<abi>/ tree."""
@@ -127,49 +165,51 @@ def _create_native_libs_jar(ctx, aot_output, native_libs, abi):
     jar = ctx.actions.declare_file(ctx.label.name + "_native_libs.jar")
     expected_machine = android_elf_machine_for_abi(abi)
 
-    entries = ([("libapp.so", aot_output)] if aot_output else []) + [
-        (lib.basename, lib)
-        for lib in native_libs
-    ]
+    entries = sorted(
+        ([("libapp.so", aot_output)] if aot_output else []) + [
+            (lib.basename, lib)
+            for lib in native_libs
+        ],
+        key = lambda e: e[0],
+    )
 
-    commands = [_ELF_VALIDATION_DEF]
     zip_entries = []
     seen_basenames = {}
     for basename, lib in entries:
         if basename in seen_basenames:
-            fail(
+            fail((
                 "flutter_android_bundle: two native libraries would both be " +
-                "packaged as lib/{abi}/{basename}: {first} and {second}. ".format(
-                    abi = abi,
-                    basename = basename,
-                    first = seen_basenames[basename].path,
-                    second = lib.path,
-                ) +
-                "Rename one of them — Android can only load one.",
-            )
+                "packaged as lib/{abi}/{basename}: {first} and {second}. " +
+                "Rename one of them — Android can only load one."
+            ).format(
+                abi = abi,
+                basename = basename,
+                first = seen_basenames[basename].path,
+                second = lib.path,
+            ))
         seen_basenames[basename] = lib
-        commands.append('validate_android_elf "{lib}" {machine} "{abi}"'.format(
-            lib = lib.path,
-            machine = expected_machine,
-            abi = abi,
-        ))
         zip_entries.append("lib/{abi}/{basename}={src}".format(
             abi = abi,
             basename = basename,
             src = lib.path,
         ))
 
-    # cC = create, compressed.
-    commands.append('exec "{zipper}" cC "{jar}" "$@"'.format(
-        zipper = ctx.executable._zipper.path,
-        jar = jar.path,
-    ))
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx)
+    args = ctx.actions.args()
+    args.add(ctx.executable._android_bundle_tool.path)
+    args.add("native-libs-jar")
+    args.add("--output", jar.path)
+    args.add("--abi", abi)
+    args.add("--machine", str(expected_machine))
+    args.add_all(zip_entries)
 
-    ctx.actions.run_shell(
-        command = "\n".join(commands),
-        arguments = zip_entries,
-        inputs = [lib for _, lib in entries],
-        tools = [ctx.executable._zipper],
+    ctx.actions.run(
+        executable = dart_exe,
+        arguments = [args],
+        inputs = depset(
+            direct = [ctx.executable._android_bundle_tool] + [lib for _, lib in entries],
+            transitive = [dart_vm_files],
+        ),
         outputs = [jar],
         mnemonic = "FlutterNativeLibsJar",
         progress_message = "Packaging Flutter native libs into jar %s" % ctx.label,
@@ -186,23 +226,31 @@ def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info)
     """
     out = ctx.actions.declare_directory(ctx.label.name + "_debug_flutter_assets")
 
-    cmd = 'cp -RL "$1"/. "$2" && cp "$3" "$2/kernel_blob.bin"'
-    args = [flutter_assets.path, out.path, kernel_dill.path]
-    inputs = [flutter_assets, kernel_dill]
+    args = ctx.actions.args()
+    args.add(ctx.executable._android_bundle_tool.path)
+    args.add("debug-assets")
+    args.add("--assets-dir", flutter_assets.path)
+    args.add("--output-dir", out.path)
+    args.add("--kernel", kernel_dill.path)
+    inputs = [flutter_assets, kernel_dill, ctx.executable._android_bundle_tool]
 
     vm_snapshot = flutter_sdk_info.vm_isolate_snapshot
     iso_snapshot = flutter_sdk_info.isolate_snapshot
     if vm_snapshot:
-        cmd += ' && cp "%s" "$2/vm_snapshot_data"' % vm_snapshot.path
+        args.add("--vm-snapshot", vm_snapshot.path)
         inputs.append(vm_snapshot)
     if iso_snapshot:
-        cmd += ' && cp "%s" "$2/isolate_snapshot_data"' % iso_snapshot.path
+        args.add("--isolate-snapshot", iso_snapshot.path)
         inputs.append(iso_snapshot)
 
-    ctx.actions.run_shell(
-        command = cmd,
-        arguments = args,
-        inputs = inputs,
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
+    ctx.actions.run(
+        executable = dart_exe,
+        arguments = [args],
+        inputs = depset(
+            direct = inputs,
+            transitive = [dart_vm_files],
+        ),
         outputs = [out],
         mnemonic = "FlutterAndroidDebugAssets",
         progress_message = "Assembling debug flutter_assets with kernel and VM snapshots %s" % ctx.label,
@@ -242,9 +290,19 @@ def _flutter_android_bundle_impl(ctx):
         native_libs_jar = ctx.actions.declare_file(ctx.label.name + "_native_libs.jar")
 
         # Zipper requires at least one entry, so use a minimal valid zip header.
-        ctx.actions.run_shell(
-            command = 'printf "\\x50\\x4b\\x05\\x06\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00" > "$1"',
-            arguments = [native_libs_jar.path],
+        dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
+        ctx.actions.run(
+            executable = dart_exe,
+            arguments = [
+                ctx.executable._android_bundle_tool.path,
+                "empty-jar",
+                "--output",
+                native_libs_jar.path,
+            ],
+            inputs = depset(
+                direct = [ctx.executable._android_bundle_tool],
+                transitive = [dart_vm_files],
+            ),
             outputs = [native_libs_jar],
             mnemonic = "FlutterEmptyNativeLibsJar",
             progress_message = "Creating empty native libs jar (debug mode) %s" % ctx.label,
@@ -308,8 +366,8 @@ agree.""",
             default = "arm64-v8a",
             values = ANDROID_ABIS.keys(),
         ),
-        "_zipper": attr.label(
-            default = "@bazel_tools//tools/zip:zipper",
+        "_android_bundle_tool": attr.label(
+            default = Label("//flutter/private/tools:android_bundle"),
             executable = True,
             cfg = "exec",
         ),
@@ -317,7 +375,10 @@ agree.""",
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     },
-    toolchains = ["@rules_flutter//flutter:toolchain_type"],
+    toolchains = [
+        "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_dart//dart:exec_tools_toolchain_type", mandatory = False),
+    ],
     doc = """Bundles Flutter compilation outputs for Android packaging.
 
 Produces a native_libs.jar containing lib/<abi>/libapp.so and a flutter_assets

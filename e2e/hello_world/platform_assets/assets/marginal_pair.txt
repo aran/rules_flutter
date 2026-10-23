@@ -1,0 +1,2 @@
+deflate saves a byte or two
+this file barely compresses

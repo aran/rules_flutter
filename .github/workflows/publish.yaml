@@ -11,6 +11,11 @@ on:
     secrets:
       publish_token:
         required: true
+      # Repo-level fallback for manual dispatches, which cannot pass
+      # secrets: no caller passes it today, and the `||` below keeps
+      # reading the repo secret. Declared so the expression type-checks.
+      bcr_publish_token:
+        required: false
   # In case of problems, let release engineers retry by manually dispatching
   # the workflow from the GitHub UI
   workflow_dispatch:
@@ -20,6 +25,8 @@ on:
         required: true
         type: string
 jobs:
+  # A reusable-workflow call: `uses:` jobs take no timeout-minutes (only the
+  # called workflow's own jobs can carry one).
   publish:
     uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.5.1
     with:

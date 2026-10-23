@@ -119,9 +119,65 @@ void main() {
       );
       failed = true;
     }
+    void checkSymlink(String description, String path, String expectedTarget) {
+      final type = FileSystemEntity.typeSync(path, followLinks: false);
+      if (type != FileSystemEntityType.link) {
+        stderr.writeln(
+          'FAIL: $description — expected symlink at $path, got $type',
+        );
+        failed = true;
+        return;
+      }
+      final actualTarget = Link(path).targetSync();
+      if (actualTarget != expectedTarget) {
+        stderr.writeln(
+          'FAIL: $description — expected symlink $path -> $expectedTarget, '
+          'got $actualTarget',
+        );
+        failed = true;
+      } else {
+        print('OK: $description');
+      }
+    }
+
+    final appFw = '$bundlePath/Contents/Frameworks/App.framework';
     check(
       'App.framework exists',
-      '$bundlePath/Contents/Frameworks/App.framework',
+      appFw,
+    );
+    check(
+      'App.framework/Versions/A/App exists',
+      '$appFw/Versions/A/App',
+    );
+    check(
+      'App.framework/Versions/A/Resources/Info.plist exists',
+      '$appFw/Versions/A/Resources/Info.plist',
+    );
+    checkSymlink(
+      'App.framework/Versions/Current symlink',
+      '$appFw/Versions/Current',
+      'A',
+    );
+    checkSymlink(
+      'App.framework/App symlink',
+      '$appFw/App',
+      'Versions/Current/App',
+    );
+    checkSymlink(
+      'App.framework/Resources symlink',
+      '$appFw/Resources',
+      'Versions/Current/Resources',
+    );
+    checkCommand(
+      'App.framework Info.plist CFBundlePackageType is FMWK',
+      'plutil',
+      [
+        '-extract',
+        'CFBundlePackageType',
+        'raw',
+        '$appFw/Versions/A/Resources/Info.plist',
+      ],
+      (stdout) => stdout == 'FMWK',
     );
     check(
       'FlutterMacOS.framework exists',

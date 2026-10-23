@@ -1,0 +1,38 @@
+load("@rules_dart//dart:defs.bzl", "dart_analysis_test")
+load("//flutter:defs.bzl", "flutter_library", "flutter_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
+load(":dbg_flutter_test.bzl", "dbg_flutter_test")
+
+flutter_library(
+    name = "assert_helper",
+    package_name = "dbg_assert_fixture",
+    srcs = ["lib/assert_helper.dart"],
+    visibility = ["//flutter/tests:__subpackages__"],
+)
+
+flutter_test(
+    name = "modular_dbg_assert_flutter_test",
+    package_name = "dbg_assert_fixture",
+    main = "test/modular_dbg_assert_test.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    visibility = ["//flutter/tests:__subpackages__"],
+    deps = [
+        ":assert_helper",
+        "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
+    ],
+)
+
+dbg_flutter_test(
+    name = "modular_dbg_assert_test",
+    target_compatible_with = HOST_COMPATIBLE,
+    test = ":modular_dbg_assert_flutter_test",
+)
+
+dart_analysis_test(
+    name = "analysis_test",
+    target_compatible_with = HOST_COMPATIBLE,
+    targets = [
+        ":assert_helper",
+        ":modular_dbg_assert_flutter_test",
+    ],
+)

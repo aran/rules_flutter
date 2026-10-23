@@ -24,6 +24,27 @@ ARTIFACT_CHECKSUMS maps version → artifact_path → sha256.
 
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 
+def unknown_version_message(flutter_version):
+    """Renders the failure message for a version no table knows.
+
+    A pure helper (no lookups) so the wording is unit-testable: the message
+    must name the real requested version. Shared by the extension (which
+    resolves the toolchain request) and `flutter_register_toolchains` (which
+    resolves explicit revision metadata), so both report an unknown version
+    the same way.
+
+    Args:
+        flutter_version: The requested Flutter release tag.
+
+    Returns:
+        The failure message string.
+    """
+    return (
+        "Flutter version \"{v}\" is not listed in " +
+        "flutter/private/versions.bzl; register it with " +
+        "flutter.version(...) in the root module."
+    ).format(v = flutter_version)
+
 FLUTTER_VERSIONS = {
     "3.41.2": struct(
         engine_revision = "6c0baaebf70e0148f485f27d5616b3d3382da7bf",
@@ -49,6 +70,13 @@ FLUTTER_VERSIONS = {
         engine_revision = "c416acfeb8126e097f758c664aaa3da929e27da0",
         material_fonts_url = "flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
         source_sha256 = "0fc2d964725844cb5fae234426192820fd8306e1ae702296f3c0d3a20962cdbd",
+    ),
+    "3.44.8": struct(
+        engine_revision = "0cd610717bde95fd88343c64f81c11ba4e5c0010",
+        material_fonts_url = "flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
+        # sha256 of the GitHub source tarball. Required: every
+        # fetch of the framework source is pinned against it.
+        source_sha256 = "3dc664a0f468cffc12bf33389eb001297f3d14a8a7a0dac91d9ccaab69c0ada1",
     ),
     "3.47.2": struct(
         engine_revision = "a804b261645ef8c13eb3d5c44a5c2fb0340c5539",
@@ -76,7 +104,7 @@ FLUTTER_VERSIONS = {
     ),
 }
 
-def flutter_source_sha256(flutter_version):
+def flutter_source_sha256(flutter_version, versions = None):
     """Returns the recorded sha256 of a release's GitHub source tarball.
 
     Read through this accessor rather than off the struct directly, so that an
@@ -88,13 +116,17 @@ def flutter_source_sha256(flutter_version):
     Args:
         flutter_version: Flutter release tag (e.g. "3.47.5"). Must be a key of
             FLUTTER_VERSIONS.
+        versions: Optional version metadata dict override for testing.
 
     Returns:
         The 64-character hex sha256 string.
     """
-    meta = FLUTTER_VERSIONS[flutter_version]
-    sha256 = getattr(meta, "source_sha256", "")
-    if not sha256:
+    table = FLUTTER_VERSIONS if versions == None else versions
+    if (
+        flutter_version not in table or
+        not hasattr(table[flutter_version], "source_sha256") or
+        not table[flutter_version].source_sha256
+    ):
         fail((
             "No source tarball checksum recorded for Flutter {v}, so its " +
             "framework source cannot be fetched safely.\n" +
@@ -107,7 +139,139 @@ def flutter_source_sha256(flutter_version):
             v = flutter_version,
             url = flutter_source_tarball_url(flutter_version),
         ))
-    return sha256
+    return table[flutter_version].source_sha256
+
+def flutter_artifact_sha256(flutter_version, artifact_path, checksums = None):
+    """Returns the recorded sha256 of one engine artifact.
+
+    Every download of an engine artifact goes through this function, so a
+    missing entry fails the fetch with a message naming the artifact, instead
+    of letting Bazel accept whatever bytes the server returns.
+
+    Args:
+        flutter_version: Flutter release tag (e.g. "3.47.5"). Must be a key of
+            FLUTTER_VERSIONS.
+        artifact_path: Path relative to the engine revision directory, as
+            built by a helper in //flutter/private:artifact_urls.bzl
+            (e.g. "android-arm64-release/artifacts.zip").
+        checksums: Optional checksum table override for testing.
+
+    Returns:
+        The 64-character hex sha256 string.
+    """
+    table = ARTIFACT_CHECKSUMS if checksums == None else checksums
+    if (
+        flutter_version not in table or
+        artifact_path not in table[flutter_version] or
+        not table[flutter_version][artifact_path]
+    ):
+        fail((
+            "No sha256 recorded for {path} in Flutter {v}, so the download " +
+            "cannot be verified and will not be fetched.\n" +
+            "Add it to ARTIFACT_CHECKSUMS in flutter/private/versions.bzl " +
+            "under \"{v}\" (or, when {v} is a custom flutter.version " +
+            "registration, to that tag's artifact_sha256 in the root " +
+            "module). `bazel run //tools/update_flutter_version -- {v}` " +
+            "downloads each artifact and prints its sha256."
+        ).format(
+            path = artifact_path,
+            v = flutter_version,
+        ))
+    return table[flutter_version][artifact_path]
+
+def merge_custom_versions(custom_tags):
+    """Merges root-registered custom versions into the stock version tables.
+
+    Each `flutter.version` tag in the root module registers one Flutter
+    release that `versions.bzl` does not list: an older stable, a rebuild, or
+    an enterprise engine. The merged tables have the same shape as
+    `FLUTTER_VERSIONS` / `ARTIFACT_CHECKSUMS`, so every repository rule keeps
+    reading its checksums through `flutter_source_sha256()` and
+    `flutter_artifact_sha256()` — now against the merged tables — and a custom
+    artifact without a checksum fails exactly like a stock one does.
+
+    Args:
+        custom_tags: List of `struct(version, engine_revision, source_sha256,
+            material_fonts_url, artifact_sha256, engine_base_url, source_url,
+            is_root)`, one per `flutter.version` tag.
+
+    Returns:
+        `struct(versions, checksums, source_urls, engine_base_urls)`:
+        `versions` and `checksums` start as copies of the stock tables plus
+        one entry per custom version; `source_urls` maps a custom version to
+        its `source_url` override (`""` entries omitted, so a missing key
+        means the default GitHub tag tarball); `engine_base_urls` likewise
+        for `engine_base_url` (missing key means the default GCS base).
+    """
+    versions = dict(FLUTTER_VERSIONS)
+    checksums = dict(ARTIFACT_CHECKSUMS)
+    source_urls = {}
+    engine_base_urls = {}
+    for tag in custom_tags:
+        if not tag.is_root:
+            fail((
+                "Only the root module may register a custom Flutter version " +
+                "(flutter.version(version = \"{v}\")); a dependency cannot " +
+                "add versions to the shared checksum tables."
+            ).format(v = tag.version))
+        if not tag.version or not tag.engine_revision or not tag.source_sha256 or not tag.material_fonts_url:
+            fail((
+                "flutter.version for \"{v}\" is missing a required field: " +
+                "version, engine_revision, source_sha256 and " +
+                "material_fonts_url are all required."
+            ).format(v = tag.version))
+        if tag.version in versions:
+            fail((
+                "flutter.version(version = \"{v}\") is already listed in " +
+                "flutter/private/versions.bzl; a custom registration for a " +
+                "stock version is an error rather than a silent override."
+            ).format(v = tag.version))
+        versions[tag.version] = struct(
+            engine_revision = tag.engine_revision,
+            material_fonts_url = tag.material_fonts_url,
+            source_sha256 = tag.source_sha256,
+        )
+        checksums[tag.version] = dict(tag.artifact_sha256)
+        if tag.source_url:
+            source_urls[tag.version] = tag.source_url
+        if tag.engine_base_url:
+            engine_base_urls[tag.version] = tag.engine_base_url
+    return struct(
+        versions = versions,
+        checksums = checksums,
+        source_urls = source_urls,
+        engine_base_urls = engine_base_urls,
+    )
+
+def custom_source_url(flutter_version, source_urls = None):
+    """Returns the source tarball URL override for a custom version, or "".
+
+    Args:
+        flutter_version: Flutter release tag.
+        source_urls: The `source_urls` map from `merge_custom_versions`, or
+            None for the stock tables (which carry no overrides).
+
+    Returns:
+        The custom `source_url` for the version, or `""` when the default
+        GitHub tag tarball applies.
+    """
+    urls = {} if source_urls == None else source_urls
+    return urls.get(flutter_version, "")
+
+def custom_engine_base_url(flutter_version, engine_base_urls = None):
+    """Returns the engine artifact base URL override for a version, or "".
+
+    Args:
+        flutter_version: Flutter release tag.
+        engine_base_urls: The `engine_base_urls` map from
+            `merge_custom_versions`, or None for the stock tables.
+
+    Returns:
+        The custom `engine_base_url` for the version, or `""` when the
+        default GCS base applies.
+    """
+    urls = {} if engine_base_urls == None else engine_base_urls
+    return urls.get(flutter_version, "")
 
 # Checksums for engine artifacts, keyed by version then artifact path.
 # Artifact paths are relative to:
@@ -498,6 +662,83 @@ ARTIFACT_CHECKSUMS = {
         "android-x64-profile/windows-x64.zip": "928b66c57dc7b566ead63aca1f85d5da3fdd8d4f118c220a9ee3130b29e8b71f",
         # C++ client wrapper (Windows — flutter/plugin_registry.h)
         "windows-x64/flutter-cpp-client-wrapper.zip": "ecb61316a0da7c3f8e55bdaadc9c2b07333c72259a3b2de32762c2e123825f0e",
+        # Material design fonts (MaterialIcons-Regular.otf, Roboto family)
+        "material_fonts.zip": "e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86",
+    },
+    "3.44.8": {
+        # Patched Dart SDK for Flutter (debug + product)
+        "flutter_patched_sdk.zip": "f3fbe95e339c356fbf99427583cd42748eb48e849554d702bc262fe1948a0798",
+        "flutter_patched_sdk_product.zip": "2e4b89e96dc74245b8d072fceadcaa4b0a25649b9461be525081538262f95a5a",
+        # Dart SDK sources for the analyzer (dart:ui and friends, via lib/_embedder.yaml)
+        "sky_engine.zip": "43ac2e00b159969b484ca35aac99de79e214cf9e91bc82eb3b5c28522a09578b",
+        # Host Dart SDK (the Flutter-bundled Dart SDK per host platform)
+        "dart-sdk-darwin-arm64.zip": "ca87fc979f265cf4c937b4e91b16a6f772ea3ce82a0756970fec18de8a9295de",
+        "dart-sdk-darwin-x64.zip": "56349881d8414aa1efa4c951bf22350754c0059eacb989f1fd838f2faf77eab2",
+        "dart-sdk-linux-x64.zip": "04069d912c86810cee252febfdaddf1e84b9ec36d359ff44e7405787e82adfe5",
+        "dart-sdk-linux-arm64.zip": "7eddd549b0d4e4aae48175642caee6023ed5d2aeaf2d12cb9455d0ee1fdbcaf5",
+        "dart-sdk-windows-x64.zip": "4ae39ff07fb601d9dd69879dee49596d823739124ec2d8c0239ac5973c1daf83",
+        # Host tools (frontend_server, gen_snapshot, icudtl.dat)
+        "darwin-arm64/artifacts.zip": "5993eb701689f42e947f42e07375cb8174f21f15024470a652bcf674136d5e5e",
+        "darwin-x64/artifacts.zip": "95840a7fdb8b54b4804a4321ca5395f6c908d67650ae7cabf6c67be16d1962f1",
+        "linux-x64/artifacts.zip": "f4f089747953540500b0bf67067ea73c644a004a87dc6ceefdee5f6661d486ed",
+        "linux-arm64/artifacts.zip": "169f719e34abffb7a00c863d6f30ee558b92de5fd5d283001d79de5f8abc2e0f",
+        "windows-x64/artifacts.zip": "9156dfb0a20ca78a120b9bbce99c4c3f0430e624234190d888e9c2ac5bb38416",
+        # Release host tools (macOS only — product-mode gen_snapshot for AOT builds)
+        "darwin-arm64-release/artifacts.zip": "c78e2bc156d7c20da0b02aaa5779cc54b1bbd62276bb34d2840a6a6429ecc328",
+        "darwin-x64-release/artifacts.zip": "d284728a1565bbfc11b56e82237d2e0fcabc809d622a479ac18054d7dd284e6b",
+        # Profile host tools (macOS only — profile-mode gen_snapshot for AOT builds)
+        "darwin-arm64-profile/artifacts.zip": "291a8b154697929d750853ab9b3a747aa290cc41340500249a9bd82076e671f4",
+        "darwin-x64-profile/artifacts.zip": "72f2089aee69d048cb8003285bf98fb8a0708a7087a33d54ed3ba3c64316b4b0",
+        # Font-subset tools (const_finder + font-subset binary for icon tree shaking)
+        "darwin-arm64/font-subset.zip": "a31f6264c9b658764190fb12cca647af126eea7577a66bf84d955fc39b3d8e25",
+        "darwin-x64/font-subset.zip": "84e74c478dc2abbf84eca3e1d114715e12f94e941db0531b647b3ba65669afc2",
+        "linux-x64/font-subset.zip": "4a194c950eda20782af0c40e68498038eb6ca759fce386bae49b6ca1caff927e",
+        "linux-arm64/font-subset.zip": "0051a6fe2ef93719651c88dc914039dc4d3f55be33dc00523418ec7687d595c4",
+        "windows-x64/font-subset.zip": "f64970c304aa30190ca903a999edf7afe6e27e745f0d5d1df7d2f01a5231bd58",
+        # Flutter web SDK
+        "flutter-web-sdk.zip": "a9c9547dbb249f6be73e671545a1527a1b96a4093a07d625525749822d0868fb",
+        # Desktop engine runtime libraries (release mode)
+        "darwin-x64-release/FlutterMacOS.framework.zip": "f8ed84abb63572e910eb3eb24f6894d8fbf12280a84c1c3c2f3b301aa1502e9e",
+        "linux-x64-release/linux-x64-flutter-gtk.zip": "b30a83784542fdacfe8a385a664d9efbd1d82f02cf3d7cabd35b7180e1138db7",
+        "linux-arm64-release/linux-arm64-flutter-gtk.zip": "1c2597c0bbc6fd591b0e436ae5359dbe28d19ab32a6284ac6d6900208c03d989",
+        "windows-x64-release/windows-x64-flutter.zip": "b05f31078c73cf2536863f565e238c14f266dacb8d85ae199cd06881f0bf07e7",
+        # Desktop engine runtime libraries (profile mode)
+        "darwin-x64-profile/FlutterMacOS.framework.zip": "390859d23215ad648c12191fab4abd90a3578c62fc3ba82c8c7608e8dd32fd45",
+        "linux-x64-profile/linux-x64-flutter-gtk.zip": "e4865b1c9a5deaa8f137241479dfba90d23692835c10d7f3be88220d1206eae9",
+        "linux-arm64-profile/linux-arm64-flutter-gtk.zip": "65c081ae9ccf6a6ee6a9997dac3053e06cedeeeedb3ca4ad26cd012b3ea1a453",
+        "windows-x64-profile/windows-x64-flutter.zip": "b975c0028386a61e915c476b9c9b3350f10dde24e7feea4c47ff45e0eb341465",
+        # Desktop engine runtime libraries (debug mode — JIT, needed for -c dbg)
+        "darwin-x64/FlutterMacOS.framework.zip": "44202e98adcf9a6fbb7c2086f2ee85e8c1d82bd6a705f03ca5848577f45a9b81",
+        "linux-x64-debug/linux-x64-flutter-gtk.zip": "b29ea55896f0fc5e9e8a84ca94eed4f39e2453f2d9be234f179f9d7920bb31d1",
+        "linux-arm64-debug/linux-arm64-flutter-gtk.zip": "ca7646c479f2215c78abb8b4fe8752ce3955900f0e0e2e703eac98ab09a46a3c",
+        "windows-x64-debug/windows-x64-flutter.zip": "41d159ec5e75d143aed9789557264f115cc03fc126975d9dada7623acd64c2ed",
+        # iOS engine (Flutter.xcframework — release and profile for device, debug for simulator)
+        "ios-release/artifacts.zip": "c3dec2d848db415f0c3c58295e44d1e401321de41af2d041a44bae3384786e2e",
+        "ios-profile/artifacts.zip": "2f2bc342581ad715ec71f5c22576d559e79f3c472998c3231499cbbd03a57323",
+        "ios/artifacts.zip": "490234f00dd42abea1e87665c1f739346ac0044ba576a3bf889bad8cd14119a3",
+        # Android engine (flutter.jar — release and profile for AOT, debug for JIT)
+        "android-arm64-release/artifacts.zip": "a2ccf8fe8f6f8b4617a0edb31975bf3971ceb1a8eb3ae0e130ed1c72cb3e7233",
+        "android-x64-release/artifacts.zip": "0ee58470443f0539c03e9ade91b3601234d108b015a0450378aa278f57169a45",
+        "android-arm64-profile/artifacts.zip": "3e81557e90ef1642a52b7b7064804ebbb37a49f2cdd38e773572ef9bc2466171",
+        "android-x64-profile/artifacts.zip": "41763bf73e9a8d82c18a6cf0a250e507c17c4138993e149ec7ba0e7bbfa3a592",
+        "android-arm64/artifacts.zip": "efd0abcea02099d0c609fdd8fea80c943ed062489bb41e16046ef3d1e263bdde",
+        "android-x64/artifacts.zip": "f6e0f9f2adb821e9bafc2faff82a69e133504820bcbf0e14505dfbfe622db75a",
+        # Android cross-compile gen_snapshot (release)
+        "android-arm64-release/darwin-x64.zip": "054568f9b4a1294af79db7257e02c7747238c8c9d4a4b3d2b7c4ca6dc11cd886",
+        "android-arm64-release/linux-x64.zip": "1cb7ea287a871f6970c7e36c9f75f35fa076b9b14c11e622fb080f2b53f3ef9b",
+        "android-arm64-release/windows-x64.zip": "8688e072bd4dab5d04562160cf154b3e3a3b222343c767545fcee7a45e41b784",
+        "android-x64-release/darwin-x64.zip": "ec514f304150420e07f7082599f54513b6282f62e0b157fb696e6915de9b326d",
+        "android-x64-release/linux-x64.zip": "46cdca3cd5e9721fd8b86315f457ef671c0c50835ffab6f73f5b1410a50a09eb",
+        "android-x64-release/windows-x64.zip": "033abb7b2b180d44b20985cdd09b33747430ab98f7f19ed083d4f6e36b6b8a01",
+        # Android cross-compile gen_snapshot (profile)
+        "android-arm64-profile/darwin-x64.zip": "e7cdcd9b44d0e2b16a82283fae9649e2fe80c7fab98d0f3eab7332973c81e13b",
+        "android-arm64-profile/linux-x64.zip": "c2fc60cf52c549009770b8c8c033d7aa74ae5f94bfdb9073813712692024700e",
+        "android-arm64-profile/windows-x64.zip": "f6715b5a22fef5fce879c7d872e81f0c7c0f99a45a66f6fe2cf3b1668355cda5",
+        "android-x64-profile/darwin-x64.zip": "f500a396d1aad88a170ff689a2cd5e9e10551636e50d726c54ca9f0ea129e886",
+        "android-x64-profile/linux-x64.zip": "ecb468b74eb9742777deb18f19aa7a1660c8a986e2936552c3b55a742185db73",
+        "android-x64-profile/windows-x64.zip": "efbe85765382a7d0a4356cec252cdb3d9334dbd7dd678f05e4caddd2987f4547",
+        # C++ client wrapper (Windows — flutter/plugin_registry.h)
+        "windows-x64/flutter-cpp-client-wrapper.zip": "e5a1912e468ea6902644c338504bb3aac46154261e5f9345608fe26855281cb9",
         # Material design fonts (MaterialIcons-Regular.otf, Roboto family)
         "material_fonts.zip": "e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86",
     },

@@ -1,0 +1,5 @@
+bundled on web only
+this asset ships on web and on web alone
+this asset ships on web and on web alone
+this asset ships on web and on web alone
+this asset ships on web and on web alone

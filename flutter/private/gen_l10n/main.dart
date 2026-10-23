@@ -7,26 +7,31 @@
 // yaml file read at action time cannot inform that.
 //
 // Paths are interpreted relative to the process's working directory, which for
-// a Bazel action is the exec root. The rule passes the arb directory and the
-// output directory as exec-root-relative paths, so the generator writes
-// Bazel's declared outputs in place.
+// a Bazel action is the exec root. The rule passes each declared `.arb` file
+// via `--arb-file=PATH` and the output directory as an exec-root-relative path.
+// Only the declared `--arb-file` inputs are staged into an in-memory file
+// system before invoking `generateLocalizations`, so `AppResourceBundleCollection`
+// never scans `--arb-dir` on the host file system or ingests undeclared `.arb`
+// files sitting in the same directory.
 
 import 'dart:io' as io;
 
 import 'package:file/local.dart';
+import 'package:file/memory.dart';
 
 import 'package:flutter_gen_l10n/src/base/logger.dart';
 import 'package:flutter_gen_l10n/src/localizations/gen_l10n.dart';
 import 'package:flutter_gen_l10n/src/localizations/localizations_utils.dart';
 
 const _usage = '''
-Usage: gen_l10n --arb-dir=DIR --output-dir=DIR [options]
+Usage: gen_l10n --arb-file=PATH [--arb-file=PATH ...] --output-dir=DIR [options]
 
 Required:
-  --arb-dir=DIR                  Directory holding the .arb files.
+  --arb-file=PATH                Declared .arb input file (repeatable).
   --output-dir=DIR               Directory to write generated Dart into.
 
 Optional:
+  --arb-dir=DIR                  Logical directory holding the .arb files.
   --project-dir=DIR              Base for relative paths (default ".").
   --template-arb-file=NAME       Template arb (default "app_en.arb").
   --output-localization-file=N   Base output file (default
@@ -60,8 +65,11 @@ Never _fail(String message) {
   io.exit(1);
 }
 
-Map<String, String> _parseArgs(List<String> argv) {
+({Map<String, String> options, List<String> arbFiles}) _parseArgs(
+  List<String> argv,
+) {
   final parsed = <String, String>{};
+  final arbFiles = <String>[];
   for (final arg in argv) {
     if (!arg.startsWith('--')) {
       _fail('unexpected positional argument "$arg".\n$_usage');
@@ -78,10 +86,18 @@ Map<String, String> _parseArgs(List<String> argv) {
       if (_switches.contains(name)) {
         _fail('flag "--$name" takes no value.\n$_usage');
       }
-      parsed[name] = body.substring(eq + 1);
+      final value = body.substring(eq + 1);
+      if (name == 'arb-file') {
+        if (value.isEmpty) {
+          _fail('flag "--arb-file" requires a non-empty path.\n$_usage');
+        }
+        arbFiles.add(value);
+      } else {
+        parsed[name] = value;
+      }
     }
   }
-  return parsed;
+  return (options: parsed, arbFiles: arbFiles);
 }
 
 /// Everything the generator printed, for surfacing on stderr.
@@ -95,17 +111,98 @@ String _drain(BufferLogger logger) => <String>[
 ].where((String s) => s.trim().isNotEmpty).join();
 
 Future<void> main(List<String> argv) async {
-  final args = _parseArgs(argv);
+  final parsed = _parseArgs(argv);
+  final args = parsed.options;
+  final arbFiles = parsed.arbFiles;
 
-  final arbDir = args['arb-dir'];
   final outputDir = args['output-dir'];
-  if (arbDir == null || outputDir == null) {
-    _fail('--arb-dir and --output-dir are both required.\n$_usage');
+  if (outputDir == null || outputDir.isEmpty || arbFiles.isEmpty) {
+    _fail('--output-dir and at least one --arb-file are required.\n$_usage');
   }
 
-  const fs = LocalFileSystem();
+  const localFs = LocalFileSystem();
+  final memFs = MemoryFileSystem.test();
   final logger = BufferLogger.test();
 
+  final projectDirPath = args['project-dir'] ?? '.';
+  final setup = _localizationSetup(
+    args: args,
+    arbFiles: arbFiles,
+    localFs: localFs,
+  );
+  final options = setup.options;
+  final arbDir = setup.arbDir;
+
+  try {
+    final memProjectDir = memFs.directory(projectDirPath)
+      ..createSync(recursive: true);
+    final memInputDir = memFs.directory(
+      memFs.path.join(memProjectDir.path, arbDir),
+    )..createSync(recursive: true);
+
+    _stageArbInputs(
+      arbFiles: arbFiles,
+      projectDirPath: projectDirPath,
+      localFs: localFs,
+      memFs: memFs,
+      memInputPath: memInputDir.path,
+    );
+    _stageHeaderFile(
+      headerFile: args['header-file'],
+      projectDirPath: projectDirPath,
+      arbDir: arbDir,
+      localFs: localFs,
+      memFs: memFs,
+      memInputPath: memInputDir.path,
+    );
+
+    final generator = await generateLocalizations(
+      projectDir: memProjectDir,
+      options: options,
+      logger: logger,
+      fileSystem: memFs,
+    );
+
+    _writeGeneratorOutputs(
+      outputFileList: generator.outputFileList,
+      projectDirPath: projectDirPath,
+      outputDir: outputDir,
+      localFs: localFs,
+      memFs: memFs,
+    );
+  } on Object catch (e) {
+    _reportGeneratorOutput(logger);
+    _fail('$e');
+  }
+
+  // Succeeded — still surface warnings, which are not failures but are the
+  // only report of untranslated messages.
+  _reportGeneratorOutput(logger);
+}
+
+/// Surfaces everything the generator printed on stderr.
+void _reportGeneratorOutput(BufferLogger logger) {
+  final output = _drain(logger);
+  if (output.isNotEmpty) {
+    io.stderr.write(output);
+  }
+}
+
+/// The generator options for [args] and the logical `.arb` directory.
+///
+/// [arbDir] defaults to the first `--arb-file`'s directory, as the rule
+/// passes each declared input explicitly rather than a directory to scan.
+({LocalizationOptions options, String arbDir}) _localizationSetup({
+  required Map<String, String> args,
+  required List<String> arbFiles,
+  required LocalFileSystem localFs,
+}) {
+  final rawArbDir = args['arb-dir'];
+  final arbDir = (rawArbDir != null && rawArbDir.isNotEmpty)
+      ? rawArbDir
+      : localFs.path.dirname(arbFiles.first);
+
+  final outputDir = args['output-dir']!;
   final options = LocalizationOptions(
     arbDir: arbDir,
     outputDir: outputDir,
@@ -133,26 +230,86 @@ Future<void> main(List<String> argv) async {
     // either: rules_dart's format check covers hand-written files only.
     format: false,
   );
+  return (options: options, arbDir: arbDir);
+}
 
-  try {
-    await generateLocalizations(
-      projectDir: fs.directory(args['project-dir'] ?? '.'),
-      options: options,
-      logger: logger,
-      fileSystem: fs,
-    );
-  } on Object catch (e) {
-    final output = _drain(logger);
-    if (output.isNotEmpty) {
-      io.stderr.write(output);
+/// Copies the generator's in-memory outputs into the real [outputDir].
+void _writeGeneratorOutputs({
+  required List<String> outputFileList,
+  required String projectDirPath,
+  required String outputDir,
+  required LocalFileSystem localFs,
+  required MemoryFileSystem memFs,
+}) {
+  final localOutputDir = localFs.directory(
+    localFs.path.join(projectDirPath, outputDir),
+  )..createSync(recursive: true);
+  for (final outPath in outputFileList) {
+    final memFile = memFs.file(outPath);
+    final dstFile = localOutputDir.childFile(memFile.basename);
+    if (dstFile.existsSync()) {
+      dstFile.deleteSync();
     }
-    _fail('$e');
+    dstFile.writeAsBytesSync(memFile.readAsBytesSync());
   }
+}
 
-  // Succeeded — still surface warnings, which are not failures but are the
-  // only report of untranslated messages.
-  final output = _drain(logger);
-  if (output.isNotEmpty) {
-    io.stderr.write(output);
+/// Stages the declared `--arb-file` inputs into the in-memory [memInputPath].
+///
+/// Only the declared inputs are staged, so `AppResourceBundleCollection` never
+/// scans `--arb-dir` on the host file system or ingests undeclared `.arb`
+/// files sitting in the same directory.
+void _stageArbInputs({
+  required List<String> arbFiles,
+  required String projectDirPath,
+  required LocalFileSystem localFs,
+  required MemoryFileSystem memFs,
+  required String memInputPath,
+}) {
+  final memInputDir = memFs.directory(memInputPath);
+  final stagedSources = <String, String>{};
+  for (final arbPath in arbFiles) {
+    var srcFile = localFs.file(arbPath);
+    if (!srcFile.existsSync() && projectDirPath != '.') {
+      srcFile = localFs.file(localFs.path.join(projectDirPath, arbPath));
+    }
+    if (!srcFile.existsSync()) {
+      _fail('arb file "$arbPath" does not exist.');
+    }
+    final basename = localFs.path.basename(arbPath);
+    final resolvedPath = localFs.path.normalize(srcFile.path);
+    final previous = stagedSources[basename];
+    if (previous != null && previous != resolvedPath) {
+      _fail(
+        'multiple --arb-file inputs share basename "$basename": '
+        '"$previous" and "$arbPath".',
+      );
+    }
+    stagedSources[basename] = resolvedPath;
+    memInputDir.childFile(basename).writeAsBytesSync(srcFile.readAsBytesSync());
+  }
+}
+
+/// Stages the `--header-file` input next to the staged `.arb` files, when it
+/// names a file that exists.
+void _stageHeaderFile({
+  required String? headerFile,
+  required String projectDirPath,
+  required String arbDir,
+  required LocalFileSystem localFs,
+  required MemoryFileSystem memFs,
+  required String memInputPath,
+}) {
+  if (headerFile == null) return;
+  var localHeader = localFs.file(
+    localFs.path.join(projectDirPath, arbDir, headerFile),
+  );
+  if (!localHeader.existsSync()) {
+    localHeader = localFs.file(localFs.path.join(projectDirPath, headerFile));
+  }
+  if (localHeader.existsSync()) {
+    final memHeader = memFs.directory(memInputPath).childFile(headerFile);
+    memHeader.parent.createSync(recursive: true);
+    memHeader.writeAsBytesSync(localHeader.readAsBytesSync());
   }
 }

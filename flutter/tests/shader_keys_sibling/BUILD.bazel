@@ -1,0 +1,11 @@
+"""Sibling fixture package: outside the shader-keys fixture's directory.
+
+`//flutter/tests/shader_keys_fixture` targets that list `:shaders/elsewhere.frag`
+must fail analysis — a sibling directory is outside the listing directory tree.
+"""
+
+package(
+    default_visibility = ["//flutter/tests/shader_keys_fixture:__pkg__"],
+)
+
+exports_files(["shaders/elsewhere.frag"])

@@ -6,6 +6,8 @@ against, providing GTK3 headers and libraries without requiring host packages.
 One repo per target architecture (amd64/arm64), shared across host platforms.
 """
 
+load(":artifact_urls.bzl", "require_sha256")
+load(":download.bzl", "pinned_download_and_extract")
 load(":engine_helpers.bzl", "linux_multiarch_triple")
 
 _SYSROOT_URL = "https://commondatastorage.googleapis.com/chrome-linux-sysroot/{sha256}"
@@ -25,9 +27,11 @@ def _flutter_linux_sysroot_repo_impl(repository_ctx):
     if not deb_arch:
         fail("Unsupported sysroot architecture: {}".format(target_arch))
 
-    repository_ctx.download_and_extract(
-        url = _SYSROOT_URL.format(sha256 = sha256),
-        sha256 = sha256,
+    url = _SYSROOT_URL.format(sha256 = sha256)
+    pinned_download_and_extract(
+        repository_ctx,
+        url = url,
+        sha256 = require_sha256(sha256, url),
         type = "tar.xz",
     )
 

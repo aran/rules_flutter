@@ -1,0 +1,28 @@
+"E2e test: Flutter web integration test (flutter_integration_test)"
+
+module(name = "rules_flutter_integration_web")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.7.3")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+git_override(
+    module_name = "rules_dart",
+    commit = "dc0b9a23bf74fc832c89a8f5a0f95d999c8a6f0a",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.toolchain(flutter_version = "3.47.7")
+flutter.pub(
+    name = "deps",
+    lock = "//:pubspec.lock",
+)
+use_repo(flutter, "deps", "flutter_toolchains", "flutter_web_sdk")
+
+register_toolchains("@flutter_toolchains//:all")

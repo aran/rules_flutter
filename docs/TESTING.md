@@ -53,7 +53,7 @@ Which probe discriminates depends on the owning target's shape:
   Unimported is what makes it proof: an imported one is reached through `main`'s
   own closure, so the target goes red whether or not `srcs` carries it.
 * **Target is `main`-only** — a `main` and no `srcs`
-  (`//tools/update_flutter_version`, `//tools/pip_lock_guard:pip_facts_test`) →
+  (`//tools/update_flutter_version`, `//tools/dev_tool:process_group_exec`) →
   transiently repoint `main` at the probe; restoring must return it to green.
   The dropped-file form cannot discriminate here: a probe added to a `srcs` the
   committed target does not have goes red even if the `main` slot is never
@@ -114,11 +114,6 @@ Two consequences worth keeping in mind:
   lacks it. That is the same hermeticity gap as the `zip` dependency below,
   and it is unfixed.
 
-**Upstream ask**: rules_python's bootstrap should read
-`RUNFILES_MANIFEST_FILE` rather than only deriving a directory from it. That
-is the general fix for any `py_binary` spawned from another binary's runfiles
-on Windows.
-
 ### Two root tests shell out to host binaries
 
 `//tools/dev_tool:native_libs_fingerprint_test` runs `zip`, resolved from
@@ -175,10 +170,12 @@ known:
    module resolution have succeeded, so any check that stops at "it loaded" will
    miss it entirely.
 
-The second is the nastier one. `dart_binary` compiles with **rules_dart's**
-exec-tools Dart, not the Flutter SDK's Dart, even inside rules_flutter. The
-Flutter Dart is downloaded but only as the `dart_sdk_files` filegroup, not as a
-registered toolchain. So Dart source using an API newer than rules_dart's Dart
+The second is the nastier one. Previously, `dart_binary` compiled with
+**rules_dart's** exec-tools Dart rather than Flutter's Dart because the bundled
+SDK was not a registered toolchain. `@flutter_toolchains` now registers
+Flutter's bundled Dart SDK as the Dart toolchain, so `dart_binary` compiles
+with Flutter's Dart. However, cross-compilation or an override can still resolve
+a different Dart SDK: Dart source using an API newer than the resolved Dart
 builds clean locally and fails on CI, whenever the sibling checkout carries a
 newer Dart than the published pin.
 
@@ -634,7 +631,11 @@ cd e2e/ios_example && bazel test //...
 cd e2e/multi_window_example && bazel test //...
 cd e2e/android_example && bazel test //...
 cd e2e/web_example && bazel test //...
+cd e2e/integration_web && bazel test //...  # Linux-only (hermetic chrome-headless-shell)
+cd e2e/integration_linux && bazel test //...  # Linux-only (hermetic Xvfb + GTK3/Mesa runtime)
+cd e2e/integration_android && bazel test //...  # Linux-only with /dev/kvm (hermetic headless Android emulator)
 cd e2e/linux_example && bazel test //...    # Linux-only (target_compatible_with)
+cd e2e/cross_compile_example && bazel test //...    # Linux-only (target_compatible_with)
 cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_with)
 ```
 
@@ -679,24 +680,24 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
   SDK build *that workspace's* hooks before the tool's `main` runs at all, so
   the process dies before `daemon.connected`. The hook's actual error is in
   `<workspace>/.dart_tool/hooks_runner/<pkg>/<hash>/stderr.txt`.
-- `cross_compile_example` has **no test targets**, so it is verified with
-  `bazel build //...`, not `bazel test`. Its `.bazelrc` pins
-  `--platforms=linux_x64` for every command, and a test there would find no test
-  toolchain on a macOS host. The analysis and format checks are an aspect, not
-  tests, and that workspace enables it under `build`, so one command covers the
-  cross-compiled bundle and the checks:
+- `cross_compile_example`'s only test target is `cross_linux_build_test`, a
+  `build_test` over `:cross_linux` with `target_compatible_with` Linux: Linux
+  CI executes the cross-compiled bundle build with `bazel test //...`, while
+  on macOS the test skips itself (there is no Linux test toolchain on that
+  host) and the cross-compile flow stays `bazel build :cross_linux`. Its
+  `.bazelrc` pins `--platforms=linux_x64` for every command. The analysis and
+  format checks are an aspect, not tests, and that workspace enables it under
+  `build`, so one command covers the cross-compiled bundle and the checks:
   ```sh
   cd e2e/cross_compile_example
   bazel build //...
   ```
-  `bazel test //...` there exits 4 ("No test targets were found") however clean
-  the checks are.
 
 ### What the automated e2e tests cover
 
 | Workspace | Key tests |
 |-----------|-----------|
-| smoke | Toolchain resolution for all platforms |
+| smoke | Toolchain resolution for all platforms; custom-release (`3.47.70`) toolchain with checksum-verified fetch; offline (`local_path`) toolchain from the checked-in `fake_sdk` tree |
 | hello_world | Kernel, AOT, application, and per-platform bundle builds; flutter_test |
 | codegen | Per-file and aggregate dart_codegen, custom generators, hot-reload-with-codegen |
 | ffi_example | Both FFI mechanisms — Native Assets (`add_plugin`, `@Native` asset-id bind) and `native_deps` (`mul_plugin`, conventional-path open) — bundle structure on macOS/Linux plus manual runtime proof on iOS simulator and macOS |
@@ -705,6 +706,9 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
 | macos_example | Full macOS app build + bundle structure verification (Info.plist, ObjC symbols, framework linkage, AOT dylib, flutter_assets, and a native library built in a subdirectory of its package landing flat at `Contents/Frameworks/libsub.dylib`) |
 | ios_example | iOS app build (requires Xcode) |
 | web_example | Web app builds (dart2wasm + dart2js) with web_assets |
+| integration_web | End-to-end web `flutter_integration_test` running a real counter + asset app in hermetic `chrome-headless-shell` |
+| integration_linux | End-to-end Linux desktop `flutter_integration_test` running a counter + asset app and a native C++ method-channel plugin under hermetic `Xvfb` + GTK3/Mesa `llvmpipe` |
+| integration_android | End-to-end Android `flutter_integration_test` running a counter + asset app and a Kotlin method-channel plugin in a hermetic headless Android emulator with KVM |
 | multi_window_example | Multi-window macOS + multi-scene iOS builds with FlutterEngineGroup; macOS bundle verification |
 | android_example | Android APK build (3 approaches: flutter_android_app, Bazel-generated manifest, custom manifest) + APK content verification + web build |
 | linux_example | Linux desktop app (2 approaches: flutter_linux_app, Bazel-generated runner) + bundle structure verification |

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_bazel_dev_tool/native_image_identity.dart';
 import 'package:test/test.dart';
 
+import 'zip_fixture.dart';
+
 /// A 64-bit Mach-O with one unrelated load command before `LC_UUID`.
 Uint8List machO(List<int> uuid) {
   final bytes = ByteData(32 + 16 + 24);
@@ -108,7 +110,10 @@ void main() {
 
     // An APK stores libraries uncompressed and an .ipa deflates them; both
     // are read.
-    for (final (compression, flag) in [('stored', '-0'), ('deflated', '-9')]) {
+    for (final (compression, deflate) in [
+      ('stored', false),
+      ('deflated', true),
+    ]) {
       test('is read out of a $compression zip entry', () async {
         final lib = Directory('${tmp.path}/z/lib/arm64-v8a')
           ..createSync(recursive: true);
@@ -117,14 +122,12 @@ void main() {
         final padded = Uint8List.fromList([...image, ...List.filled(4096, 0)]);
         File('${lib.path}/libx.so').writeAsBytesSync(padded);
         File('${lib.path}/other.txt').writeAsStringSync('first');
-        final r = await Process.run('zip', [
-          '-q',
-          flag,
-          '-r',
-          '${tmp.path}/app.apk',
-          'lib',
-        ], workingDirectory: '${tmp.path}/z');
-        expect(r.exitCode, 0, reason: '${r.stderr}');
+        writeTestZip(
+          outPath: '${tmp.path}/app.apk',
+          root: Directory('${tmp.path}/z'),
+          member: 'lib',
+          deflate: deflate,
+        );
         final bytes = await readBundledFile(
           '${tmp.path}/app.apk',
           'lib/arm64-v8a/libx.so',
@@ -136,11 +139,11 @@ void main() {
 
     test('names a missing zip entry', () async {
       File('${tmp.path}/a.txt').writeAsStringSync('x');
-      await Process.run('zip', [
-        '-q',
-        '${tmp.path}/app.ipa',
-        'a.txt',
-      ], workingDirectory: tmp.path);
+      writeTestZip(
+        outPath: '${tmp.path}/app.ipa',
+        root: tmp,
+        member: 'a.txt',
+      );
       await expectLater(
         readBundledFile('${tmp.path}/app.ipa', 'Payload/x.app/x'),
         throwsA(

@@ -1,0 +1,8 @@
+# USER-OWNED FILE — PATH-PROBE-USER-ANDROID-SENTINEL. The path-spoke
+# fetch must never modify, replace, or delete this file: the spoke writes
+# its generated android/BUILD.bazel into its own repository directory,
+# never through the symlinked source tree.
+filegroup(
+    name = "path_probe_user_android",
+    srcs = [],
+)

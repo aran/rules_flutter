@@ -1,0 +1,42 @@
+"""Fixture targets for the package-relative own-shader-key tests.
+
+Every target here exists only for `//flutter/tests:shader_keys_test`; all are
+`manual` so wildcard builds stay green (one fixture fails analysis on
+purpose).
+"""
+
+load("//flutter:defs.bzl", "flutter_application", "flutter_asset_bundle")
+
+package(
+    default_visibility = ["//flutter/tests:__pkg__"],
+)
+
+# A subpackage app: its own shader must bundle at its package-relative key
+# (`shaders/app.frag`), not its workspace-relative path.
+flutter_application(
+    name = "app",
+    package_name = "shader_keys_app",
+    srcs = ["lib.dart"],
+    main = "lib.dart",
+    shaders = ["shaders/app.frag"],
+    tags = ["manual"],
+)
+
+# A sibling package's shader is outside the listing directory tree: analysis
+# must fail rather than guess a key.
+flutter_application(
+    name = "outside_shaders",
+    package_name = "shader_keys_outside",
+    srcs = ["lib.dart"],
+    main = "lib.dart",
+    shaders = ["//flutter/tests/shader_keys_sibling:shaders/elsewhere.frag"],
+    tags = ["manual"],
+)
+
+# A bundle with a shader: compiling one needs the exec Dart VM, so this
+# target proves `flutter_asset_bundle` declares that toolchain.
+flutter_asset_bundle(
+    name = "bundle",
+    shaders = ["shaders/app.frag"],
+    tags = ["manual"],
+)

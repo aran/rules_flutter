@@ -42,14 +42,16 @@ class FrontendServerExpressionCompiler implements ExpressionCompiler {
     String expression,
   ) async {
     final result = await _server.compileExpressionToJs(
-      libraryUri: libraryUri,
-      scriptUri: scriptUri,
-      line: line,
-      column: column,
-      jsModules: jsModules,
-      jsFrameValues: jsFrameValues,
-      moduleName: moduleName,
-      expression: expression,
+      (
+        libraryUri: libraryUri,
+        scriptUri: scriptUri,
+        line: line,
+        column: column,
+        jsModules: jsModules,
+        jsFrameValues: jsFrameValues,
+        moduleName: moduleName,
+        expression: expression,
+      ),
     );
 
     // No output file at all means the compiler never got to write one — it

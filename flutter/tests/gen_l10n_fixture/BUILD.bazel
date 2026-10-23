@@ -1,11 +1,42 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_dart//dart:defs.bzl", "dart_test")
 load("//flutter:defs.bzl", "flutter_gen_l10n")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+exports_files([
+    "lib/l10n/app_de.arb",
+    "lib/l10n/app_en.arb",
+    "lib/l10n/app_en_US.arb",
+    "lib/l10n/app_es.arb",
+    "lib/l10n/app_es_419.arb",
+])
+
+# Stages all source `.arb` files in `lib/l10n/` (including undeclared
+# `app_en_US.arb` and malformed `app_de.arb`) into the execroot when built
+# alongside the `flutter_gen_l10n` targets below.
+filegroup(
+    name = "all_dir_arbs",
+    srcs = [
+        "lib/l10n/app_de.arb",
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_en_US.arb",
+        "lib/l10n/app_es.arb",
+        "lib/l10n/app_es_419.arb",
+    ],
+)
 
 # `es` and `es_419` deliberately both appear: gen-l10n emits one Dart file per
 # *primary language subtag*, so these two collapse into a single
 # app_localizations_es.dart holding AppLocalizationsEs and AppLocalizationsEs419.
 # A rule that declared one output per input arb would promise Bazel a file the
 # generator never writes, and this fixture is what catches that.
+#
+# `lib/l10n/app_en_US.arb` and `lib/l10n/app_de.arb` also sit in `lib/l10n/` on
+# disk and in the execroot, but are NOT declared in `arbs` here; `:l10n` must
+# never read them.
 flutter_gen_l10n(
     name = "l10n",
     arbs = [
@@ -15,8 +46,100 @@ flutter_gen_l10n(
     ],
 )
 
+# Sibling target in the same `lib/l10n/` directory selecting only `en` and `es`
+# (omitting `app_es_419.arb` and `app_en_US.arb`).
+flutter_gen_l10n(
+    name = "l10n_subset",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_es.arb",
+    ],
+    output_class = "SubsetLocalizations",
+    output_localization_file = "subset_localizations.dart",
+)
+
+# Sibling target in the same `lib/l10n/` directory selecting `en` and `en_US`
+# (omitting `app_es.arb` and `app_es_419.arb`).
+flutter_gen_l10n(
+    name = "l10n_en_us",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        "lib/l10n/app_en_US.arb",
+    ],
+    output_class = "EnUsLocalizations",
+    output_localization_file = "en_us_localizations.dart",
+)
+
+write_file(
+    name = "generated_fr_arb",
+    out = "lib/l10n/app_fr.arb",
+    content = [
+        "{",
+        '  "@@locale": "fr",',
+        '  "greeting": "Bonjour, {name} !",',
+        '  "bookCount": "{count, plural, =0{Aucun livre} =1{1 livre} other{{count} livres}}",',
+        '  "pronoun": "{gender, select, male{Il lit} female{Elle lit} other{Iel lit}}"',
+        "}",
+        "",
+    ],
+)
+
+# Undeclared generated `.arb` in the same `bazel-out/.../bin/.../lib/l10n/`
+# directory as `:generated_fr_arb` and the outputs of `:l10n_mixed_generated`.
+write_file(
+    name = "undeclared_generated_en_gb_arb",
+    out = "lib/l10n/app_en_GB.arb",
+    content = [
+        "{",
+        '  "@@locale": "en_GB",',
+        '  "greeting": "Cheerio, {name}!",',
+        '  "bookCount": "{count, plural, =0{No books} =1{1 book} other{{count} books}}",',
+        '  "pronoun": "{gender, select, male{He reads} female{She reads} other{They read}}"',
+        "}",
+        "",
+    ],
+)
+
+# Mixes a source `.arb` (`lib/l10n/app_en.arb`) with a generated `.arb`
+# (`:generated_fr_arb`) in the same package-relative directory while an
+# undeclared generated `.arb` (`:undeclared_generated_en_gb_arb`) sits in the
+# same `bazel-out` directory.
+flutter_gen_l10n(
+    name = "l10n_mixed_generated",
+    arbs = [
+        "lib/l10n/app_en.arb",
+        ":generated_fr_arb",
+    ],
+    output_class = "MixedLocalizations",
+    output_localization_file = "mixed_localizations.dart",
+)
+
 build_test(
     name = "gen_l10n_build_test",
     size = "small",
-    targets = [":l10n"],
+    targets = [
+        ":all_dir_arbs",
+        ":l10n",
+        ":l10n_en_us",
+        ":l10n_mixed_generated",
+        ":l10n_subset",
+        ":undeclared_generated_en_gb_arb",
+    ],
+)
+
+dart_test(
+    name = "gen_l10n_test",
+    size = "small",
+    data = [
+        ":all_dir_arbs",
+        ":l10n",
+        ":l10n_en_us",
+        ":l10n_mixed_generated",
+        ":l10n_subset",
+        ":undeclared_generated_en_gb_arb",
+        "//flutter/private/gen_l10n",
+    ],
+    main = "gen_l10n_test.dart",
+    target_compatible_with = HOST_COMPATIBLE,
+    deps = ["@dev_tool_deps//:test"],
 )

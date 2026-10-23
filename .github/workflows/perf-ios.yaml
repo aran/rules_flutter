@@ -1,0 +1,137 @@
+# Manual-only iOS build-cost bench (free macOS runners, no caches).
+#
+# Compares two rules_flutter commits (base_ref vs head_ref) on a generated
+# layered Flutter monorepo in two configurations: device_release (the
+# App.framework only, //app:app_framework, -c opt --ios_multi_cpus=arm64;
+# no ios_application, so no signing or provisioning profile) and sim_debug
+# (the full simulator app, //app:app_ios, -c dbg --ios_multi_cpus=sim_arm64;
+# the simulator runs debug builds only). For each ref and config it
+# clean-builds, then rebuilds after a behaviour-changing top-layer app edit
+# and after a core body edit (layer 0). Every build records executed action
+# counts by mnemonic and action CPU time from the Bazel execution log; every
+# iOS-only action is replayed under /usr/bin/time -l for instructions
+# retired. Each scenario repeats and the summary reports medians + spread
+# per config.
+#
+# Cost: workflow_dispatch only (never automatic), macos-15, 5 h job timeout,
+# one small artifact (retention 3 days), no caches, build outputs never
+# uploaded. Must stay that way: this workflow runs on freemacOS minutes.
+name: iOS perf bench
+"on":
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: rules_flutter ref for the baseline
+        default: main
+      head_ref:
+        description: rules_flutter ref for the candidate
+        required: true
+      target_loc:
+        description: total Dart lines to generate
+        default: "500000"
+      seed:
+        description: generator seed
+        default: "1"
+      repeats:
+        description: repeats per scenario (medians are over these)
+        default: "3"
+permissions:
+  contents: read
+jobs:
+  bench:
+    name: iOS bench (base vs head)
+    runs-on: macos-15
+    timeout-minutes: 300
+    steps:
+      - name: Check out bench tooling (this branch)
+        uses: actions/checkout@v7
+        with:
+          path: tools-src
+      - name: Check out rules_flutter at base_ref
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.base_ref }}
+          path: rules-base
+      - name: Check out rules_flutter at head_ref
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.head_ref }}
+          path: rules-head
+      # Installs Bazel only (no cache configuration: every build is clean).
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+      - name: Generate pristine monorepos
+        run: |
+          set -euo pipefail
+          for ref in base head; do
+            python3 "$GITHUB_WORKSPACE/tools-src/tools/perf/gen_monorepo.py" generate \
+              --target-loc "${{ inputs.target_loc }}" \
+              --seed "${{ inputs.seed }}" \
+              --rules-flutter "$GITHUB_WORKSPACE/rules-$ref" \
+              --out "$RUNNER_TEMP/ws-$ref-pristine"
+          done
+      - name: Build, edit, replay
+        # One repeat at a time: run_rep.py resets the workspace from the
+        # pristine copy before each config, then per config builds all three
+        # scenarios first (clean, app_edit, core_edit), makes bazel-out
+        # writable and replays the three execution logs, then shuts down.
+        # Each config gets its own output base under the per-repeat root
+        # (no shared server between configs). Replays never run before a
+        # build in the same output base, so replayed outputs cannot perturb
+        # the next incremental build.
+        run: |
+          set -euo pipefail
+          tools="$GITHUB_WORKSPACE/tools-src/tools/perf"
+          for ref in base head; do
+            for rep in $(seq 1 "${{ inputs.repeats }}"); do
+              rm -rf "$RUNNER_TEMP/out-$ref-$rep" "$RUNNER_TEMP/run-$ref-$rep"
+              python3 "$tools/run_rep.py" --tools "$tools" \
+                --pristine "$RUNNER_TEMP/ws-$ref-pristine" \
+                --work "$RUNNER_TEMP/run-$ref-$rep" \
+                --out-base "$RUNNER_TEMP/out-$ref-$rep" \
+                --results-ref-dir "$GITHUB_WORKSPACE/results/$ref" \
+                --rep "$rep" \
+                --config device_release --config sim_debug
+            done
+          done
+      - name: Summarize repeats
+        run: |
+          set -euo pipefail
+          tools="$GITHUB_WORKSPACE/tools-src/tools/perf"
+          meta="$(python3 - "$GITHUB_WORKSPACE/tools-src/tools/perf" "$RUNNER_TEMP" "${{ inputs.target_loc }}" "${{ inputs.seed }}" \
+            "${{ inputs.repeats }}" "${{ inputs.base_ref }}" "${{ inputs.head_ref }}" <<'EOF'
+          import json
+          import sys
+          sys.path.insert(0, sys.argv[1])
+          import run_rep
+          _, tmp, loc, seed, repeats, base_ref, head_ref = sys.argv[1:8]
+          def stats(ref):
+              with open("%s/ws-%s-pristine/bench-workspace-stats.json" % (tmp, ref)) as fh:
+                  return json.load(fh)
+          print(json.dumps({
+              "base_git_ref": base_ref,
+              "head_git_ref": head_ref,
+              "target_loc": int(loc),
+              "seed": int(seed),
+              "repeats": int(repeats),
+              "configs": run_rep.CONFIGS,
+              "base_stats": stats("base"),
+              "head_stats": stats("head"),
+          }))
+          EOF
+          )"
+          python3 "$tools/summarize.py" --results "$GITHUB_WORKSPACE/results" \
+            --base-ref base --head-ref head \
+            --out-json "$GITHUB_WORKSPACE/summary.json" \
+            --out-md "$GITHUB_WORKSPACE/summary.md" \
+            --meta "$meta"
+          cat "$GITHUB_WORKSPACE/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-ios-summary
+          path: |
+            summary.json
+            summary.md
+          retention-days: 3

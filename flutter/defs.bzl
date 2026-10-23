@@ -13,6 +13,11 @@ rules that compile Dart code, bundle assets, and run tests.
 - `flutter_plugin`: Declares a Flutter plugin with optional Dart registration
     class and/or native shared library dependencies.
 - `flutter_test`: Runs Flutter widget tests using the flutter_tester runtime.
+- `flutter_prebuilt_test`: Runs an already built test kernel under the same
+    flutter_tester runtime, for custom compile pipelines that feed it a
+    `flutter_test`'s output groups or their own kernel.
+- `flutter_integration_test`: Runs end-to-end Flutter integration tests inside
+    a real platform app (e.g. `platform = "web"` in headless Chrome).
 
 ## Advanced / Low-Level
 
@@ -42,10 +47,12 @@ load("//flutter/private:flutter_aot_target.bzl", _flutter_aot_target = "flutter_
 load("//flutter/private:flutter_application.bzl", _flutter_application = "flutter_application")
 load("//flutter/private:flutter_asset_bundle.bzl", _flutter_asset_bundle = "flutter_asset_bundle")
 load("//flutter/private:flutter_gen_l10n.bzl", _flutter_gen_l10n = "flutter_gen_l10n")
+load("//flutter/private:flutter_integration_test.bzl", _flutter_integration_test = "flutter_integration_test")
 load("//flutter/private:flutter_kernel_target.bzl", _flutter_kernel_target = "flutter_kernel_target")
 load("//flutter/private:flutter_library.bzl", _flutter_library = "flutter_library")
 load("//flutter/private:flutter_native_library.bzl", _flutter_native_library = "flutter_native_library")
 load("//flutter/private:flutter_plugin.bzl", _flutter_plugin = "flutter_plugin")
+load("//flutter/private:flutter_prebuilt_test.bzl", _flutter_prebuilt_test = "flutter_prebuilt_test")
 load("//flutter/private:flutter_test.bzl", _flutter_test = "flutter_test")
 
 flutter_aot_target = _flutter_aot_target
@@ -71,8 +78,10 @@ def flutter_application(name, package_name = "", **kwargs):
 
 flutter_asset_bundle = _flutter_asset_bundle
 flutter_gen_l10n = _flutter_gen_l10n
+flutter_integration_test = _flutter_integration_test
 flutter_kernel_target = _flutter_kernel_target
 flutter_library = _flutter_library
 flutter_native_library = _flutter_native_library
 flutter_plugin = _flutter_plugin
+flutter_prebuilt_test = _flutter_prebuilt_test
 flutter_test = _flutter_test

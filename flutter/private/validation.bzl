@@ -241,12 +241,15 @@ def is_valid_web_compiler_renderer(compiler, renderer):
         return False
     return renderer in allowed
 
-# Define keys the ruleset sets itself: the dart.vm.* mode keys come from the
-# compilation mode (see flutter_compile_kernel and the web compile actions),
-# and flutter.dart_plugin_registrant names the generated registrant library
-# the engine invokes before main(). User-supplied values would silently
-# corrupt mode semantics or break plugin registration, so they are rejected
-# up front — matching flutter_tools' own --dart-define policy.
+# Define keys and namespaces reserved by the ruleset, Flutter tool, and Dart
+# SDK: the dart.vm.* mode keys come from the compilation mode (see
+# flutter_compile_kernel and the web compile actions), dart.library.* and
+# dart.tool.* are owned by the Dart SDK/compiler, and flutter.* (including
+# flutter.dart_plugin_registrant) is owned by the Flutter framework/engine.
+# User-supplied values would silently corrupt mode semantics, SDK library
+# availability, or plugin registration, so they are rejected up front.
+RESERVED_DART_DEFINE_PREFIXES = ("dart.vm.", "dart.library.", "dart.tool.", "flutter.")
+RESERVED_DART_DEFINE_NAMESPACES = ("dart.vm.*", "dart.library.*", "dart.tool.*", "flutter.*")
 RESERVED_DART_DEFINE_KEYS = ("dart.vm.profile", "dart.vm.product", "flutter.dart_plugin_registrant")
 
 def validate_dart_defines(defines, what):
@@ -261,8 +264,13 @@ def validate_dart_defines(defines, what):
         if not is_valid_dart_define(define):
             fail(
                 ("Invalid Dart define %r in %s: defines must be non-empty " +
-                 "and must not set the reserved keys %s (the build sets " +
-                 "these from the compilation mode)") % (define, what, ", ".join(RESERVED_DART_DEFINE_KEYS)),
+                 "and must not set reserved defines (%s; %s) — the build " +
+                 "and SDK set these from the compilation mode and target platform") % (
+                    define,
+                    what,
+                    ", ".join(RESERVED_DART_DEFINE_NAMESPACES),
+                    ", ".join(RESERVED_DART_DEFINE_KEYS),
+                ),
             )
 
 def is_valid_dart_define(define):
@@ -277,7 +285,13 @@ def is_valid_dart_define(define):
     """
     if len(define) == 0:
         return False
-    return define.split("=", 1)[0] not in RESERVED_DART_DEFINE_KEYS
+    key = define.split("=", 1)[0]
+    if len(key) == 0 or key in RESERVED_DART_DEFINE_KEYS:
+        return False
+    for prefix in RESERVED_DART_DEFINE_PREFIXES:
+        if key.startswith(prefix) or key == prefix[:-1]:
+            return False
+    return True
 
 def escape_html(text):
     """Escape HTML special characters in a string.

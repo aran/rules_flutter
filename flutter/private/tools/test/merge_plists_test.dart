@@ -475,4 +475,63 @@ void main() {
       );
     });
   });
+
+  // Byte-for-byte pins of the rendered plist text: the refactor of
+  // `mergeEntries` must not move a single byte on the success path.
+  group('exact rendering', () {
+    test('pins the merged plist text', () {
+      const base =
+          '<plist version="1.0">\n<dict>\n\t<key>a</key>\n\t<true/>\n</dict>\n</plist>\n';
+      const addition =
+          '<plist version="1.0">\n<dict>\n\t<key>b</key>\n\t<false/>\n</dict>\n</plist>\n';
+      expect(
+        merge(base, [addition]),
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        '\t<key>a</key>\n'
+        '\t<true/>\n'
+        '\t<key>b</key>\n'
+        '\t<false/>\n'
+        '</dict>\n'
+        '</plist>\n',
+      );
+    });
+
+    test('pins the unioned string-array rendering', () {
+      const appPlist = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tincan._udp</string>
+	</array>
+</dict>
+</plist>
+''';
+      final merged = merge(
+        appPlist,
+        [_vmServiceSupplement],
+        mode: MergeMode.supplement,
+      );
+      expect(
+        merged,
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        '\t<key>NSBonjourServices</key>\n'
+        '\t<array>\n'
+        '\t\t<string>_tincan._udp</string>\n'
+        '\t\t<string>_dartVmService._tcp</string>\n'
+        '\t</array>\n'
+        '\t<key>NSLocalNetworkUsageDescription</key>\n'
+        '\t<string>Allow Flutter tools to find and connect to the Dart VM service.</string>\n'
+        '</dict>\n'
+        '</plist>\n',
+      );
+    });
+  });
 }

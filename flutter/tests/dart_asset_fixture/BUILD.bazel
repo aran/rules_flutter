@@ -3,6 +3,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_library")
 load("//flutter:defs.bzl", "flutter_application", "flutter_library", "flutter_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 load("//flutter/tests:native_assets_test.bzl", "hook_check_probe", "legacy_dart_library")
 
 # A pub-package-shaped `dart_library` that owns a native code asset, exactly as
@@ -13,6 +14,7 @@ load("//flutter/tests:native_assets_test.bzl", "hook_check_probe", "legacy_dart_
 cc_library(
     name = "empty",
     srcs = ["empty.cc"],
+    target_compatible_with = HOST_COMPATIBLE,
 )
 
 cc_shared_library(
@@ -23,6 +25,7 @@ cc_shared_library(
         "@platforms//os:windows": "asset_fixture.dll",
         "//conditions:default": "libasset_fixture.so",
     }),
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter/tests:__pkg__"],
     deps = [":empty"],
 )
@@ -31,6 +34,7 @@ dart_code_asset(
     name = "code_asset",
     asset_id = "package:asset_fixture/src/ffi/asset_fixture.g.dart",
     shared_library = ":asset_fixture_shared",
+    target_compatible_with = HOST_COMPATIBLE,
 )
 
 dart_library(
@@ -38,6 +42,7 @@ dart_library(
     package_name = "asset_fixture",
     srcs = ["lib/fixture.dart"],
     code_assets = [":code_asset"],
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter/tests:__pkg__"],
 )
 
@@ -53,6 +58,7 @@ flutter_library(
     srcs = ["lib/fixture.dart"],
     code_assets = [":code_asset"],
     tags = ["manual"],
+    target_compatible_with = HOST_COMPATIBLE,
     visibility = ["//flutter/tests:__pkg__"],
 )
 

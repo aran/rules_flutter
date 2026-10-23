@@ -1,0 +1,2 @@
+compression barely shrinks this
+deflate saves a byte or two

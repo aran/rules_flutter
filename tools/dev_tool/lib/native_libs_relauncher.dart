@@ -216,6 +216,18 @@ class Relauncher {
         } catch (e) {
           lastConnectFailure = e;
           client = null;
+          // Each attempt, not just the last: the warning below names only the
+          // final failure, so without this the first four attempts leave no
+          // trace of how long the reconnect took.
+          logger.fine({
+            'message': 'relaunch_reconnect_attempt_failed',
+            'text':
+                'Reconnecting to ${session.appId} at $uri failed on attempt '
+                '${attempt + 1} of 5: $e',
+            'appId': session.appId,
+            'attempt': attempt + 1,
+            'error': '$e',
+          });
           if (attempt < 4) {
             await Future<void>.delayed(const Duration(seconds: 1));
           }

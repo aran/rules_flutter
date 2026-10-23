@@ -18,10 +18,10 @@ import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/command_report.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
-import 'package:flutter_bazel_dev_tool/logging.dart';
 import 'package:flutter_bazel_dev_tool/machine_protocol.dart';
 import 'package:flutter_bazel_dev_tool/native_libs_fingerprint.dart';
 import 'package:flutter_bazel_dev_tool/native_libs_relauncher.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_bazel_dev_tool/outcome_renderer.dart';
 import 'package:flutter_bazel_dev_tool/session.dart';
 import 'package:path/path.dart' as p;
@@ -40,6 +40,10 @@ class _RelaunchDevice extends Device {
   /// after the old process has been stopped.
   Object? launchError;
 
+  /// VM service URI the replacement instance announces when set: a URI nobody
+  /// listens on drives the reconnect retry loop instead of answering at once.
+  Uri? replacementVmServiceUri;
+
   @override
   String get name => 'fake';
 
@@ -47,7 +51,10 @@ class _RelaunchDevice extends Device {
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     launches++;
     if (launchError case final error?) throw error;
-    return AppInstance(process: FakeProcess());
+    return AppInstance(
+      process: FakeProcess(),
+      vmServiceUri: replacementVmServiceUri,
+    );
   }
 
   @override
@@ -263,6 +270,45 @@ void main() {
     expect(wire['runningCode'], 'updated');
     expect(wire['message'], contains('libnative.dylib'));
   });
+
+  test(
+    'a relaunch whose VM service never answers logs every attempt',
+    () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      // A URI nobody listens on: the reconnect loop runs all five attempts.
+      h.device.replacementVmServiceUri = Uri.parse('http://127.0.0.1:1/');
+      final r = await h.relauncher(
+        rebuild: () async {
+          h.changeNativeLib('machine code v2 — longer');
+          return true;
+        },
+      );
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      Relaunched relaunched;
+      try {
+        final outcome = await r.relaunchIfNeeded();
+        relaunched = outcome as Relaunched;
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+
+      // Not ready, but relaunched: the process is replaced and only the VM
+      // service handover failed.
+      expect(relaunched.ready, isFalse);
+      expect(
+        records
+            .where((r) => r.loggerName == 'test.relauncher')
+            .map((r) => '${r.message}'),
+        contains(contains('relaunch_reconnect_attempt_failed')),
+      );
+    },
+  );
 
   // Measured on an Android emulator short of storage: `adb install -r` refused
   // the rebuilt APK after the old app had been stopped. The run then ended

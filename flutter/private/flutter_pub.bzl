@@ -29,6 +29,7 @@ load("@rules_dart//dart:utils.bzl", "runfiles_path")
 
 def _flutter_pub_impl(ctx):
     flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
+    flutter_dart = flutter_sdk_info.dart
 
     tool = ctx.attr._tool
     is_windows = ctx.target_platform_has_constraint(
@@ -43,15 +44,15 @@ def _flutter_pub_impl(ctx):
 
     workspace_name = ctx.workspace_name
     env = {
-        "FLUTTER_PUB_DART": runfiles_path(flutter_sdk_info.dart, workspace_name),
+        "FLUTTER_PUB_DART": runfiles_path(flutter_dart, workspace_name),
         "FLUTTER_PUB_VERSION_MANIFEST": runfiles_path(ctx.file.version_manifest, workspace_name),
     }
 
     runfiles = ctx.runfiles(
-        files = [ctx.file.version_manifest],
+        files = [flutter_dart, ctx.file.version_manifest],
         transitive_files = depset(
             ctx.files.dev_root,
-            transitive = [flutter_sdk_info.tool_files],
+            transitive = [flutter_sdk_info.dart_pub_files],
         ),
     )
     runfiles = runfiles.merge(tool[DefaultInfo].default_runfiles)
@@ -64,7 +65,9 @@ def _flutter_pub_impl(ctx):
 flutter_pub = rule(
     implementation = _flutter_pub_impl,
     executable = True,
-    toolchains = ["@rules_flutter//flutter:toolchain_type"],
+    toolchains = [
+        "@rules_flutter//flutter:toolchain_type",
+    ],
     attrs = {
         "dev_root": attr.label(
             doc = "The FLUTTER_ROOT-shaped tree pub resolves `sdk: flutter` " +

@@ -1,9 +1,16 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_android//android:rules.bzl", "android_binary")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
-load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
-load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_library", "flutter_test")
+load(
+    "@rules_flutter//flutter:android.bzl",
+    "ANDROID_MIN_SDK_VERSION",
+    "ANDROID_TARGET_SDK_VERSION",
+    "FLUTTER_APK_AAPT_NO_COMPRESS_EXTENSIONS",
+    "flutter_android_app",
+)
+load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_library", "flutter_prebuilt_test", "flutter_test")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -21,6 +28,9 @@ load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
+load(":android_apk_overlay_test.bzl", "android_apk_overlay_test_suite")
+load(":custom_modular_test_kernel.bzl", "custom_modular_app_kernel", "custom_modular_test_kernel")
+load(":custom_test_kernel.bzl", "custom_test_kernel")
 
 exports_files(["pubspec.lock"])
 
@@ -67,6 +77,7 @@ flutter_application(
         "@deps//:cupertino_icons",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:platform_assets",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -182,6 +193,100 @@ flutter_android_app(
     tags = ["no-windows-ci"],
 )
 
+# -- Release-signed Android app ------------------------------------------------
+#
+# The same app signed with a throwaway caller keystore instead of the debug
+# key: `testdata/release.p12` (PKCS#12, alias `release`, password in
+# `testdata/release.pass`) exercises the `keystore` /
+# `keystore_password_file` / `key_alias` attributes of `flutter_android_app`.
+# `:verify_android_release_signing_test` parses the APK Signing Block of this
+# APK and the debug-signed `:hello_world_android` and pins the release signer
+# to the fixture certificate.
+flutter_android_app(
+    name = "hello_world_android_release_signed",
+    package_name = "com.example.helloworld",
+    app_name = "Hello World",
+    application = ":hello_world_app",
+    key_alias = "release",
+    keystore = "testdata/release.p12",
+    keystore_password_file = "testdata/release.pass",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
+)
+
+# Red-path twin of the target above, wired to the wrong password
+# (`testdata/wrong.pass`): building it must fail in apksigner. Tagged
+# "manual" so `//...` stays green; the e2e-linux-app CI job builds it
+# explicitly and greps the failure for apksigner's wrong-password message.
+flutter_android_app(
+    name = "hello_world_android_release_wrong_password",
+    package_name = "com.example.helloworld",
+    app_name = "Hello World",
+    application = ":hello_world_app",
+    key_alias = "release",
+    keystore = "testdata/release.p12",
+    keystore_password_file = "testdata/wrong.pass",
+    tags = [
+        "manual",
+        "no-windows-ci",
+    ],
+)
+
+# -- Android reference binary (old pipeline) -----------------------------------
+#
+# The same app assembled the pre-overlay way: a single android_binary whose
+# dex chain sees the native-libs java_import and whose assets carry the
+# flutter_assets tree, instead of the payload-free base binary plus the
+# post-link splice. It reuses the macro's own internal targets — the bundle,
+# the fully merged manifest, the registrant, the engine, the discovered
+# Kotlin runner — plus the bundle's mobile-install assets, and the same
+# aapt2 no-compress list the overlay applies, so `:verify_android_apk_parity_test`
+# can compare the two APKs entry by entry (names, methods, CRCs).
+#
+# Tagged manual: it exists for the parity test's data dependency, not for
+# wildcard builds.
+
+filegroup(
+    name = "__hello_world_android_reference_assets",
+    srcs = [":__hello_world_android_bundle"],
+    output_group = "mobile_install",
+    tags = [
+        "manual",
+        "no-windows-ci",
+    ],
+)
+
+android_binary(
+    name = "hello_world_android_reference",
+    assets = [":__hello_world_android_reference_assets"],
+    assets_dir = "assets",
+    manifest = ":__hello_world_android_manifest_with_library_permissions",
+    manifest_values = {
+        "applicationId": "com.example.helloworld",
+        "minSdkVersion": ANDROID_MIN_SDK_VERSION,
+        "targetSdkVersion": ANDROID_TARGET_SDK_VERSION,
+    },
+    nocompress_extensions = FLUTTER_APK_AAPT_NO_COMPRESS_EXTENSIONS,
+    resource_files = glob(["android/app/src/main/res/**"]),
+    tags = [
+        "manual",
+        "no-windows-ci",
+    ],
+    target_compatible_with = select({
+        "@platforms//os:ios": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":__hello_world_android_android_plugins",
+        ":__hello_world_android_engine",
+        ":__hello_world_android_native_libs",
+        ":__hello_world_android_registrant",
+        ":__hello_world_android_runner",
+        "@deps//android:all_android_plugin_libs",
+    ],
+)
+
 # -- Other platforms -----------------------------------------------------------
 
 flutter_linux_app(
@@ -206,11 +311,19 @@ flutter_web_app(
         "@deps//:cupertino_icons",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:platform_assets",
         "@rules_flutter//flutter:material_icons",
     ],
 )
 
 # -- Tests ---------------------------------------------------------------------
+
+_HOST_COMPATIBLE = select({
+    "@platforms//os:linux": [],
+    "@platforms//os:macos": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
 
 # Widget test: drives the same MyApp counter-tap flow that the
 # `flutter create` template ships, exercising
@@ -224,11 +337,13 @@ flutter_test(
         "lib/main.dart",
     ],
     main = "test/widget_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:cupertino_icons",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
         "@deps//:flutter_test",
+        "@deps//:platform_assets",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -245,6 +360,7 @@ flutter_test(
     enable_impeller = True,
     main = "test/impeller_shader_test.dart",
     shaders = ["shaders/indexed.frag"],
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -255,6 +371,7 @@ flutter_test(
     name = "bazel_protocol_test",
     package_name = "hello_world",
     main = "test/bazel_protocol_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -266,6 +383,43 @@ flutter_test(
     package_name = "hello_world",
     main = "test/bazel_protocol_test.dart",
     shard_count = 3,
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# Tag selection, as `flutter test --tags` / `--exclude-tags` resolve it:
+# `test/tags_test.dart` carries untagged cases plus cases tagged `golden` at
+# test level, and this target excludes that tag. Only the untagged cases
+# run — the tagged ones fail if they run at all, so a green run proves the
+# pruning. A `--test_env=FLUTTER_TEST_EXCLUDE_TAGS=...` value at run time
+# overrides this.
+flutter_test(
+    name = "tags_test",
+    package_name = "hello_world",
+    exclude_tags = ["golden"],
+    main = "test/tags_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# Library-level `@Tags`: `test/tags_library_test.dart` annotates its own
+# entrypoint with `@Tags(['golden'])`, which the rule extracts at build time
+# and the runner reports on the suite's root group, so every case inherits it.
+# Excluding `golden` prunes the suite to empty, and an empty suite passes — a
+# green run proves the root-group inheritance. (A `@Tags` on an imported file
+# would stay invisible, exactly as under `flutter test`.)
+flutter_test(
+    name = "tags_library_test",
+    package_name = "hello_world",
+    exclude_tags = ["golden"],
+    main = "test/tags_library_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
@@ -284,6 +438,7 @@ flutter_test(
         "E2E_WINNER=attr",
     ],
     main = "test/dart_defines_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
     ],
@@ -295,6 +450,7 @@ flutter_test(
     name = "hello_test",
     package_name = "hello_world",
     main = "hello_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
     ],
@@ -317,8 +473,319 @@ flutter_test(
     timeout = "moderate",
     env = {"COVERAGE_OUTPUT_FILE": "coverage_probe.lcov"},
     main = "hello_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:flutter_test",
+    ],
+)
+
+# -- Prebuilt tests: run an already built kernel, compile nothing ---------------
+
+# `:widget_test`'s build products, one filegroup per `flutter_prebuilt_test`
+# attr. The prebuilt twin below runs the same kernel with the same assets and
+# passes exactly when `:widget_test` passes.
+filegroup(
+    name = "widget_test_kernel",
+    testonly = True,
+    srcs = [":widget_test"],
+    output_group = "test_kernel",
+)
+
+filegroup(
+    name = "widget_test_base_kernel",
+    testonly = True,
+    srcs = [":widget_test"],
+    output_group = "test_base_kernel",
+)
+
+filegroup(
+    name = "widget_test_assets",
+    testonly = True,
+    srcs = [":widget_test"],
+    output_group = "test_assets",
+)
+
+flutter_prebuilt_test(
+    name = "widget_prebuilt_test",
+    assets = ":widget_test_assets",
+    base_dill = [":widget_test_base_kernel"],
+    dill = ":widget_test_kernel",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+# The failing twin: a kernel whose single case fails, compiled by a `manual`
+# `flutter_test` (so `bazel test //...` stays green) and run by a `manual`
+# `flutter_prebuilt_test`. Its red run proves the prebuilt path executes the
+# kernel rather than passing vacuously. Run it explicitly:
+#   bazel test //:prebuilt_failing_test
+flutter_test(
+    name = "prebuilt_failing_source_test",
+    package_name = "hello_world",
+    main = "test/prebuilt_failing_test.dart",
+    tags = ["manual"],
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+filegroup(
+    name = "prebuilt_failing_kernel",
+    testonly = True,
+    srcs = [":prebuilt_failing_source_test"],
+    output_group = "test_kernel",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt_failing_base_kernel",
+    testonly = True,
+    srcs = [":prebuilt_failing_source_test"],
+    output_group = "test_base_kernel",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt_failing_assets",
+    testonly = True,
+    srcs = [":prebuilt_failing_source_test"],
+    output_group = "test_assets",
+    tags = ["manual"],
+)
+
+flutter_prebuilt_test(
+    name = "prebuilt_failing_test",
+    assets = ":prebuilt_failing_assets",
+    base_dill = [":prebuilt_failing_base_kernel"],
+    dill = ":prebuilt_failing_kernel",
+    tags = ["manual"],
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+# Library tags through the stock prebuilt pipeline: `:tags_library_test`'s
+# `test_library_tags` output group feeds `library_tags`, so the entrypoint's
+# own `@Tags(['golden'])` reaches the suite's root group exactly as on the
+# `flutter_test` oracle. Excluding `golden` prunes the suite to empty, and an
+# empty suite passes — a green run proves the tags flowed through the
+# output group into the prebuilt run.
+filegroup(
+    name = "tags_library_test_kernel",
+    testonly = True,
+    srcs = [":tags_library_test"],
+    output_group = "test_kernel",
+)
+
+filegroup(
+    name = "tags_library_test_base_kernel",
+    testonly = True,
+    srcs = [":tags_library_test"],
+    output_group = "test_base_kernel",
+)
+
+filegroup(
+    name = "tags_library_test_assets",
+    testonly = True,
+    srcs = [":tags_library_test"],
+    output_group = "test_assets",
+)
+
+filegroup(
+    name = "tags_library_test_tags",
+    testonly = True,
+    srcs = [":tags_library_test"],
+    output_group = "test_library_tags",
+)
+
+flutter_prebuilt_test(
+    name = "tags_library_prebuilt_test",
+    assets = ":tags_library_test_assets",
+    base_dill = [":tags_library_test_base_kernel"],
+    dill = ":tags_library_test_kernel",
+    exclude_tags = ["golden"],
+    library_tags = ":tags_library_test_tags",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+# -- Custom test kernels: the `flutter_test_bootstrap` docstring, running -----
+#
+# Each `custom_test_kernel` below compiles its suite by hand over the public
+# `//flutter:utils.bzl` helpers (see `custom_test_kernel.bzl`) and runs under
+# `flutter_prebuilt_test`, with a `flutter_test` on the same sources as the
+# oracle. The asset trees are the oracles' own `test_assets`: bundles are
+# kernel-independent (only icon tree-shaking reads the kernel), so a
+# hand-built kernel runs on the stock bundle.
+
+# The counter-tap widget suite, compiled by hand: passes exactly when
+# `:widget_test` passes, proving a custom kernel over the bootstrap dials the
+# harness and runs a real `package:flutter_test` suite.
+custom_test_kernel(
+    name = "widget_custom_kernel",
+    srcs = [
+        "lib/common_widgets.dart",
+        "lib/main.dart",
+    ],
+    main = "test/widget_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        ":app_lib",
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@deps//:flutter_test",
+        "@rules_flutter//flutter:material_icons",
+    ],
+)
+
+filegroup(
+    name = "widget_custom_kernel_tags",
+    testonly = True,
+    srcs = [":widget_custom_kernel"],
+    output_group = "test_library_tags",
+)
+
+flutter_prebuilt_test(
+    name = "widget_custom_bootstrap_test",
+    assets = ":widget_test_assets",
+    dill = ":widget_custom_kernel",
+    library_tags = ":widget_custom_kernel_tags",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+# A hand-compiled kernel must be reproducible: `:widget_custom_kernel` is
+# built over the public `//flutter:utils.bzl` helpers only, and its dill must
+# carry no absolute host path — every source URI a stable
+# `org-dartlang-app:///` or `package:` URI, as in the stock `:widget_test`
+# kernel beside it. Reads the dill's bytes out of runfiles and fails on the
+# first sandbox `execroot` URI, so a regression that re-keys a library by
+# `file://` breaks `bazel test //...` here instead of silently busting remote
+# caches downstream.
+dart_test(
+    name = "verify_custom_kernel_reproducible_test",
+    data = [":widget_custom_kernel"],
+    main = "test/verify_custom_kernel_reproducible_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
+# The `@Tags(['golden'])` suite, compiled by hand: excluding `golden` prunes
+# it to empty, proving library tags extracted by a custom pipeline reach the
+# prebuilt run's root group exactly as through the stock one.
+custom_test_kernel(
+    name = "tags_library_custom_kernel",
+    main = "test/tags_library_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+filegroup(
+    name = "tags_library_custom_kernel_tags",
+    testonly = True,
+    srcs = [":tags_library_custom_kernel"],
+    output_group = "test_library_tags",
+)
+
+flutter_prebuilt_test(
+    name = "tags_library_custom_bootstrap_test",
+    assets = ":tags_library_test_assets",
+    dill = ":tags_library_custom_kernel",
+    exclude_tags = ["golden"],
+    library_tags = ":tags_library_custom_kernel_tags",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+# -- Custom modular kernels: the `flutter_modular_test_kernel` /
+#    `flutter_modular_app_kernel` docstrings, running --------------------------
+#
+# Each target below is built by hand over the public `//flutter:utils.bzl`
+# modular helpers (see `custom_modular_test_kernel.bzl`), compiling each
+# `flutter_library` dependency once into a `.flutter.kmod` module and linking
+# the entry against the outlines — so a body-only edit to `modular_greeter`
+# recompiles only that module plus the entry/link actions, never the whole
+# program. The default link is complete: `:widget_modular_prebuilt_test` runs
+# it with no `base_dill`. The `use_base_dill` twin delta-links against the
+# shared `flutter_test` base instead (the smaller per-test dill for many
+# tests sharing one SDK base) and feeds it to `base_dill`.
+
+custom_modular_test_kernel(
+    name = "widget_modular_kernel",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "//modular_greeter",
+        "//modular_suite",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+filegroup(
+    name = "widget_modular_kernel_files",
+    testonly = True,
+    srcs = [":widget_modular_kernel"],
+    output_group = "test_kernel",
+)
+
+flutter_asset_bundle(
+    name = "modular_suite_assets",
+    testonly = True,
+)
+
+flutter_prebuilt_test(
+    name = "widget_modular_prebuilt_test",
+    assets = ":modular_suite_assets",
+    dill = ":widget_modular_kernel_files",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+custom_modular_test_kernel(
+    name = "widget_modular_based_kernel",
+    target_compatible_with = _HOST_COMPATIBLE,
+    use_base_dill = True,
+    deps = [
+        "//modular_greeter",
+        "//modular_suite",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+filegroup(
+    name = "widget_modular_based_kernel_files",
+    testonly = True,
+    srcs = [":widget_modular_based_kernel"],
+    output_group = "test_kernel",
+)
+
+filegroup(
+    name = "widget_modular_based_base_kernel_files",
+    testonly = True,
+    srcs = [":widget_modular_based_kernel"],
+    output_group = "test_base_kernel",
+)
+
+flutter_prebuilt_test(
+    name = "widget_modular_based_prebuilt_test",
+    assets = ":modular_suite_assets",
+    base_dill = [":widget_modular_based_base_kernel_files"],
+    dill = ":widget_modular_based_kernel_files",
+    target_compatible_with = _HOST_COMPATIBLE,
+)
+
+custom_modular_app_kernel(
+    name = "hello_world_modular_app",
+    srcs = ["lib/common_widgets.dart"],
+    main = "lib/main.dart",
+    deps = [
+        "@deps//:cupertino_icons",
+        "@deps//:flutter",
+        "@deps//:flutter_localized_locales",
+        "@rules_flutter//flutter:material_icons",
     ],
 )
 
@@ -327,6 +794,11 @@ flutter_test(
 build_test(
     name = "kernel_build_test",
     targets = [":hello_world"],
+)
+
+build_test(
+    name = "modular_app_build_test",
+    targets = [":hello_world_modular_app"],
 )
 
 build_test(
@@ -357,6 +829,84 @@ build_test(
     # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
     tags = ["no-windows-ci"],
     targets = [":hello_world_android"],
+)
+
+android_apk_overlay_test_suite(
+    name = "android_apk_overlay_test",
+    app_name = "hello_world_android",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
+)
+
+# APK parity: the overlay APK must carry the same entries, stored or deflated
+# the same way, with the same CRCs, as the reference android_binary built the
+# old way. Runs apksigner verify and zipalign -c over the overlay APK first.
+dart_test(
+    name = "verify_android_apk_parity_test",
+    data = [
+        ":hello_world_android",
+        ":hello_world_android_reference",
+        "@androidsdk//:apksigner",
+        "@androidsdk//:zipalign",
+    ],
+    env = {
+        # Repo-root-relative runfiles paths: extension repos have no stable
+        # apparent-name symlink in the runfiles tree, so locate by rlocation.
+        "APKSIGNER": "$(rlocationpath @androidsdk//:apksigner)",
+        "ZIPALIGN": "$(rlocationpath @androidsdk//:zipalign)",
+    },
+    main = "test/verify_android_apk_parity_test.dart",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
+)
+
+# Release signing: the release-signed APK above must carry the fixture
+# certificate in its APK Signing Block (v3 preferred, v2 accepted), matching
+# the pinned fingerprint, while the debug-signed APK carries a different
+# signer — proving the APK was signed by the caller's keystore and not the
+# debug key. Parses the block by hand; no apksigner/keytool runs here.
+dart_test(
+    name = "verify_android_release_signing_test",
+    data = [
+        ":hello_world_android",
+        ":hello_world_android_release_signed",
+    ],
+    main = "test/verify_android_release_signing_test.dart",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
+)
+
+# Platform-conditional pub assets: the Android APK must carry the fixture
+# package's unconditional and android-only assets and omit its web-only and
+# flavor-restricted ones, with AssetManifest.bin agreeing. Walks the zip
+# central directory and inflates the manifest by hand; no unzip runs here.
+dart_test(
+    name = "verify_android_platform_assets_test",
+    data = [":hello_world_android"],
+    main = "test/verify_android_platform_assets_test.dart",
+    # See hello_world_android: skipped on the Windows CI runner (pagefile OOM)
+    # via --build_tag_filters/--test_tag_filters. Builds normally everywhere else.
+    tags = ["no-windows-ci"],
+)
+
+# Runtime verifier for the overlay APK: installs :hello_world_android on a
+# connected emulator or device, waits for RESUMED, and asserts the app stays
+# alive with no crash — proving the injected libapp.so and flutter_assets
+# actually boot. Tagged "manual" + "exclusive" because it needs a live
+# device; run explicitly per docs/TESTING.md.
+dart_test(
+    name = "verify_android_app_test",
+    data = [":hello_world_android"],
+    main = "test/verify_android_app_test.dart",
+    tags = [
+        "android",
+        "exclusive",
+        "manual",
+        "no-windows-ci",
+    ],
 )
 
 build_test(
@@ -393,6 +943,92 @@ dart_test(
     name = "verify_pub_assets_test",
     data = [":hello_world_app"],
     main = "test/verify_pub_assets_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
+# Verifies package-relative asset keys for a subpackage app bundle:
+# `//sub:sub_app` keys its own `assets/notice.txt` relative to its package
+# directory (no `sub/` prefix): the nested `//sub/nested` file arrives as
+# `nested/extra.txt` and the genrule output as `gen_notice.txt`. The
+# first-party `//brand` dependency's asset lands at
+# `packages/brand/assets/brand.txt`. Reads the bundle's `flutter_assets/`
+# tree and AssetManifest.bin.json like `:verify_pub_assets_test` does for
+# pub assets.
+dart_test(
+    name = "verify_sub_assets_test",
+    data = ["//sub:sub_app"],
+    main = "test/verify_sub_assets_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
+# A workspace-root bundle holding a nested-package file and a generated
+# file. The root strips nothing: `//brand`'s asset keeps its
+# `brand/assets/brand.txt` key and the genrule output its `root_gen.txt`
+# key — exactly today's keys. `:verify_root_keys_test` asserts the tree.
+flutter_asset_bundle(
+    name = "root_keys_bundle",
+    assets = [
+        ":root_gen_asset",
+        "//brand:assets/brand.txt",
+    ],
+)
+
+genrule(
+    name = "root_gen_asset",
+    outs = ["root_gen.txt"],
+    cmd = "echo 'root generated' > $@",
+)
+
+# Verifies the workspace-root key rule: a root target keys every same-repo
+# file, nested or generated, by its repository-relative path — the bundle
+# stays byte-identical. Reads `:root_keys_bundle`'s `flutter_assets/` tree
+# and AssetManifest.bin.json.
+dart_test(
+    name = "verify_root_keys_test",
+    data = [":root_keys_bundle"],
+    main = "test/verify_root_keys_test.dart",
+    target_compatible_with = _HOST_COMPATIBLE,
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
+# Path-spoke hermeticity: fetching the `path_probe` / `path_probe_no_build`
+# `path:` spokes must leave the source tree untouched. The fixture packages
+# carry an android/ directory (with and without a user BUILD.bazel), a
+# declared shader, an example/build/ shader and a .plugin_symlinks cycle.
+# The data deps force both spokes to fetch and load before the test runs;
+# the test then pins the user BUILD's sentinel intact and no BUILD created
+# where the user had none. Reads files Bazel does not track as inputs, so
+# like the repo's static guards it is tagged `external` (re-run every
+# invocation, never a replayed cached pass) and `no-sandbox` (the anchor
+# resolves through the runfiles library, under both the Unix tree and the
+# Windows manifest).
+dart_test(
+    name = "verify_path_spoke_hermeticity_test",
+    size = "small",
+    data = [
+        "test/verify_path_spoke_hermeticity_test.dart",
+        "@deps//:path_probe",
+        "@deps//:path_probe_no_build",
+    ],
+    env = {"GUARD_ROOT_ANCHOR": "$(rlocationpath :test/verify_path_spoke_hermeticity_test.dart)"},
+    env_inherit = ["BUILD_WORKSPACE_DIRECTORY"],
+    main = "test/verify_path_spoke_hermeticity_test.dart",
+    tags = [
+        "external",
+        "no-sandbox",
+    ],
+    target_compatible_with = _HOST_COMPATIBLE,
     deps = [
         "@deps//:test",
         "@rules_dart//dart/runfiles",

@@ -14,8 +14,11 @@ import 'package:http_multi_server/http_multi_server.dart';
 import 'command_failure.dart';
 import 'command_runner.dart';
 import 'device.dart';
+import 'logging.dart';
 import 'machine_protocol.dart';
 import 'session.dart';
+
+final _logger = Logger('dev_tool.http_control_channel');
 
 /// HTTP server that exposes the dev tool's command dispatch and screenshot
 /// endpoints to external clients.
@@ -223,6 +226,14 @@ class HttpControlChannel {
     try {
       parsed = json.decode(body) as Map<String, dynamic>;
     } catch (e) {
+      // Answered 400 below, and logged here: the response goes to a client
+      // that may itself be the thing under test, so the run's own log is the
+      // only place this failure is guaranteed to be seen.
+      _logger.fine({
+        'message': 'command_invalid_json',
+        'text': 'Ignoring a command request with an unreadable body: $e',
+        'error': '$e',
+      });
       request.response.statusCode = HttpStatus.badRequest;
       request.response.headers.contentType = ContentType.json;
       request.response.write(json.encode({'error': 'Invalid JSON: $e'}));
@@ -254,7 +265,15 @@ class HttpControlChannel {
       request.response.write(json.encode({'error': e.message}));
     } catch (e) {
       // Not a refusal — the tool broke. 500 is the honest answer, and the
-      // exception's own text is all there is to say.
+      // exception's own text is all there is to say. Said server-side too:
+      // the client sees the 500, but without this the run's own logs would
+      // show nothing at all.
+      _logger.warning({
+        'message': 'command_handler_failed',
+        'text': 'Command $method failed with an unexpected error: $e',
+        'method': method,
+        'error': '$e',
+      });
       request.response.statusCode = HttpStatus.internalServerError;
       request.response.headers.contentType = ContentType.json;
       request.response.write(json.encode({'error': e.toString()}));

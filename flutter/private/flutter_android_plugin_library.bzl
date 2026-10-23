@@ -10,6 +10,7 @@ so the plugin's Kotlin/Java sees the FlutterPlugin SPI. A minimal
 own manifest fragment.
 """
 
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 
 _DEFAULT_MANIFEST_TEMPLATE = """\
@@ -73,10 +74,11 @@ def flutter_android_plugin_library(
     actual_manifest = manifest
     if not actual_manifest:
         manifest_target = "_%s__manifest" % name
-        native.genrule(
+        write_file(
             name = manifest_target,
-            outs = ["_%s_AndroidManifest.xml" % name],
-            cmd = "cat > $@ <<'EOF'\n" + _DEFAULT_MANIFEST_TEMPLATE.replace("PACKAGE_NAME", java_package) + "EOF",
+            out = "_%s_AndroidManifest.xml" % name,
+            content = _DEFAULT_MANIFEST_TEMPLATE.replace("PACKAGE_NAME", java_package).split("\n"),
+            newline = "unix",
             tags = tags,
         )
         actual_manifest = ":" + manifest_target

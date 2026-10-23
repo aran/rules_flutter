@@ -358,71 +358,17 @@ class WebOptions {
         (results['cross-origin-isolation'] as bool?) ?? mode is WasmWebMode;
 
     final headers = parseWebHeaders(results['web-header'] as List<String>);
-    if (crossOriginIsolation) {
-      final clashing = headers.keys.where(
-        (k) => crossOriginIsolationHeaders.keys.any(
-          (h) => h.toLowerCase() == k.toLowerCase(),
-        ),
-      );
-      if (clashing.isNotEmpty) {
-        throw DevToolException(
-          '--web-header sets ${clashing.join(' and ')}, which '
-          '--cross-origin-isolation also sets. Two values for one header is '
-          'not a state this server can be in.\n'
-          'Pass --no-cross-origin-isolation to own those headers yourself, '
-          'or drop them from --web-header.',
-        );
-      }
-    }
+    checkIsolationHeaders(headers, crossOriginIsolation);
 
     final certPath = results['web-tls-cert-path'] as String?;
     final certKeyPath = results['web-tls-cert-key-path'] as String?;
-    if ((certPath == null) != (certKeyPath == null)) {
-      final given = certPath == null
-          ? '--web-tls-cert-key-path'
-          : '--web-tls-cert-path';
-      final missing = certPath == null
-          ? '--web-tls-cert-path'
-          : '--web-tls-cert-key-path';
-      throw DevToolException(
-        '$given needs $missing: TLS takes a certificate and the key that '
-        'authenticates it, and a server cannot be brought up with one of '
-        'them.\n'
-        'Pass both to serve over HTTPS, or neither to serve over HTTP.',
-      );
-    }
+    checkTlsPair(certPath, certKeyPath);
 
     final browserFlags = results['web-browser-flag'] as List<String>;
-    for (final flag in browserFlags) {
-      final instead = ownedBrowserSwitches[flag.split('=').first];
-      if (instead == null) continue;
-      throw DevToolException(
-        '--web-browser-flag cannot pass ${flag.split('=').first}: this tool '
-        'sets it itself, and a browser given it twice resolves the two by '
-        'position rather than by intent.\n$instead',
-      );
-    }
+    checkBrowserFlags(browserFlags);
 
     final viewport = parseWebViewport(results['web-viewport'] as String?);
-    // Owned only when there is a scale to set. Chrome resolves a duplicated
-    // switch by position, so both copies present would make the page's pixel
-    // ratio depend on splice order; without --web-viewport@scale, though,
-    // nothing here sets the switch and passing it directly is legitimate.
-    if (viewport?.deviceScaleFactor != null) {
-      final clashing = browserFlags.where(
-        (f) => f.split('=').first == '--force-device-scale-factor',
-      );
-      if (clashing.isNotEmpty) {
-        throw DevToolException(
-          '--web-browser-flag cannot pass --force-device-scale-factor '
-          'alongside --web-viewport $viewport, which sets it from the '
-          'viewport\'s own scale. A browser given the switch twice resolves '
-          'the two by position rather than by intent.\n'
-          'Drop the --web-browser-flag, or drop the @scale from '
-          '--web-viewport and set the ratio yourself.',
-        );
-      }
-    }
+    checkViewportScaleFlag(viewport, browserFlags);
 
     // Only the DDC dev loop has a resident compiler and a debugger to
     // evaluate with. `wasParsed` separates a request from the default: asking
@@ -430,21 +376,7 @@ class WebOptions {
     // not.
     final expressionEvaluation =
         results['web-enable-expression-evaluation'] as bool;
-    if (results.wasParsed('web-enable-expression-evaluation') &&
-        expressionEvaluation &&
-        mode is! DdcWebMode) {
-      throw DevToolException(
-        '--web-enable-expression-evaluation cannot be honored for this run: '
-        'evaluating an expression means compiling it against the program '
-        'that is running, and only the DDC dev loop has a resident compiler '
-        'and a debugger to do that with. '
-        '${mode is WasmWebMode ? '--wasm builds with dart2wasm, which has '
-                  'neither.' : 'This run serves a built bundle statically, with '
-                  'no VM service.'}\n'
-        'Drop the flag, or run the DDC dev loop (no --wasm, no --profile, '
-        'no --no-hot).',
-      );
-    }
+    checkExpressionEvaluation(results, expressionEvaluation, mode);
 
     return WebOptions(
       enableExpressionEvaluation: expressionEvaluation && mode is DdcWebMode,
@@ -468,6 +400,111 @@ class WebOptions {
       ),
     );
   }
+}
+
+/// Refuse a `--web-header` that duplicates what isolation sets.
+void checkIsolationHeaders(
+  Map<String, String> headers,
+  bool crossOriginIsolation,
+) {
+  if (!crossOriginIsolation) return;
+  final clashing = headers.keys.where(
+    (k) => crossOriginIsolationHeaders.keys.any(
+      (h) => h.toLowerCase() == k.toLowerCase(),
+    ),
+  );
+  if (clashing.isEmpty) return;
+  throw DevToolException(
+    '--web-header sets ${clashing.join(' and ')}, which '
+    '--cross-origin-isolation also sets. Two values for one header is '
+    'not a state this server can be in.\n'
+    'Pass --no-cross-origin-isolation to own those headers yourself, '
+    'or drop them from --web-header.',
+  );
+}
+
+/// Refuse half of the TLS pair: a server needs both or neither.
+void checkTlsPair(String? certPath, String? certKeyPath) {
+  if ((certPath == null) == (certKeyPath == null)) return;
+  final given = certPath == null
+      ? '--web-tls-cert-key-path'
+      : '--web-tls-cert-path';
+  final missing = certPath == null
+      ? '--web-tls-cert-path'
+      : '--web-tls-cert-key-path';
+  throw DevToolException(
+    '$given needs $missing: TLS takes a certificate and the key that '
+    'authenticates it, and a server cannot be brought up with one of '
+    'them.\n'
+    'Pass both to serve over HTTPS, or neither to serve over HTTP.',
+  );
+}
+
+/// Refuse a `--web-browser-flag` this tool sets itself.
+///
+/// A user switch that duplicates one of these does not override it: Chrome
+/// resolves duplicates by position, so which copy wins depends on where the
+/// user's flags happened to be spliced, and an invariant this tool relies on
+/// quietly stops holding.
+void checkBrowserFlags(List<String> browserFlags) {
+  for (final flag in browserFlags) {
+    final instead = WebOptions.ownedBrowserSwitches[flag.split('=').first];
+    if (instead == null) continue;
+    throw DevToolException(
+      '--web-browser-flag cannot pass ${flag.split('=').first}: this tool '
+      'sets it itself, and a browser given it twice resolves the two by '
+      'position rather than by intent.\n$instead',
+    );
+  }
+}
+
+/// Refuse `--force-device-scale-factor` next to a scaled viewport.
+///
+/// Owned only when there is a scale to set. Chrome resolves a duplicated
+/// switch by position, so both copies present would make the page's pixel
+/// ratio depend on splice order; without --web-viewport@scale, though,
+/// nothing here sets the switch and passing it directly is legitimate.
+void checkViewportScaleFlag(
+  WebViewport? viewport,
+  List<String> browserFlags,
+) {
+  if (viewport?.deviceScaleFactor == null) return;
+  final clashing = browserFlags.where(
+    (f) => f.split('=').first == '--force-device-scale-factor',
+  );
+  if (clashing.isEmpty) return;
+  throw DevToolException(
+    '--web-browser-flag cannot pass --force-device-scale-factor '
+    'alongside --web-viewport $viewport, which sets it from the '
+    'viewport\'s own scale. A browser given the switch twice resolves '
+    'the two by position rather than by intent.\n'
+    'Drop the --web-browser-flag, or drop the @scale from '
+    '--web-viewport and set the ratio yourself.',
+  );
+}
+
+/// Refuse expression evaluation where no compiler can honor it.
+void checkExpressionEvaluation(
+  ArgResults results,
+  bool expressionEvaluation,
+  WebMode? mode,
+) {
+  if (!results.wasParsed('web-enable-expression-evaluation') ||
+      !expressionEvaluation ||
+      mode is DdcWebMode) {
+    return;
+  }
+  throw DevToolException(
+    '--web-enable-expression-evaluation cannot be honored for this run: '
+    'evaluating an expression means compiling it against the program '
+    'that is running, and only the DDC dev loop has a resident compiler '
+    'and a debugger to do that with. '
+    '${mode is WasmWebMode ? '--wasm builds with dart2wasm, which has '
+              'neither.' : 'This run serves a built bundle statically, with '
+              'no VM service.'}\n'
+    'Drop the flag, or run the DDC dev loop (no --wasm, no --profile, '
+    'no --no-hot).',
+  );
 }
 
 /// `--web-launch-url` as a URL, or null when unset.

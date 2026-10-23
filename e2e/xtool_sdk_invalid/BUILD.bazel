@@ -1,0 +1,4 @@
+# Fetch-only workspace: the xtool red path (`bazel fetch
+# @flutter_xtool_darwin_sdk//...`) is driven by CI, which expects the fetch to
+# fail on the nonexistent bundle path. There are no build targets here by
+# design.

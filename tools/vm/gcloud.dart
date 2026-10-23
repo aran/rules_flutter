@@ -68,7 +68,11 @@ Future<void> waitForSsh(
       ], quiet: true);
       stderr.writeln('$vmName is ready.');
       return;
-    } catch (_) {
+    } catch (e) {
+      // Reported, not swallowed: every probe's failure is this wait's only
+      // progress output — without it the wait prints one line and then
+      // silence until the timeout throw minutes later.
+      stderr.writeln('Still waiting for $vmName to accept SSH: $e');
       await Future<void>.delayed(const Duration(seconds: 10));
     }
   }

@@ -578,6 +578,11 @@ class DwdsReloadStrategy implements ReloadStrategy {
       // presentation with it.
       return const StrategyApplied(1);
     } catch (e) {
+      _logger.warning({
+        'message': 'dwds_hot_reload_failed',
+        'text': 'DWDS hot reload failed: $e',
+        'error': '$e',
+      });
       return StrategyRejected('DWDS hot reload failed: $e');
     }
   }
@@ -621,6 +626,11 @@ class DwdsReloadStrategy implements ReloadStrategy {
       try {
         await loadFirstProgram();
       } catch (e) {
+        _logger.warning({
+          'message': 'dwds_first_load_failed',
+          'text': 'The page had no program yet and could not be loaded: $e',
+          'error': '$e',
+        });
         return StrategyRejected(
           'the page had no program yet and could not be loaded: $e',
         );
@@ -740,6 +750,11 @@ class DwdsReloadStrategy implements ReloadStrategy {
         'evicting the changed assets failed: ${e.message}',
       );
     } catch (e) {
+      _logger.warning({
+        'message': 'dwds_evict_failed',
+        'text': 'Evicting the changed assets failed: $e',
+        'error': '$e',
+      });
       return StrategyRejected('evicting the changed assets failed: $e');
     }
   }
@@ -820,6 +835,11 @@ class WasmReloadStrategy implements ReloadStrategy {
       await cdpPageReload(cdpPort, appUrl: appUrl);
       return const StrategyApplied(1);
     } catch (e) {
+      _logger.warning({
+        'message': 'wasm_restart_failed',
+        'text': 'WASM hot restart failed: $e',
+        'error': '$e',
+      });
       return StrategyRejected('WASM hot restart failed: $e');
     }
   }

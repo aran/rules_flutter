@@ -94,6 +94,8 @@ dart_binary(
 #           same reason: the e2e files it serves are not Bazel targets (they
 #           invoke `bazel` themselves), so its own behaviour would otherwise be
 #           covered by nothing. Implies `lifetime`, which it imports.
+#   zip_fixture — the test includes test/zip_fixture.dart, which builds zip
+#           fixtures in-process so the test needs no host `zip` binary.
 #   deps  — packages the test imports directly, beyond :lib and test.
 _TEST_DEPS = [
     ":lib",
@@ -154,9 +156,9 @@ _UNIT_TESTS = {
     "mdns_vm_service_discovery_test": {"fakes": True},
     "native_hot_patch_tool_test": {},
     "native_hot_patcher_test": {"deps": ["@dev_tool_deps//:vm_service"]},
-    "native_image_identity_test": {},
+    "native_image_identity_test": {"zip_fixture": True},
     "native_patch_delivery_test": {},
-    "native_libs_fingerprint_test": {},
+    "native_libs_fingerprint_test": {"zip_fixture": True},
     "native_libs_watch_test": {},
     "native_libs_relauncher_test": {
         "fakes": True,
@@ -227,6 +229,7 @@ _UNIT_TESTS = {
     },
     "web_options_test": {"deps": ["@dev_tool_deps//:args"]},
     "wasm_pipeline_assembler_test": {},
+    "zip_fixture_test": {"zip_fixture": True},
 }
 
 [dart_test(
@@ -235,6 +238,7 @@ _UNIT_TESTS = {
            (["test/tls_fixture.dart"] if cfg.get("tls") else []) +
            (["test/loopbacks.dart"] if cfg.get("loopbacks") else []) +
            (["test/test_lifetime.dart"] if cfg.get("lifetime") else []) +
+           (["test/zip_fixture.dart"] if cfg.get("zip_fixture") else []) +
            (["test/e2e/dev_tool_e2e_harness.dart"] if cfg.get("harness") else []),
     data = cfg.get("data", []),
     main = "test/%s.dart" % name,
@@ -312,6 +316,7 @@ dart_binary(
     ) + [
         "test/test_lifetime.dart",
         "test/tls_fixture.dart",
+        "test/zip_fixture.dart",
     ],
     compile_mode = "kernel",
     main = "tool/e2e.dart",

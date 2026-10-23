@@ -21,6 +21,23 @@ import 'reload_strategy.dart';
 Map<String, dynamic> toWire(CommandReport report) {
   final map = <String, dynamic>{};
 
+  final refusal = _refusalWire(report);
+  if (refusal != null) return refusal;
+
+  _foldOutcome(report, map);
+  _foldAssets(report, map);
+  _foldNative(report, map);
+
+  if (report.elapsed case final elapsed?) {
+    map['elapsedMs'] = elapsed.inMilliseconds;
+  }
+  return {..._verdict(report), ...map};
+}
+
+/// The outright answers: the command stopped before it had an outcome.
+///
+/// Null when the command ran far enough to have one to describe.
+Map<String, dynamic>? _refusalWire(CommandReport report) {
   if (report.unavailable case final reason?) {
     return {..._verdict(report), 'error': reason};
   }
@@ -114,6 +131,11 @@ Map<String, dynamic> toWire(CommandReport report) {
     };
   }
 
+  return null;
+}
+
+/// The strategy's failure and the outcome switch, folded into [map].
+void _foldOutcome(CommandReport report, Map<String, dynamic> map) {
   // The web path reports through the strategy rather than the orchestrator.
   if (report.strategy case final strategy? when !strategy.isSuccess) {
     map['message'] = '${report.verb} failed: ${strategy.message}';
@@ -162,7 +184,10 @@ Map<String, dynamic> toWire(CommandReport report) {
           .map((e) => '${e.key}: ${_applyReason(e.value)}')
           .join('; ');
   }
+}
 
+/// The asset diff, folded into [map].
+void _foldAssets(CommandReport report, Map<String, dynamic> map) {
   final assets = report.assets;
   if (assets.rebuildFailed case final reason?) {
     map['error'] = reason;
@@ -185,7 +210,11 @@ Map<String, dynamic> toWire(CommandReport report) {
         '${_headline(report)} — the asset rebuild produced a '
         'bundle identical to the one the app already has';
   }
+}
 
+/// The native postscript — stale libraries, delivered patches, relaunches and
+/// the part of the screen the change does not show yet — folded into [map].
+void _foldNative(CommandReport report, Map<String, dynamic> map) {
   // Delivered, and still something to say: the increment is live and the machine
   // code behind it is not. Named on a *successful* command, so `succeeded` is
   // what a driver reads to tell the two cases apart.
@@ -232,11 +261,6 @@ Map<String, dynamic> toWire(CommandReport report) {
         '${map['message'] ?? _headline(report)}, but '
         '${_notShownClause(notShown, report.appIds)}';
   }
-
-  if (report.elapsed case final elapsed?) {
-    map['elapsedMs'] = elapsed.inMilliseconds;
-  }
-  return {..._verdict(report), ...map};
 }
 
 /// Which apps are running code they have not drawn, and why.

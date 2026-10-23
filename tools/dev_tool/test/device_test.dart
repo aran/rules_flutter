@@ -731,7 +731,11 @@ void main() {
       final launch = ChromeSession.launch(
         url: appUrl,
         chromePath: '/fake/chrome',
-        pollInterval: const Duration(milliseconds: 10),
+        waits: (
+          portTimeout: const Duration(seconds: 60),
+          pageTimeout: const Duration(seconds: 15),
+          pollInterval: const Duration(milliseconds: 10),
+        ),
         startProcess: (exe, a) async {
           args = a;
           return proc;
@@ -769,8 +773,11 @@ void main() {
         final launch = ChromeSession.launch(
           url: appUrl,
           chromePath: '/fake/chrome',
-          pageTimeout: const Duration(milliseconds: 100),
-          pollInterval: const Duration(milliseconds: 10),
+          waits: (
+            portTimeout: const Duration(seconds: 60),
+            pageTimeout: const Duration(milliseconds: 100),
+            pollInterval: const Duration(milliseconds: 10),
+          ),
           startProcess: (exe, a) async {
             args = a;
             return proc;
@@ -882,7 +889,11 @@ void main() {
         final launch = ChromeSession.launch(
           url: appUrl,
           chromePath: '/fake/chrome',
-          portTimeout: const Duration(milliseconds: 100),
+          waits: (
+            portTimeout: const Duration(milliseconds: 100),
+            pageTimeout: const Duration(seconds: 15),
+            pollInterval: const Duration(milliseconds: 50),
+          ),
           startProcess: (exe, a) async {
             args = a;
             return proc;
@@ -905,6 +916,100 @@ void main() {
         expect(await profileDirOf(args).exists(), isFalse);
       },
     );
+
+    test(
+      'a port timeout quotes what Chrome printed and how long it ran',
+      () async {
+        // The slow-start shape from CI: the browser is alive and chatty but
+        // the announcement has not arrived when the wait runs out. An error
+        // that carries neither the wait nor the output leaves the next flake
+        // as undebuggable as this one was.
+        final proc = FakeProcess();
+        late List<String> args;
+        final launch = ChromeSession.launch(
+          url: appUrl,
+          chromePath: '/fake/chrome',
+          waits: (
+            portTimeout: const Duration(milliseconds: 100),
+            pageTimeout: const Duration(seconds: 15),
+            pollInterval: const Duration(milliseconds: 50),
+          ),
+          startProcess: (exe, a) async {
+            args = a;
+            return proc;
+          },
+        );
+        await proc.outputAttached;
+        // Lines need their terminators: the pump splits on newlines, so an
+        // unterminated tail is still in flight, not yet a line.
+        proc.emitStderr(
+          '[1234:1234:0101/000000.000000:ERROR:dbus/bus.cc:408] '
+          'Failed to connect to the bus.\n',
+        );
+        proc.emitStderr(
+          '[1234:1234:0101/000000.100000:INFO:profile_manager.cc(1234)] '
+          'Profile path /tmp/flutter_chrome_x.\n',
+        );
+
+        await expectLater(
+          launch,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('did not announce'),
+                contains('waited'),
+                contains('still starting up'),
+                contains('Failed to connect to the bus'),
+                contains('Profile path'),
+              ),
+            ),
+          ),
+        );
+        expect(await proc.exitCode, isNotNull);
+        expect(await profileDirOf(args).exists(), isFalse);
+      },
+    );
+
+    test('a port timeout against a silent browser says so', () async {
+      // Silence is a diagnosis too: it rules out every cause that announces
+      // itself and says the search belongs outside the browser's output.
+      final proc = FakeProcess();
+      late List<String> args;
+      final launch = ChromeSession.launch(
+        url: appUrl,
+        chromePath: '/fake/chrome',
+        waits: (
+          portTimeout: const Duration(milliseconds: 100),
+          pageTimeout: const Duration(seconds: 15),
+          pollInterval: const Duration(milliseconds: 50),
+        ),
+        startProcess: (exe, a) async {
+          args = a;
+          return proc;
+        },
+      );
+      await proc.outputAttached;
+      // The browser stays up but says nothing.
+
+      await expectLater(
+        launch,
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('did not announce'),
+              contains('waited'),
+              contains('printed nothing at all'),
+            ),
+          ),
+        ),
+      );
+      expect(await proc.exitCode, isNotNull);
+      expect(await profileDirOf(args).exists(), isFalse);
+    });
 
     group('browser launch options', () {
       // Asserted on the argv rather than by launching a real browser: what a
@@ -3106,7 +3211,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       'throws structured error when bundled dxcam binary is missing',
       () async {
         // The implementation uses `resolveRunfileWithManifest` to locate
-        // the bundled dxcam `py_binary` and shells to it directly via
+        // the bundled native screenshot helper and shells to it directly via
         // `Process.run`; it doesn't go through the injected `runProcess`
         // hook. Under unit-test runfiles the tool isn't reachable, so the
         // observable contract is the actionable error that points at the

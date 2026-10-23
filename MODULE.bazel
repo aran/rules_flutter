@@ -30,24 +30,137 @@ bazel_dep(name = "package_metadata", version = "0.0.13")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "rules_cc", version = "0.2.26")
 bazel_dep(name = "apple_support", version = "2.9.1")
-bazel_dep(name = "rules_apple", version = "5.2.0")
+
+# Minimum supported Apple rule set: consumers may resolve rules_apple 4.5.3+.
+# Every rules_apple symbol our macros load (ios/macos_application,
+# apple_bundle_version, framework/app-intent imports, and the internal
+# AppleBundleInfo constructor) exists with a compatible signature there;
+# e2e/min_versions pins this exact version and builds every native leg.
+# rules_swift and apple_support keep their versions: they float to the
+# graph's maxima for consumers too, and 4.5.3 accepts rules_swift at
+# compatibility_level 3.
+bazel_dep(name = "rules_apple", version = "4.5.3")
 bazel_dep(name = "rules_swift", version = "4.1.2")
+
+# rules_android stays at 0.8.0: that is the floor. flutter_android_app's
+# signing overlay reads `@rules_android//flags:apk_signing_method` through
+# the `apk_signing_v*` config_settings, and that package exists only in
+# 0.8.0+ (0.7.2 and 0.7.3 have no `flags/` directory at all) — with anything
+# older every Android app fails at analysis with "no such package
+# '@rules_android//flags'". There is no version-tolerant way to read their
+# flag, and mirroring it with our own default would silently sign
+# differently from the android_binary for consumers who set theirs.
 bazel_dep(name = "rules_android", version = "0.8.0")
 bazel_dep(name = "rules_kotlin", version = "2.4.20")
 bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
-bazel_dep(name = "rules_dart", version = "0.7.3")
-bazel_dep(name = "rules_python", version = "2.4.0")
-bazel_dep(name = "yaml.bzl", version = "0.1.2")
 
-# Provides the copy_to_directory toolchain that rules_dart's source-set
-# co-location (colocate_packages) uses to assemble a package's hand-written +
-# generated files into one directory for the kernel compile.
-bazel_dep(name = "bazel_lib", version = "3.7.2")
+# Minimum rules_dart with the fork APIs rules_flutter loads
+# (`@rules_dart//dart:hooks.bzl`, `@rules_dart//dart/private:record_use.bzl`,
+# `dart_codegen(package_name = ...)`): the `Mivr/rules_dart` fork release.
+# aran's BCR releases (up to 0.7.3) lack them and fail at load with a
+# missing-symbol error, so the floor points at the fork and consumers take
+# both modules from the fork's releases (see README.md). This repo's own
+# builds use the git_override below; e2e workspaces do the same.
+bazel_dep(name = "rules_dart", version = "0.11.1")
+bazel_dep(name = "rules_go", version = "0.59.0")
+bazel_dep(name = "yaml.bzl", version = "0.1.2")
 
 bazel_dep(name = "rules_multitool", version = "1.11.1", dev_dependency = True)
 bazel_dep(name = "buildifier_prebuilt", version = "10.1.0", dev_dependency = True)
 bazel_dep(name = "bazelrc-preset.bzl", version = "1.9.2", dev_dependency = True)
+
+# LLVM backs the opt-in xtool Darwin SDK backend (`flutter.darwin_sdk`): the
+# `@flutter_xtool_darwin_sdk` repo symlinks the hermetic LLVM `bin`/`lib` trees
+# for the exec host, and only then — when a bundle is configured, or for this
+# repo's own hermetic-LLVM script tests. The dep stays non-dev because the
+# import below must resolve for every consumer: `use_extension` on llvm's
+# toolchain extension joins llvm's own instance of it (no tags needed here),
+# and `use_repo` imports the per-host prebuilt-toolchain repos into this
+# module's mapping, where the xtool repo rule resolves the one entry it
+# needs. The names mirror the `use_repo` list in llvm's own MODULE.bazel.
+# Plain consumers only pay the module-graph edge (see docs/dependencies.md):
+# no LLVM archive is fetched and no C/C++ toolchain is registered for them.
+# The eight LLVM toolchain registrations below stay dev-only: this repo's own
+# builds need them, consumers never see them.
+bazel_dep(name = "llvm", version = "0.8.19")
+
+llvm_toolchain_minimal = use_extension("@llvm//extensions:llvm_toolchain_minimal.bzl", "llvm_toolchain_minimal")
+use_repo(
+    llvm_toolchain_minimal,
+    "llvm-toolchain-minimal-darwin-amd64",
+    "llvm-toolchain-minimal-darwin-arm64",
+    "llvm-toolchain-minimal-linux-amd64",
+    "llvm-toolchain-minimal-linux-arm64",
+)
+
+git_override(
+    module_name = "rules_dart",
+    commit = "dc0b9a23bf74fc832c89a8f5a0f95d999c8a6f0a",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+
+# This repo's own builds stay on the current Apple release.
+# single_version_override is root-only: consumers ignore this line and
+# resolve the floor above, while e2e/min_versions pins the floor exactly
+# to prove it.
+single_version_override(
+    module_name = "rules_apple",
+    version = "5.2.0",
+)
+
+# Pinned Go toolchain for every Android consumer without its own `go_sdk`
+# block. This stays a regular (non-dev) dependency so the download below is
+# evaluated in every consumer: rules_go registers Go toolchains in module
+# order, and this module (a direct dependency) is always visited before
+# rules_android (transitive), so the pinned SDK sorts before rules_android's
+# own unpinned 1.22.4 download whatever order the root lists the modules in.
+# A root `go_sdk` block still wins: rules_go considers the root module first.
+# Plain consumers pay no fetch: toolchain registration is lazy, so the SDK
+# archive downloads only when a Go toolchain actually resolves (the Android
+# host tools such as `ak`), and `bazel build`/`bazel test` without Android
+# never touches it. rules_go itself stays a regular dependency:
+# flutter_android_app's proxy transition sets `@rules_go//go/config:pure`,
+# which must resolve in every consumer.
+# The 0.59.0 floor is the lowest rules_go that builds on Bazel 9: 0.50.0
+# through 0.58.3 fail to load (`go/private/rules/cross.bzl` uses the native
+# `CcInfo` symbol Bazel 9 removed; the rules_cc import landed in 0.59.0).
+# It also matches the floor rules_android 0.7.2/0.8.0 already impose, so it
+# binds nothing new.
+#
+# rules_android ships its own Go SDK (0.8.0 downloads 1.22.4 without
+# checksums, below its own go.mod floor of 1.24.2), so without the download
+# below an Android app builds its host tools with a broken, unverified
+# toolchain. `e2e/android_no_go_sdk` (no `go_sdk` block of its own) proves a
+# `flutter_android_app` analyzes against the pinned 1.26.2.
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(
+    sdks = {
+        "darwin_amd64": ("go1.26.2.darwin-amd64.tar.gz", "bc3f1500d9968c36d705442d90ba91addf9271665033748b82532682e90a7966"),
+        "darwin_arm64": ("go1.26.2.darwin-arm64.tar.gz", "32af1522bf3e3ff3975864780a429cc0b41d190ec7bf90faa661d6d64566e7af"),
+        "linux_amd64": ("go1.26.2.linux-amd64.tar.gz", "990e6b4bbba816dc3ee129eaeaf4b42f17c2800b88a2166c265ac1a200262282"),
+        "linux_arm64": ("go1.26.2.linux-arm64.tar.gz", "c958a1fe1b361391db163a485e21f5f228142d6f8b584f6bef89b26f66dc5b23"),
+    },
+    version = "1.26.2",
+)
+
+# Hermetic LLVM C++ toolchains for this repo's own builds only. Consumers
+# never see them: e2e workspaces and xtool users register the LLVM toolchains
+# they need in their own root modules. (The xtool Darwin cross-toolchains are
+# separate: `@flutter_xtool_darwin_sdk//:all` below stays registered for
+# everyone, but its toolchains are gated on the opt-in `use_xtool_backend`
+# setting, so they never participate in toolchain resolution otherwise.)
+register_toolchains(
+    "@llvm//toolchain:linux_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:linux_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:linux_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:linux_x86_64_to_linux_x86_64",
+    "@llvm//toolchain:macos_aarch64_to_linux_aarch64",
+    "@llvm//toolchain:macos_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:macos_x86_64_to_linux_aarch64",
+    "@llvm//toolchain:macos_x86_64_to_linux_x86_64",
+    dev_dependency = True,
+)
 
 # Register the apple_cc CC toolchain explicitly so rules_swift's
 # xcode_swift_toolchain resolves to a CC toolchain with a valid apple target
@@ -67,9 +180,12 @@ register_toolchains("@local_config_apple_cc_toolchains//:all")
 
 flutter = use_extension("//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.7")
-use_repo(flutter, "flutter_android_engine_arm64_profile", "flutter_android_engine_x64_profile", "flutter_dev_root", "flutter_gen_l10n", "flutter_ios_engine", "flutter_ios_engine_profile", "flutter_macos_engine", "flutter_sky_engine", "flutter_toolchains", "flutter_web_sdk")
+use_repo(flutter, "flutter_android_engine_arm64", "flutter_android_engine_arm64_profile", "flutter_android_engine_x64", "flutter_android_engine_x64_profile", "flutter_android_headless_runtime", "flutter_chrome_headless_shell", "flutter_dev_root", "flutter_gen_l10n", "flutter_ios_engine", "flutter_ios_engine_profile", "flutter_linux_headless_runtime", "flutter_macos_engine", "flutter_material_fonts", "flutter_sky_engine", "flutter_toolchains", "flutter_web_sdk", "flutter_xtool_darwin_sdk")
 
-register_toolchains("@flutter_toolchains//:all")
+register_toolchains(
+    "@flutter_toolchains//:all",
+    "@flutter_xtool_darwin_sdk//:all",
+)
 
 # AndroidX dependencies the Flutter Android embedding (flutter.jar) requires
 # at runtime, mirroring the dependency list of Flutter's official
@@ -155,44 +271,9 @@ flutter.pub(
 )
 use_repo(flutter, "gen_l10n_deps")
 
-# Python toolchain + pymobiledevice3 for iOS device screenshots and the
-# device tunnel. Not dev dependencies: the `flutter_bazel` dev tool that
-# consumers run bundles `//tools/ios_screenshot` as runfiles.
-#
-# One version, pinned on the binaries themselves (`python_version` in
-# //tools/ios_screenshot). Only a root module can choose the default Python, so
-# without the pin the helpers would build with whatever default the consumer
-# has, and this hub has wheels for 3.13 only.
-python = use_extension(
-    "@rules_python//python/extensions:python.bzl",
-    "python",
-)
-python.toolchain(python_version = "3.13")
-
-pip = use_extension(
-    "@rules_python//python/extensions:pip.bzl",
-    "pip",
-)
-
-# pymobiledevice3 talks to iOS devices over USB/network from any host, so the
-# screenshot tooling targets every platform. target_platforms controls which
-# platforms' wheels are selectable (see the rules_python pip.parse docs).
-#
-# The lock's pip facts are host-independent under rules_python 2.3.2, and
-# `//tools/pip_lock_guard:pip_facts_test` re-derives them on every host. See the
-# .bazelrc comment. Published consumers don't inherit this lock.
-_IOS_PLATFORMS = [
-    "linux_aarch64",
-    "linux_x86_64",
-    "osx_aarch64",
-    "osx_x86_64",
-    "windows_x86_64",
-]
-
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.13",
-    requirements_lock = "//tools/ios_screenshot:requirements_lock.txt",
-    target_platforms = _IOS_PLATFORMS,
-)
-use_repo(pip, "pip")
+# iOS device screenshots and the device tunnel deliberately use NO Python
+# toolchain: `//tools/ios_screenshot` builds `dart_binary` drivers that run
+# their `pymobiledevice3` programs through a host `python3` (a documented host
+# prerequisite, like the Android SDK or Xcode). So there is deliberately no
+# `rules_python` dependency and no `pip` hub here — neither in this repo's
+# graph nor in any consumer's.

@@ -1,36 +1,123 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
+load("//flutter/private:flutter_aot_target.bzl", "flutter_aot_target")
+load(":action_inputs_test.bzl", "action_inputs_test_suite")
+load(":android_pure_go_test.bzl", "android_pure_go_test_suite")
+load(":android_release_signing_test.bzl", "android_release_signing_test_suite")
+load(":aot_flags_test.bzl", "aot_flags_test_suite")
 load(":app_entrypoint_test.bzl", "app_entrypoint_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
+load(":asset_keys_test.bzl", "asset_keys_test_suite")
+load(":asset_platforms_test.bzl", "asset_platforms_test_suite")
 load(":common_test.bzl", "common_test_suite")
+load(":compile_api_test.bzl", "compile_api_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
 load(":flutter_info_test.bzl", "flutter_info_test_suite")
+load(":flutter_integration_test_test.bzl", "flutter_integration_test_test_suite")
 load(":flutter_library_test.bzl", "flutter_library_test_suite")
 load(":flutter_plugin_test.bzl", "flutter_plugin_test_suite")
+load(":flutter_prebuilt_test.bzl", "flutter_prebuilt_test_suite")
 load(":flutter_pub_package_test.bzl", "flutter_pub_package_test_suite")
 load(":flutter_pubspec_test.bzl", "flutter_pubspec_test_suite")
 load(":flutter_sdk_package_test.bzl", "flutter_sdk_package_test_suite")
 load(":flutter_test_bootstrap_test.bzl", "flutter_test_bootstrap_test_suite")
+load(":gen_l10n_test.bzl", "gen_l10n_test_suite")
 load(":ios_test.bzl", "ios_test_suite")
 load(":language_version_test.bzl", "language_version_test_suite")
 load(":linux_runner_defines_test.bzl", "linux_runner_defines_test_suite")
 load(":linux_sysroot_link_test.bzl", "linux_sysroot_link_test_suite")
+load(":local_sdk_test.bzl", "local_sdk_test_suite")
 load(":macos_test.bzl", "macos_test_suite")
 load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
+load(":modular_api_test.bzl", "modular_api_test_suite")
 load(":native_assets_test.bzl", "bridge_probe", "native_assets_test_suite")
 load(":native_hot_patch_test.bzl", "native_hot_patch_test_suite")
 load(":native_sources_test.bzl", "native_sources_test_suite")
+load(":objc_drift_test.bzl", "objc_drift_test_suite")
+load(":path_package_test.bzl", "path_package_test_suite")
 load(":platform_bundle_test.bzl", "platform_bundle_test_suite")
 load(":plist_merge_test.bzl", "plist_merge_test_suite")
 load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
 load(":profile_mode_test.bzl", "profile_mode_test_suite")
 load(":pub_lock_sdks_test.bzl", "pub_lock_sdks_test_suite")
 load(":shader_compile_test.bzl", "shader_compile_test_suite")
+load(":shader_keys_test.bzl", "shader_keys_test_suite")
+load(":starlark_literal_test.bzl", "starlark_literal_test_suite")
+load(":toolchain_selection_test.bzl", "toolchain_selection_test_suite")
 load(":toolchain_test.bzl", "toolchain_test_suite")
 load(":toolchains_repo_test.bzl", "toolchains_repo_test_suite")
+load(":unused_inputs_test.bzl", "unused_inputs_test_suite")
 load(":validation_test.bzl", "validation_test_suite")
 load(":versions_test.bzl", "versions_test_suite")
 load(":web_test.bzl", "web_test_suite")
+
+# Static guards: the download guard discovers every `.bzl` under flutter/
+# and every MODULE.bazel at runtime from the workspace root (found through
+# the test's own source file in `data`, hence no-sandbox), so there is no
+# file list to maintain. The guards read files Bazel does not track as
+# their inputs; the `external` tag keeps Bazel from replaying a cached pass
+# after an untracked file changed, so each guard re-runs on every
+# invocation.
+dart_test(
+    name = "download_digest_guard_test",
+    size = "small",
+    data = ["download_digest_guard_test.dart"],
+    env = {"GUARD_ROOT_ANCHOR": "$(rlocationpath :download_digest_guard_test.dart)"},
+    env_inherit = ["BUILD_WORKSPACE_DIRECTORY"],
+    main = "download_digest_guard_test.dart",
+    tags = [
+        "external",
+        "no-sandbox",
+    ],
+    deps = [
+        "@dev_tool_deps//:test",
+    ],
+)
+
+# Release-archive guard: every e2e workspace except e2e/smoke must be
+# export-ignored in .gitattributes. Same discovery mechanism as above.
+dart_test(
+    name = "e2e_export_ignore_guard_test",
+    size = "small",
+    data = ["e2e_export_ignore_guard_test.dart"],
+    env = {"GUARD_ROOT_ANCHOR": "$(rlocationpath :e2e_export_ignore_guard_test.dart)"},
+    env_inherit = ["BUILD_WORKSPACE_DIRECTORY"],
+    main = "e2e_export_ignore_guard_test.dart",
+    tags = [
+        "external",
+        "no-sandbox",
+    ],
+    deps = [
+        "@dev_tool_deps//:test",
+    ],
+)
+
+# Message-formatting guard: no `.format()` call binds to one literal of a
+# `+` string join (the placeholders in the other literals would print
+# literally). Same discovery mechanism as above.
+dart_test(
+    name = "format_string_guard_test",
+    size = "small",
+    data = ["format_string_guard_test.dart"],
+    env = {"GUARD_ROOT_ANCHOR": "$(rlocationpath :format_string_guard_test.dart)"},
+    env_inherit = ["BUILD_WORKSPACE_DIRECTORY"],
+    main = "format_string_guard_test.dart",
+    tags = [
+        "external",
+        "no-sandbox",
+    ],
+    deps = [
+        "@dev_tool_deps//:test",
+    ],
+)
+
+action_inputs_test_suite(name = "action_inputs_test")
+
+android_pure_go_test_suite(name = "android_pure_go_test")
+
+android_release_signing_test_suite(name = "android_release_signing_test")
 
 versions_test_suite(name = "versions_test")
 
@@ -38,9 +125,19 @@ artifact_urls_test_suite(name = "artifact_urls_test")
 
 toolchain_test_suite(name = "toolchain_test")
 
+toolchain_selection_test_suite(name = "toolchain_selection_test")
+
+unused_inputs_test_suite(name = "unused_inputs_test")
+
 common_test_suite(name = "common_test")
 
+compile_api_test_suite(name = "compile_api_test")
+
 asset_bundle_test_suite(name = "asset_bundle_test")
+
+asset_keys_test_suite(name = "asset_keys_test")
+
+asset_platforms_test_suite(name = "asset_platforms_test")
 
 ios_test_suite(name = "ios_test")
 
@@ -54,9 +151,13 @@ web_test_suite(name = "web_test")
 
 flutter_info_test_suite(name = "flutter_info_test")
 
+flutter_integration_test_test_suite(name = "flutter_integration_test_test")
+
 flutter_library_test_suite(name = "flutter_library_test")
 
 flutter_plugin_test_suite(name = "flutter_plugin_test")
+
+flutter_prebuilt_test_suite(name = "flutter_prebuilt_test")
 
 flutter_pub_package_test_suite(name = "flutter_pub_package_test")
 
@@ -68,6 +169,10 @@ flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")
 
 plugin_registrant_test_suite(name = "plugin_registrant_test")
 
+objc_drift_test_suite(name = "objc_drift_test")
+
+path_package_test_suite(name = "path_package_test")
+
 platform_bundle_test_suite(name = "platform_bundle_test")
 
 linux_runner_defines_test_suite(name = "linux_runner_defines_test")
@@ -76,6 +181,8 @@ linux_sysroot_link_test_suite(name = "linux_sysroot_link_test")
 
 language_version_test_suite(name = "language_version_test")
 
+local_sdk_test_suite(name = "local_sdk_test")
+
 profile_mode_test_suite(name = "profile_mode_test")
 
 app_entrypoint_test_suite(name = "app_entrypoint_test")
@@ -83,6 +190,8 @@ app_entrypoint_test_suite(name = "app_entrypoint_test")
 pub_lock_sdks_test_suite(name = "pub_lock_sdks_test")
 
 shader_compile_test_suite(name = "shader_compile_test")
+
+shader_keys_test_suite(name = "shader_keys_test")
 
 toolchains_repo_test_suite(name = "toolchains_repo_test")
 
@@ -94,15 +203,43 @@ native_hot_patch_test_suite(name = "native_hot_patch_test")
 
 native_sources_test_suite(name = "native_sources_test")
 
+modular_api_test_suite(name = "modular_api_test")
+
 bridge_probe(
     name = "dart_code_asset_bridge_probe",
     expected_asset_ids = ["package:asset_fixture/src/ffi/asset_fixture.g.dart"],
+    target_compatible_with = HOST_COMPATIBLE,
     deps = ["//flutter/tests/dart_asset_fixture:asset_fixture"],
 )
 
 build_test(
     name = "dart_code_asset_bridge_test",
+    target_compatible_with = HOST_COMPATIBLE,
     targets = [":dart_code_asset_bridge_probe"],
 )
 
 validation_test_suite(name = "validation_test")
+
+starlark_literal_test_suite(name = "starlark_literal_test")
+
+gen_l10n_test_suite(name = "gen_l10n_test")
+
+# Regression: `flutter_aot_target` with obfuscation and split debug info must
+# run gen_snapshot successfully and produce the debugging-info output.
+flutter_aot_target(
+    name = "aot_split_debug_target",
+    package_name = "lv_fixture",
+    srcs = ["lib/language_version_main.dart"],
+    main = "lib/language_version_main.dart",
+    obfuscate = True,
+    split_debug_info = True,
+    target_compatible_with = HOST_COMPATIBLE,
+)
+
+build_test(
+    name = "aot_split_debug_build_test",
+    target_compatible_with = HOST_COMPATIBLE,
+    targets = [":aot_split_debug_target"],
+)
+
+aot_flags_test_suite(name = "aot_flags_test")

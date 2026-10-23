@@ -20,11 +20,11 @@ import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/reload_orchestrator.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/session_reloader.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/workspace.dart';
-import 'package:flutter_bazel_dev_tool/logging.dart';
 import 'package:flutter_bazel_dev_tool/reload_pipeline.dart';
 import 'package:flutter_bazel_dev_tool/reload_strategy.dart';
 import 'package:flutter_bazel_dev_tool/session.dart';
 import 'package:flutter_bazel_dev_tool/session_host.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -358,6 +358,36 @@ void main() {
         h.pipeline.ready.isRetryable,
         isTrue,
         reason: 'still curable, so the next request still gets an attempt',
+      );
+    });
+
+    test('an attempt that throws is logged, not only gated', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.pipeline.ready.signalRetryable('the build failed');
+      h.pipeline.reassemble = () async {
+        throw StateError('simulated assembler bug');
+      };
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      Map<String, Object?> result;
+      try {
+        result = await h.hotReload();
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+
+      // The gate still settles with the cause in its reason.
+      expect(result, containsPair('error', contains('failed unexpectedly')));
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.reload_pipeline')
+            .map((r) => '${r.message}'),
+        contains(contains('pipeline_reassembly_failed')),
       );
     });
 

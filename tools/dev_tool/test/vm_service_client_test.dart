@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/vm_service_client.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:vm_service/vm_service.dart';
+import 'package:vm_service/vm_service.dart' hide LogRecord;
 import 'package:test/test.dart';
 
 import 'fakes.dart';
@@ -1272,6 +1273,39 @@ void main() {
       expect(dials, 2, reason: 'the close was probed exactly once');
     });
 
+    test('a refused re-dial is logged, not only reported', () async {
+      var dials = 0;
+      final fake = newFake();
+      final client = VmServiceClient(
+        connector: (_) async {
+          if (dials++ > 0) {
+            throw const SocketException('Connection refused');
+          }
+          return fake;
+        },
+      );
+      await client.connect(serviceUri);
+
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      try {
+        fake.simulateDisposed();
+
+        await client.gone.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => fail('the re-dial was refused and nothing said so'),
+        );
+      } finally {
+        await sub.cancel();
+      }
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.vm_service')
+            .map((r) => '${r.message}'),
+        contains(contains('vm_service_reconnect_failed')),
+      );
+    });
+
     test('a closed socket that re-dials is a reconnect, not a death', () async {
       final services = <FakeVmService>[];
       final client = VmServiceClient(
@@ -1813,6 +1847,31 @@ void main() {
       final (client, _) = await connected(EventKind.kPauseExit);
 
       expect(await client.pausedReason(), contains('exited'));
+    });
+
+    test('an unreadable isolate is logged, not just answered null', () async {
+      final fake = FakeVmService(
+        isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+      )..getIsolateError = RPCError('getIsolate', 104, 'stream disconnected');
+      final client = VmServiceClient(connector: (_) async => fake);
+      await client.connect(Uri.parse('http://127.0.0.1:8181/'));
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      try {
+        expect(await client.pausedReason(), isNull);
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.vm_service')
+            .map((r) => '${r.message}'),
+        contains(contains('pause_state_unreadable')),
+      );
     });
   });
 
@@ -2519,6 +2578,43 @@ void main() {
           timeout: const Duration(milliseconds: 200),
         ),
         StartPausedState.unknown,
+      );
+    });
+
+    test('failed poll reads are logged, not swallowed', () async {
+      final fake =
+          FakeVmService(
+              isolates: [IsolateRef(id: 'iso-1', name: 'main', number: '1')],
+            )
+            ..pauseKind = EventKind.kPauseStart
+            ..getIsolateError = RPCError(
+              'getIsolate',
+              104,
+              'stream disconnected',
+            );
+      final client = VmServiceClient(connector: (_) async => fake);
+      await client.connect(serviceUri);
+
+      final records = <LogRecord>[];
+      final rootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      try {
+        expect(
+          await client.waitUntilPausedAtStart(
+            timeout: const Duration(milliseconds: 200),
+          ),
+          StartPausedState.unknown,
+        );
+      } finally {
+        await sub.cancel();
+        Logger.root.level = rootLevel;
+      }
+      expect(
+        records
+            .where((r) => r.loggerName == 'dev_tool.vm_service')
+            .map((r) => '${r.message}'),
+        contains(contains('start_paused_poll_unreadable')),
       );
     });
   });

@@ -21,7 +21,7 @@ Output bundle structure:
 
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:cc_runner_compile.bzl", "compile_and_link_runner")
-load("//flutter/private:common.bzl", "compute_desktop_bundle_copies")
+load("//flutter/private:common.bzl", "compute_desktop_bundle_copies", "resolve_exec_dart_vm", "resolve_flutter_sdk_info")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
 
 # =============================================================================
@@ -86,38 +86,8 @@ def _flutter_windows_runner_lib_impl(ctx):
         executable = runner_binary,
     )]
 
-def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant_srcs = [], registrant_hdrs = [], runner_hdrs = [], plugin_srcs = [], plugin_hdrs = [], plugin_include_dirs = []):
-    """Compile the C++ Win32 runner binary.
-
-    Uses cc_common.compile() + cc_common.link() with Bazel's hermetic CC
-    toolchain.  Links against flutter_windows.dll via its import library.
-
-    The compilation needs two include paths:
-    - The engine header directory (for flutter_windows.h and the raw C headers)
-    - The C++ client wrapper include directory (for flutter/plugin_registry.h)
-
-    Args:
-        ctx: Rule context.
-        runner_srcs: List of C++ source Files for the runner.
-        engine_files: Engine library files from toolchain.
-        is_debug: Whether this is a debug build.
-        registrant_srcs: Generated registrant .cc files.
-        registrant_hdrs: Generated registrant .h files.
-        runner_hdrs: User-provided header files for the runner.
-        plugin_srcs: Windows plugin C++ sources (from
-            FlutterApplicationInfo.windows_plugin_libraries) compiled into the runner.
-        plugin_hdrs: Windows plugin C++ headers; their parent dirs are
-            added to the include path.
-        plugin_include_dirs: Plugin-relative include directories,
-            resolved against each plugin's package root via additional
-            `-I` flags.
-
-    Returns:
-        The compiled runner executable File.
-    """
-    header_dir = find_engine_header_dir(engine_files, "flutter_windows.h")
-
-    # Find the engine DLL, import library, headers, and C++ wrapper sources.
+def _split_windows_engine_files(engine_files):
+    """Separates the engine DLL, import lib, headers and wrapper sources."""
     engine_dll = None
     engine_import_lib = None
     header_files = []
@@ -154,21 +124,23 @@ def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant
     if not engine_import_lib:
         fail("flutter_windows.dll.lib not found in engine files — the Flutter " +
              "engine archive may have changed its layout.")
+    return struct(
+        engine_dll = engine_dll,
+        engine_import_lib = engine_import_lib,
+        header_files = header_files,
+        wrapper_srcs = wrapper_srcs,
+        wrapper_include_dir = wrapper_include_dir,
+        wrapper_root_dir = wrapper_root_dir,
+    )
 
-    # UNICODE/_UNICODE: use wide-char Win32 APIs (CreateWindowW, RegGetValueW, etc.)
-    # Required by the flutter create runner which uses wchar_t throughout.
-    defines = ["UNICODE", "_UNICODE"]
-    if not is_debug:
-        defines.append("NDEBUG")
+def _windows_runner_include_flags(runner_hdrs, registrant_hdrs, plugin_hdrs, plugin_srcs, plugin_include_dirs, wrapper_include_dir, wrapper_root_dir):
+    """Builds `-I` flags for the wrapper, registrant, runner and plugin headers.
 
-    additional_srcs = list(wrapper_srcs) + list(registrant_srcs)
-
-    # The wrapper needs two include paths:
-    # - wrapper_include_dir: for <flutter/plugin_registry.h> (angle-bracket includes)
-    # - wrapper_root_dir: for "include/flutter/..." and "binary_messenger_impl.h"
-    #   (quoted includes within wrapper .cc files)
-    # The engine header dir is already passed via engine_include_dir for
-    # "flutter_windows.h".
+    The wrapper needs two include paths:
+    - wrapper_include_dir: for <flutter/plugin_registry.h> (angle-bracket includes)
+    - wrapper_root_dir: for "include/flutter/..." and "binary_messenger_impl.h"
+      (quoted includes within wrapper .cc files)
+    """
     extra_compile_flags = []
     if wrapper_include_dir:
         extra_compile_flags.append("-I" + wrapper_include_dir)
@@ -176,7 +148,6 @@ def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant
         extra_compile_flags.append("-I" + wrapper_root_dir)
 
     # Include registrant, runner, and plugin header directories.
-    all_header_files = header_files + registrant_hdrs + runner_hdrs + plugin_hdrs
     seen_dirs = {}
     for h in registrant_hdrs + runner_hdrs + plugin_hdrs:
         d = h.path[:h.path.rfind("/")]
@@ -210,6 +181,60 @@ def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant
             if full not in seen_dirs:
                 seen_dirs[full] = True
                 extra_compile_flags.append("-I" + full)
+    return extra_compile_flags
+
+def _compile_windows_runner(ctx, runner_srcs, engine_files, is_debug, registrant_srcs = [], registrant_hdrs = [], runner_hdrs = [], plugin_srcs = [], plugin_hdrs = [], plugin_include_dirs = []):
+    """Compile the C++ Win32 runner binary.
+
+    Uses cc_common.compile() + cc_common.link() with Bazel's hermetic CC
+    toolchain.  Links against flutter_windows.dll via its import library.
+
+    The compilation needs two include paths:
+    - The engine header directory (for flutter_windows.h and the raw C headers)
+    - The C++ client wrapper include directory (for flutter/plugin_registry.h)
+
+    Args:
+        ctx: Rule context.
+        runner_srcs: List of C++ source Files for the runner.
+        engine_files: Engine library files from toolchain.
+        is_debug: Whether this is a debug build.
+        registrant_srcs: Generated registrant .cc files.
+        registrant_hdrs: Generated registrant .h files.
+        runner_hdrs: User-provided header files for the runner.
+        plugin_srcs: Windows plugin C++ sources (from
+            FlutterApplicationInfo.windows_plugin_libraries) compiled into the runner.
+        plugin_hdrs: Windows plugin C++ headers; their parent dirs are
+            added to the include path.
+        plugin_include_dirs: Plugin-relative include directories,
+            resolved against each plugin's package root via additional
+            `-I` flags.
+
+    Returns:
+        The compiled runner executable File.
+    """
+    header_dir = find_engine_header_dir(engine_files, "flutter_windows.h")
+
+    # Find the engine DLL, import library, headers, and C++ wrapper sources.
+    engine = _split_windows_engine_files(engine_files)
+    engine_dll = engine.engine_dll
+    engine_import_lib = engine.engine_import_lib
+    header_files = engine.header_files
+    wrapper_srcs = engine.wrapper_srcs
+
+    # UNICODE/_UNICODE: use wide-char Win32 APIs (CreateWindowW, RegGetValueW, etc.)
+    # Required by the flutter create runner which uses wchar_t throughout.
+    defines = ["UNICODE", "_UNICODE"]
+    if not is_debug:
+        defines.append("NDEBUG")
+
+    additional_srcs = list(wrapper_srcs) + list(registrant_srcs)
+
+    # The engine header dir is already passed via engine_include_dir for
+    # "flutter_windows.h".
+    extra_compile_flags = _windows_runner_include_flags(runner_hdrs, registrant_hdrs, plugin_hdrs, plugin_srcs, plugin_include_dirs, engine.wrapper_include_dir, engine.wrapper_root_dir)
+
+    # Include registrant, runner, and plugin header directories.
+    all_header_files = header_files + registrant_hdrs + runner_hdrs + plugin_hdrs
 
     return compile_and_link_runner(
         ctx = ctx,
@@ -284,8 +309,7 @@ def _flutter_windows_bundle_impl(ctx):
     native_libs.extend(app_info.bundled_code_assets.to_list())
     is_debug = app_info.is_debug
 
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    flutter_sdk_info = resolve_flutter_sdk_info(ctx)
 
     app_name = ctx.attr.app_name or ctx.label.name
 
@@ -356,18 +380,19 @@ def _flutter_windows_bundle_impl(ctx):
     config_file = ctx.actions.declare_file(ctx.label.name + "_bundle_config.json")
     ctx.actions.write(config_file, json.encode(config))
 
-    inputs = [ctx.file._bundle_tool, config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
+    inputs = [config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_runtime_files
 
+    dart_exe, dart_vm_files = resolve_exec_dart_vm(ctx, flutter_sdk_info)
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = dart_exe,
         arguments = [
-            ctx.file._bundle_tool.path,
+            ctx.executable._bundle_tool.path,
             "--config",
             config_file.path,
         ],
         inputs = depset(
-            direct = inputs,
-            transitive = [flutter_sdk_info.tool_files],
+            direct = inputs + [ctx.executable._bundle_tool],
+            transitive = [dart_vm_files],
         ),
         outputs = [bundle_dir],
         mnemonic = "FlutterWindowsBundle",
@@ -392,12 +417,15 @@ flutter_windows_bundle_rule = rule(
             doc = "Name of the application binary and bundle directory (defaults to target name).",
         ),
         "_bundle_tool": attr.label(
-            default = Label("//flutter/private/tools:bundle_app.dart"),
-            allow_single_file = True,
+            default = Label("//flutter/private/tools:bundle_app"),
+            executable = True,
+            cfg = "exec",
         ),
     },
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:desktop_engine_toolchain_type", mandatory = False),
+        config_common.toolchain_type("@rules_dart//dart:exec_tools_toolchain_type", mandatory = False),
     ],
     doc = "Assembles a Windows application directory from a pre-compiled runner and flutter_application artifacts.",
 )

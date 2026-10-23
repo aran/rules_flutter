@@ -1,0 +1,2 @@
+// Fixture Gradle stub: a plain package directory the spoke generator
+// never reads, but the old whole-tree linker symlinked as a directory.

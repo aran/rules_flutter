@@ -1,0 +1,3 @@
+Fixture placeholder: a real SDK holds platform_strong.dill here; the smoke
+test only needs the directory to exist so the host repo BUILD globs match.
+Nothing in this workspace executes SDK bytes.

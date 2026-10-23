@@ -8,6 +8,7 @@ stats that can never change.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//flutter/private:common.bzl", "HOST_COMPATIBLE")
 load("//flutter/private:native_sources.bzl", "NativeSourcesInfo", "native_sources_aspect")
 
 def _collects_impl(ctx):
@@ -38,6 +39,7 @@ def native_sources_test_suite(name):
         # `helper.c` proves the walk reaches a dependency of the library, and
         # the absence of `generated.c` that a build output is left out.
         expected = ["bridge.c", "bridge.h", "helper.c"],
+        target_compatible_with = HOST_COMPATIBLE,
     )
 
     native.test_suite(name = name, tests = [name + "_through_the_library_graph"])

@@ -22,6 +22,8 @@
 ///       --input <jar> --output <jar>
 import 'dart:io';
 
+import 'chmod.dart' as chmodlib;
+
 /// The entries of [entries] that are native libraries: shared objects under
 /// the jar's `lib/` directory, where `android_binary` takes them from.
 List<String> nativeLibraries(Iterable<String> entries) => [
@@ -75,9 +77,11 @@ Future<void> main(List<String> args) async {
   final zipper = File(options['--zipper']!).absolute.path;
   final strip = File(options['--strip']!).absolute.path;
   final input = File(options['--input']!).absolute.path;
-  final output = File(options['--output']!).absolute.path;
+  final outputFile = File(options['--output']!).absolute;
+  outputFile.parent.createSync(recursive: true);
+  final output = outputFile.path;
 
-  final scratch = Directory.systemTemp.createTempSync('strip_native_libs');
+  final scratch = Directory('$output.scratch')..createSync(recursive: true);
   try {
     final unpacked = Directory('${scratch.path}/jar')..createSync();
     // zipper takes `-d` relative to its working directory, absolute or not.
@@ -97,6 +101,17 @@ Future<void> main(List<String> args) async {
       final stripped = '${scratch.path}/stripped.so';
       await _run(strip, stripArguments(input: unstripped, output: stripped));
       File(stripped).renameSync(unstripped);
+    }
+
+    // Normalize file mode bits in the unpacked tree before repacking, so host
+    // stat.mode bits (including umask) never leak into the output jar. Only
+    // the executable bit of each entry is honoured (0755 vs 0644), matching
+    // xtool_pack.dart.
+    for (final entry in entries) {
+      final file = File('${unpacked.path}/$entry');
+      final mode = file.statSync().mode;
+      final normalized = (mode & 0x49) != 0 ? 0x1ed : 0x1a4;
+      chmodlib.chmodFile(file.path, normalized);
     }
 
     final argfile = File('${scratch.path}/entries')

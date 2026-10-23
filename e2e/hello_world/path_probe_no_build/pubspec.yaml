@@ -1,0 +1,10 @@
+name: path_probe_no_build
+description: Fixture path package with an android/ directory but no user BUILD file in it.
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+flutter:
+  shaders:
+    - shaders/ripple.frag

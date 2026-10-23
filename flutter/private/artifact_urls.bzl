@@ -27,7 +27,7 @@ _GCS_BASE = "https://storage.googleapis.com/flutter_infra_release/flutter"
 
 _SOURCE_TARBALL_TEMPLATE = "https://github.com/flutter/flutter/archive/refs/tags/{version}.tar.gz"
 
-def flutter_source_tarball_url(flutter_version):
+def flutter_source_tarball_url(flutter_version, source_url = ""):
     """Constructs the download URL for the Flutter framework source tarball.
 
     GitHub generates this archive from the release tag on demand. Its bytes
@@ -35,31 +35,95 @@ def flutter_source_tarball_url(flutter_version):
     fetch is checksum-pinned against `source_sha256` in versions.bzl and a
     mismatch is a loud, intended failure rather than something to work around.
 
+    A custom `flutter.version` registration may host its source elsewhere
+    (an enterprise rebuild, a mirrored tarball): passing its `source_url`
+    uses that URL instead. Plain mirrors of the stock tarball stay Bazel's
+    job (`--downloader_config`); this override names a different source for
+    a different version, it is not a mirror list.
+
     Args:
         flutter_version: Flutter release tag (e.g. "3.47.7").
+        source_url: Optional replacement URL from a `flutter.version` tag.
+            Empty means the default GitHub tag tarball.
 
     Returns:
-        The full HTTPS URL of the source tarball. Extracting it yields a
-        single `flutter-{version}/` directory.
+        The full HTTPS URL of the source tarball. Extracting the default
+        yields a single `flutter-{version}/` directory.
     """
+    if source_url:
+        return source_url
     return _SOURCE_TARBALL_TEMPLATE.format(version = flutter_version)
 
-def engine_artifact_url(engine_revision, artifact_path):
-    """Constructs the full GCS download URL for a Flutter engine artifact.
+def source_strip_prefix(flutter_version, source_url = ""):
+    """Returns the top-level directory a source tarball extracts to.
+
+    The stock GitHub tag tarball extracts to `flutter-{version}/`. A custom
+    `source_url` that mirrors a stock tarball
+    (`.../archive/refs/tags/<tag>.tar.gz`) extracts to `flutter-<tag>/`
+    instead, whatever version it is registered under; any other custom source
+    is expected to keep the stock layout.
+
+    Args:
+        flutter_version: Flutter release tag (e.g. "3.47.7").
+        source_url: Optional replacement URL from a `flutter.version` tag.
+
+    Returns:
+        The strip prefix (with trailing slash) for `download_and_extract`.
+    """
+    if "/refs/tags/" in source_url:
+        tag = source_url.split("/refs/tags/")[-1].split(".tar.gz")[0]
+        if tag:
+            return "flutter-{}/".format(tag)
+    return "flutter-{}/".format(flutter_version)
+
+def engine_artifact_url(engine_revision, artifact_path, base_url = ""):
+    """Constructs the full download URL for a Flutter engine artifact.
+
+    A custom `flutter.version` registration may serve its engines from
+    elsewhere (an enterprise build): passing its `engine_base_url` hosts the
+    revision directory under that base instead of the default GCS bucket.
+    Plain mirrors stay Bazel's job (`--downloader_config`); this override
+    names a different origin for a different build, it is not a mirror list.
 
     Args:
         engine_revision: The engine commit hash (40-char hex string).
         artifact_path: Path relative to the engine revision directory
             (e.g. "flutter_patched_sdk.zip", "darwin-x64/artifacts.zip").
+        base_url: Optional replacement base from a `flutter.version` tag.
+            Empty means the default GCS base.
 
     Returns:
-        The full HTTPS URL to download the artifact.
+        The full URL to download the artifact.
     """
+    base = base_url if base_url else _GCS_BASE
     return "{base}/{revision}/{path}".format(
-        base = _GCS_BASE,
+        base = base,
         revision = engine_revision,
         path = artifact_path,
     )
+
+def require_sha256(sha256, url):
+    """Returns `sha256` unchanged, or fails if it is empty.
+
+    Repository rules call this on every download so that an empty checksum
+    cannot reach `download`, where Bazel would accept any bytes. The callers
+    in repositories.bzl read their values through `flutter_artifact_sha256()`
+    or `flutter_source_sha256()`, which already refuse a missing entry; this
+    guards the rule itself against a caller that passes nothing.
+
+    Args:
+        sha256: The expected SHA-256 hex digest.
+        url: The URL the digest is for, named in the failure message.
+
+    Returns:
+        `sha256`.
+    """
+    if not sha256:
+        fail((
+            "No sha256 given for {url}, so the download cannot be verified. " +
+            "Pass the recorded checksum from flutter/private/versions.bzl."
+        ).format(url = url))
+    return sha256
 
 def dart_sdk_artifact_path(host_platform):
     """Returns the artifact path for the Flutter-bundled Dart SDK.

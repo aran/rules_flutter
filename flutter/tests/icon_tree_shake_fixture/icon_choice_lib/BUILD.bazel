@@ -1,0 +1,10 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+flutter_library(
+    name = "icon_choice_lib",
+    package_name = "icon_choice_lib",
+    srcs = ["lib/icon_choice.dart"],
+    deps = ["//flutter/tests/icon_tree_shake_fixture:flutter_stub"],
+)

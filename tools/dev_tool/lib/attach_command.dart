@@ -18,12 +18,14 @@ import 'device.dart';
 import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
+import 'machine_protocol.dart';
 import 'native_pipeline_assembler.dart';
 import 'reload_pipeline.dart';
 import 'run_command.dart';
 import 'run_plan.dart';
 import 'session.dart';
 import 'session_host.dart';
+import 'teardown.dart';
 import 'toolchain_info.dart';
 import 'vm_service_client.dart';
 import 'vm_service_logs.dart';
@@ -126,12 +128,6 @@ class AttachCommand {
     // its loop ends only on a shutdown request, so a signal is the usual way
     // it is stopped. See SessionHost.listenForShutdownSignals.
     host.listenForShutdownSignals();
-    final sessions = host.sessions;
-    final protocol = host.protocol;
-    final commandRunner = host.commandRunner;
-    final teardown = host.teardown;
-
-    final logForwarders = <VmServiceLogForwarder>[];
 
     // The same pipeline `run` assembles. Handed to the handlers before any of
     // it exists, because a client can send a command the moment the protocol
@@ -147,6 +143,8 @@ class AttachCommand {
     host.registerAgentCommands();
     host.registerBuildInfo();
 
+    final logForwarders = <VmServiceLogForwarder>[];
+
     SourceWatcher? sourceWatcher;
     // Everything from resolving the workspace to the end of the session is
     // inside this `try`, so a shutdown that lands while bazel is still
@@ -157,270 +155,45 @@ class AttachCommand {
       // (workingDirectory) and for the interactive session below.
       final workspace = await host.bazel.findWorkspaceRoot();
 
-      // Watching starts here, before anything connects and before `app.started`
-      // is emitted, for the same reason it does in `run`: a watcher created
-      // once the session loop is already going misses every edit made while the
-      // run was still wiring itself up, silently. `await start()` returns when
-      // the watcher is actually live.
-      //
-      // `accepts` consults the pipeline per event, exactly as run's does.
-      // Without it the default is `isDartSource` alone, so the asset tracking
-      // the shared pipeline provides would only ever fire on an explicit
-      // `app.hotReload` — never on someone editing a PNG.
-      //
-      // Gated exactly as `run` gates its own, through the one helper, and for
-      // the reason recorded there: in machine mode a client is driving the
-      // reloads, and a watcher underneath reloads a second time for the same
-      // edit.
       if (RunPlan.watchEnabledFor(_results, isMachine: isMachine)) {
-        sourceWatcher = SourceWatcher(
-          root: workspace,
-          accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
-        );
-        await sourceWatcher.start();
-        // A dead watcher does not end the run — an explicit `app.hotReload`
-        // still works — but it silently ends `--watch`, so it has to be said.
-        // package:watcher closes itself permanently on a post-ready end or any
-        // error.
-        unawaited(
-          sourceWatcher.failed.then((failure) {
-            logger.severe({
-              'message': 'watcher_failed',
-              'text':
-                  '${failure.reason}. Edits on disk will no longer trigger a '
-                  'reload; use app.hotReload explicitly, or restart the run to '
-                  'resume watching.',
-              'error': failure.error?.toString() ?? '',
-            });
-          }),
+        sourceWatcher = await startAttachWatcher(
+          workspace,
+          pipeline,
+          logger,
         );
       }
 
-      protocol.startListening();
+      host.protocol.startListening();
 
       // Connect to each running app.
       for (var i = 0; i < debugUrls.length; i++) {
-        final uri = Uri.parse(debugUrls[i]);
-        final appId = 'attach_$i';
-        final deviceName = 'attached:${uri.host}:${uri.port}';
-
-        // Attach always builds a frontend server and connects a VM service, so
-        // a restart is what this mode is for. No `mode`: this app was started
-        // by someone else, so its build mode is its own fact rather than this
-        // run's, and a guess here is a wrong value a client cannot detect.
-        protocol.appStart(
-          appId,
-          deviceName,
-          supportsRestart: true,
-          directory: workspace,
-          launchMode: 'attach',
-        );
-        logger.info({
-          'message': 'connecting',
-          'text': 'Connecting to $uri...',
-          'uri': uri.toString(),
-        });
-
-        final vmClient = VmServiceClient();
-        try {
-          await vmClient.connect(uri);
-          // Registered on connect, not once the session is in `sessions`: this
-          // socket is the one thing attach owns that outlives everything else,
-          // because the app itself is not ours to stop.
-          await teardown.add(() async {
-            protocol.appStop(appId);
-            // Retired rather than disconnected, because this is the run ending:
-            // a plain close leaves the client dialable, and an RPC in flight —
-            // the first-frame poll — re-dials on its way back and leaves a
-            // socket that keeps this process alive after the shutdown was
-            // answered. See [VmServiceClient.retire].
-            await vmClient.retire();
-          });
-          logger.info({
-            'message': 'vm_service_connected',
-            'text': 'Connected to VM service at $uri.',
-            'uri': uri.toString(),
-          });
-        } catch (e) {
-          throw DevToolException('Could not connect to $uri: $e');
-        }
-
-        protocol.appDebugPort(
-          appId,
-          uri.replace(
-            scheme: uri.scheme == 'https' ? 'wss' : 'ws',
-            path: '${uri.path}ws',
+        await attachApp(
+          host,
+          pipeline,
+          debugUrls[i],
+          inputs: (
+            index: i,
+            multiApp: debugUrls.length > 1,
+            workspace: workspace,
+            logForwarders: logForwarders,
+            logger: logger,
           ),
-          uri,
-        );
-        protocol.appStarted(appId);
-        host.announceSession(appId);
-
-        final appInstance = _AttachedAppInstance(uri, vmClient.gone);
-        // Said once, here, because this is the only place it is news. A `run`
-        // that ends this way has the process exit to explain itself; an attach
-        // has nothing but the connection, so an exit with no explanation is
-        // indistinguishable from the tool giving up on its own.
-        unawaited(
-          vmClient.gone.then(
-            (_) => logger.info({
-              'message': 'attached_app_gone',
-              'text':
-                  'The app at $uri is gone: its VM service closed and a '
-                  're-dial did not come back. Ending the attach session.',
-              'uri': uri.toString(),
-            }),
-          ),
-        );
-
-        // The dev tool didn't spawn this app, so there are no pipes to read and
-        // no logcat to tail — the VM service is the only log source. That also
-        // makes it safe: on a device the tool launched itself, subscribing here
-        // would double every line already coming from the process.
-        final service = vmClient.service;
-        if (service != null) {
-          try {
-            logForwarders.add(
-              await forwardVmServiceLogs(service, appInstance.logs),
-            );
-          } catch (e) {
-            logger.warning({
-              'message': 'log_forwarding_failed',
-              'text':
-                  'Could not forward app output from $uri ($e). The session '
-                  'continues; app logs will not appear.',
-              'uri': uri.toString(),
-              'error': '$e',
-            });
-          }
-        }
-        appInstance.logs.lines.listen(
-          appLogSinkFor(
-            protocol: protocol,
-            appId: appId,
-            deviceName: deviceName,
-            multiDevice: debugUrls.length > 1,
-          ),
-        );
-
-        final session = DeviceSession(
-          device: _AttachedPseudoDevice(deviceName),
-          appInstance: appInstance,
-          vmClient: vmClient,
-          appId: appId,
-        );
-        sessions.add(session);
-
-        // Attach has no launch to wait on, but it still has this one: the app
-        // it attached to may be mid-start. Usually already settled by the
-        // latched `didSendFirstFrameRasterizedEvent` on the first ask, since an
-        // app that has been running a while has long since painted.
-        unawaited(session.waitUntilDrivable(protocol));
-        // DevTools is launched later, by the session loop; killing it belongs
-        // to this disposer, as it does in `run`.
-        await teardown.add(() async {
-          // Both things this session started that outlive a command: the
-          // DevTools process, and the first-frame wait, whose timer would
-          // otherwise hold the tool up after `daemon.shutdown` was answered.
-          session.stopWaitingForFirstFrame();
-          session.devToolsProcess?.kill();
-        });
-      }
-
-      // Resolved before assembly so the interactive session below can serve
-      // DevTools from the toolchain's Dart, not whatever is on PATH.
-      final toolchain = await resolveToolchainPaths(
-        target,
-        workspace: workspace,
-        runBazel: host.bazel.run,
-        // The configuration the pipeline below builds in.
-        buildFlags: ['-c', 'dbg', ...userBuildArgs],
-      );
-
-      // Assemble the reload pipeline exactly as `run` does on native, with no
-      // launch context: attach did not start these processes, so there is
-      // nothing of ours to relaunch and no transitioned configuration to
-      // reproduce.
-      //
-      // The pseudo-device carries this, the same way `run` passes the device it
-      // launched on: `Device.createCompilerConfig`'s base implementation
-      // produces the native config attach needs, and `createReloadStrategy` the
-      // VmServiceReloadStrategy. Going through here is what gives attach the
-      // orchestrator's per-app RPC budget and commit/rollback,
-      // `refreshGenerated` for codegen apps, and asset tracking.
-      await NativePipelineAssembler(
-        workspace: workspace,
-        toolchain: toolchain,
-        target: target,
-        configDevice: sessions.first.device,
-        userBuildArgs: userBuildArgs,
-        host: host,
-        pipeline: pipeline,
-        logger: logger,
-        builtBefore: builtBefore,
-      ).assemble();
-
-      // The assembler has two early returns that settle nothing — a device with
-      // no compiler config, and no app to apply a reload to. Neither is
-      // reachable from attach today (the base `createCompilerConfig` is never
-      // null, and a failed connect throws before we get here), but `run`
-      // carries the same backstop for the same reason, and without it an
-      // unreachable path becoming reachable costs every `app.hotReload` a
-      // 90-second wait before it answers "still starting up".
-      if (!pipeline.ready.isSettled) {
-        pipeline.ready.signalUnavailable(
-          'Hot reload is not available for this session.',
         );
       }
 
-      // After assembly, for the reason `run` starts it there: a driver reads
-      // this channel appearing as "the run is ready", and an edit that lands
-      // before the pipeline seeds its applied state is an edit the first reload
-      // cannot see.
-      if (httpChannelEnabled) await host.startHttpChannel();
-
-      // A shutdown that arrived while the pipeline was being assembled is not
-      // a failure to report: the session was asked to end before it could
-      // exist, and its teardown has already run. Without this the run answers
-      // `daemon.shutdown` with a success message and then exits 1, because the
-      // torn-down VM service made the assembly it interrupted look broken.
-      if (teardown.hasRun) return;
-      // The app went away while the pipeline was being assembled. That is the
-      // same fact the session loop below ends on when it happens a moment
-      // later — and ends on with an exit status of 0, because an app this
-      // command did not launch going away is the session being over, not the
-      // command failing. Reporting it as a failure here would let the timing of
-      // a death the user cannot see decide the exit status.
-      //
-      // Nothing is said here. It was already said, by the `attached_app_gone`
-      // report hung off `vmClient.gone` above, which fires whenever this is
-      // true.
-      //
-      // The same client the assembler reads (see [NativePipelineAssembler],
-      // which settles the gate off exactly this): the death that explains an
-      // interrupted assembly is the death of the app it was reading.
-      if (sessions.first.vmClient?.isGone ?? false) return;
-      if (!pipeline.hasReloadPath) {
-        throw DevToolException(
-          'Cannot start interactive session without a reload pipeline.',
-        );
-      }
-      await runInteractiveSession(
-        sessions: sessions,
-        frontendServer: pipeline.frontendServer,
-        protocol: protocol,
-        watcher: sourceWatcher,
-        commandRunner: commandRunner,
-        devToolsEnabled: devToolsEnabled,
-        dartExecutable: toolchain.dart,
-        // Attach exists to connect a VM service and stand a compiler up.
-        hotReloadUnavailable: null,
-        // Per event, not captured — see the same call in `run_command.dart`:
-        // attach's pipeline can assemble late for exactly the same reason.
-        resolver: () => pipeline.resolver,
-        awaitingAssembly: () => pipeline.awaitingAssembly,
-        isAsset: pipeline.watchesAsset,
-        shutdownSignal: host.shutdownRequested.future,
+      await assembleAndServeAttach(
+        host,
+        pipeline,
+        inputs: (
+          target: target,
+          userBuildArgs: userBuildArgs,
+          workspace: workspace,
+          builtBefore: builtBefore,
+          sourceWatcher: sourceWatcher,
+          devToolsEnabled: devToolsEnabled,
+          httpChannelEnabled: httpChannelEnabled,
+          logger: logger,
+        ),
       );
     } on BazelCancelled {
       // Only a shutdown stops a bazel command (see [Bazel.close]), and here
@@ -445,6 +218,368 @@ class AttachCommand {
       await host.closeTransports();
     }
   }
+}
+
+/// Start the source watcher for an attach run, or null when disabled.
+///
+/// Watching starts before anything connects and before `app.started`
+/// is emitted, for the same reason it does in `run`: a watcher created
+/// once the session loop is already going misses every edit made while the
+/// run was still wiring itself up, silently.
+///
+/// `accepts` consults the pipeline per event, exactly as run's does.
+/// Without it the default is `isDartSource` alone, so the asset tracking
+/// the shared pipeline provides would only ever fire on an explicit
+/// `app.hotReload` — never on someone editing a PNG.
+///
+/// Gated exactly as `run` gates its own, through the one helper, and for
+/// the reason recorded there: in machine mode a client is driving the
+/// reloads, and a watcher underneath reloads a second time for the same
+/// edit.
+Future<SourceWatcher> startAttachWatcher(
+  String workspace,
+  ReloadPipeline pipeline,
+  Logger logger,
+) async {
+  final sourceWatcher = SourceWatcher(
+    root: workspace,
+    accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
+  );
+  await sourceWatcher.start();
+  // A dead watcher does not end the run — an explicit `app.hotReload`
+  // still works — but it silently ends `--watch`, so it has to be said.
+  // package:watcher closes itself permanently on a post-ready end or any
+  // error.
+  unawaited(
+    sourceWatcher.failed.then((failure) {
+      logger.severe({
+        'message': 'watcher_failed',
+        'text':
+            '${failure.reason}. Edits on disk will no longer trigger a '
+            'reload; use app.hotReload explicitly, or restart the run to '
+            'resume watching.',
+        'error': failure.error?.toString() ?? '',
+      });
+    }),
+  );
+  return sourceWatcher;
+}
+
+/// Which app [attachApp] connects and where its session lands.
+///
+/// One object for the per-app values the multi-attach loop threads one
+/// argument at a time: which URL of how many, and where the session and its
+/// logs go.
+typedef AttachAppInputs = ({
+  int index,
+  bool multiApp,
+  String workspace,
+  List<VmServiceLogForwarder> logForwarders,
+  Logger logger,
+});
+
+/// What [assembleAndServeAttach] resolves and serves with.
+///
+/// One object for the toolchain resolution and pipeline assembly the command
+/// does once after connecting: what to resolve, what was built when, and
+/// which optional surfaces to serve.
+typedef AttachServeInputs = ({
+  String target,
+  List<String> userBuildArgs,
+  String workspace,
+  DateTime builtBefore,
+  SourceWatcher? sourceWatcher,
+  bool devToolsEnabled,
+  bool httpChannelEnabled,
+  Logger logger,
+});
+
+/// Connect one running app and register its session on [host].
+///
+/// Attach always builds a frontend server and connects a VM service, so
+/// a restart is what this mode is for. No `mode`: this app was started
+/// by someone else, so its build mode is its own fact rather than this
+/// run's, and a guess here is a wrong value a client cannot detect.
+Future<void> attachApp(
+  SessionHost host,
+  ReloadPipeline pipeline,
+  String debugUrl, {
+  required AttachAppInputs inputs,
+}) async {
+  final protocol = host.protocol;
+  final teardown = host.teardown;
+  final logger = inputs.logger;
+  final uri = Uri.parse(debugUrl);
+  final appId = 'attach_${inputs.index}';
+  final deviceName = 'attached:${uri.host}:${uri.port}';
+
+  protocol.appStart(
+    appId,
+    deviceName,
+    supportsRestart: true,
+    directory: inputs.workspace,
+    launchMode: 'attach',
+  );
+  inputs.logger.info({
+    'message': 'connecting',
+    'text': 'Connecting to $uri...',
+    'uri': uri.toString(),
+  });
+
+  final vmClient = VmServiceClient();
+  await connectAttachedVm(vmClient, uri, appId, teardown, protocol, logger);
+
+  protocol.appDebugPort(
+    appId,
+    uri.replace(
+      scheme: uri.scheme == 'https' ? 'wss' : 'ws',
+      path: '${uri.path}ws',
+    ),
+    uri,
+  );
+  protocol.appStarted(appId);
+  host.announceSession(appId);
+
+  final appInstance = _AttachedAppInstance(uri, vmClient.gone);
+  // Said once, here, because this is the only place it is news. A `run`
+  // that ends this way has the process exit to explain itself; an attach
+  // has nothing but the connection, so an exit with no explanation is
+  // indistinguishable from the tool giving up on its own.
+  unawaited(
+    vmClient.gone.then(
+      (_) => logger.info({
+        'message': 'attached_app_gone',
+        'text':
+            'The app at $uri is gone: its VM service closed and a '
+            're-dial did not come back. Ending the attach session.',
+        'uri': uri.toString(),
+      }),
+    ),
+  );
+
+  await forwardAttachedLogs(
+    vmClient,
+    appInstance,
+    uri,
+    logForwarders: inputs.logForwarders,
+    logger: logger,
+  );
+  appInstance.logs.lines.listen(
+    appLogSinkFor(
+      protocol: protocol,
+      appId: appId,
+      deviceName: deviceName,
+      multiDevice: inputs.multiApp,
+    ),
+  );
+
+  final session = DeviceSession(
+    device: _AttachedPseudoDevice(deviceName),
+    appInstance: appInstance,
+    vmClient: vmClient,
+    appId: appId,
+  );
+  host.sessions.add(session);
+
+  // Attach has no launch to wait on, but it still has this one: the app
+  // it attached to may be mid-start. Usually already settled by the
+  // latched `didSendFirstFrameRasterizedEvent` on the first ask, since an
+  // app that has been running a while has long since painted.
+  unawaited(session.waitUntilDrivable(protocol));
+  // DevTools is launched later, by the session loop; killing it belongs
+  // to this disposer, as it does in `run`.
+  await teardown.add(() async {
+    // Both things this session started that outlive a command: the
+    // DevTools process, and the first-frame wait, whose timer would
+    // otherwise hold the tool up after `daemon.shutdown` was answered.
+    session.stopWaitingForFirstFrame();
+    session.devToolsProcess?.kill();
+  });
+}
+
+/// Connect [vmClient] to [uri] and register its teardown.
+///
+/// Registered on connect, not once the session is in `sessions`: this
+/// socket is the one thing attach owns that outlives everything else,
+/// because the app itself is not ours to stop.
+Future<void> connectAttachedVm(
+  VmServiceClient vmClient,
+  Uri uri,
+  String appId,
+  Teardown teardown,
+  MachineProtocol protocol,
+  Logger logger,
+) async {
+  try {
+    await vmClient.connect(uri);
+    await teardown.add(() async {
+      protocol.appStop(appId);
+      // Retired rather than disconnected, because this is the run ending:
+      // a plain close leaves the client dialable, and an RPC in flight —
+      // the first-frame poll — re-dials on its way back and leaves a
+      // socket that keeps this process alive after the shutdown was
+      // answered. See [VmServiceClient.retire].
+      await vmClient.retire();
+    });
+    logger.info({
+      'message': 'vm_service_connected',
+      'text': 'Connected to VM service at $uri.',
+      'uri': uri.toString(),
+    });
+  } catch (e) {
+    throw DevToolException('Could not connect to $uri: $e');
+  }
+}
+
+/// Subscribe the VM service's log streams for an attached app.
+///
+/// The dev tool didn't spawn this app, so there are no pipes to read and
+/// no logcat to tail — the VM service is the only log source. That also
+/// makes it safe: on a device the tool launched itself, subscribing here
+/// would double every line already coming from the process.
+Future<void> forwardAttachedLogs(
+  VmServiceClient vmClient,
+  _AttachedAppInstance appInstance,
+  Uri uri, {
+  required List<VmServiceLogForwarder> logForwarders,
+  required Logger logger,
+}) async {
+  final service = vmClient.service;
+  if (service == null) return;
+  try {
+    logForwarders.add(
+      await forwardVmServiceLogs(service, appInstance.logs),
+    );
+  } catch (e) {
+    logger.warning({
+      'message': 'log_forwarding_failed',
+      'text':
+          'Could not forward app output from $uri ($e). The session '
+          'continues; app logs will not appear.',
+      'uri': uri.toString(),
+      'error': '$e',
+    });
+  }
+}
+
+/// Resolve the toolchain, assemble the reload pipeline and serve.
+///
+/// Resolved before assembly so the interactive session below can serve
+/// DevTools from the toolchain's Dart, not whatever is on PATH.
+///
+/// Assembled exactly as `run` does on native, with no launch context:
+/// attach did not start these processes, so there is nothing of ours to
+/// relaunch and no transitioned configuration to reproduce.
+///
+/// The pseudo-device carries this, the same way `run` passes the device it
+/// launched on: `Device.createCompilerConfig`'s base implementation
+/// produces the native config attach needs, and `createReloadStrategy` the
+/// VmServiceReloadStrategy. Going through here is what gives attach the
+/// orchestrator's per-app RPC budget and commit/rollback,
+/// `refreshGenerated` for codegen apps, and asset tracking.
+Future<void> assembleAndServeAttach(
+  SessionHost host,
+  ReloadPipeline pipeline, {
+  required AttachServeInputs inputs,
+}) async {
+  final sessions = host.sessions;
+  final protocol = host.protocol;
+  final teardown = host.teardown;
+
+  final toolchain = await resolveToolchainPaths(
+    inputs.target,
+    workspace: inputs.workspace,
+    runBazel: host.bazel.run,
+    // The configuration the pipeline below builds in.
+    buildFlags: ['-c', 'dbg', ...inputs.userBuildArgs],
+  );
+
+  await NativePipelineAssembler(
+    workspace: inputs.workspace,
+    toolchain: toolchain,
+    target: inputs.target,
+    configDevice: sessions.first.device,
+    userBuildArgs: inputs.userBuildArgs,
+    host: host,
+    pipeline: pipeline,
+    logger: inputs.logger,
+    builtBefore: inputs.builtBefore,
+  ).assemble();
+
+  // The assembler has two early returns that settle nothing — a device with
+  // no compiler config, and no app to apply a reload to. Neither is
+  // reachable from attach today (the base `createCompilerConfig` is never
+  // null, and a failed connect throws before we get here), but `run`
+  // carries the same backstop for the same reason, and without it an
+  // unreachable path becoming reachable costs every `app.hotReload` a
+  // 90-second wait before it answers "still starting up".
+  if (!pipeline.ready.isSettled) {
+    pipeline.ready.signalUnavailable(
+      'Hot reload is not available for this session.',
+    );
+  }
+
+  // After assembly, for the reason `run` starts it there: a driver reads
+  // this channel appearing as "the run is ready", and an edit that lands
+  // before the pipeline seeds its applied state is an edit the first reload
+  // cannot see.
+  if (inputs.httpChannelEnabled) await host.startHttpChannel();
+
+  // A shutdown that arrived while the pipeline was being assembled is not
+  // a failure to report: the session was asked to end before it could
+  // exist, and its teardown has already run. Without this the run answers
+  // `daemon.shutdown` with a success message and then exits 1, because the
+  // torn-down VM service made the assembly it interrupted look broken.
+  if (teardown.hasRun) return;
+  // The app went away while the pipeline was being assembled. That is the
+  // same fact the session loop below ends on when it happens a moment
+  // later — and ends on with an exit status of 0, because an app this
+  // command did not launch going away is the session being over, not the
+  // command failing. Reporting it as a failure here would let the timing of
+  // a death the user cannot see decide the exit status.
+  //
+  // Nothing is said here. It was already said, by the `attached_app_gone`
+  // report hung off `vmClient.gone` above, which fires whenever this is
+  // true.
+  //
+  // The same client the assembler reads (see [NativePipelineAssembler],
+  // which settles the gate off exactly this): the death that explains an
+  // interrupted assembly is the death of the app it was reading.
+  if (sessions.first.vmClient?.isGone ?? false) return;
+  if (!pipeline.hasReloadPath) {
+    throw DevToolException(
+      'Cannot start interactive session without a reload pipeline.',
+    );
+  }
+  await runInteractiveSession(
+    targets: (
+      sessions: sessions,
+      frontendServer: pipeline.frontendServer,
+      protocol: protocol,
+      commandRunner: host.commandRunner,
+    ),
+    options: (
+      devToolsEnabled: inputs.devToolsEnabled,
+      dartExecutable: toolchain.dart,
+      // Attach exists to connect a VM service and stand a compiler up.
+      hotReloadUnavailable: null,
+    ),
+    watch: (
+      watcher: inputs.sourceWatcher,
+      // Per event, not captured — see the same call in `run_command.dart`:
+      // attach's pipeline can assemble late for exactly the same reason.
+      resolver: () => pipeline.resolver,
+      awaitingAssembly: () => pipeline.awaitingAssembly,
+      isAsset: pipeline.watchesAsset,
+    ),
+    terminal: (
+      log: null,
+      keyboardReader: null,
+      setEchoMode: null,
+      setLineMode: null,
+      shutdownSignal: host.shutdownRequested.future,
+    ),
+  );
 }
 
 /// A pseudo-device for attach mode — doesn't launch or stop anything.

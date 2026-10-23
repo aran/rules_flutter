@@ -112,26 +112,15 @@ the module graph away from the registry one CI resolves, and forces
 `--lockfile_mode` off — then `bazel mod deps --lockfile_mode=update`, then put it
 back. Any host will do.
 
-The lock's pip `facts` are host-independent: rules_python
-2.3.2 records the union of all three files instead (facts `v2`), and a cold
-ubuntu-24.04 x86_64 VM and macOS arm64 now produce byte-identical locks — so
-`.bazelrc` no longer relaxes `--lockfile_mode` per host, and there is no splicing
-or Linux-only step left. Windows is unmeasured; see the comment in `.bazelrc`.
+There is deliberately no Python in the module graph: `//tools/ios_screenshot`
+builds `dart_binary` drivers that run their `pymobiledevice3` programs
+through a host `python3` (see the comment in `MODULE.bazel`), so no
+`rules_python` bump, pip `facts` section, or per-host lock splicing exists to
+maintain. If a future change reintroduces a Python toolchain, this section
+needs its refresh procedure back.
 
-**A rules_python bump is still the one to slow down for.** It carries the
-requirements files the facts are derived from, so the recording moves with it,
-and it can move the facts *schema* — 2.0.0 to 2.3.2 went `v1` to `v2`, which
-dropped the `index_urls` map and changed hashes from bare hex to `sha256:<hex>`.
-Refresh all three
-`tools/pip_lock_guard/rules_python_publish_requirements_{linux,darwin,windows}.txt`
-copies from the release's `tools/publish/`, and update
-`_expectedRulesPythonVersion` and `_expectedFactVersion` in
-`tools/pip_lock_guard/pip_facts_test.dart`. That test re-derives the facts from
-those copies and fails on any drift, on every host, so it is what tells you
-whether the bump landed correctly.
-
-**Verification**: `bazel test //...` in the root passes, `pip_facts_test`
-included. To check the lock the way CI does, move `.bazelrc.user` aside and run
+**Verification**: `bazel test //...` in the root passes. To check the lock the
+way CI does, move `.bazelrc.user` aside and run
 `bazel mod deps --lockfile_mode=error`.
 
 **Automation**: none.

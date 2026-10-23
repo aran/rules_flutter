@@ -1,0 +1,7 @@
+"""Nested fixture package under the sub app's directory.
+
+`//sub:sub_app` lists `:extra.txt` as one of its own assets: a nested BUILD
+file changes nothing, and the file is keyed `nested/extra.txt`.
+"""
+
+exports_files(["extra.txt"])

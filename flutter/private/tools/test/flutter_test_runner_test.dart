@@ -277,4 +277,51 @@ void main() {
       expect(runner.testCeiling('0'), const Duration(minutes: 5));
     });
   });
+
+  group('cleanupQuietly', () {
+    test('runs the action and swallows a filesystem race', () {
+      var ran = false;
+      runner.cleanupQuietly(() {
+        ran = true;
+        throw const FileSystemException('gone', '/tmp/flutter_test_x.dill');
+      });
+      expect(ran, isTrue);
+    });
+
+    test('lets a bug in the cleanup itself propagate', () {
+      expect(
+        () => runner.cleanupQuietly(() => throw StateError('bug')),
+        throwsStateError,
+      );
+    });
+
+    test('deletes a real temp file', () {
+      final tmpDir = Directory.systemTemp.createTempSync('cleanup_test_');
+      try {
+        final file = File('${tmpDir.path}/x.dill')..writeAsStringSync('dill');
+        runner.cleanupQuietly(file.deleteSync);
+        expect(file.existsSync(), isFalse);
+      } finally {
+        if (tmpDir.existsSync()) {
+          tmpDir.deleteSync(recursive: true);
+        }
+      }
+    });
+  });
+
+  group('teardownQuietly', () {
+    test('swallows a peer-gone I/O race and an already-closed race', () async {
+      await runner.teardownQuietly(() async {
+        throw const FileSystemException('connection reset');
+      });
+      await runner.teardownQuietly(() async => throw StateError('closed'));
+    });
+
+    test('lets an unexpected teardown error propagate', () async {
+      await expectLater(
+        runner.teardownQuietly(() async => throw ArgumentError('bug')),
+        throwsArgumentError,
+      );
+    });
+  });
 }

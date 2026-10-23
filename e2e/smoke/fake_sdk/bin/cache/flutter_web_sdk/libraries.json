@@ -1,0 +1,50 @@
+{
+  "dartdevc": {
+    "libraries": {
+      "ui": {
+        "uri": "dart:ui"
+      },
+      "ui_web": {
+        "uri": "dart:ui_web"
+      }
+    },
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dartdevc"
+      }
+    ]
+  },
+  "dart2js": {
+    "libraries": {
+      "ui": {
+        "uri": "dart:ui"
+      },
+      "ui_web": {
+        "uri": "dart:ui_web"
+      }
+    },
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dart2js"
+      }
+    ]
+  },
+  "wasm": {
+    "libraries": {
+      "ui": {
+        "uri": "dart:ui"
+      },
+      "ui_web": {
+        "uri": "dart:ui_web"
+      }
+    },
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "wasm"
+      }
+    ]
+  }
+}

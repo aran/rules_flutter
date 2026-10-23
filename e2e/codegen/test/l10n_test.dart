@@ -38,12 +38,23 @@ void main() {
     expect(es419.greeting('Ana'), '¡Hola, Ana!');
   });
 
-  test('supportedLocales carries the region variant', () {
-    expect(AppLocalizations.supportedLocales, contains(const Locale('en')));
-    expect(AppLocalizations.supportedLocales, contains(const Locale('es')));
-    expect(
-      AppLocalizations.supportedLocales,
-      contains(const Locale('es', '419')),
-    );
-  });
+  test(
+    'supportedLocales carries the region variant and excludes undeclared arbs',
+    () {
+      expect(AppLocalizations.supportedLocales, contains(const Locale('en')));
+      expect(AppLocalizations.supportedLocales, contains(const Locale('es')));
+      expect(
+        AppLocalizations.supportedLocales,
+        contains(const Locale('es', '419')),
+      );
+      expect(
+        AppLocalizations.supportedLocales,
+        isNot(contains(const Locale('en', 'US'))),
+      );
+      expect(
+        lookupAppLocalizations(const Locale('en', 'US')).greeting('Ana'),
+        'Hello, Ana!',
+      );
+    },
+  );
 }

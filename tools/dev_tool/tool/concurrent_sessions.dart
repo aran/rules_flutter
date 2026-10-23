@@ -90,7 +90,11 @@ const _fixtures = <String, _Fixture>{
 /// A file every Flutter app's compile reads, used to watch the forest churn.
 const _sdkProbe = 'lib/src/material/date_picker_theme.dart';
 
-Future<void> main(List<String> args) async {
+/// The run's mode, edit count and fixture, from the command line.
+typedef _RunSpec = ({String mode, int editCount, _Fixture fixture});
+
+/// Parse and validate the command-line arguments.
+_RunSpec _parseRunSpec(List<String> args) {
   final mode = args.isEmpty ? 'pair' : args.first;
   if (mode != 'solo' && mode != 'pair') {
     stderr.writeln('usage: concurrent_sessions.dart [solo|pair] [edits]');
@@ -106,9 +110,14 @@ Future<void> main(List<String> args) async {
     );
     exit(2);
   }
+  return (mode: mode, editCount: editCount, fixture: fixture);
+}
 
-  final repoRoot = await _repoRoot();
-  final workspace = '$repoRoot/e2e/${fixture.workspace}';
+/// The probe file and its current text, checked for the reload marker.
+typedef _Probe = ({File file, String original});
+
+/// Read the probe source, refusing a fixture whose marker is absent.
+_Probe _readProbe(String workspace, _Fixture fixture) {
   final probe = File('$workspace/${fixture.probeFile}');
   if (!probe.existsSync()) {
     stderr.writeln('probe source not found: ${probe.path}');
@@ -119,42 +128,88 @@ Future<void> main(List<String> args) async {
     stderr.writeln('probe marker "${fixture.marker}" not in ${probe.path}');
     exit(2);
   }
+  return (file: probe, original: original);
+}
 
-  final devTool = await _buildDevTool(repoRoot);
-  // Warm the fixture's own output base before sampling it. The execroot forest
-  // holds only what some command has already asked for, so on a server that has
-  // never built this workspace there is nothing to watch yet — and a cold build
-  // inside the measurement would dominate it anyway.
+/// Build the fixture once outside the measurement.
+///
+/// Warms the fixture's own output base before sampling it. The execroot forest
+/// holds only what some command has already asked for, so on a server that has
+/// never built this workspace there is nothing to watch yet — and a cold build
+/// inside the measurement would dominate it anyway.
+Future<void> _warmWorkspace(String workspace, String target) async {
   final warm = await Process.run('bazel', [
     'build',
-    fixture.target,
+    target,
   ], workingDirectory: workspace);
   if (warm.exitCode != 0) {
     stderr.writeln(
-      'warming build of ${fixture.target} in $workspace failed '
+      'warming build of $target in $workspace failed '
       '(exit ${warm.exitCode})\n${warm.stdout}${warm.stderr}',
     );
     exit(1);
   }
+}
+
+/// Make [editCount] probe edits and count the failed reload verdicts.
+///
+/// Sampling starts before either session does, because startup is when the
+/// damage lands: what fails is a session's *initial* compile, the long one
+/// that reads the whole Flutter SDK. Later incremental compiles finish in
+/// about 200ms and mostly miss the window.
+Future<int> _driveEdits(
+  _Session a,
+  _Session? b,
+  _Probe probe,
+  _Fixture fixture, {
+  required int editCount,
+}) async {
+  var failures = 0;
+  for (var i = 0; i < editCount; i++) {
+    final tag = 'PROBE$i';
+    final aFrom = a.events.length;
+    final bFrom = b?.events.length ?? 0;
+    _log('edit -> $tag');
+    probe.file.writeAsStringSync(
+      probe.original.replaceFirst(
+        fixture.marker,
+        "'$tag-' + ${fixture.marker}",
+      ),
+    );
+    failures += _verdict(a, tag, await a.awaitReload(aFrom));
+    if (b != null) failures += _verdict(b, tag, await b.awaitReload(bFrom));
+  }
+  return failures;
+}
+
+Future<void> main(List<String> args) async {
+  final spec = _parseRunSpec(args);
+  final mode = spec.mode;
+  final editCount = spec.editCount;
+  final fixture = spec.fixture;
+  final fixtureName = args.length > 2 ? args[2] : 'codegen';
+
+  final repoRoot = await _repoRoot();
+  final workspace = '$repoRoot/e2e/${fixture.workspace}';
+  final probe = _readProbe(workspace, fixture);
+
+  final devTool = await _buildDevTool(repoRoot);
+  await _warmWorkspace(workspace, fixture.target);
   final sampler = await _ForestSampler.create(workspace);
 
   final sessions = <_Session>[];
-  var failures = 0;
   // Restore on interrupt too: a half-edited fixture leaves every later run
   // staring at a red exception screen.
   final sigint = ProcessSignal.sigint.watch().listen((_) async {
-    probe.writeAsStringSync(original);
+    probe.file.writeAsStringSync(probe.original);
     for (final s in sessions) {
       await s.dispose();
     }
     exit(130);
   });
 
+  var failures = 0;
   try {
-    // Sampling starts before either session does, because startup is when the
-    // damage lands: what fails is a session's *initial* compile, the long one
-    // that reads the whole Flutter SDK. Later incremental compiles finish in
-    // about 200ms and mostly miss the window.
     sampler.start();
     final a = await _startSession(
       'A',
@@ -167,21 +222,11 @@ Future<void> main(List<String> args) async {
         ? await _startSession('B', devTool, workspace, fixture.target, sessions)
         : null;
 
-    for (var i = 0; i < editCount; i++) {
-      final tag = 'PROBE$i';
-      final aFrom = a.events.length;
-      final bFrom = b?.events.length ?? 0;
-      _log('edit -> $tag');
-      probe.writeAsStringSync(
-        original.replaceFirst(fixture.marker, "'$tag-' + ${fixture.marker}"),
-      );
-      failures += _verdict(a, tag, await a.awaitReload(aFrom));
-      if (b != null) failures += _verdict(b, tag, await b.awaitReload(bFrom));
-    }
+    failures = await _driveEdits(a, b, probe, fixture, editCount: editCount);
     sampler.stop();
     _log(sampler.summary);
   } finally {
-    probe.writeAsStringSync(original);
+    probe.file.writeAsStringSync(probe.original);
     for (final s in sessions) {
       await s.dispose();
     }

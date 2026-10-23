@@ -1,0 +1,121 @@
+"""Digest red paths: fetching with a bad checksum must fail loudly.
+
+The `red_sky_engine` repo below instantiates a real Flutter engine-artifact
+repository rule (`flutter_sky_engine_repo`, the ~1.5 MB `sky_engine.zip`)
+with a deliberately wrong `sha256`. CI fetches it, expects the fetch to
+fail, and greps Bazel's exact checksum error. It guards the fetch sites: a
+site that stopped verifying its bytes keeps every other test green, so only
+this red path would turn red.
+
+The `digest_*` repos exercise the `pinned_download` /
+`pinned_download_and_extract` helpers directly on committed `fixture/`
+files fetched through `file://` URLs (no network): a correct digest
+succeeds, while an empty, malformed, conditionally blanked (`x if cond
+else ""`), or wrong digest fails. CI fetches each repo separately and
+greps the exact message.
+"""
+
+module(name = "rules_flutter_digest_mismatch")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.7.3")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+git_override(
+    module_name = "rules_dart",
+    commit = "dc0b9a23bf74fc832c89a8f5a0f95d999c8a6f0a",
+    remote = "https://github.com/Mivr/rules_dart.git",
+)
+
+sky = use_repo_rule(
+    "@rules_flutter//flutter/private:flutter_sky_engine_repo.bzl",
+    "flutter_sky_engine_repo",
+)
+
+sky(
+    name = "red_sky_engine",
+    # Engine revision of Flutter 3.47.7 (see flutter/private/versions.bzl).
+    # Must name a revision whose artifacts still exist, so the fetch reaches
+    # the checksum comparison instead of failing on a 404.
+    engine_revision = "deb287481e3ce9468f3434937ced4240a70539ca",
+    # Deliberately wrong: the fetch must fail with
+    # "Checksum was <actual> but wanted <this>".
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+)
+
+# Offline helper red paths. Each repo fetches one committed fixture file
+# through a file:// URL; CI fetches every repo separately.
+_download = use_repo_rule("@rules_flutter//flutter/private:digest_case_repos.bzl", "digest_download")
+
+_extract = use_repo_rule("@rules_flutter//flutter/private:digest_case_repos.bzl", "digest_extract")
+
+_TXT_SHA256 = "7145333f2c1999f823e0ad287d979acf5c0db3337c2d79e9583c373df2ebc0a6"
+
+_TGZ_SHA256 = "ae89069728835fab1c9594c900d2b5d9703790629786a4380a8a405e3445c51e"
+
+# Correct digests: the fetches must succeed.
+_download(
+    name = "digest_ok_download",
+    fixture = "//:fixture/hello.txt",
+    sha256 = _TXT_SHA256,
+)
+
+_extract(
+    name = "digest_ok_extract",
+    fixture = "//:fixture/hello.tar.gz",
+    sha256 = _TGZ_SHA256,
+)
+
+# Empty digest: the helpers must refuse the fetch before any bytes move.
+_download(
+    name = "digest_empty",
+    fixture = "//:fixture/hello.txt",
+    sha256 = "",
+)
+
+# Malformed digests: 63 hex chars, uppercase hex, and a sha256- SRI string.
+_download(
+    name = "digest_short",
+    fixture = "//:fixture/hello.txt",
+    sha256 = "7145333f2c1999f823e0ad287d979acf5c0db3337c2d79e9583c373df2ebc0a",
+)
+
+_download(
+    name = "digest_upper",
+    fixture = "//:fixture/hello.txt",
+    sha256 = "7145333F2C1999F823E0AD287D979ACF5C0DB3337C2D79E9583C373DF2EBC0A6",
+)
+
+_download(
+    name = "digest_sri",
+    fixture = "//:fixture/hello.txt",
+    sha256 = "sha256-cUUzPywZmfgj4K0ofZeaz1wNszN8LXnpWDw3PfLrwKY=",
+)
+
+# Conditionally blanked digest (the `x if cond else ""` bypass shape):
+# the false branch evaluates to "", which must fail like digest_empty.
+_USE_PINNED_TXT = False
+
+_download(
+    name = "digest_conditional",
+    fixture = "//:fixture/hello.txt",
+    sha256 = _TXT_SHA256 if _USE_PINNED_TXT else "",
+)
+
+# Well-formed but wrong digests: the fetch must fail on the comparison,
+# for both the download and the download-and-extract helpers.
+_download(
+    name = "digest_wrong_download",
+    fixture = "//:fixture/hello.txt",
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+)
+
+_extract(
+    name = "digest_wrong_extract",
+    fixture = "//:fixture/hello.tar.gz",
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+)

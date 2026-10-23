@@ -1,0 +1,14 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+dart_library(
+    name = "a",
+    package_name = "unused_a",
+    srcs = ["lib/adopt.dart"],
+    tags = ["no-dart-analyze"],  # adopted-part fixture: legal for the compiler, unresolvable for the analyzer
+    visibility = ["//flutter/tests:__subpackages__"],
+    deps = [
+        "//flutter/tests/unused_inputs_fixture/b",
+        "//flutter/tests/unused_inputs_fixture/c",
+        "//flutter/tests/unused_inputs_fixture/d",
+    ],
+)

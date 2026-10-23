@@ -1,0 +1,63 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load(":apple_backend.bzl", "APPLE_BACKEND_VALUES")
+
+# Controls which Apple build backend (`rules_apple` or `xtool`) is used by
+# `flutter_ios_app`, `flutter_macos_app`, `flutter_apple_plugin_library`,
+# `flutter_ios_engine`, and `flutter_macos_engine`:
+#
+#   - "rules_apple" (default): uses `@rules_apple` (`ios_application` /
+#     `macos_application`).
+#   - "xtool": opts into the `xtool` backend (`flutter_xtool_ios_bundle` /
+#     `flutter_xtool_macos_bundle` + `@flutter_xtool_darwin_sdk`).
+string_flag(
+    name = "apple_backend",
+    build_setting_default = "rules_apple",
+    values = APPLE_BACKEND_VALUES,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "is_xtool_explicit",
+    flag_values = {":apple_backend": "xtool"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "is_rules_apple_explicit",
+    flag_values = {":apple_backend": "rules_apple"},
+    visibility = ["//visibility:public"],
+)
+
+selects.config_setting_group(
+    name = "use_xtool_backend",
+    match_any = [
+        ":is_xtool_explicit",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+selects.config_setting_group(
+    name = "macos_xtool_backend",
+    match_all = [
+        "@platforms//os:macos",
+        ":is_xtool_explicit",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+selects.config_setting_group(
+    name = "ios_xtool_backend",
+    match_all = [
+        "@platforms//os:ios",
+        ":is_xtool_explicit",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "apple_backend_bzl",
+    srcs = ["apple_backend.bzl"],
+    visibility = ["//visibility:public"],
+)

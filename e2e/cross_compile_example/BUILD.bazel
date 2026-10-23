@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options")
 load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_library")
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
@@ -22,6 +23,16 @@ flutter_application(
 flutter_linux_app(
     name = "cross_linux",
     application = ":cross_app",
+)
+
+# Linux push CI runs `bazel test //...` in this workspace and executes this
+# natively. On macOS it skips itself through `target_compatible_with` (there
+# is no Linux test toolchain on that host), so the macOS cross-compile flow
+# (`bazel build :cross_linux`) is unaffected.
+build_test(
+    name = "cross_linux_build_test",
+    target_compatible_with = ["@platforms//os:linux"],
+    targets = [":cross_linux"],
 )
 
 # The workspace's lint ruleset, bundled with the pub package whose YAML its

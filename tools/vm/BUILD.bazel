@@ -1,4 +1,4 @@
-load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_test")
 
 # An analysis handle for the VM provisioning scripts. Nothing else in the build
 # compiles them, and the only way to run one is to create a cloud VM and wait on
@@ -41,9 +41,27 @@ dart_binary(
     name = "vm_scripts",
     srcs = glob(
         ["*.dart"],
-        exclude = ["run_e2e.dart"],
+        # `gcloud_test.dart` is a test, not a VM script: it imports
+        # `package:test`, which this target deliberately has no dep for, so
+        # leaving it in the glob would fail the analysis this target exists
+        # to carry. It is analyzed (and run) through `:gcloud_test` below.
+        exclude = [
+            "run_e2e.dart",
+            "gcloud_test.dart",
+        ],
     ),
     compile_mode = "kernel",
     main = "run_e2e.dart",
     visibility = ["//visibility:private"],
+)
+
+# The one unit test in this directory. `waitForSsh` shells out to the real
+# `gcloud` CLI, so the test drives the retry loop against a VM name that
+# cannot exist: fast (the first probe fails at once, one 10s retry sleep,
+# then the deadline throw) and hermetic (no project, no network, no VM).
+dart_test(
+    name = "gcloud_test",
+    srcs = ["gcloud.dart"],
+    main = "gcloud_test.dart",
+    deps = ["@dev_tool_deps//:test"],
 )

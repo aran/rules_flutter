@@ -341,6 +341,25 @@ dart_test(
     tags = ["android"],
 )
 
+# Overlay BuildConfig verifier: builds the audio_session and jni overlays'
+# generated `_build_config_src` stubs (plain `write_file` outputs, so no
+# Android toolchain is needed) and checks each holds valid Java text: no
+# backslash, and `LIBRARY_PACKAGE_NAME` equal to the file's own `package`
+# line. The heredoc `cat` genrules those overlays ship regressed to
+# double-escaped output once; this pins the rewritten bytes instead.
+#
+# The spoke repos carry no apparent name in this workspace (`use_repo`
+# exports only the `deps` hub), so the targets are named by canonical
+# label — the same form the hub's own aggregator uses for them.
+dart_test(
+    name = "verify_build_config_test",
+    data = [
+        "@@rules_flutter++flutter+deps__audio_session//android:_build_config_src",
+        "@@rules_flutter++flutter+deps__jni//android:_build_config_src",
+    ],
+    main = "test/verify_build_config_test.dart",
+)
+
 # Runtime verifier for the Android APK. Installs on a connected emulator or
 # device, waits for RESUMED, and asserts the plugin_example_results logcat
 # line reports a real /data/user/0/... path from path_provider — proving

@@ -12,7 +12,9 @@ Omitting it is not neutral: `package_config.json` reads a missing
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "derive_language_version")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_deps", "parse_pubspec_sdk_constraint")
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
+load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url", "require_sha256")
+load("//flutter/private:download.bzl", "pinned_download_and_extract")
+load("//flutter/private:local_sdk.bzl", "link_local_dir", "link_local_file", "resolve_local_sdk_root")
 
 def make_flutter_sdk_build_content(name, deps, language_version):
     """Generate BUILD content for a Flutter SDK spoke.
@@ -95,29 +97,51 @@ def _flutter_sdk_package_impl(repository_ctx):
     flutter_version = repository_ctx.attr.flutter_version
     package_name = repository_ctx.attr.package_name
 
-    # Download Flutter SDK source, extracting only the relevant package.
-    #
-    # One spoke exists per SDK package, so this same tarball is requested once
-    # per package in the lock, and again by flutter_gen_l10n_repo and
-    # flutter_dev_root_repo. Because every one of those fetches is pinned to
-    # the same checksum, Bazel's content-addressed repository cache serves
-    # them all from a single download; an unpinned fetch could not be
-    # deduplicated that way.
-    repository_ctx.download_and_extract(
-        url = flutter_source_tarball_url(flutter_version),
-        sha256 = repository_ctx.attr.sha256,
-        stripPrefix = "flutter-{version}/packages/{pkg}".format(
-            version = flutter_version,
-            pkg = package_name,
-        ),
-    )
+    if getattr(repository_ctx.attr, "local_path", ""):
+        # The spoke root is the package directory itself (the download mode
+        # strips the tarball to it). Only `lib/` and the pubspec are linked:
+        # they are everything the spoke BUILD below consumes, and linking the
+        # whole directory would drag in per-package tooling the build never
+        # references. Both links are watched, so SDK edits invalidate the
+        # repository.
+        sdk_root = resolve_local_sdk_root(repository_ctx, getattr(repository_ctx.attr, "local_path", ""))
+        pkg_rel = "packages/" + package_name
+        link_local_dir(
+            repository_ctx,
+            sdk_root,
+            pkg_rel + "/lib",
+            "lib",
+            "the {} package sources".format(package_name),
+        )
+        link_local_file(
+            repository_ctx,
+            sdk_root,
+            pkg_rel + "/pubspec.yaml",
+            "pubspec.yaml",
+            "the {} package pubspec".format(package_name),
+        )
+    else:
+        # Download Flutter SDK source, extracting only the relevant package.
+        #
+        # One spoke exists per SDK package, so this same tarball is requested once
+        # per package in the lock, and again by flutter_gen_l10n_repo and
+        # flutter_dev_root_repo. Because every one of those fetches is pinned to
+        # the same checksum, Bazel's content-addressed repository cache serves
+        # them all from a single download; an unpinned fetch could not be
+        # deduplicated that way.
+        tarball_url = getattr(repository_ctx.attr, "source_url", "") or flutter_source_tarball_url(flutter_version)
+        strip_prefix = getattr(repository_ctx.attr, "source_strip_prefix", "") or "flutter-{}/".format(flutter_version)
+        pinned_download_and_extract(
+            repository_ctx,
+            url = tarball_url,
+            sha256 = require_sha256(repository_ctx.attr.sha256, tarball_url),
+            stripPrefix = strip_prefix + "packages/{}".format(package_name),
+        )
 
-    # Discover deps and the language version from the downloaded pubspec.yaml,
+    # Discover deps and the language version from the spoke pubspec.yaml,
     # filtering deps to packages available in the lock file (same pattern as
-    # pub_lock_package). No pubspec means no constraint was read, so the
-    # language version stays empty rather than taking `derive_language_version`'s
-    # missing-constraint default — that default is pub's answer for a pubspec
-    # that *has* no `environment.sdk`, not for a package we never inspected.
+    # pub_lock_package). Both modes always stage the pubspec (the local fetch
+    # links it, the download extracts it), so it is always read here.
     bazel_deps = []
     language_version = ""
     pubspec_path = repository_ctx.path("pubspec.yaml")
@@ -163,8 +187,9 @@ flutter_sdk_package = repository_rule(
     doc = "Downloads a Flutter SDK package (e.g. package:flutter) and generates a dart_library target.",
     attrs = {
         "flutter_version": attr.string(
-            doc = "Flutter SDK version tag on GitHub.",
-            mandatory = True,
+            doc = "Flutter SDK version tag on GitHub. Empty means a local " +
+                  "SDK (with `local_path`).",
+            default = "",
         ),
         "package_name": attr.string(
             doc = "The package name within the Flutter SDK (e.g. 'flutter', 'flutter_test').",
@@ -174,8 +199,28 @@ flutter_sdk_package = repository_rule(
             doc = "Expected SHA-256 of the Flutter SDK source tarball. " +
                   "Guaranteed non-empty by the caller: extensions.bzl reads " +
                   "it through `flutter_source_sha256()`, which refuses a " +
-                  "version with no recorded checksum.",
-            mandatory = True,
+                  "version with no recorded checksum. Empty means a local " +
+                  "SDK (with `local_path`), which needs no source tarball.",
+            default = "",
+        ),
+        "source_url": attr.string(
+            doc = "Optional replacement framework source tarball URL from a " +
+                  "custom `flutter.version` registration. Empty means the " +
+                  "default GitHub tag tarball. Plain mirrors stay Bazel's " +
+                  "job (`--downloader_config`), not an attribute.",
+            default = "",
+        ),
+        "source_strip_prefix": attr.string(
+            doc = "Top-level directory the source tarball extracts to. " +
+                  "Empty means the stock `flutter-{version}/` layout (or " +
+                  "`flutter-{tag}/` for a mirrored stock tarball URL).",
+            default = "",
+        ),
+        "local_path": attr.string(
+            doc = "Optional path to a pre-extracted Flutter SDK " +
+                  "(bin/cache layout) to source every artifact from instead " +
+                  "of the network. Mutually exclusive with downloading.",
+            default = "",
         ),
         "hub_name": attr.string(
             doc = "Name of the hub repo (for constructing cross-spoke dep labels).",

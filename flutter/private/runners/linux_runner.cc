@@ -29,15 +29,15 @@ static void on_activate(GtkApplication *app) {
   g_autoptr(FlDartProject) project = fl_dart_project_new();
 
   FlView *view = fl_view_new(project);
-  fl_register_plugins(FL_PLUGIN_REGISTRY(fl_view_get_engine(view)));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
   gtk_widget_show_all(GTK_WIDGET(window));
+  fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 }
 
 int main(int argc, char *argv[]) {
   g_autoptr(GtkApplication) app =
-      gtk_application_new(GTK_APP_ID, G_APPLICATION_FLAGS_NONE);
+      gtk_application_new(GTK_APP_ID, G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
   return g_application_run(G_APPLICATION(app), argc, argv);
 }

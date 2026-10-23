@@ -768,31 +768,16 @@ Future<ServiceExtensionResponse> _handleSetWindowActive(
   });
 }
 
-Future<ServiceExtensionResponse> _handleScrollIntoView(
-  String method,
-  Map<String, String> params,
-) async {
-  final _Selector sel;
-  try {
-    sel = _selector(params);
-  } on _SelectorError catch (e) {
-    return _err(e.message);
-  }
-  final duration = Duration(
-    milliseconds: int.tryParse(params['durationMs'] ?? '200') ?? 200,
-  );
-  final scrollableKey = params['scrollableKey'];
-  final dx = double.tryParse(params['dx'] ?? '0') ?? 0;
-  final dy = double.tryParse(params['dy'] ?? '-50') ?? -50;
-  final maxIterations = int.tryParse(params['maxIterations'] ?? '40') ?? 40;
+/// Settles after scroll input, skipping repeated waits once one has run out.
+class _ScrollSettler {
+  Map<String, Object?>? ranOut;
 
   // One command, many inputs. Once a wait for idle has run out, the rest are
   // skipped — an app that did not go idle within `timeoutMs` will not in the
   // next wait either, and 40 drags would each spend it — and the reply reports
   // the wait that ran out. The next frame is still awaited, bounded, because
   // that is what builds the children a drag scrolled into a lazy list.
-  Map<String, Object?>? ranOut;
-  Future<Map<String, Object?>> settle() async {
+  Future<Map<String, Object?>> settle(Map<String, String> params) async {
     final earlier = ranOut;
     if (earlier != null) {
       await SchedulerBinding.instance.endOfFrame.timeout(
@@ -805,21 +790,49 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
     if (outcome['settled'] == 'no') ranOut = outcome;
     return outcome;
   }
+}
 
+ServiceExtensionResponse _scrollOk(
+  Element element,
+  Map<String, Object?> settled,
+  int iterations,
+) {
+  final asleep = _notRendering();
+  return _ok({
+    'iterations': iterations,
+    'reachable': _reachable(element),
+    ...settled,
+    if (asleep != null) 'notRendering': asleep,
+  });
+}
+
+Future<ServiceExtensionResponse> _scrollFastResult(
+  Element element,
+  Map<String, String> params,
+  _ScrollSettler settler,
+) async {
+  final duration = Duration(
+    milliseconds: int.tryParse(params['durationMs'] ?? '200') ?? 200,
+  );
   // Fast path: target is already in the element tree → use the framework
   // helper to scroll any ancestor Scrollable into the right offset.
-  var element = _findElementWhere(sel.test);
-  if (element != null) {
-    await Scrollable.ensureVisible(element, duration: duration);
-    final settled = await settle();
-    final asleep = _notRendering();
-    return _ok({
-      'iterations': 0,
-      'reachable': _reachable(element),
-      ...settled,
-      if (asleep != null) 'notRendering': asleep,
-    });
-  }
+  await Scrollable.ensureVisible(element, duration: duration);
+  final settled = await settler.settle(params);
+  return _scrollOk(element, settled, 0);
+}
+
+Future<ServiceExtensionResponse> _dragScrollUntilVisible(
+  _Selector sel,
+  Map<String, String> params,
+  _ScrollSettler settler,
+) async {
+  final duration = Duration(
+    milliseconds: int.tryParse(params['durationMs'] ?? '200') ?? 200,
+  );
+  final scrollableKey = params['scrollableKey'];
+  final dx = double.tryParse(params['dx'] ?? '0') ?? 0;
+  final dy = double.tryParse(params['dy'] ?? '-50') ?? -50;
+  final maxIterations = int.tryParse(params['maxIterations'] ?? '40') ?? 40;
 
   // Slow path: target hasn't been built yet (lazy ListView). Drag the
   // scrollable identified by [scrollableKey] by (dx, dy) repeatedly
@@ -840,36 +853,73 @@ Future<ServiceExtensionResponse> _handleScrollIntoView(
   }
   final delta = Offset(dx, dy);
   for (var i = 1; i <= maxIterations; i++) {
-    final ro = scrollableEl.renderObject;
-    if (ro is! RenderBox || !ro.hasSize) {
-      return _err(
-        'scrollable with ValueKey($scrollableKey) was unmounted mid-scroll',
-      );
-    }
-    final scrollableRect = ro.localToGlobal(Offset.zero) & ro.size;
-    await _dispatchDrag(
-      scrollableRect.center,
-      scrollableRect.center + delta,
+    final found = await _dragScrollOnce(
+      sel,
+      params,
+      settler,
+      scrollableEl,
+      scrollableKey,
+      delta,
       duration,
+      i,
     );
-    await settle();
-    element = _findElementWhere(sel.test);
-    if (element != null) {
-      await Scrollable.ensureVisible(element, duration: duration);
-      final settled = await settle();
-      final asleep = _notRendering();
-      return _ok({
-        'iterations': i,
-        'reachable': _reachable(element),
-        ...settled,
-        if (asleep != null) 'notRendering': asleep,
-      });
-    }
+    if (found != null) return found;
   }
   return _err(
     'did not find ${sel.label} after $maxIterations scrolls of '
     'ValueKey($scrollableKey) by ($dx, $dy)',
   );
+}
+
+/// Performs one drag-scroll iteration. Returns the success response when the
+/// target became visible, null to continue iterating.
+Future<ServiceExtensionResponse?> _dragScrollOnce(
+  _Selector sel,
+  Map<String, String> params,
+  _ScrollSettler settler,
+  Element scrollableEl,
+  String scrollableKey,
+  Offset delta,
+  Duration duration,
+  int iteration,
+) async {
+  final ro = scrollableEl.renderObject;
+  if (ro is! RenderBox || !ro.hasSize) {
+    return _err(
+      'scrollable with ValueKey($scrollableKey) was unmounted mid-scroll',
+    );
+  }
+  final scrollableRect = ro.localToGlobal(Offset.zero) & ro.size;
+  await _dispatchDrag(
+    scrollableRect.center,
+    scrollableRect.center + delta,
+    duration,
+  );
+  await settler.settle(params);
+  final element = _findElementWhere(sel.test);
+  if (element == null) return null;
+  await Scrollable.ensureVisible(element, duration: duration);
+  final settled = await settler.settle(params);
+  return _scrollOk(element, settled, iteration);
+}
+
+Future<ServiceExtensionResponse> _handleScrollIntoView(
+  String method,
+  Map<String, String> params,
+) async {
+  final _Selector sel;
+  try {
+    sel = _selector(params);
+  } on _SelectorError catch (e) {
+    return _err(e.message);
+  }
+  final settler = _ScrollSettler();
+
+  final element = _findElementWhere(sel.test);
+  if (element != null) {
+    return _scrollFastResult(element, params, settler);
+  }
+  return _dragScrollUntilVisible(sel, params, settler);
 }
 
 /// Type [text] into a field.
@@ -1102,6 +1152,78 @@ Future<ServiceExtensionResponse> _handlePageBack(
 /// it. The framework holds the first until the second arrives, so neither
 /// works alone. A key the framework left alone then goes where the platform's
 /// input method would take it — see [_deliverToTextInput].
+/// Refuses keys the framework already thinks are held: a second down for
+/// such a key is an assertion inside the key pipeline, and the key would be
+/// left in a state nothing releases. Returns the error response, if any.
+ServiceExtensionResponse? _checkKeysHeld(List<_FlutterKey> keys) {
+  final alreadyDown = [
+    for (final k in keys)
+      if (HardwareKeyboard.instance.physicalKeysPressed.contains(k.physical))
+        k.name,
+  ];
+  if (alreadyDown.isEmpty) return null;
+  return _err(
+    '${alreadyDown.join(' and ')} ${alreadyDown.length == 1 ? 'is' : 'are'} '
+    'already held down — by a real keyboard, or by a key press that did '
+    'not finish — so pressing it again would be a second down without an '
+    'up. Release it and try again.',
+  );
+}
+
+Future<ServiceExtensionResponse> _sendPressKeys(
+  String keymap,
+  List<_FlutterKey> keys,
+  String text,
+  Map<String, String> params,
+) async {
+  final mainKey = keys.removeLast();
+  final activated = _activateForKeys();
+  final presser = _KeyPresser(keymap);
+  final bool handled;
+  final Map<String, Object?> textInput;
+  try {
+    for (final k in keys) {
+      await presser.press(k, down: true);
+    }
+    handled = await presser.press(
+      mainKey,
+      down: true,
+      character: _types(text) ? text : null,
+    );
+    textInput = handled
+        ? {
+            'skipped':
+                'the framework handled the key, so the platform input method '
+                'never sees it',
+          }
+        : await _deliverToTextInput(mainKey, presser, text);
+  } finally {
+    // Released even when something above threw: a key left down is a key
+    // the framework believes is held for the rest of the run.
+    await presser.releaseAll();
+  }
+  final settled = await _settleAfterInput(params);
+  final asleep = _notRendering();
+  return _ok({
+    'sent': presser.sent,
+    'handled': handled,
+    'textInput': textInput,
+    if (activated != null) 'activated': activated,
+    ...settled,
+    if (asleep != null) 'notRendering': asleep,
+  });
+}
+
+/// Press a key chord: `code` is the key's DOM `KeyboardEvent.code`,
+/// `modifiers` the comma-separated codes held while it is pressed, `text` what
+/// the key types (empty for a named key or a shortcut).
+///
+/// Each key goes through both halves of the path an embedder uses: a
+/// `ui.KeyData` through `PlatformDispatcher.onKeyData`, then the legacy
+/// `flutter/keyevent` message, whose reply says whether the framework handled
+/// it. The framework holds the first until the second arrives, so neither
+/// works alone. A key the framework left alone then goes where the platform's
+/// input method would take it — see [_deliverToTextInput].
 Future<ServiceExtensionResponse> _handlePressKey(
   String method,
   Map<String, String> params,
@@ -1138,21 +1260,9 @@ Future<ServiceExtensionResponse> _handlePressKey(
     }
     keys.add(key);
   }
-  final alreadyDown = [
-    for (final k in keys)
-      if (HardwareKeyboard.instance.physicalKeysPressed.contains(k.physical))
-        k.name,
-  ];
-  if (alreadyDown.isNotEmpty) {
-    // A second down for a key the framework thinks is held is an assertion
-    // inside the key pipeline, and the key would be left in a state nothing
-    // releases.
-    return _err(
-      '${alreadyDown.join(' and ')} ${alreadyDown.length == 1 ? 'is' : 'are'} '
-      'already held down — by a real keyboard, or by a key press that did '
-      'not finish — so pressing it again would be a second down without an '
-      'up. Release it and try again.',
-    );
+  final alreadyDown = _checkKeysHeld(keys);
+  if (alreadyDown != null) {
+    return alreadyDown;
   }
   final text = params['text'] ?? '';
   // Every key's message is built once before anything is sent, so a key this
@@ -1161,43 +1271,7 @@ Future<ServiceExtensionResponse> _handlePressKey(
   for (final k in keys) {
     _rawKeyMessage(keymap, k, down: true, character: null, pressed: const {});
   }
-  final mainKey = keys.removeLast();
-
-  final activated = _activateForKeys();
-  final presser = _KeyPresser(keymap);
-  final bool handled;
-  final Map<String, Object?> textInput;
-  try {
-    for (final k in keys) {
-      await presser.press(k, down: true);
-    }
-    handled = await presser.press(
-      mainKey,
-      down: true,
-      character: _types(text) ? text : null,
-    );
-    textInput = handled
-        ? {
-            'skipped':
-                'the framework handled the key, so the platform input method '
-                'never sees it',
-          }
-        : await _deliverToTextInput(mainKey, presser, text);
-  } finally {
-    // Released even when something above threw: a key left down is a key
-    // the framework believes is held for the rest of the run.
-    await presser.releaseAll();
-  }
-  final settled = await _settleAfterInput(params);
-  final asleep = _notRendering();
-  return _ok({
-    'sent': presser.sent,
-    'handled': handled,
-    'textInput': textInput,
-    if (activated != null) 'activated': activated,
-    ...settled,
-    if (asleep != null) 'notRendering': asleep,
-  });
+  return _sendPressKeys(keymap, keys, text, params);
 }
 
 /// Make the app active, as a key press finds it, when its desktop window is
@@ -1392,6 +1466,178 @@ String? _keyLabel(LogicalKeyboardKey key) {
   return label.length == 1 ? label.toLowerCase() : null;
 }
 
+/// The first key in [map] whose value matches, or null.
+int? _reverseKeyCode<T>(Map<int, T> map, bool Function(T) matches) {
+  for (final entry in map.entries) {
+    if (matches(entry.value)) return entry.key;
+  }
+  return null;
+}
+
+int _requireKeyCode(int? code, String keymap, String keyName, String what) {
+  if (code == null) {
+    throw FormatException(
+      'Flutter has no $keymap $what for $keyName, so the key message '
+      'this platform sends for it cannot be built.',
+    );
+  }
+  return code;
+}
+
+void _fillMacOsKeyMessage(
+  Map<String, Object?> message,
+  String keymap,
+  _FlutterKey key,
+  int physical,
+  String chars,
+  Set<LogicalKeyboardKey> pressed,
+  bool Function(LogicalKeyboardKey) held,
+) {
+  message['keyCode'] = _requireKeyCode(
+    _reverseKeyCode(
+      keymap == 'macos' ? kMacOsToPhysicalKey : kIosToPhysicalKey,
+      (p) => p.usbHidUsage == physical,
+    ),
+    keymap,
+    key.name,
+    'key code',
+  );
+  if (chars.isNotEmpty || keymap == 'ios') {
+    message['characters'] = chars;
+    message['charactersIgnoringModifiers'] = chars;
+  }
+  var flags = 0;
+  if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x02 | 0x20000;
+  if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x04 | 0x20000;
+  if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x08 | 0x100000;
+  if (held(LogicalKeyboardKey.metaRight)) flags |= 0x10 | 0x100000;
+  if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x01 | 0x40000;
+  if (held(LogicalKeyboardKey.controlRight)) flags |= 0x2000 | 0x40000;
+  if (held(LogicalKeyboardKey.altLeft)) flags |= 0x20 | 0x80000;
+  if (held(LogicalKeyboardKey.altRight)) flags |= 0x40 | 0x80000;
+  if (pressed.any(_functionKeys.contains)) flags |= 0x800000;
+  if (pressed.any(kMacOsNumPadMap.values.contains)) flags |= 0x200000;
+  if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10000;
+  message['modifiers'] = flags;
+}
+
+void _fillAndroidKeyMessage(
+  Map<String, Object?> message,
+  String keymap,
+  _FlutterKey key,
+  int physical,
+  String chars,
+  bool Function(LogicalKeyboardKey) held,
+) {
+  message['keyCode'] = _requireKeyCode(
+    _reverseKeyCode(kAndroidToLogicalKey, (l) => l.keyId == key.logical.keyId),
+    keymap,
+    key.name,
+    'key code',
+  );
+  message['scanCode'] = _requireKeyCode(
+    _reverseKeyCode(kAndroidToPhysicalKey, (p) => p.usbHidUsage == physical),
+    keymap,
+    key.name,
+    'scan code',
+  );
+  if (chars.isNotEmpty) {
+    message['codePoint'] = chars.codeUnitAt(0);
+    message['character'] = chars;
+  }
+  var flags = 0;
+  if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x40 | 0x01;
+  if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x80 | 0x01;
+  if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x20000 | 0x10000;
+  if (held(LogicalKeyboardKey.metaRight)) flags |= 0x40000 | 0x10000;
+  if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x2000 | 0x1000;
+  if (held(LogicalKeyboardKey.controlRight)) flags |= 0x4000 | 0x1000;
+  if (held(LogicalKeyboardKey.altLeft)) flags |= 0x10 | 0x02;
+  if (held(LogicalKeyboardKey.altRight)) flags |= 0x20 | 0x02;
+  if (held(LogicalKeyboardKey.fn)) flags |= 0x08;
+  if (held(LogicalKeyboardKey.scrollLock)) flags |= 0x400000;
+  if (held(LogicalKeyboardKey.numLock)) flags |= 0x200000;
+  if (held(LogicalKeyboardKey.capsLock)) flags |= 0x100000;
+  message['metaState'] = flags;
+}
+
+void _fillLinuxKeyMessage(
+  Map<String, Object?> message,
+  String keymap,
+  _FlutterKey key,
+  int physical,
+  String chars,
+  bool Function(LogicalKeyboardKey) held,
+) {
+  message['toolkit'] = 'glfw';
+  message['keyCode'] = _requireKeyCode(
+    _reverseKeyCode(kGlfwToLogicalKey, (l) => l.keyId == key.logical.keyId),
+    keymap,
+    key.name,
+    'key code',
+  );
+  message['scanCode'] = _requireKeyCode(
+    _reverseKeyCode(kLinuxToPhysicalKey, (p) => p.usbHidUsage == physical),
+    keymap,
+    key.name,
+    'scan code',
+  );
+  var flags = 0;
+  if (held(LogicalKeyboardKey.shiftLeft) ||
+      held(LogicalKeyboardKey.shiftRight)) {
+    flags |= 0x01;
+  }
+  if (held(LogicalKeyboardKey.controlLeft) ||
+      held(LogicalKeyboardKey.controlRight)) {
+    flags |= 0x02;
+  }
+  if (held(LogicalKeyboardKey.altLeft) || held(LogicalKeyboardKey.altRight)) {
+    flags |= 0x04;
+  }
+  if (held(LogicalKeyboardKey.metaLeft) || held(LogicalKeyboardKey.metaRight)) {
+    flags |= 0x08;
+  }
+  if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10;
+  message['modifiers'] = flags;
+  message['unicodeScalarValues'] = chars.isEmpty ? 0 : chars.codeUnitAt(0);
+}
+
+void _fillWindowsKeyMessage(
+  Map<String, Object?> message,
+  String keymap,
+  _FlutterKey key,
+  int physical,
+  String chars,
+  bool Function(LogicalKeyboardKey) held,
+) {
+  message['keyCode'] = _requireKeyCode(
+    _reverseKeyCode(kWindowsToLogicalKey, (l) => l.keyId == key.logical.keyId),
+    keymap,
+    key.name,
+    'key code',
+  );
+  message['scanCode'] = _requireKeyCode(
+    _reverseKeyCode(kWindowsToPhysicalKey, (p) => p.usbHidUsage == physical),
+    keymap,
+    key.name,
+    'scan code',
+  );
+  if (chars.isNotEmpty) message['characterCodePoint'] = chars.codeUnitAt(0);
+  var flags = 0;
+  if (held(LogicalKeyboardKey.shiftLeft)) flags |= 1 << 0 | 1 << 1;
+  if (held(LogicalKeyboardKey.shiftRight)) flags |= 1 << 0 | 1 << 2;
+  if (held(LogicalKeyboardKey.controlLeft)) flags |= 1 << 3 | 1 << 4;
+  if (held(LogicalKeyboardKey.controlRight)) flags |= 1 << 3 | 1 << 5;
+  if (held(LogicalKeyboardKey.altLeft)) flags |= 1 << 6 | 1 << 7;
+  if (held(LogicalKeyboardKey.altRight)) flags |= 1 << 6 | 1 << 8;
+  if (held(LogicalKeyboardKey.metaLeft)) flags |= 1 << 9;
+  if (held(LogicalKeyboardKey.metaRight)) flags |= 1 << 10;
+  if (held(LogicalKeyboardKey.capsLock)) flags |= 1 << 11;
+  if (held(LogicalKeyboardKey.numLock)) flags |= 1 << 12;
+  if (held(LogicalKeyboardKey.scrollLock)) flags |= 1 << 13;
+  message['modifiers'] = flags;
+}
+
 /// The legacy `flutter/keyevent` message for [key], in [keymap]'s shape —
 /// flutter_test's `KeyEventSimulator.getKeyData`.
 ///
@@ -1408,22 +1654,6 @@ Map<String, Object?> _rawKeyMessage(
 }) {
   final chars = character ?? '';
   final physical = key.physical.usbHidUsage;
-  int? reverse<T>(Map<int, T> map, bool Function(T) matches) {
-    for (final entry in map.entries) {
-      if (matches(entry.value)) return entry.key;
-    }
-    return null;
-  }
-
-  int require(int? code, String what) {
-    if (code == null) {
-      throw FormatException(
-        'Flutter has no $keymap $what for ${key.name}, so the key message '
-        'this platform sends for it cannot be built.',
-      );
-    }
-    return code;
-  }
 
   bool held(LogicalKeyboardKey k) => pressed.contains(k);
   final message = <String, Object?>{
@@ -1432,110 +1662,21 @@ Map<String, Object?> _rawKeyMessage(
   };
   switch (keymap) {
     case 'macos' || 'ios':
-      message['keyCode'] = require(
-        reverse(
-          keymap == 'macos' ? kMacOsToPhysicalKey : kIosToPhysicalKey,
-          (p) => p.usbHidUsage == physical,
-        ),
-        'key code',
+      _fillMacOsKeyMessage(
+        message,
+        keymap,
+        key,
+        physical,
+        chars,
+        pressed,
+        held,
       );
-      if (chars.isNotEmpty || keymap == 'ios') {
-        message['characters'] = chars;
-        message['charactersIgnoringModifiers'] = chars;
-      }
-      var flags = 0;
-      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x02 | 0x20000;
-      if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x04 | 0x20000;
-      if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x08 | 0x100000;
-      if (held(LogicalKeyboardKey.metaRight)) flags |= 0x10 | 0x100000;
-      if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x01 | 0x40000;
-      if (held(LogicalKeyboardKey.controlRight)) flags |= 0x2000 | 0x40000;
-      if (held(LogicalKeyboardKey.altLeft)) flags |= 0x20 | 0x80000;
-      if (held(LogicalKeyboardKey.altRight)) flags |= 0x40 | 0x80000;
-      if (pressed.any(_functionKeys.contains)) flags |= 0x800000;
-      if (pressed.any(kMacOsNumPadMap.values.contains)) flags |= 0x200000;
-      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10000;
-      message['modifiers'] = flags;
     case 'android':
-      message['keyCode'] = require(
-        reverse(kAndroidToLogicalKey, (l) => l.keyId == key.logical.keyId),
-        'key code',
-      );
-      message['scanCode'] = require(
-        reverse(kAndroidToPhysicalKey, (p) => p.usbHidUsage == physical),
-        'scan code',
-      );
-      if (chars.isNotEmpty) {
-        message['codePoint'] = chars.codeUnitAt(0);
-        message['character'] = chars;
-      }
-      var flags = 0;
-      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 0x40 | 0x01;
-      if (held(LogicalKeyboardKey.shiftRight)) flags |= 0x80 | 0x01;
-      if (held(LogicalKeyboardKey.metaLeft)) flags |= 0x20000 | 0x10000;
-      if (held(LogicalKeyboardKey.metaRight)) flags |= 0x40000 | 0x10000;
-      if (held(LogicalKeyboardKey.controlLeft)) flags |= 0x2000 | 0x1000;
-      if (held(LogicalKeyboardKey.controlRight)) flags |= 0x4000 | 0x1000;
-      if (held(LogicalKeyboardKey.altLeft)) flags |= 0x10 | 0x02;
-      if (held(LogicalKeyboardKey.altRight)) flags |= 0x20 | 0x02;
-      if (held(LogicalKeyboardKey.fn)) flags |= 0x08;
-      if (held(LogicalKeyboardKey.scrollLock)) flags |= 0x400000;
-      if (held(LogicalKeyboardKey.numLock)) flags |= 0x200000;
-      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x100000;
-      message['metaState'] = flags;
+      _fillAndroidKeyMessage(message, keymap, key, physical, chars, held);
     case 'linux':
-      message['toolkit'] = 'glfw';
-      message['keyCode'] = require(
-        reverse(kGlfwToLogicalKey, (l) => l.keyId == key.logical.keyId),
-        'key code',
-      );
-      message['scanCode'] = require(
-        reverse(kLinuxToPhysicalKey, (p) => p.usbHidUsage == physical),
-        'scan code',
-      );
-      var flags = 0;
-      if (held(LogicalKeyboardKey.shiftLeft) ||
-          held(LogicalKeyboardKey.shiftRight)) {
-        flags |= 0x01;
-      }
-      if (held(LogicalKeyboardKey.controlLeft) ||
-          held(LogicalKeyboardKey.controlRight)) {
-        flags |= 0x02;
-      }
-      if (held(LogicalKeyboardKey.altLeft) ||
-          held(LogicalKeyboardKey.altRight)) {
-        flags |= 0x04;
-      }
-      if (held(LogicalKeyboardKey.metaLeft) ||
-          held(LogicalKeyboardKey.metaRight)) {
-        flags |= 0x08;
-      }
-      if (held(LogicalKeyboardKey.capsLock)) flags |= 0x10;
-      message['modifiers'] = flags;
-      message['unicodeScalarValues'] = chars.isEmpty ? 0 : chars.codeUnitAt(0);
+      _fillLinuxKeyMessage(message, keymap, key, physical, chars, held);
     case 'windows':
-      message['keyCode'] = require(
-        reverse(kWindowsToLogicalKey, (l) => l.keyId == key.logical.keyId),
-        'key code',
-      );
-      message['scanCode'] = require(
-        reverse(kWindowsToPhysicalKey, (p) => p.usbHidUsage == physical),
-        'scan code',
-      );
-      if (chars.isNotEmpty) message['characterCodePoint'] = chars.codeUnitAt(0);
-      var flags = 0;
-      if (held(LogicalKeyboardKey.shiftLeft)) flags |= 1 << 0 | 1 << 1;
-      if (held(LogicalKeyboardKey.shiftRight)) flags |= 1 << 0 | 1 << 2;
-      if (held(LogicalKeyboardKey.controlLeft)) flags |= 1 << 3 | 1 << 4;
-      if (held(LogicalKeyboardKey.controlRight)) flags |= 1 << 3 | 1 << 5;
-      if (held(LogicalKeyboardKey.altLeft)) flags |= 1 << 6 | 1 << 7;
-      if (held(LogicalKeyboardKey.altRight)) flags |= 1 << 6 | 1 << 8;
-      if (held(LogicalKeyboardKey.metaLeft)) flags |= 1 << 9;
-      if (held(LogicalKeyboardKey.metaRight)) flags |= 1 << 10;
-      if (held(LogicalKeyboardKey.capsLock)) flags |= 1 << 11;
-      if (held(LogicalKeyboardKey.numLock)) flags |= 1 << 12;
-      if (held(LogicalKeyboardKey.scrollLock)) flags |= 1 << 13;
-      message['modifiers'] = flags;
+      _fillWindowsKeyMessage(message, keymap, key, physical, chars, held);
   }
   return message;
 }

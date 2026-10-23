@@ -9,6 +9,12 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_localized_locales: ^2.0.5
+  path_probe:
+    path: path_probe
+  path_probe_no_build:
+    path: path_probe_no_build
+  platform_assets:
+    path: platform_assets
 dev_dependencies:
   very_good_analysis: ^10.3.0
   test: ^1.30.0

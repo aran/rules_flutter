@@ -1,0 +1,3 @@
+# Fixture placeholder mirroring the real SDK's sky_engine embedder manifest.
+embedded_libs:
+  "dart:ui": "ui/ui.dart"

@@ -370,5 +370,424 @@ void main() {
         ),
       );
     });
+
+    test(
+      'chained merges (variant overlay -> permissions overlay -> library) '
+      'preserve tools:node="remove" across overlays and strip it in final merge',
+      () {
+        const baseRemovingPhoneState = '''
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        const variantOverlay = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.CAMERA"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+</manifest>
+''';
+        const permissionsOverlay = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+</manifest>
+''';
+        const pluginManifest = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+</manifest>
+''';
+
+        // Step 1: variant overlay merge (intermediate).
+        final afterVariant = mergeManifests(
+          baseXml: baseRemovingPhoneState,
+          basePath: 'android/app/src/main/AndroidManifest.xml',
+          overlayXml: variantOverlay,
+          overlayPath: 'android/app/src/debug/AndroidManifest.xml',
+        );
+        expect(afterVariant, contains('tools:node="remove"'));
+
+        // Step 2: permissions overlay merge (intermediate).
+        final afterPermissions = mergeManifests(
+          baseXml: afterVariant,
+          basePath: 'out/variant/AndroidManifest.xml',
+          overlayXml: permissionsOverlay,
+          overlayPath: 'out/permissions/AndroidManifest.xml',
+        );
+        expect(afterPermissions, contains('tools:node="remove"'));
+
+        // Step 3: library merge (packaged manifest).
+        final packaged = mergeManifests(
+          baseXml: afterPermissions,
+          basePath: 'out/permissions/AndroidManifest.xml',
+          libraries: {'plugin/AndroidManifest.xml': pluginManifest},
+        );
+        expect(packaged, isNot(contains('READ_PHONE_STATE')));
+        expect(packaged, isNot(contains('CAMERA')));
+        expect(packaged, isNot(contains('tools:node')));
+        expect(
+          packaged,
+          contains(
+            '<uses-permission android:name="android.permission.INTERNET"/>',
+          ),
+        );
+        expect(
+          packaged,
+          contains(
+            '<uses-permission android:name="android.permission.VIBRATE"/>',
+          ),
+        );
+        expect(
+          packaged,
+          contains(
+            '<uses-permission '
+            'android:name="android.permission.POST_NOTIFICATIONS"/>',
+          ),
+        );
+      },
+    );
+
+    test(
+      'tools:node="removeAll", "replace", "merge", and tools:remove survive '
+      'multi-hop overlay chains and are honoured and stripped in library merge',
+      () {
+        const baseManifest = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30"
+        tools:node="replace"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        android:usesPermissionFlags="neverForLocation"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        const overlay1 = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:remove="android:maxSdkVersion"/>
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        tools:node="merge"
+        tools:remove="android:usesPermissionFlags"/>
+</manifest>
+''';
+        const overlay2 = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission-sdk-23 tools:node="removeAll"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+</manifest>
+''';
+        const overlay3 = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.VIBRATE"/>
+</manifest>
+''';
+        const libManifest = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:usesPermissionFlags="neverForLocation"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:maxSdkVersion="33"
+        android:usesPermissionFlags="neverForLocation"/>
+    <uses-permission-sdk-23 android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+</manifest>
+''';
+
+        final hop1 = mergeManifests(
+          baseXml: baseManifest,
+          basePath: 'base.xml',
+          overlayXml: overlay1,
+          overlayPath: 'overlay1.xml',
+        );
+        final hop2 = mergeManifests(
+          baseXml: hop1,
+          basePath: 'hop1.xml',
+          overlayXml: overlay2,
+          overlayPath: 'overlay2.xml',
+        );
+        final hop3 = mergeManifests(
+          baseXml: hop2,
+          basePath: 'hop2.xml',
+          overlayXml: overlay3,
+          overlayPath: 'overlay3.xml',
+        );
+        final packaged = mergeManifests(
+          baseXml: hop3,
+          basePath: 'hop3.xml',
+          libraries: {'lib.xml': libManifest},
+        );
+
+        // BLUETOOTH had tools:node="replace", so library's usesPermissionFlags
+        // was ignored and maxSdkVersion="30" kept.
+        expect(
+          packaged,
+          contains(
+            '<uses-permission android:name="android.permission.BLUETOOTH" '
+            'android:maxSdkVersion="30"/>',
+          ),
+        );
+        // WRITE_EXTERNAL_STORAGE had tools:remove="android:maxSdkVersion" in
+        // overlay1, stripping base's 28 and ignoring library's 32 while keeping
+        // usesPermissionFlags.
+        expect(
+          packaged,
+          contains(
+            '<uses-permission '
+            'android:name="android.permission.WRITE_EXTERNAL_STORAGE" '
+            'android:usesPermissionFlags="neverForLocation"/>',
+          ),
+        );
+        // NEARBY_WIFI_DEVICES merged library's maxSdkVersion="33" while
+        // tools:remove stripped usesPermissionFlags.
+        expect(
+          packaged,
+          contains(
+            '<uses-permission '
+            'android:name="android.permission.NEARBY_WIFI_DEVICES" '
+            'android:maxSdkVersion="33"/>',
+          ),
+        );
+        // uses-permission-sdk-23 removeAll stripped CAMERA but kept plain
+        // uses-permission RECORD_AUDIO, INTERNET, VIBRATE.
+        expect(packaged, isNot(contains('CAMERA')));
+        expect(
+          packaged,
+          contains(
+            '<uses-permission android:name="android.permission.RECORD_AUDIO"/>',
+          ),
+        );
+        expect(packaged, isNot(contains('tools:')));
+      },
+    );
+
+    test(
+      'app permission with maxSdkVersion is not widened and its attributes '
+      'are not dropped by a library unbounded duplicate',
+      () {
+        const appBase = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        android:usesPermissionFlags="neverForLocation"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        const libUnbounded = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+</manifest>
+''';
+        final merged = lift(
+          {'lib/AndroidManifest.xml': libUnbounded},
+          base: appBase,
+        );
+        expect(
+          'WRITE_EXTERNAL_STORAGE'.allMatches(merged).length,
+          1,
+        );
+        expect(merged, contains('android:maxSdkVersion="28"'));
+        expect(
+          merged,
+          contains('android:usesPermissionFlags="neverForLocation"'),
+        );
+      },
+    );
+
+    test(
+      'library remove applies only to lower-priority libraries in AGP order, '
+      'never to the app or to higher-priority libraries',
+      () {
+        const appBase = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        const highPriorityLib = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.CAMERA"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        tools:node="remove"/>
+</manifest>
+''';
+        const lowPriorityLib = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.RECORD_AUDIO"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+</manifest>
+''';
+        final merged = lift(
+          {
+            'high/AndroidManifest.xml': highPriorityLib,
+            'low/AndroidManifest.xml': lowPriorityLib,
+          },
+          base: appBase,
+        );
+        // App's CAMERA is never removed by a library.
+        expect(
+          merged,
+          contains(
+            '<uses-permission android:name="android.permission.CAMERA"/>',
+          ),
+        );
+        // High-priority library's RECORD_AUDIO is not removed by low-priority
+        // library's tools:node="remove".
+        expect(
+          merged,
+          contains(
+            '<uses-permission android:name="android.permission.RECORD_AUDIO"/>',
+          ),
+        );
+        // High-priority library's tools:node="remove" suppresses low-priority
+        // library's ACCESS_FINE_LOCATION.
+        expect(merged, isNot(contains('ACCESS_FINE_LOCATION')));
+      },
+    );
+
+    test(
+      'uses-permission-sdk-23 remove does not suppress plain uses-permission '
+      'and vice versa',
+      () {
+        const baseWithCrossRemoves = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission-sdk-23 android:name="android.permission.CAMERA"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.VIBRATE"
+        tools:node="remove"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        const libWithBoth = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission-sdk-23 android:name="android.permission.CAMERA"/>
+    <uses-permission-sdk-23 android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+</manifest>
+''';
+        final merged = lift(
+          {'lib/AndroidManifest.xml': libWithBoth},
+          base: baseWithCrossRemoves,
+        );
+        expect(
+          merged,
+          contains(
+            '<uses-permission android:name="android.permission.CAMERA"/>',
+          ),
+        );
+        expect(
+          merged,
+          isNot(
+            contains(
+              '<uses-permission-sdk-23 '
+              'android:name="android.permission.CAMERA"/>',
+            ),
+          ),
+        );
+        expect(
+          merged,
+          contains(
+            '<uses-permission-sdk-23 '
+            'android:name="android.permission.VIBRATE"/>',
+          ),
+        );
+        expect(
+          merged,
+          isNot(
+            contains(
+              '<uses-permission android:name="android.permission.VIBRATE"/>',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'unparsable maxSdkVersion in base, overlay, or library fails with a '
+      'clear FormatException instead of treating as unbounded',
+      () {
+        const badBase = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="not-an-int"/>
+    <application android:label="example"/>
+</manifest>
+''';
+        expect(
+          () => lift(const {}, base: badBase),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('maxSdkVersion'),
+                contains('not-an-int'),
+                contains('out/base/AndroidManifest.xml'),
+              ),
+            ),
+          ),
+        );
+
+        const badOverlay = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="abc"
+        tools:node="replace"/>
+</manifest>
+''';
+        expect(
+          () => merge(_base, badOverlay),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('maxSdkVersion'), contains('abc')),
+            ),
+          ),
+        );
+
+        const badLib = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="twenty-eight"/>
+</manifest>
+''';
+        expect(
+          () => lift({'bad_lib/AndroidManifest.xml': badLib}),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('maxSdkVersion'),
+                contains('twenty-eight'),
+                contains('bad_lib/AndroidManifest.xml'),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   });
 }

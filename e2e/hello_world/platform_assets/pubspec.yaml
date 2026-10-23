@@ -1,0 +1,30 @@
+name: platform_assets
+description: Fixture package with platform- and flavor-conditional assets for asset-bundling tests.
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+flutter:
+  assets:
+    - assets/any.txt
+    - assets/marginal_small.txt
+    - assets/marginal_pair.txt
+    - assets/marginal_boundary.txt
+    - path: assets/android_only.txt
+      platforms:
+        - android
+    - path: assets/web_only.txt
+      platforms:
+        - web
+    - path: assets/paid_only.txt
+      flavors:
+        - paid
+    # The same file in two entries bundles on the union of the platforms,
+    # as flutter_tools does: this file ships on Android and Linux.
+    - path: assets/union_android.txt
+      platforms:
+        - android
+    - path: assets/union_android.txt
+      platforms:
+        - linux

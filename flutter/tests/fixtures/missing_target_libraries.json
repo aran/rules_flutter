@@ -1,0 +1,35 @@
+{
+  "comment:0": "Broken fixture: missing wasm target entry.",
+  "dartdevc": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dartdevc"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  },
+  "dart2js": {
+    "include": [
+      {
+        "path": "../dart-sdk/lib/libraries.json",
+        "target": "dart2js"
+      }
+    ],
+    "libraries": {
+      "ui": {
+        "uri": "lib/ui/ui.dart"
+      },
+      "ui_web": {
+        "uri": "lib/ui_web/ui_web.dart"
+      }
+    }
+  }
+}

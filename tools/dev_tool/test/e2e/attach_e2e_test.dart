@@ -9,6 +9,7 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
+import '../zip_fixture.dart';
 
 /// `flutter_bazel attach` against an app this test launches itself.
 ///
@@ -42,12 +43,10 @@ void main() {
       addTearDown(() async {
         if (tmpDir.existsSync()) await tmpDir.delete(recursive: true);
       });
-      await Process.run('unzip', [
-        '-oq',
-        '${ws.root}/bazel-bin/app.zip',
-        '-d',
-        tmpDir.path,
-      ]);
+      await extractZip(
+        zipPath: '${ws.root}/bazel-bin/app.zip',
+        destDir: tmpDir,
+      );
       final apps = tmpDir.listSync().where((e) => e.path.endsWith('.app'));
       expect(apps, isNotEmpty, reason: 'No .app found in app.zip');
 

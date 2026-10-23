@@ -29,10 +29,18 @@ _MATERIAL_ICONS_BUNDLE_PATH = "fonts/MaterialIcons-Regular.otf"
 
 def _flutter_material_icons_impl(ctx):
     toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    material_font = toolchain.flutter_sdk_info.material_icons_font
+    material_tc = ctx.toolchains["@rules_flutter//flutter/private:material_icons_toolchain_type"]
+    material_font = toolchain.flutter_sdk_info.material_icons_font or (material_tc.material_icons_font if material_tc else None)
     if not material_font:
-        fail("Flutter toolchain does not provide material_icons_font; cannot " +
-             "build @rules_flutter//flutter:material_icons.")
+        fail(
+            "Unresolved @rules_flutter//flutter:material_icons_toolchain_type " +
+            "(@rules_flutter//flutter/private:material_icons_toolchain_type): " +
+            "Flutter toolchain does not provide material_icons_font; cannot " +
+            "build @rules_flutter//flutter:material_icons. Register the Flutter " +
+            "toolchains (e.g. `flutter.toolchain()` in MODULE.bazel or " +
+            "`register_toolchains(\"@flutter_toolchains//:all\")`) or set " +
+            "`material_icons_font` on `flutter_toolchain`.",
+        )
 
     # Tuples (not lists) inside the struct because depset elements must be
     # fully immutable — mutable fields propagate to the struct's mutability.
@@ -60,7 +68,10 @@ def _flutter_material_icons_impl(ctx):
 
 flutter_material_icons = rule(
     implementation = _flutter_material_icons_impl,
-    toolchains = ["@rules_flutter//flutter:toolchain_type"],
+    toolchains = [
+        "@rules_flutter//flutter:toolchain_type",
+        config_common.toolchain_type("@rules_flutter//flutter/private:material_icons_toolchain_type", mandatory = False),
+    ],
     doc = "Toolchain-backed MaterialIcons font target. List in " +
           "`flutter_application(deps = [...])` to bundle MaterialIcons.",
 )

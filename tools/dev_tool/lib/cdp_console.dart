@@ -14,6 +14,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'app_log.dart';
+import 'logging.dart';
+
+final _logger = Logger('dev_tool.cdp_console');
 
 /// Choose the WebSocket debugger URL for the app's page from a CDP
 /// `/json` target listing.
@@ -193,8 +196,15 @@ void handleCdpConsoleMessage(Map<String, dynamic> message, AppLogStream logs) {
           isError: true,
         );
     }
-  } catch (_) {
-    // A console line is never worth failing a run over.
+  } catch (e) {
+    // A console line is never worth failing a run over. Said at fine, so a
+    // malformed notification still leaves a trace for whoever wonders where
+    // a line went.
+    _logger.fine({
+      'message': 'cdp_console_malformed',
+      'text': 'Dropping a malformed CDP console notification: $e',
+      'error': '$e',
+    });
   }
 }
 
