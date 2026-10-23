@@ -4129,7 +4129,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     // reader. A stop printed before the attach was asked for — a previous
     // command's, or an earlier line in the same buffer — must not answer it.
     test('does not take an earlier stop as the attach reply', () async {
-      FakeProcess? held;
+      final attached = Completer<FakeProcess>();
       final pending = launchFaked(
         lldbResponder: (lldb, line) {
           if (line.startsWith('device select')) {
@@ -4138,21 +4138,21 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
             return true;
           }
           if (line.startsWith('device process attach')) {
-            held = lldb;
+            attached.complete(lldb);
             return true;
           }
           return false;
         },
       );
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      expect(held, isNotNull, reason: 'the launch reached the attach');
+      final held = await attached.future;
+      await pumpEventQueue();
       expect(
-        held!.stdinBuffer.toString(),
+        held.stdinBuffer.toString(),
         isNot(contains('process continue')),
         reason: 'the attach has not been answered yet',
       );
 
-      emitLldbStop(held!, 'signal SIGSTOP');
+      emitLldbStop(held, 'signal SIGSTOP');
       final r = await pending;
       expect(r.lldb.stdinBuffer.toString(), contains('process continue'));
     });
