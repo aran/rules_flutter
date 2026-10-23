@@ -26,6 +26,11 @@
 /// every command that touches the client unbounded, whatever its own boundary
 /// says.
 ///
+/// The one exception is a compile. `FrontendServer` bounds its wait on the
+/// compiler's idleness, not on wall time, so that a slow compile on a loaded
+/// machine finishes; a compiler that loops without answering holds the pool
+/// for as long as it runs.
+///
 /// Why no acquisition timeout? Because a deadline at the dispatch layer
 /// would hide the real bug (an unbounded operation) and make concurrency
 /// reasoning fragile. With every handler bounded, the pool is provably

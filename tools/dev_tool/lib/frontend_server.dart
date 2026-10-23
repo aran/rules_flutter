@@ -11,6 +11,7 @@ import 'package:pool/pool.dart';
 
 import 'compiler_config.dart';
 import 'logging.dart';
+import 'process_cpu_time.dart';
 import 'temp_dir.dart';
 
 final _logger = Logger('dev_tool.frontend_server');
@@ -43,20 +44,41 @@ class FrontendServer {
   /// Set when a request was abandoned and the compiler terminated for it.
   bool _timedOut = false;
 
-  /// How long any single request waits for the compiler to answer.
+  /// How long a request waits for an answer while the compiler does no work.
   ///
-  /// `CommandRunner` documents this class as I/O "bounded at its own boundary"
-  /// and rests its `Pool(1)` deadlock-freedom argument on that. Without this
-  /// bound a request whose answer never comes waits forever holding the permit,
-  /// and every later command queues behind it.
+  /// `CommandRunner` asks for I/O bounded at its own boundary and rests its
+  /// `Pool(1)` deadlock-freedom argument on that. Without this bound a request
+  /// whose answer never comes waits forever holding the permit, and every
+  /// later command queues behind it.
   ///
   /// It is deliberately NOT a deadline on acquiring the pool — that stays
   /// unbounded, because a queue that abandons work to escape its own contention
   /// is a worse failure than a slow one. This bounds the I/O instead.
   ///
-  /// Generous on purpose: a cold incremental compile of a large app is seconds,
-  /// not minutes, so this fires only when something is genuinely wrong.
-  final Duration _responseTimeout;
+  /// The bound is on idleness, not on wall time. At the end of each window the
+  /// compiler's CPU time is read, and a compiler that used at least
+  /// [_workingCpuFloor] of it since the last reading is still compiling and
+  /// gets another window. Wall time alone cannot tell slow from stuck: a 13s
+  /// web compile on a machine at load average 800 takes many minutes and is
+  /// working throughout. A compiler blocked on a protocol exchange that will
+  /// never complete uses next to nothing.
+  ///
+  /// So the wait is bounded only for a compiler that stops working. One that
+  /// keeps using CPU without ever answering, a compiler bug that loops, is
+  /// waited on for as long as it runs, holding the permit; each window logs
+  /// `frontend_server_still_working`, so the wait is visible rather than
+  /// silent.
+  final Duration _stallWindow;
+
+  /// CPU time per [_stallWindow] that counts as working.
+  ///
+  /// An idle `dartaotruntime` accrues well under 0.1ms of CPU per second of
+  /// wall time, so a few milliseconds a window. A compile given a 2% share of
+  /// one core — 16 cores at load 800 — accrues 1.2s a window. A tenth of a
+  /// second sits an order of magnitude from both.
+  static const _workingCpuFloor = Duration(milliseconds: 100);
+
+  final CpuTimeReader _readCpuTime;
 
   /// Serializes every request that speaks the stdin/stdout protocol.
   ///
@@ -92,8 +114,10 @@ class FrontendServer {
     required CompilerConfig config,
     required String packageConfig,
     ProcessFactory? processFactory,
-    Duration responseTimeout = const Duration(minutes: 2),
-  }) : _responseTimeout = responseTimeout,
+    Duration stallWindow = const Duration(minutes: 1),
+    CpuTimeReader cpuTimeReader = readProcessCpuTime,
+  }) : _stallWindow = stallWindow,
+       _readCpuTime = cpuTimeReader,
        _dartaotruntimePath = dartaotruntimePath,
        _frontendServerPath = frontendServerPath,
        _config = config,
@@ -192,7 +216,7 @@ class FrontendServer {
   ///
   /// A reject counts. It is the one exchange the compiler answers, so a
   /// process that dies mid-reject leaves it waiting on an acknowledgement that
-  /// cannot arrive — for the full response timeout, holding [_requests]'s only
+  /// cannot arrive — until the next stall check, holding [_requests]'s only
   /// permit, with every queued reload stalled behind it. The compiler is
   /// already gone; there is nothing left to wait for.
   void _completeWithError(String message) {
@@ -388,40 +412,90 @@ class FrontendServer {
     return _awaitResponse('recompile');
   });
 
-  /// Wait for the in-flight request's result, bounded.
+  /// Wait for the in-flight request's result, for as long as the compiler is
+  /// working on it.
   ///
   /// A compiler that stops answering would otherwise hold the command pool
   /// forever; answering with a failure keeps the session usable and says why.
-  Future<CompileResult> _awaitResponse(String what) {
+  Future<CompileResult> _awaitResponse(String what) async {
     final pending = _pendingResult!;
-    return pending.future.timeout(
-      _responseTimeout,
-      onTimeout: () {
-        if (identical(_pendingResult, pending)) _pendingResult = null;
-        _pendingKind = null;
-        _resultBoundaryKey = null;
-        _awaitingVerdict = false;
-        // The pipe's future content is now unknowable: this request's answer may
-        // still arrive and would land on whatever completer exists then. The
-        // only guard that holds is making the emitter stop existing — the same
-        // conclusion `shutdown` reached about writing to a doomed pipe.
-        _timedOut = true;
-        _process?.kill();
-        _logger.severe({
-          'message': 'frontend_server_timeout',
-          'text':
-              'The compiler did not answer a $what within '
-              '${_responseTimeout.inMinutes} minutes.',
-        });
-        return CompileResult(
-          dillPath: '',
-          success: false,
-          diagnostics:
-              'The compiler did not answer a $what within '
-              '${_responseTimeout.inMinutes} minutes.',
-        );
-      },
+    final stall = await _untilStalled(pending.future, what);
+    if (stall == null) return pending.future;
+
+    if (identical(_pendingResult, pending)) _pendingResult = null;
+    _pendingKind = null;
+    _resultBoundaryKey = null;
+    _awaitingVerdict = false;
+    // The pipe's future content is now unknowable: this request's answer may
+    // still arrive and would land on whatever completer exists then. The
+    // only guard that holds is making the emitter stop existing — the same
+    // conclusion `shutdown` reached about writing to a doomed pipe.
+    _timedOut = true;
+    _process?.kill();
+    _logger.severe({'message': 'frontend_server_timeout', 'text': stall});
+    return CompileResult(dillPath: '', success: false, diagnostics: stall);
+  }
+
+  /// Wait for [answer] until it completes or the compiler stops working.
+  ///
+  /// Returns null once [answer] has completed, or why the compiler is taken to
+  /// be stuck: a [_stallWindow] passed in which it used less than
+  /// [_workingCpuFloor] of CPU, or its CPU time could not be read. Each window
+  /// it was working through is logged, so a long wait under load is visibly a
+  /// compile in progress rather than a hang.
+  Future<String?> _untilStalled(Future<void> answer, String what) async {
+    var answered = false;
+    final done = answer.then<void>(
+      (_) => answered = true,
+      onError: (_) => answered = true,
     );
+    final started = DateTime.now();
+    Duration? lastCpu;
+    while (true) {
+      // A Timer, not Future.delayed: a window still pending after the answer
+      // would hold the isolate open for up to its length at exit.
+      final windowEnd = Completer<void>();
+      final timer = Timer(_stallWindow, windowEnd.complete);
+      await Future.any([done, windowEnd.future]);
+      timer.cancel();
+      if (answered) return null;
+
+      final process = _process;
+      if (process == null) {
+        return 'The compiler went away while answering a $what.';
+      }
+      final Duration cpu;
+      try {
+        cpu = await _readCpuTime(process.pid);
+      } on ProcessCpuTimeException catch (e) {
+        return 'The compiler did not answer a $what within '
+            '${_stallWindow.inSeconds}s, and whether it is still working '
+            'could not be read: ${e.message}';
+      }
+      final waited = DateTime.now().difference(started);
+      // The first reading is only a baseline: the process's total includes
+      // everything before this request. Taking it at the first window's end
+      // rather than at the request's start keeps a reading off every reload,
+      // and costs a stuck compiler one more window.
+      final used = cpu - (lastCpu ?? Duration.zero);
+      final previous = lastCpu;
+      lastCpu = cpu;
+      if (previous != null && used < _workingCpuFloor) {
+        return 'The compiler did not answer a $what within '
+            '${waited.inSeconds}s, and used ${used.inMilliseconds}ms of CPU in '
+            'the last ${_stallWindow.inSeconds}s, so it is not working on it.';
+      }
+      _logger.info({
+        'message': 'frontend_server_still_working',
+        'text':
+            'Still waiting for the compiler to answer a $what: '
+            '${waited.inSeconds}s so far, ${cpu.inMilliseconds}ms of compiler '
+            'CPU in total.',
+        'request': what,
+        'waitedMs': waited.inMilliseconds,
+        'cpuMs': cpu.inMilliseconds,
+      });
+    }
   }
 
   /// Accept the last compilation result.
@@ -455,54 +529,41 @@ class FrontendServer {
 
     final done = _pendingReject = Completer<void>();
     _writeln('reject');
-    await done.future.timeout(
-      _responseTimeout,
-      onTimeout: () {
-        _pendingReject = null;
-        // The stream is now of unknown shape, so the key cannot be trusted
-        // either. Clearing it is what keeps one lost response from becoming a
-        // permanently unusable compiler.
-        _resultBoundaryKey = null;
-        _logger.severe({
-          'message': 'frontend_server_reject_timeout',
-          'text':
-              'The compiler did not acknowledge a rejected compile within '
-              '${_responseTimeout.inSeconds}s. The next reload will recompile '
-              'from the last accepted state.',
-        });
-      },
-    );
+    final stall = await _untilStalled(done.future, 'reject');
+    if (stall == null) return;
+    _pendingReject = null;
+    // The stream is now of unknown shape, so the key cannot be trusted
+    // either. Clearing it is what keeps one lost response from becoming a
+    // permanently unusable compiler.
+    _resultBoundaryKey = null;
+    _logger.severe({
+      'message': 'frontend_server_reject_timeout',
+      'text':
+          '$stall The next reload will recompile from the last accepted '
+          'state.',
+    });
   }
 
   /// Shut down the frontend_server process.
+  ///
+  /// Kills it, as Flutter's own tool does: a compiler that is looping never
+  /// reads a `quit`, and the run would then wait on its exit forever.
   Future<void> shutdown() async {
     _closing = true;
-    // Detached before the `quit` and before anything is awaited, so no
-    // concurrent [accept] can find a sink to write to. Catching that write is
-    // not enough: a `Socket`'s failure surfaces from inside the sink's own
-    // delivery, where it is reported to the zone rather than thrown back to the
-    // caller, so [_write]'s guards never see it and the run dies with exit 255.
-    // The only guard that holds is not writing.
+    // Detached before anything is awaited, so no concurrent [accept] can find
+    // a sink to write to. Catching that write is not enough: a `Socket`'s
+    // failure surfaces from inside the sink's own delivery, where it is
+    // reported to the zone rather than thrown back to the caller, so
+    // [_write]'s guards never see it and the run dies with exit 255. The only
+    // guard that holds is not writing.
     final process = _process;
     _process = null;
-    _quit(process);
+    process?.kill();
     await process?.exitCode;
     // After the exit, never before: the compiler holds `app.dill` open.
     final outputDir = _outputDir;
     _outputDir = null;
     if (outputDir != null) await deleteTempDir(outputDir);
-  }
-
-  /// Ask [process] to exit. The one write that is allowed to reach a pipe the
-  /// rest of the class has already let go of.
-  void _quit(Process? process) {
-    try {
-      process?.stdin.writeln('quit');
-    } on StateError {
-      // Already closed; the exit we are about to await is the real answer.
-    } on IOException {
-      // Same.
-    }
   }
 
   /// Write a line to the process stdin, guarding against a dead process.

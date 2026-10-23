@@ -171,6 +171,7 @@ _UNIT_TESTS = {
     },
     "native_pipeline_assembler_test": {"fakes": True},
     "outcome_renderer_test": {"fakes": True},
+    "process_cpu_time_test": {},
     "source_uri_resolver_test": {"deps": _PATH_DEP},
     "readiness_gate_test": {},
     "reload_pipeline_test": {

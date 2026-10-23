@@ -1,5 +1,6 @@
 import 'package:flutter_bazel_dev_tool/compiler_config.dart';
 import 'package:flutter_bazel_dev_tool/frontend_server.dart';
+import 'package:flutter_bazel_dev_tool/process_cpu_time.dart';
 
 import 'dart:io';
 import 'dart:convert';
@@ -35,8 +36,8 @@ void main() {
       await first;
     }
 
-    /// Put the server in the window where `shutdown` has begun and written its
-    /// `quit` but the process has not exited, so the pipe is already gone
+    /// Put the server in the window where `shutdown` has begun and killed the
+    /// process but it has not exited, so the pipe is already gone
     /// while the run is still using the server.
     Future<Future<void>> beginShutdown() async {
       final shuttingDown = server.shutdown();
@@ -81,13 +82,13 @@ void main() {
       await compileAwaitingVerdict();
       final shuttingDown = server.shutdown();
       await pumpEventQueue();
-      final afterQuit = fakeProcess.stdinBuffer.length;
+      final afterKill = fakeProcess.stdinBuffer.length;
 
       server.accept();
       server.reject();
       expect(
         fakeProcess.stdinBuffer.length,
-        afterQuit,
+        afterKill,
         reason: 'the pipe is gone; these must not reach it at all',
       );
 
@@ -724,7 +725,8 @@ void main() {
         config: NativeCompilerConfig(patchedSdkRoot: '/sdk-root'),
         packageConfig: '/pkg.json',
         processFactory: (exe, args) async => fakeProcess,
-        responseTimeout: const Duration(milliseconds: 50),
+        stallWindow: const Duration(milliseconds: 50),
+        cpuTimeReader: (pid) async => const Duration(seconds: 3),
       );
       await s.start();
 
@@ -751,6 +753,61 @@ void main() {
       expect(later.success, isFalse);
     });
 
+    test(
+      'a compiler still using CPU is waited for past any one window',
+      () async {
+        // Under heavy machine load a healthy compile can take many windows of
+        // wall time. What tells it from a hung one is that its CPU time moves.
+        var cpu = Duration.zero;
+        var readings = 0;
+        final s = FrontendServer(
+          dartaotruntimePath: '/dart/bin/dartaotruntime',
+          frontendServerPath: '/tools/frontend_server.snapshot',
+          config: NativeCompilerConfig(patchedSdkRoot: '/sdk-root'),
+          packageConfig: '/pkg.json',
+          processFactory: (exe, args) async => fakeProcess,
+          stallWindow: const Duration(milliseconds: 20),
+          cpuTimeReader: (pid) async {
+            readings++;
+            return cpu += const Duration(milliseconds: 500);
+          },
+        );
+        await s.start();
+
+        final compiling = s.compile('lib/main.dart');
+        while (readings < 5) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(fakeProcess.killed, isFalse);
+        fakeProcess.emitStdout('result abc');
+        fakeProcess.emitStdout('abc /tmp/slow.dill 0');
+
+        final result = await compiling;
+        expect(result.success, isTrue);
+        expect(result.dillPath, '/tmp/slow.dill');
+      },
+    );
+
+    test('a compiler whose CPU time cannot be read is not waited on '
+        'silently', () async {
+      final s = FrontendServer(
+        dartaotruntimePath: '/dart/bin/dartaotruntime',
+        frontendServerPath: '/tools/frontend_server.snapshot',
+        config: NativeCompilerConfig(patchedSdkRoot: '/sdk-root'),
+        packageConfig: '/pkg.json',
+        processFactory: (exe, args) async => fakeProcess,
+        stallWindow: const Duration(milliseconds: 20),
+        cpuTimeReader: (pid) async =>
+            throw ProcessCpuTimeException('ps has no process $pid'),
+      );
+      await s.start();
+
+      final result = await s.compile('lib/main.dart');
+      expect(result.success, isFalse);
+      expect(result.diagnostics, contains('ps has no process 12345'));
+      expect(fakeProcess.killed, isTrue);
+    });
+
     test('reject is not sent when no compile is awaiting a verdict', () async {
       // Writing an unowed verdict desynchronises the stream: the server has no
       // compile to reject, so whatever it answers belongs to nothing.
@@ -765,11 +822,13 @@ void main() {
       expect(fakeProcess.stdinBuffer.toString(), isNot(contains('accept')));
     });
 
-    test('shutdown sends "quit" and kills process', () async {
+    test('shutdown kills the process and waits for its exit', () async {
       await server.start();
+      final shuttingDown = server.shutdown();
+      await pumpEventQueue();
+      expect(fakeProcess.killed, isTrue);
       fakeProcess.complete(0);
-      await server.shutdown();
-      expect(fakeProcess.stdinBuffer.toString(), contains('quit'));
+      await shuttingDown;
     });
 
     test('compile before start throws StateError', () {
