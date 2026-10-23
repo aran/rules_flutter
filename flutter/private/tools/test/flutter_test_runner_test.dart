@@ -36,6 +36,7 @@ class _FakeVmService {
           final message = json.decode(raw as String) as Map<String, dynamic>;
           final method = message['method'] as String;
           final id = message['id'];
+          requests[method] = message['params'] as Map<String, dynamic>?;
           final handler = handlers[method];
           if (handler == null) {
             socket.add(
@@ -59,6 +60,9 @@ class _FakeVmService {
 
   /// Keyed by RPC method; each returns the `result`/`error` half of a reply.
   final handlers = <String, Map<String, dynamic> Function()>{};
+
+  /// The params of the last request for each RPC method.
+  final requests = <String, Map<String, dynamic>?>{};
 
   Uri get httpUri => Uri.parse('http://127.0.0.1:${_server.port}/');
 
@@ -117,12 +121,24 @@ void main() {
   group('collectCoverage', () {
     test('renders hits and misses as LCOV line records', () async {
       expect(
-        await runner.collectCoverage(vm.httpUri),
+        await runner.collectCoverage(vm.httpUri, const ['package:pkg/']),
         'SF:/pkg/a.dart\n'
         'DA:5,1\n'
         'DA:7,0\n'
         'end_of_record',
       );
+    });
+
+    test('asks the VM for only the libraries in scope', () async {
+      await runner.collectCoverage(vm.httpUri, const [
+        'package:pkg/',
+        'org-dartlang-root:///test/a_test.dart',
+      ]);
+
+      expect(vm.requests['getSourceReport']?['libraryFilters'], [
+        'package:pkg/',
+        'org-dartlang-root:///test/a_test.dart',
+      ]);
     });
 
     // These must raise rather than report: an LCOV file missing an isolate,
@@ -138,7 +154,7 @@ void main() {
         };
 
         await expectLater(
-          runner.collectCoverage(vm.httpUri),
+          runner.collectCoverage(vm.httpUri, const ['package:pkg/']),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -157,7 +173,7 @@ void main() {
       };
 
       await expectLater(
-        runner.collectCoverage(vm.httpUri),
+        runner.collectCoverage(vm.httpUri, const ['package:pkg/']),
         throwsA(
           isA<StateError>().having(
             (e) => e.message,
@@ -182,7 +198,7 @@ void main() {
         };
 
         await expectLater(
-          runner.collectCoverage(vm.httpUri),
+          runner.collectCoverage(vm.httpUri, const ['package:pkg/']),
           throwsA(isA<TypeError>()),
         );
       },

@@ -30,7 +30,7 @@ Wire-up:
 
 Coverage: when `bazel coverage` sets `COVERAGE_OUTPUT_FILE`, the runner
 launches `flutter_tester` with the VM service enabled and collects source
-reports via JSON-RPC, writing LCOV.
+reports via JSON-RPC, writing LCOV for the test's own package and sources.
 
 Usage:
     flutter_test(
@@ -58,7 +58,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartKernelSdkInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_import_check_aspect", "dart_link_kernel_action", "derive_lib_root", "import_check_validation", "module_defines_transition", "runfiles_path")
 load("//flutter:providers.bzl", "FlutterInfo")
-load("//flutter/private:app_entrypoint.bzl", "compile_package_config", "synthesize_app_package")
+load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "compile_package_config", "synthesize_app_package")
 load(
     "//flutter/private:common.bzl",
     "FLUTTER_APPLICATION_ATTRS",
@@ -185,6 +185,17 @@ def _kernel_root_path(short_path):
     # Where a file sits under the kernel filesystem roots: another
     # repository's `../<repo>/…` is `external/<repo>/…` there.
     return "external/" + short_path[3:] if short_path.startswith("../") else short_path
+
+# The schemes each compile mode names a test's own non-`package:` sources by:
+# the per-library link reads them through rules_dart's kernel roots, and the
+# whole-program compile mounts the exec root under the app scheme. Both are the
+# same wherever the kernel is built.
+_MODULAR_SCHEME = "org-dartlang-root"
+
+def _own_source_uri(file, modular):
+    if modular:
+        return "%s:///%s" % (_MODULAR_SCHEME, _kernel_root_path(file.short_path))
+    return "%s:///%s" % (APP_SCHEME, file.path)
 
 def _exposes_package(deps, names):
     """True if any dep transitively exposes one of `names`."""
@@ -388,10 +399,18 @@ def _flutter_test_impl(ctx):
         # Display path for the suite. Used in package:test report output.
         "FLUTTER_TEST_PATH": ctx.file.main.short_path,
         "FLUTTER_TEST_IMPELLER": "1" if ctx.attr.enable_impeller else "",
+        # What a coverage run reports, one URI prefix a line: the test's own
+        # package and its own sources, as `flutter test --coverage` reports its
+        # package by default. The rule's generated bootstrap and comparator
+        # are not the user's code.
+        "FLUTTER_TEST_COVERAGE_LIBRARIES": "\n".join(
+            ["package:%s/" % ctx.attr.package_name] +
+            [_own_source_uri(f, modular) for f in [ctx.file.main] + ctx.files.srcs],
+        ),
     }
 
     # User-supplied variables, merged last but never over the rule's own keys:
-    # those six are the runner's start-up contract, and a test that quietly
+    # those are the runner's start-up contract, and a test that quietly
     # replaced one would fail far from the cause.
     for key, value in ctx.attr.env.items():
         if key in env:
@@ -541,6 +560,12 @@ def _compile_whole_program(ctx, flutter_sdk_info, bootstrap, own_srcs, packages,
         # The debug platform: asserts on, as `flutter test` compiles.
         platform_dill = flutter_sdk_info.platform_kernel_dill,
         main = bootstrap,
+        # Under the app scheme, not the bootstrap's exec path: frontend_server
+        # names a root given as a path by the sandbox it ran in, so the kernel
+        # and every coverage report would carry a sandbox-specific `file://`
+        # path to the test.
+        entrypoint_uri = _own_source_uri(bootstrap, modular = False),
+        filesystem_roots = [""],
         srcs = pc.srcs,
         package_config = pc.config_file,
         output = kernel_dill,

@@ -106,6 +106,9 @@ void main(List<String> args) async {
   final assetsDir = assetsKey == null ? null : r.rlocation(assetsKey);
   final testPath = Platform.environment['FLUTTER_TEST_PATH'] ?? 'test.dart';
   final coverageOutput = Platform.environment['COVERAGE_OUTPUT_FILE'];
+  final coverageLibraries =
+      Platform.environment['FLUTTER_TEST_COVERAGE_LIBRARIES']?.split('\n') ??
+      const <String>[];
 
   final TestSelection selection;
   try {
@@ -126,6 +129,7 @@ void main(List<String> args) async {
     assetsDir: assetsDir,
     testPath: testPath,
     coverageOutput: coverageOutput,
+    coverageLibraries: coverageLibraries,
     updateGoldens: updateGoldens,
     selection: selection,
     xmlOutput: Platform.environment['XML_OUTPUT_FILE'],
@@ -140,6 +144,7 @@ Future<int> _runOnce({
   required String? assetsDir,
   required String testPath,
   required String? coverageOutput,
+  required List<String> coverageLibraries,
   required bool updateGoldens,
   required TestSelection selection,
   required String? xmlOutput,
@@ -154,6 +159,7 @@ Future<int> _runOnce({
       assetsDir: assetsDir,
       testPath: testPath,
       coverageOutput: coverageOutput,
+      coverageLibraries: coverageLibraries,
       updateGoldens: updateGoldens,
       selection: selection,
       xmlOutput: xmlOutput,
@@ -300,6 +306,7 @@ class _Harness {
     required String? assetsDir,
     required String testPath,
     required String? coverageOutput,
+    required List<String> coverageLibraries,
     required bool updateGoldens,
     required TestSelection selection,
     required String? xmlOutput,
@@ -495,9 +502,11 @@ class _Harness {
         // and a collection that takes seconds idle takes minutes.
         final lcov = await collectCoverage(
           coverageVmServiceUri,
+          coverageLibraries,
         ).timeout(testCeiling(Platform.environment['TEST_TIMEOUT']));
-        // Every healthy run yields at least the bootstrap's own record, so an
-        // empty report means collection reached no source at all. Writing it
+        // Every healthy run yields at least the test's own `main` file, which
+        // is always in scope, so an empty report means collection reached no
+        // source at all. Writing it
         // would produce exactly the green-test-with-empty-LCOV outcome the
         // exit below exists to prevent.
         if (lcov.isEmpty) {
@@ -907,7 +916,14 @@ String _indent(String body, String prefix) {
 // `dart`-based runner had, but pointed at flutter_tester instead of the Dart
 // SDK binary.
 
-/// Collects an LCOV report from every isolate the VM service lists.
+/// Collects an LCOV report from every isolate the VM service lists, over the
+/// libraries whose URIs start with one of [libraryFilters].
+///
+/// Scoped, as `flutter test --coverage` scopes to the test's own package by
+/// default: `forceCompile` compiles every library in scope and each script
+/// costs a round trip for its token table, so an unscoped report over the
+/// whole Flutter framework (some 1,000 scripts) costs seconds of CPU even
+/// for a test that touches none of it.
 ///
 /// Public so `flutter_test_runner_test.dart` can drive it against a fake VM
 /// service; nothing else in this script calls it from outside [main].
@@ -928,7 +944,7 @@ String _indent(String body, String prefix) {
 /// isolates `getVM` just listed are alive by construction — measured at one
 /// isolate, collected without error, on the `hello_coverage_test` path that is
 /// the only coverage run in the repo.
-Future<String> collectCoverage(Uri httpUri) async {
+Future<String> collectCoverage(Uri httpUri, List<String> libraryFilters) async {
   final ws = await _connectVmServiceWebSocket(httpUri);
   try {
     final rpc = _VmServiceRpc(ws);
@@ -941,6 +957,7 @@ Future<String> collectCoverage(Uri httpUri) async {
         'isolateId': id,
         'reports': const ['Coverage'],
         'forceCompile': true,
+        'libraryFilters': libraryFilters,
       });
       await _formatLcov(report, lines, rpc, id);
     }

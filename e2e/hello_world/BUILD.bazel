@@ -306,9 +306,8 @@ flutter_test(
 # it exercises the real code under the canonical `bazel test //...` rather
 # than simulating it.
 #
-# The `moderate` timeout is deliberately *longer* than the runner's own
-# two-minute dial-back bound, so a hang is reported by the runner with a reason
-# rather than killed by Bazel as a bare TIMEOUT. Do not drop it to `short`.
+# The runner bounds collection just inside this timeout, so a hang is reported
+# with a reason rather than killed by Bazel as a bare TIMEOUT.
 flutter_test(
     name = "hello_coverage_test",
     package_name = "hello_world",

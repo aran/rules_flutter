@@ -57,11 +57,9 @@ def flutter_kernel_compile_action(
             applies a delta when the dev tool's incremental dill keys the
             library by the *same* URI as the running program. When None,
             frontend_server is given [main]'s exec path, so the root
-            library's URI is a sandbox-specific `file://` path — acceptable
-            only for entrypoints that are never hot-reloaded and belong to
-            no package (e.g. a generated test bootstrap). The
-            app_entrypoint resolver always supplies a concrete value for
-            application builds.
+            library's URI is a sandbox-specific `file://` path, which also
+            makes the kernel's bytes depend on the sandbox it was built in.
+            Every caller supplies one.
         aot: If True, compile for AOT (adds --aot --tfa flags).
         defines: Environment declarations; each entry becomes a -D flag.
         extra_flags: Additional frontend_server flags.
