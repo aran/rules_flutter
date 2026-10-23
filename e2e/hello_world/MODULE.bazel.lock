@@ -204,8 +204,8 @@
     "https://bcr.bazel.build/modules/rules_cc/0.2.26/source.json": "bf9ff315da6055c1e374d627012cc51947a05b3560674af7d69fbedbb4fde6ef",
     "https://bcr.bazel.build/modules/rules_cc/0.2.8/MODULE.bazel": "f1df20f0bf22c28192a794f29b501ee2018fa37a3862a1a2132ae2940a23a642",
     "https://bcr.bazel.build/modules/rules_cc/0.2.9/MODULE.bazel": "34263f1dca62ea664265438cef714d7db124c03e1ed55ebb4f1dc860164308d1",
-    "https://bcr.bazel.build/modules/rules_dart/0.7.3/MODULE.bazel": "10fd30dd5f0c2a30c5374b1ccbdc94ce7d983d680955cbdfd5f49594600050cb",
-    "https://bcr.bazel.build/modules/rules_dart/0.7.3/source.json": "b397df57f4a8a0c74300db999224bf0737315fa6d05f3b55b5a55c275b21c03b",
+    "https://bcr.bazel.build/modules/rules_dart/0.8.0/MODULE.bazel": "3ece2c19f07b7c4de296208f7832b72ea32acc158d9867fcf6b1460ecdddb2bd",
+    "https://bcr.bazel.build/modules/rules_dart/0.8.0/source.json": "e378029738355921a08f5bc58f5bb2df1a029ae082594a6bbb30523cdeee0d91",
     "https://bcr.bazel.build/modules/rules_foreign_cc/0.9.0/MODULE.bazel": "c9e8c682bf75b0e7c704166d79b599f93b72cfca5ad7477df596947891feeef6",
     "https://bcr.bazel.build/modules/rules_fuzzing/0.5.2/MODULE.bazel": "40c97d1144356f52905566c55811f13b299453a14ac7769dfba2ac38192337a8",
     "https://bcr.bazel.build/modules/rules_go/0.41.0/MODULE.bazel": "55861d8e8bb0e62cbd2896f60ff303f62ffcb0eddb74ecb0e5c0cbe36fc292c8",
@@ -379,8 +379,8 @@
     },
     "@@rules_dart+//dart/pub:extensions.bzl%pub": {
       "general": {
-        "bzlTransitiveDigest": "vWv+vK3TkahBKIFUvsYo0CqXwEZIlAGmg1Agce6t2mk=",
-        "usagesDigest": "fMZb3Ge9XX3eTcqbMciVTUcNTBBCOb/hxwFKg6IYw5k=",
+        "bzlTransitiveDigest": "wqmjv7VQaQrVIC4jdnwxWvOLvrSBZumOdnz7vF08fIc=",
+        "usagesDigest": "bZLDstv3KCwml084rixjj9NzP2RPX9Q96pvBgvd6kmQ=",
         "recordedInputs": [
           "REPO_MAPPING:rules_dart+,yaml.bzl yaml.bzl+",
           "FILE:@@rules_dart+//dart/ext/pubspec.lock ae866f3a1d4ebad9a74f9b9efab33c74dfbf904ae0d69dfe94192029d4955188"
@@ -488,6 +488,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -594,6 +595,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -700,6 +702,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -806,6 +809,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -912,6 +916,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1018,6 +1023,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1124,6 +1130,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1230,6 +1237,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1336,6 +1344,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1442,6 +1451,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1548,6 +1558,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1654,6 +1665,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1760,6 +1772,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1866,6 +1879,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -1972,6 +1986,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2078,6 +2093,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2184,6 +2200,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2290,6 +2307,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2396,6 +2414,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2502,6 +2521,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2608,6 +2628,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2714,6 +2735,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2820,6 +2842,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -2926,6 +2949,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3032,6 +3056,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3138,6 +3163,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3244,6 +3270,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3350,6 +3377,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3456,6 +3484,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3562,6 +3591,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3668,6 +3698,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3774,6 +3805,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3880,6 +3912,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -3986,6 +4019,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4092,6 +4126,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4198,6 +4233,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4304,6 +4340,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4410,6 +4447,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4516,6 +4554,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4622,6 +4661,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4728,6 +4768,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4834,6 +4875,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -4940,6 +4982,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5046,6 +5089,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5152,6 +5196,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5258,6 +5303,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5364,6 +5410,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5470,6 +5517,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5576,6 +5624,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5682,6 +5731,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5788,6 +5838,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -5894,6 +5945,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6000,6 +6052,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6106,6 +6159,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6212,6 +6266,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6318,6 +6373,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6424,6 +6480,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6530,6 +6587,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6636,6 +6694,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6742,6 +6801,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6848,6 +6908,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -6954,6 +7015,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7060,6 +7122,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7166,6 +7229,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7272,6 +7336,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7378,6 +7443,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7484,6 +7550,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7590,6 +7657,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7696,6 +7764,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7802,6 +7871,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -7908,6 +7978,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8014,6 +8085,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [
                 "@rules_dart//dart/ext/sqlite3:code_asset"
               ],
@@ -8122,6 +8194,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8228,6 +8301,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8334,6 +8408,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8440,6 +8515,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8546,6 +8622,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8652,6 +8729,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8758,6 +8836,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8864,6 +8943,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -8970,6 +9050,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9076,6 +9157,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9182,6 +9264,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9288,6 +9371,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9394,6 +9478,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9500,6 +9585,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9606,6 +9692,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9712,6 +9799,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9818,6 +9906,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -9924,6 +10013,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -10030,6 +10120,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
@@ -10136,6 +10227,7 @@
                 "yaml",
                 "yaml_edit"
               ],
+              "explicit_packages": [],
               "code_assets": [],
               "ignore_hook": false
             }
