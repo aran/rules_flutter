@@ -488,13 +488,14 @@ class _Harness {
     String? coverageError;
     if (enableVmService && coverageVmServiceUri != null) {
       try {
-        // Bounded: a VM service that stops answering mid-collection would
-        // otherwise park here until Bazel's outer test timeout, killed with no
-        // reason given. Measured at ~2s for the whole Flutter framework (958
-        // scripts), so the bound is headroom, not a deadline.
+        // Bounded inside Bazel's own budget, like the suite and each test: a
+        // VM service that stops answering mid-collection would otherwise park
+        // here until Bazel kills the target with no reason given. Not a fixed
+        // bound: on a starved machine the tester gets a few percent of a core
+        // and a collection that takes seconds idle takes minutes.
         final lcov = await collectCoverage(
           coverageVmServiceUri,
-        ).timeout(const Duration(minutes: 2));
+        ).timeout(testCeiling(Platform.environment['TEST_TIMEOUT']));
         // Every healthy run yields at least the bootstrap's own record, so an
         // empty report means collection reached no source at all. Writing it
         // would produce exactly the green-test-with-empty-LCOV outcome the
