@@ -747,6 +747,8 @@ there with the common `exec_group_compatible_with` attribute, e.g. \
 `exec_group_compatible_with = {"test": ["@platforms//os:macos"]}`. That pins \
 where the test runs and leaves its compiles free to run elsewhere. \
 `exec_compatible_with` does not pin the test: it constrains only the rule's \
-default group. A test that loads native libraries (Native Assets) must run \
-where they were built for, and the rule refuses one that is not pinned so.""",
+default group. A test that loads native libraries must run on the platform \
+they were built for, the target: pin it the same way. The rule refuses a test \
+whose Native Assets would load on another platform; it cannot see an FFI \
+library passed in `data`, so pin such a test yourself.""",
 )
