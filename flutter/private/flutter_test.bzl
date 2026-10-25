@@ -657,7 +657,12 @@ _TEST_ATTRS["enable_impeller"] = attr.bool(
     doc = "Render with Impeller in flutter_tester, as `flutter test " +
           "--enable-impeller` does, instead of software Skia. A test that " +
           "draws an Impeller-only shader, or a golden meant to match an " +
-          "Impeller device, needs it.",
+          "Impeller device, needs it. Impeller needs a GPU where the test " +
+          "runs (Metal on macOS, Vulkan on Linux); a host without one, such " +
+          "as a typical remote worker, fails to start flutter_tester. A " +
+          "test runs on a host matching its target by default; where the " +
+          "root module lets tests run elsewhere, keep this one on a host " +
+          "with a GPU with `exec_group_compatible_with = {\"test\": [...]}`.",
     default = False,
 )
 
