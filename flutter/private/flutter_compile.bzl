@@ -8,6 +8,11 @@ Flutter compilation differs from vanilla Dart in that it uses:
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
 
+# frontend_server stays within about one core. The memory covers a small app;
+# a larger program needs more.
+def _kernel_compile_resources(_os, _inputs):
+    return {"memory": 600}
+
 def flutter_kernel_compile_action(
         ctx,
         dartaotruntime,
@@ -174,6 +179,7 @@ def flutter_kernel_compile_action(
         outputs = outputs,
         mnemonic = "FlutterKernelCompile",
         exec_group = PORTABLE,
+        resource_set = _kernel_compile_resources,
         progress_message = "Compiling Flutter kernel %s" % ctx.label,
         env = env,
     )

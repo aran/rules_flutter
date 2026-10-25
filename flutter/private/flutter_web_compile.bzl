@@ -167,6 +167,18 @@ def web_experiment_flags(enable_experiments):
     """
     return ["--enable-experiment=" + e for e in enable_experiments]
 
+# What the compilers use, measured with `/usr/bin/time -l` on the hello_world
+# e2e web app (three to six runs each, a 16-core Mac): both peak at 600-790 MiB, and
+# a larger program needs more. An optimizing dart2wasm (`-O1` and up) hands
+# the module to Binaryen, which optimizes on every core it can get: 2.3-5.9
+# cores averaged over the whole compile, median 3.8. Everything else stays
+# within 1.3 cores.
+def _dart2wasm_optimizing_resources(_os, _inputs):
+    return {"cpu": 4, "memory": 800}
+
+def _web_compiler_resources(_os, _inputs):
+    return {"memory": 800}
+
 def _sandbox_env(dart, writable_dir):
     """Build env dict that suppresses analytics and provides a writable HOME."""
     env = {"CI": "true", "FLUTTER_SUPPRESS_ANALYTICS": "true"}
@@ -244,10 +256,11 @@ def flutter_dart2wasm_action(
     args.add_all(web_experiment_flags(enable_experiments))
 
     # Optimization.
-    args.add("-O%d" % resolve_web_optimization_level(
+    level = resolve_web_optimization_level(
         optimization_level,
         default_dart2wasm_optimization_level(mode),
-    ))
+    )
+    args.add("-O%d" % level)
     args.add("--strip-wasm" if (mode == "release" and strip_wasm) else "--no-strip-wasm")
     args.add("--minify" if resolve_web_minify(minify, mode) else "--no-minify")
     if output_source_map == None:
@@ -294,6 +307,7 @@ def flutter_dart2wasm_action(
         outputs = [output_wasm, output_mjs] + ([output_source_map] if output_source_map != None else []),
         mnemonic = "FlutterDart2Wasm",
         exec_group = PORTABLE,
+        resource_set = _dart2wasm_optimizing_resources if level > 0 else _web_compiler_resources,
         progress_message = "Compiling Flutter to WASM %s" % ctx.label,
         env = _sandbox_env(dart, output_wasm.dirname),
     )
@@ -411,6 +425,7 @@ def flutter_dart2js_action(
         outputs = [output_dir],
         mnemonic = "FlutterDart2JS",
         exec_group = PORTABLE,
+        resource_set = _web_compiler_resources,
         progress_message = "Compiling Flutter to JavaScript %s" % ctx.label,
         env = _sandbox_env(dart, output_dir.path),
     )
