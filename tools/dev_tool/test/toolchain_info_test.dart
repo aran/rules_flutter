@@ -103,7 +103,13 @@ void main() {
       expect(
         p.split(paths.frontendServer),
         p.split(
-          p.join(repo, 'host-tools', 'frontend_server_aot.dart.snapshot'),
+          p.join(
+            repo,
+            'dart-sdk',
+            'bin',
+            'snapshots',
+            'frontend_server_aot.dart.snapshot',
+          ),
         ),
       );
       expect(

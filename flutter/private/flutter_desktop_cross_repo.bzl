@@ -64,7 +64,7 @@ flutter_toolchain(
     dartaotruntime = "@{host_repo_name}//:dart-sdk/bin/{dartaotruntime_bin}",
 {engine_library_attr}
     engine_revision = "{engine_revision}",
-    frontend_server = "@{host_repo_name}//:host-tools/frontend_server_aot.dart.snapshot",
+    frontend_server = "@{host_repo_name}//:dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot",
     gen_snapshot = "@{host_repo_name}//:host-tools/gen_snapshot{exe_suffix}",
     icu_data = "@{host_repo_name}//:host-tools/icudtl.dat",
     const_finder = "@{host_repo_name}//:font-subset-tools/const_finder.dart.snapshot",

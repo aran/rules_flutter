@@ -146,7 +146,9 @@ Future<ToolchainPaths> resolveToolchainPaths(
     dartaotruntime: p.join(externalDir, 'dart-sdk', 'bin', dartaotruntimeBin),
     frontendServer: p.join(
       externalDir,
-      'host-tools',
+      'dart-sdk',
+      'bin',
+      'snapshots',
       'frontend_server_aot.dart.snapshot',
     ),
     platformDill: p.join(

@@ -280,7 +280,7 @@ flutter_toolchain(
     engine_revision = "{engine_revision}",
 {engine_library_attr}
     flutter_tester = "host-tools/flutter_tester{exe_suffix}",
-    frontend_server = "host-tools/frontend_server_aot.dart.snapshot",
+    frontend_server = "dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot",
     kernel_worker = "dart-sdk/bin/snapshots/kernel_worker_aot.dart.snapshot",
     libraries_spec = "{flutter_libraries_spec}",
 {gen_snapshot_attr}
@@ -308,7 +308,7 @@ flutter_exec_tools(
     engine_revision = "{engine_revision}",
     flutter_tester = "host-tools/flutter_tester{exe_suffix}",
     font_subset = "font-subset-tools/font-subset{exe_suffix}",
-    frontend_server = "host-tools/frontend_server_aot.dart.snapshot",
+    frontend_server = "dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot",
     host_arch = "{host_arch}",
     host_os = "{host_os}",
     icu_data = "host-tools/icudtl.dat",
