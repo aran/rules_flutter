@@ -206,7 +206,6 @@ def _flutter_application_impl(ctx):
         link = dart_link_hook_actions(
             ctx,
             runner = ctx.executable._link_hook_runner,
-            sdk = ctx.toolchains["@rules_dart//dart:exec_tools_toolchain_type"].dart_sdk_info,
             recorded_uses = recorded_uses,
             deps = ctx.attr.deps,
             data_asset_ids = ctx.attr.link_hook_assets,
@@ -473,7 +472,6 @@ flutter_application = rule(
     # compile whose output does not depend on the target is `portable`.
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
-        "@rules_dart//dart:exec_tools_toolchain_type",
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,
     exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Compiles a Flutter application to AOT native code + asset bundle (release) or kernel .dill + assets (debug).",
