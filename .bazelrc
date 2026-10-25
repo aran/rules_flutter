@@ -75,6 +75,11 @@ common --lockfile_mode=error
 common --tool_java_language_version=25
 common --tool_java_runtime_version=remotejdk_25
 
+# Start py_binary tools with their hermetic interpreter, not python3 from
+# PATH, which a remote worker does not have. The canonical label needs no
+# direct bazel_dep on rules_python.
+common --@@rules_python+//python/config_settings:bootstrap_impl=script
+
 # Load any settings specific to the current user.
 # .bazelrc.user should appear in .gitignore so that settings are not shared with team members
 # This needs to be last statement in this

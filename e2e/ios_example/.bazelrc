@@ -5,6 +5,11 @@ common --java_runtime_version=remotejdk_25
 common --tool_java_language_version=25
 common --tool_java_runtime_version=remotejdk_25
 
+# Start py_binary tools with their hermetic interpreter, not python3 from
+# PATH, which a remote worker does not have. The canonical label needs no
+# direct bazel_dep on rules_python.
+common --@@rules_python+//python/config_settings:bootstrap_impl=script
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart

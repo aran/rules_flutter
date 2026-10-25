@@ -5,6 +5,11 @@ common --lockfile_mode=off
 build --platforms=@rules_flutter//flutter/platforms:linux_x64
 build -c dbg
 
+# Start py_binary tools with their hermetic interpreter, not python3 from
+# PATH, which a remote worker does not have. The canonical label needs no
+# direct bazel_dep on rules_python.
+common --@@rules_python+//python/config_settings:bootstrap_impl=script
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect. Under `build`
