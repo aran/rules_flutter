@@ -6,6 +6,7 @@ not a kernel .dill.
 """
 
 load("//flutter/private:common.bzl", "flutter_build_mode")
+load("//flutter/private:exec_groups.bzl", "PORTABLE")
 
 def web_build_mode(ctx):
     """The web build mode for the current Bazel compilation mode.
@@ -292,6 +293,7 @@ def flutter_dart2wasm_action(
         ),
         outputs = [output_wasm, output_mjs] + ([output_source_map] if output_source_map != None else []),
         mnemonic = "FlutterDart2Wasm",
+        exec_group = PORTABLE,
         progress_message = "Compiling Flutter to WASM %s" % ctx.label,
         env = _sandbox_env(dart, output_wasm.dirname),
     )
@@ -408,6 +410,7 @@ def flutter_dart2js_action(
         ),
         outputs = [output_dir],
         mnemonic = "FlutterDart2JS",
+        exec_group = PORTABLE,
         progress_message = "Compiling Flutter to JavaScript %s" % ctx.label,
         env = _sandbox_env(dart, output_dir.path),
     )

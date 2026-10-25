@@ -6,6 +6,7 @@ Flutter compilation differs from vanilla Dart in that it uses:
 """
 
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
+load("//flutter/private:exec_groups.bzl", "PORTABLE")
 
 def flutter_kernel_compile_action(
         ctx,
@@ -172,6 +173,7 @@ def flutter_kernel_compile_action(
         ),
         outputs = outputs,
         mnemonic = "FlutterKernelCompile",
+        exec_group = PORTABLE,
         progress_message = "Compiling Flutter kernel %s" % ctx.label,
         env = env,
     )

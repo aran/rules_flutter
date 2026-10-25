@@ -16,6 +16,8 @@ Bazel files the generator never writes, and the build would fail with an opaque
 grouping below is what keeps that correct.
 """
 
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS")
+
 def _locale_of(basename, prefix, label):
     """The locale a template-prefixed arb filename encodes, e.g. `es_419`."""
     if not basename.endswith(".arb"):
@@ -141,6 +143,7 @@ def _flutter_gen_l10n_impl(ctx):
         inputs = srcs,
         outputs = outs,
         mnemonic = "FlutterGenL10n",
+        exec_group = PORTABLE,
         progress_message = "Generating localizations for %{label}",
     )
 
@@ -208,8 +211,9 @@ flutter_gen_l10n = rule(
         "_generator": attr.label(
             default = "//flutter/private/gen_l10n:gen_l10n",
             executable = True,
-            cfg = "exec",
+            cfg = config.exec(PORTABLE),
         ),
     },
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Generates Flutter `AppLocalizations` Dart from `.arb` files.",
 )

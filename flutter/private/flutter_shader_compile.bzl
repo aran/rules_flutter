@@ -5,6 +5,8 @@ impellerc offline shader processor. Platform-specific runtime stages are
 selected based on the target platform.
 """
 
+load("//flutter/private:exec_groups.bzl", "PORTABLE")
+
 # Platform-specific impellerc flags. Flutter's shader compiler targets:
 # - iOS: Metal only
 # - macOS: SKSL + Metal
@@ -112,6 +114,7 @@ def flutter_shader_compile_action(
             inputs = depset(inputs + [impellerc, compile_tool], transitive = [dart_files]),
             outputs = [output, spirv_output],
             mnemonic = "FlutterShaderCompile",
+            exec_group = PORTABLE,
             progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),
         )
     else:
@@ -121,5 +124,6 @@ def flutter_shader_compile_action(
             inputs = inputs,
             outputs = [output, spirv_output],
             mnemonic = "FlutterShaderCompile",
+            exec_group = PORTABLE,
             progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),
         )

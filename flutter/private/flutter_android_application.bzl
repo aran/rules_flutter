@@ -46,6 +46,7 @@ is a hard build error.
 
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_elf_machine_for_abi", "android_platform_for_abi", "compute_android_jni_path")
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 def _android_platform_transition_impl(_settings, attr):
     return {"//command_line_option:platforms": [android_platform_for_abi(attr.android_abi)]}
@@ -172,11 +173,12 @@ def _create_native_libs_jar(ctx, aot_output, native_libs, abi):
         tools = [ctx.executable._zipper],
         outputs = [jar],
         mnemonic = "FlutterNativeLibsJar",
+        exec_group = PORTABLE,
         progress_message = "Packaging Flutter native libs into jar %s" % ctx.label,
     )
     return jar
 
-def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info):
+def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, tools):
     """Copy flutter_assets and add kernel_blob.bin + VM snapshots for debug mode.
 
     On Android, the debug engine looks for kernel_blob.bin inside
@@ -190,14 +192,11 @@ def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info)
     args = [flutter_assets.path, out.path, kernel_dill.path]
     inputs = [flutter_assets, kernel_dill]
 
-    vm_snapshot = flutter_sdk_info.vm_isolate_snapshot
-    iso_snapshot = flutter_sdk_info.isolate_snapshot
-    if vm_snapshot:
-        cmd += ' && cp "%s" "$2/vm_snapshot_data"' % vm_snapshot.path
-        inputs.append(vm_snapshot)
-    if iso_snapshot:
-        cmd += ' && cp "%s" "$2/isolate_snapshot_data"' % iso_snapshot.path
-        inputs.append(iso_snapshot)
+    vm_snapshot = tools.vm_isolate_snapshot
+    iso_snapshot = tools.isolate_snapshot
+    cmd += ' && cp "%s" "$2/vm_snapshot_data"' % vm_snapshot.path
+    cmd += ' && cp "%s" "$2/isolate_snapshot_data"' % iso_snapshot.path
+    inputs.extend([vm_snapshot, iso_snapshot])
 
     ctx.actions.run_shell(
         command = cmd,
@@ -205,6 +204,7 @@ def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info)
         inputs = inputs,
         outputs = [out],
         mnemonic = "FlutterAndroidDebugAssets",
+        exec_group = PORTABLE,
         progress_message = "Assembling debug flutter_assets with kernel and VM snapshots %s" % ctx.label,
     )
     return out
@@ -212,7 +212,7 @@ def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info)
 def _flutter_android_bundle_impl(ctx):
     """Bundles Flutter compilation outputs for Android packaging."""
     app_info = ctx.attr.application[FlutterApplicationInfo]
-    flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
+    tools = portable_tools(ctx)
     flutter_assets = app_info.flutter_assets
     native_libs = list(app_info.native_libs)
 
@@ -225,7 +225,7 @@ def _flutter_android_bundle_impl(ctx):
 
     # Debug mode: include kernel_blob.bin in flutter_assets for JIT execution.
     if kernel_dill and not app_info.aot_output:
-        flutter_assets = _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, flutter_sdk_info)
+        flutter_assets = _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, tools)
 
     # The AOT output is the libapp.so for Android.
     aot_output = app_info.aot_output
@@ -247,6 +247,7 @@ def _flutter_android_bundle_impl(ctx):
             arguments = [native_libs_jar.path],
             outputs = [native_libs_jar],
             mnemonic = "FlutterEmptyNativeLibsJar",
+            exec_group = PORTABLE,
             progress_message = "Creating empty native libs jar (debug mode) %s" % ctx.label,
         )
 
@@ -311,13 +312,15 @@ agree.""",
         "_zipper": attr.label(
             default = "@bazel_tools//tools/zip:zipper",
             executable = True,
-            cfg = "exec",
+            cfg = config.exec(PORTABLE),
         ),
         "_allowlist_function_transition": attr.label(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     },
-    toolchains = ["@rules_flutter//flutter:toolchain_type"],
+    # Packaging copies and zips what the application built, the same bytes on
+    # any host.
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = """Bundles Flutter compilation outputs for Android packaging.
 
 Produces a native_libs.jar containing lib/<abi>/libapp.so and a flutter_assets

@@ -5,17 +5,15 @@ This is the base compilation step shared by all Flutter platform targets.
 
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter/private:common.bzl", "AGENT_EXTENSIONS_ATTR", "KERNEL_COMPILE_ATTRS", "flutter_compile_kernel")
+load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 def _flutter_kernel_target_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
-
     # flutter_compile_kernel handles mode-aware platform dill selection.
     # If the user explicitly requests AOT, force it regardless of mode.
     # None lets flutter_compile_kernel decide based on COMPILATION_MODE;
     # True forces AOT even in debug mode.
     aot = True if ctx.attr.aot else None
-    compilation = flutter_compile_kernel(ctx, flutter_sdk_info, aot = aot)
+    compilation = flutter_compile_kernel(ctx, portable_tools(ctx), aot = aot)
 
     return [
         DefaultInfo(files = depset([compilation.kernel_dill])),
@@ -32,8 +30,9 @@ flutter_kernel_target = rule(
             default = False,
         ),
     } | AGENT_EXTENSIONS_ATTR,
-    toolchains = [
-        "@rules_flutter//flutter:toolchain_type",
-    ] + COPY_TO_DIRECTORY_TOOLCHAINS,
+    # A kernel is the same for every target, so nothing here needs the
+    # target's toolchain.
+    toolchains = COPY_TO_DIRECTORY_TOOLCHAINS,
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Compiles Flutter sources to a kernel .dill file.",
 )

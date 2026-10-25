@@ -9,6 +9,7 @@ described here, and its own modules.
 
 load("@rules_dart//dart:providers.bzl", "DartKernelSdkInfo")
 load("@rules_dart//dart:utils.bzl", "dart_module_aspect")
+load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS")
 
 def _flutter_kernel_sdk_impl(ctx):
     sdk = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
@@ -41,7 +42,10 @@ flutter_kernel_sdk = rule(
     doc = "The `DartKernelSdkInfo` for the debug Flutter platform, from the resolved Flutter toolchain.",
 )
 
+# The modules compile on a `portable` host that has the Flutter tools as well
+# as a Dart SDK: `flutter_kernel_sdk` is built for that host.
 flutter_module_aspect = dart_module_aspect(
     Label("//flutter/private:flutter_kernel_sdk"),
     extra_dart_defines = Label("//flutter:extra_dart_defines"),
+    exec_toolchains = [FLUTTER_EXEC_TOOLS],
 )

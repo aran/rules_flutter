@@ -9,6 +9,7 @@ platforms (ELF .so).
 
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "KERNEL_COMPILE_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "flutter_build_mode", "flutter_compile_kernel")
+load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 
 def _flutter_aot_target_impl(ctx):
@@ -20,7 +21,7 @@ def _flutter_aot_target_impl(ctx):
     # Step 1: Kernel compilation.
     compilation = flutter_compile_kernel(
         ctx,
-        flutter_sdk_info,
+        portable_tools(ctx),
         aot = not is_debug,
     )
     kernel_dill = compilation.kernel_dill
@@ -79,8 +80,10 @@ _AOT_ATTRS = KERNEL_COMPILE_ATTRS | {k: v for k, v in FLUTTER_APPLICATION_ATTRS.
 flutter_aot_target = rule(
     implementation = _flutter_aot_target_impl,
     attrs = dict(_AOT_ATTRS, **PLATFORM_CONSTRAINT_ATTRS),
+    # The target's toolchain is for gen_snapshot; the kernel is `portable`.
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Compiles Flutter sources to an AOT artifact (.so or .dylib depending on target platform).",
 )

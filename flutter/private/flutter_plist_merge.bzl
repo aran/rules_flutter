@@ -21,11 +21,12 @@ Two explicit modes, both never-wrong:
       debuggable VM service.
 """
 
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+
 _TOOL = Label("//flutter/private/tools:merge_plists.dart")
 
 def _flutter_plist_merge_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    tools = portable_tools(ctx)
 
     tool = ctx.file._merge_tool
     output = ctx.actions.declare_file(
@@ -45,14 +46,15 @@ def _flutter_plist_merge_impl(ctx):
     arguments += ["--output", output.path]
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = tools.dart,
         arguments = arguments,
         inputs = depset(
             direct = inputs,
-            transitive = [flutter_sdk_info.tool_files],
+            transitive = [tools.tool_files],
         ),
         outputs = [output],
         mnemonic = "FlutterPlistMerge",
+        exec_group = PORTABLE,
         progress_message = "Merging plist %s" % ctx.label,
     )
 
@@ -99,9 +101,7 @@ flutter_plist_merge = rule(
             allow_single_file = True,
         ),
     },
-    toolchains = [
-        "@rules_flutter//flutter:toolchain_type",
-    ],
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Merges plist additions into a base plist under an explicit mode, " +
           "and drops the scaffold placeholders named by `drop_empty_keys`.",
 )

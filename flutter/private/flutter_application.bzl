@@ -18,6 +18,7 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "dart_link_hook_actions", "link_hook_runner_attr")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
 load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args", "shader_sources")
+load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
 load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
@@ -127,7 +128,7 @@ def _flutter_application_impl(ctx):
     # Step 1: Kernel compilation (mode-aware: debug uses debug dill, no AOT).
     compilation = flutter_compile_kernel(
         ctx,
-        flutter_sdk_info,
+        portable_tools(ctx),
         target_platform = target_platform,
         native_assets_manifest = native_assets_manifest_file,
         track_widget_creation = ctx.attr.track_widget_creation,
@@ -216,10 +217,10 @@ def _flutter_application_impl(ctx):
 
     # Step 3: Shader compilation + asset bundle. Pass data assets so the
     # bundler places them under flutter_assets/packages/<pkg>/<name>.
-    compiled_shaders = flutter_compile_shaders(ctx, flutter_sdk_info, target_platform)
+    compiled_shaders = flutter_compile_shaders(ctx, portable_tools(ctx), target_platform)
     flutter_build_assets(
         ctx,
-        flutter_sdk_info,
+        portable_tools(ctx),
         flutter_assets,
         compiled_shaders,
         kernel_dill = kernel_dill,
@@ -468,9 +469,12 @@ flutter_application = rule(
         # in the app's output tree and landing in one it never reads.
         apple_support.platform_constraint_attrs(),
     ),
+    # The target's toolchain is for its AOT compile and engine files; every
+    # compile whose output does not depend on the target is `portable`.
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
         "@rules_dart//dart:exec_tools_toolchain_type",
     ] + COPY_TO_DIRECTORY_TOOLCHAINS,
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Compiles a Flutter application to AOT native code + asset bundle (release) or kernel .dill + assets (debug).",
 )

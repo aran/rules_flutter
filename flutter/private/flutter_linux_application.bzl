@@ -24,6 +24,7 @@ load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:cc_runner_compile.bzl", "compile_and_link_runner")
 load("//flutter/private:common.bzl", "compute_desktop_bundle_copies")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir", "linux_multiarch_triple")
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 # GTK3 include subdirectories within the Chromium sysroot.
 _GTK3_INCLUDE_SUBDIRS = [
@@ -479,7 +480,7 @@ def _flutter_linux_bundle_impl(ctx):
     inputs = [ctx.file._bundle_tool, config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = portable_tools(ctx).dart,
         arguments = [
             ctx.file._bundle_tool.path,
             "--config",
@@ -487,10 +488,11 @@ def _flutter_linux_bundle_impl(ctx):
         ],
         inputs = depset(
             direct = inputs,
-            transitive = [flutter_sdk_info.tool_files],
+            transitive = [portable_tools(ctx).tool_files],
         ),
         outputs = [bundle_dir],
         mnemonic = "FlutterLinuxBundle",
+        exec_group = PORTABLE,
         progress_message = "Bundling Linux app %s" % ctx.label,
     )
 
@@ -519,5 +521,6 @@ flutter_linux_bundle_rule = rule(
     toolchains = [
         "@rules_flutter//flutter:toolchain_type",
     ],
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Assembles a Linux application directory from a pre-compiled runner and flutter_application artifacts.",
 )

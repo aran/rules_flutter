@@ -8,6 +8,7 @@ Produces a `flutter_assets/` tree artifact containing:
 """
 
 load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions")
 
 _TOOL = Label("//flutter/private/tools:generate_asset_manifest.dart")
@@ -178,14 +179,14 @@ def flutter_asset_bundle_action(
         ),
         outputs = [output_dir],
         mnemonic = "FlutterAssetBundle",
+        exec_group = PORTABLE,
         progress_message = "Bundling Flutter assets %s" % ctx.label,
     )
 
     return output_dir
 
 def _flutter_asset_bundle_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    tools = portable_tools(ctx)
 
     # Collect assets from direct attr + transitive FlutterInfo deps.
     all_assets = list(ctx.files.assets)
@@ -200,8 +201,8 @@ def _flutter_asset_bundle_impl(ctx):
 
     output_dir = flutter_asset_bundle_action(
         ctx = ctx,
-        dart = flutter_sdk_info.dart,
-        flutter_sdk_files = flutter_sdk_info.tool_files,
+        dart = tools.dart,
+        flutter_sdk_files = tools.tool_files,
         assets = all_assets,
         fonts = fonts,
         notices = "",
@@ -226,8 +227,6 @@ flutter_asset_bundle = rule(
             allow_single_file = True,
         ),
     },
-    toolchains = [
-        "@rules_flutter//flutter:toolchain_type",
-    ],
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Generates a flutter_assets/ tree artifact with manifests and asset files.",
 )

@@ -25,6 +25,7 @@ silently mis-merge a variant manifest it does not fully understand.
 """
 
 load("@rules_android//providers:providers.bzl", "StarlarkAndroidResourcesInfo")
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 _TOOL = Label("//flutter/private/tools:merge_android_manifests.dart")
 
@@ -46,8 +47,7 @@ def _exported_library_manifests(libraries):
     return [node.manifest for node in nodes.to_list() if node.exports_manifest]
 
 def _flutter_android_manifest_merge_impl(ctx):
-    flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
-    flutter_sdk_info = flutter_toolchain.flutter_sdk_info
+    tools = portable_tools(ctx)
 
     tool = ctx.file._merge_tool
     output = ctx.actions.declare_file(ctx.label.name + "/AndroidManifest.xml")
@@ -63,14 +63,15 @@ def _flutter_android_manifest_merge_impl(ctx):
     args.add("--output", output)
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = tools.dart,
         arguments = [args],
         inputs = depset(
             direct = [tool, ctx.file.base] + ([ctx.file.overlay] if ctx.file.overlay else []) + libraries,
-            transitive = [flutter_sdk_info.tool_files],
+            transitive = [tools.tool_files],
         ),
         outputs = [output],
         mnemonic = "FlutterManifestMerge",
+        exec_group = PORTABLE,
         progress_message = "Merging Android variant manifest %s" % ctx.label,
     )
 
@@ -106,8 +107,6 @@ flutter_android_manifest_merge = rule(
             allow_single_file = True,
         ),
     },
-    toolchains = [
-        "@rules_flutter//flutter:toolchain_type",
-    ],
+    exec_groups = PORTABLE_EXEC_GROUPS,
     doc = "Merges an overlay manifest's permissions, and those of the app's Android libraries, into a base manifest.",
 )

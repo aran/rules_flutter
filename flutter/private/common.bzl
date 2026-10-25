@@ -229,7 +229,7 @@ def collect_assets(deps, direct_assets):
         return list(direct_assets) + depset(transitive = transitive_depsets).to_list()
     return list(direct_assets)
 
-def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = None, target_platform = None, frontend_server_target = "flutter", native_assets_manifest = None, track_widget_creation = False, assets_dir = None, platform_build_args = [], recorded_uses = None):
+def flutter_compile_kernel(ctx, tools, aot = None, platform_dill = None, target_platform = None, frontend_server_target = "flutter", native_assets_manifest = None, track_widget_creation = False, assets_dir = None, platform_build_args = [], recorded_uses = None):
     """Run the shared kernel compilation step.
 
     Collects sources, generates package_config.json, and invokes
@@ -244,7 +244,7 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
 
     Args:
         ctx: Rule context (must have main, srcs, deps, defines attrs).
-        flutter_sdk_info: FlutterSdkInfo from the toolchain.
+        tools: `FlutterExecToolsInfo` of the `PORTABLE` group (`portable_tools`).
         aot: If set, override AOT mode. Otherwise determined by compilation mode.
         platform_dill: If set, override platform dill. Otherwise determined by compilation mode.
         target_platform: Optional platform string (e.g. "web", "linux", "android").
@@ -360,9 +360,9 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     # product one has the VM service and the profiling hooks compiled out.
     if platform_dill == None:
         if mode == "release":
-            platform_dill = flutter_sdk_info.platform_kernel_dill_product
+            platform_dill = tools.platform_kernel_dill_product
         else:
-            platform_dill = flutter_sdk_info.platform_kernel_dill
+            platform_dill = tools.platform_kernel_dill
     if aot == None:
         aot = mode != "debug"
 
@@ -469,11 +469,11 @@ def flutter_compile_kernel(ctx, flutter_sdk_info, aot = None, platform_dill = No
     kernel_dill = ctx.actions.declare_file(ctx.label.name + ".dill")
     flutter_kernel_compile_action(
         ctx = ctx,
-        dartaotruntime = flutter_sdk_info.dartaotruntime,
-        dart = flutter_sdk_info.dart,
+        dartaotruntime = tools.dartaotruntime,
+        dart = tools.dart,
         kernel_filter_tool = ctx.file._kernel_filter_tool,
-        flutter_sdk_files = flutter_sdk_info.tool_files,
-        frontend_server = flutter_sdk_info.frontend_server,
+        flutter_sdk_files = tools.tool_files,
+        frontend_server = tools.frontend_server,
         platform_dill = platform_dill,
         main = entrypoint_info.file,
         entrypoint_uri = entrypoint_info.uri,
@@ -596,7 +596,7 @@ def shader_sources(ctx):
         for job in _shader_jobs(ctx)
     }
 
-def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
+def flutter_compile_shaders(ctx, tools, target_platform):
     """Compile every shader this target bundles for the target platform.
 
     The shaders are the target's own (`shaders`), the SDK's (collected from
@@ -605,7 +605,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
 
     Args:
         ctx: Rule context (must have shaders attr and deps attr).
-        flutter_sdk_info: FlutterSdkInfo from the toolchain.
+        tools: `FlutterExecToolsInfo` of the `PORTABLE` group (`portable_tools`).
         target_platform: Target platform string ("ios", "macos", "android", "linux", "windows", "web").
 
     Returns:
@@ -613,7 +613,7 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
         extra_asset_copies in flutter_asset_bundle_action.
     """
     jobs = _shader_jobs(ctx)
-    if not jobs or not flutter_sdk_info.impellerc:
+    if not jobs or not tools.impellerc:
         return {}
 
     compiled = {}
@@ -623,16 +623,16 @@ def flutter_compile_shaders(ctx, flutter_sdk_info, target_platform):
         output = ctx.actions.declare_file(ctx.label.name + "_shaders/" + out_path + ".iplr")
         flutter_shader_compile_action(
             ctx = ctx,
-            impellerc = flutter_sdk_info.impellerc,
-            shader_lib = flutter_sdk_info.shader_lib,
+            impellerc = tools.impellerc,
+            shader_lib = tools.shader_lib,
             shader = job.file,
             output = output,
             target_platform = target_platform,
             is_web = target_platform == "web",
             includes = job.includes,
             # What compiles a shader whose SkSL stage fails without it.
-            dart = flutter_sdk_info.dart,
-            dart_files = flutter_sdk_info.tool_files,
+            dart = tools.dart,
+            dart_files = tools.tool_files,
             compile_tool = ctx.file._shader_compile_tool,
             require_sksl = getattr(ctx.attr, "require_sksl_shaders", False),
         )
@@ -657,7 +657,7 @@ def declare_flutter_assets_dir(ctx):
     """
     return ctx.actions.declare_directory(ctx.label.name + "_flutter_assets")
 
-def flutter_build_assets(ctx, flutter_sdk_info, output_dir, compiled_shaders = {}, kernel_dill = None, is_debug = False, data_assets = None):
+def flutter_build_assets(ctx, tools, output_dir, compiled_shaders = {}, kernel_dill = None, is_debug = False, data_assets = None):
     """Run the shared asset bundling step.
 
     Walks `FlutterInfo.pub_fonts` / `pub_assets` from deps to bundle
@@ -666,7 +666,7 @@ def flutter_build_assets(ctx, flutter_sdk_info, output_dir, compiled_shaders = {
 
     Args:
         ctx: Rule context (must have assets, deps, license_files, tree_shake_icons attrs and _asset_bundle_tool).
-        flutter_sdk_info: FlutterSdkInfo from the toolchain.
+        tools: `FlutterExecToolsInfo` of the `PORTABLE` group (`portable_tools`).
         output_dir: The tree artifact to bundle into, from
             `declare_flutter_assets_dir`. Passed in rather than declared here
             so an application can bake the path into its `build_info` before
@@ -709,20 +709,20 @@ def flutter_build_assets(ctx, flutter_sdk_info, output_dir, compiled_shaders = {
         ctx.attr.tree_shake_icons and
         not is_debug and
         kernel_dill != None and
-        flutter_sdk_info.const_finder != None and
-        flutter_sdk_info.font_subset != None
+        tools.const_finder != None and
+        tools.font_subset != None
     )
 
     return flutter_asset_bundle_action(
         ctx = ctx,
-        dart = flutter_sdk_info.dart,
-        flutter_sdk_files = flutter_sdk_info.tool_files,
+        dart = tools.dart,
+        flutter_sdk_files = tools.tool_files,
         assets = all_assets,
         fonts = fonts,
         license_files = license_files,
         output_dir = output_dir,
-        const_finder = flutter_sdk_info.const_finder if tree_shake_icons else None,
-        font_subset = flutter_sdk_info.font_subset if tree_shake_icons else None,
+        const_finder = tools.const_finder if tree_shake_icons else None,
+        font_subset = tools.font_subset if tree_shake_icons else None,
         kernel_dill = kernel_dill if tree_shake_icons else None,
         extra_asset_copies = extra_asset_copies,
     )
