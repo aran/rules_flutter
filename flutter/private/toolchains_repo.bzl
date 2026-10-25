@@ -97,11 +97,16 @@ DESKTOP_CROSS_PAIRS = {
 }
 
 # Which (host, target) cross-compilation pairs are supported.
+#
+# Flutter publishes Android gen_snapshot for x64 hosts only. On Apple Silicon
+# the darwin-x64 binary runs under Rosetta, which every Mac that builds Apple
+# targets has; a Linux arm64 host has no such guarantee, so it gets no Android
+# toolchain, and an Android AOT compile picks another execution platform
+# rather than fail on one that cannot run its compiler.
 CROSS_COMPILATION_PAIRS = {
     "darwin-arm64": ["android-arm64", "android-x64", "ios-arm64"],
     "darwin-x64": ["android-arm64", "android-x64", "ios-arm64"],
     "linux-x64": ["android-arm64", "android-x64"],
-    "linux-arm64": ["android-arm64", "android-x64"],
     "windows-x64": ["android-arm64", "android-x64"],
 }
 
@@ -123,6 +128,24 @@ toolchain(
     target_compatible_with = {compatible_with},
     toolchain = "@{user_repository_name}_{platform}//:flutter_toolchain",
     toolchain_type = "@rules_flutter//flutter:toolchain_type",
+    visibility = ["//visibility:public"],
+)
+""".format(
+            platform = platform,
+            user_repository_name = repository_ctx.attr.user_repository_name,
+            compatible_with = meta.compatible_with,
+        )
+
+    # Host tools, constrained by execution platform alone: what an action needs
+    # when its output is the same whatever the target. Only the selected one is
+    # fetched.
+    for [platform, meta] in HOST_PLATFORMS.items():
+        build_content += """
+toolchain(
+    name = "{platform}_exec_tools_toolchain",
+    exec_compatible_with = {compatible_with},
+    toolchain = "@{user_repository_name}_{platform}//:flutter_exec_tools",
+    toolchain_type = "@rules_flutter//flutter:exec_tools_toolchain_type",
     visibility = ["//visibility:public"],
 )
 """.format(

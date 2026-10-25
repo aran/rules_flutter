@@ -12,6 +12,17 @@ toolchain_type(
     visibility = ["//visibility:public"],
 )
 
+# The Flutter tools whose output does not depend on the target platform
+# (kernel compiles, shaders, asset bundles, web compiles, flutter_tester),
+# for whichever execution platform an action is placed on. Its toolchains
+# constrain only the execution platform, so an action that resolves it can run
+# on any host the SDK ships for. Actions that use it run in the `portable`
+# execution group; see flutter/private/exec_groups.bzl.
+toolchain_type(
+    name = "exec_tools_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
 # Flutter's profile mode: AOT like release, with the Dart VM service kept so
 # DevTools can attach. Applies with `-c opt` only:
 #

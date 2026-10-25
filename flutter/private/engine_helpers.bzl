@@ -192,8 +192,8 @@ def gen_snapshot_host_platform(host_platform):
     """Map a host platform to the gen_snapshot artifact host platform.
 
     Flutter only publishes x64 gen_snapshot binaries for cross-compilation.
-    On arm64 hosts (macOS Apple Silicon, Linux aarch64), the x64 binary
-    runs via Rosetta 2 (macOS) or qemu (Linux).
+    On Apple Silicon the x64 binary runs via Rosetta 2. Linux arm64 hosts
+    have no cross toolchain (see `CROSS_COMPILATION_PAIRS`).
 
     Args:
         host_platform: Host platform string (e.g. "darwin-arm64", "linux-x64").
@@ -204,7 +204,6 @@ def gen_snapshot_host_platform(host_platform):
     """
     _FALLBACK = {
         "darwin-arm64": "darwin-x64",
-        "linux-arm64": "linux-x64",
     }
     return _FALLBACK.get(host_platform, host_platform)
 
