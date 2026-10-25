@@ -5,7 +5,7 @@ module(name = "rules_flutter_cross_compile_example")
 bazel_dep(name = "rules_flutter", version = "0.0.0")
 bazel_dep(name = "rules_dart", version = "0.8.0")
 bazel_dep(name = "platforms", version = "1.1.0")
-bazel_dep(name = "llvm", version = "0.8.19")
+bazel_dep(name = "llvm", version = "0.8.26")
 
 local_path_override(
     module_name = "rules_flutter",
@@ -22,6 +22,29 @@ use_repo(flutter, "deps", "flutter_toolchains")
 
 register_toolchains("@flutter_toolchains//:all")
 
-# Hermetic LLVM CC toolchain for cross-compilation.
-# Provides clang + lld that can produce Linux ELF binaries from macOS.
-register_toolchains("@llvm//toolchain:all")
+# Hermetic LLVM CC toolchains for the linux_x64 target this workspace builds,
+# from each Mac and Linux host and from a Linux arm64 remote worker. Only these
+# pairs, not `:all`, which would also claim macOS-target compiles from Apple's
+# toolchain.
+register_toolchains(
+    "@llvm//toolchain:macos_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:macos_x86_64_to_linux_x86_64",
+    "@llvm//toolchain:linux_aarch64_to_linux_x86_64",
+    "@llvm//toolchain:linux_x86_64_to_linux_x86_64",
+)
+
+# Hermetic C++ toolchain for Linux arm64 execution platforms, so a C++ tool
+# built for the exec platform (zipper, xmllint) can be compiled when Bazel runs
+# actions on a Linux arm64 worker. Only the Linux-exec, Linux-target toolchain
+# exists: Mac and iOS builds keep apple_support's toolchain. It is registered
+# only for cloud builds, by `--extra_toolchains` in .bazelrc.
+llvm_tc = use_extension("@llvm//extensions:toolchain.bzl", "toolchain", dev_dependency = True)
+llvm_tc.exec(
+    arch = "aarch64",
+    os = "linux",
+)
+llvm_tc.target(
+    arch = "aarch64",
+    os = "linux",
+)
+use_repo(llvm_tc, "llvm_toolchains")

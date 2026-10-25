@@ -5,6 +5,10 @@ common --lockfile_mode=off
 # direct bazel_dep on rules_python.
 common --@@rules_python+//python/config_settings:bootstrap_impl=script
 
+# The Linux arm64 C++ toolchain declared in MODULE.bazel, registered only
+# where actions can run on a Linux arm64 worker.
+build:dynabzl-cloud --extra_toolchains=@llvm_toolchains//:all
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart
