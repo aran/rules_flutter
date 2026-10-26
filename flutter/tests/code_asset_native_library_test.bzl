@@ -139,7 +139,11 @@ def code_asset_native_library_test_suite(name):
         _hot_patch_test(
             name = name + "_hot_patch_" + owner,
             target_under_test = _FIXTURE + "app_" + owner,
-            expected = ["bridge.hot_patch.json"],
+            expected = ["bridge.hot_patch.json"] + select({
+                "@platforms//os:macos": ["libbridge.dylib"],
+                "@platforms//os:windows": ["libbridge.dll"],
+                "//conditions:default": ["libbridge.so"],
+            }),
         )
         tests += [name + "_dev_config_" + owner, name + "_hot_patch_" + owner]
 

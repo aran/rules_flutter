@@ -23,6 +23,9 @@ _fake_launch = rule(
         "listed": attr.label_list(),
         "single": attr.label(),
         "keyed": attr.label_keyed_string_dict(),
+        # A program the build runs, such as a code generator that links the
+        # library: built in a tool configuration, and never what the app runs.
+        "tool": attr.label(cfg = "exec"),
     },
 )
 
@@ -63,9 +66,11 @@ def native_hot_patch_test_suite(name):
     write_file(name = name + "_second_manifest", out = name + "/other.hot_patch.json", content = ["{}"])
     write_file(name = name + "_tool", out = name + "/patch_tool", content = [""])
 
+    # With a source file, as a builder whose command reads the sources it
+    # patches from lists them: the group carries built files only.
     native.filegroup(
         name = name + "_patcher",
-        srcs = [name + "_manifest", name + "_tool"],
+        srcs = [name + "_manifest", name + "_tool", "native_hot_patch_test.bzl"],
     )
     native.filegroup(
         name = name + "_no_manifest",
@@ -110,15 +115,29 @@ def native_hot_patch_test_suite(name):
     _fake_launch(name = name + "_via_label", single = name + "_patchable", tags = ["manual"])
     _fake_launch(name = name + "_via_dict", keyed = {name + "_between": "Frameworks"}, tags = ["manual"])
     _fake_launch(name = name + "_unpatched", listed = [name + "_plain"], tags = ["manual"])
+    _fake_launch(name = name + "_beside_tool", single = name + "_patchable", tool = name + "_between", tags = ["manual"])
+    _fake_launch(name = name + "_only_in_tool", tool = name + "_between", tags = ["manual"])
 
     tests = []
     for via in ["via_list", "via_label", "via_dict"]:
         _collects_test(
             name = name + "_collects_" + via,
             target_under_test = name + "_" + via,
-            expected = ["fake.hot_patch.json", "patch_tool"],
+            expected = ["fake.hot_patch.json", "libfake.so", "patch_tool"],
         )
         tests.append(name + "_collects_" + via)
+
+    # Once each: the tool's copies of the same files are not collected.
+    _collects_test(
+        name = name + "_skips_a_tool_beside_the_app",
+        target_under_test = name + "_beside_tool",
+        expected = ["fake.hot_patch.json", "libfake.so", "patch_tool"],
+    )
+    _collects_test(
+        name = name + "_skips_a_library_only_a_tool_links",
+        target_under_test = name + "_only_in_tool",
+        expected = [],
+    )
     _collects_test(
         name = name + "_collects_nothing_without_hot_patch",
         target_under_test = name + "_unpatched",
@@ -135,6 +154,8 @@ def native_hot_patch_test_suite(name):
         message = "produces 2 `*.hot_patch.json` files",
     )
     tests += [
+        name + "_skips_a_tool_beside_the_app",
+        name + "_skips_a_library_only_a_tool_links",
         name + "_collects_nothing_without_hot_patch",
         name + "_refuses_missing_manifest",
         name + "_refuses_two_manifests",

@@ -97,8 +97,7 @@ class BazelAspectOutputs {
   final List<String> files;
 
   /// The directory the build ran actions in, which paths an aspect's manifests
-  /// name are relative to. Null when the build failed, or when the group held
-  /// no built file to locate it by.
+  /// name are relative to. Null when the build failed.
   final String? executionRoot;
 
   /// The tail of the build's output when it failed.
@@ -119,10 +118,16 @@ class BazelAspectOutputs {
 ///
 /// An aspect's completion names its output groups by file-set id, and a file
 /// set lists files plus further sets, so the files are the closure of those
-/// ids. The execution root comes from a built file's `uri`: the event gives the
-/// path under it (`pathPrefix` + `name`) as well as the absolute location, and
-/// the difference is the root. Source files carry no prefix and live elsewhere,
-/// so only a built file can answer.
+/// ids.
+///
+/// Each file is located by the path the event gives it under the execution
+/// root (`pathPrefix` + `name`), and the root by the build's `workspaceInfo`.
+/// Never by `uri`: with a remote cache, Bazel reports a file by its address in
+/// that cache (`bytestream://…`) whether or not it also downloaded it, so a
+/// `uri` says where the bytes can be fetched from, not where they sit here.
+///
+/// Throws [DevToolException] when the group holds files and the stream names no
+/// execution root to find them under.
 BazelAspectOutputs aspectOutputsFromBuildEvents(
   String events, {
   required String aspect,
@@ -130,6 +135,7 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
 }) {
   final sets = <String, Map<String, Object?>>{};
   final roots = <String>[];
+  String? executionRoot;
   for (final line in LineSplitter.split(events)) {
     if (line.trim().isEmpty) continue;
     final event = jsonDecode(line) as Map<String, Object?>;
@@ -138,6 +144,11 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
     if (namedSet != null) {
       sets[namedSet['id'] as String] =
           event['namedSetOfFiles'] as Map<String, Object?>? ?? const {};
+      continue;
+    }
+    final workspaceInfo = event['workspaceInfo'] as Map<String, Object?>?;
+    if (workspaceInfo != null) {
+      executionRoot = workspaceInfo['localExecRoot'] as String?;
       continue;
     }
     final completed = id['targetCompleted'] as Map<String, Object?>?;
@@ -160,8 +171,7 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
     }
   }
 
-  final files = <String>{};
-  String? executionRoot;
+  final relative = <String>{};
   final seen = <String>{};
   final pending = [...roots];
   while (pending.isNotEmpty) {
@@ -170,25 +180,23 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
     final set = sets[setId] ?? const {};
     for (final file in (set['files'] as List? ?? const [])) {
       final entry = file as Map<String, Object?>;
-      final uri = entry['uri'] as String?;
-      if (uri == null || !uri.startsWith('file://')) continue;
-      final path = Uri.parse(uri).toFilePath();
-      files.add(path);
       final prefix = (entry['pathPrefix'] as List? ?? const []).cast<String>();
-      if (executionRoot == null && prefix.isNotEmpty) {
-        final relative = [...prefix, entry['name'] as String].join('/');
-        if (path.endsWith('/$relative')) {
-          executionRoot = path.substring(0, path.length - relative.length - 1);
-        }
-      }
+      relative.add([...prefix, entry['name'] as String].join('/'));
     }
     for (final nested in (set['fileSets'] as List? ?? const [])) {
       pending.add((nested as Map<String, Object?>)['id'] as String);
     }
   }
+  if (relative.isNotEmpty && executionRoot == null) {
+    throw DevToolException(
+      'The build event stream of the $outputGroup build named '
+      '${relative.length} file(s) and no execution root (its `workspaceInfo` '
+      'event), so none of them can be found.',
+    );
+  }
   return BazelAspectOutputs(
     exitCode: 0,
-    files: files.toList()..sort(),
+    files: [for (final path in relative) '$executionRoot/$path']..sort(),
     executionRoot: executionRoot,
     stderr: '',
   );
@@ -551,6 +559,12 @@ class Bazel {
         ...extraArgs,
         '--aspects=$aspect',
         '--output_groups=$outputGroup',
+        // The caller reads these files from disk, and a build without the
+        // bytes keeps whatever it was not asked for in the remote cache. The
+        // group is this build's only top-level output, so this downloads it
+        // and nothing else. Without a remote cache it does nothing, and
+        // switching it does not discard the analysis cache.
+        '--remote_download_toplevel',
         '--build_event_json_file=$eventFile',
       ];
       _logger.info({

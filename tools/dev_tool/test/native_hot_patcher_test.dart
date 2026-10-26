@@ -156,6 +156,18 @@ void main() {
     },
   );
 
+  /// What the patcher logs from now on, one `LEVEL text` line per record.
+  List<String> logged() {
+    final lines = <String>[];
+    final subscription = Logger.root.onRecord.listen((record) {
+      final object = record.object;
+      final text = object is Map ? object['text'] : record.message;
+      lines.add('${record.level.name} $text');
+    });
+    addTearDown(subscription.cancel);
+    return lines;
+  }
+
   /// An edit a stat can see: a different size.
   void editSource() => File(
     '$workspace/native/mul.c',
@@ -226,7 +238,50 @@ void main() {
         }),
       );
       builtFiles = ['${bin.path}/other.hot_patch.json'];
+      final said = logged();
       expect(await arm(), isNull);
+      expect(
+        said,
+        contains(
+          allOf(
+            contains('WARNING'),
+            contains('libother.dylib declares a hot patch'),
+            contains('bundles none'),
+          ),
+        ),
+        reason: 'a declared builder that arms nothing is said, not skipped',
+      );
+    });
+
+    test('says which libraries it armed', () async {
+      builtFiles = [declare('st', 0xaa)];
+      final said = logged();
+      await arm();
+      expect(said, contains('INFO Native hot reload armed for libmul.dylib.'));
+    });
+
+    // Under build without the bytes, an output the build did not download
+    // exists only in the remote cache. Reading it would fail on whichever
+    // file came first, in words that name neither the build nor the cause.
+    test('a built file that is not on this machine is said, by name', () async {
+      final manifest = declare('st', 0xaa);
+      final remoteOnly = '$execRoot/bazel-out/st/bin/libmul_patch.dylib';
+      builtFiles = [manifest, remoteOnly];
+      await expectLater(
+        arm(),
+        throwsA(
+          isA<DevToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains(remoteOnly),
+              contains('not on this machine'),
+              contains('need a hot restart'),
+            ),
+          ),
+        ),
+      );
+      expect(toolCalls, isEmpty);
     });
   });
 

@@ -202,14 +202,27 @@ class NativeHotPatcher {
         if (f.endsWith(hotPatchManifestSuffix)) f,
     ];
     if (manifestFiles.isEmpty) {
-      _libraries = const [];
+      logger.fine({
+        'message': 'native_hot_patch_none',
+        'text': 'No library this app bundles declares a hot patch.',
+      });
       return;
     }
-    final executionRoot = built.executionRoot;
-    if (executionRoot == null) {
+    // A successful build with files always names its root: see
+    // [aspectOutputsFromBuildEvents].
+    final executionRoot = built.executionRoot!;
+    final absent = [
+      for (final f in built.files)
+        if (FileSystemEntity.typeSync(f) == FileSystemEntityType.notFound) f,
+    ];
+    if (absent.isNotEmpty) {
       throw DevToolException(
-        'The native hot patch build named no built file to locate its '
-        'execution root by, so its manifests cannot be resolved.',
+        'The native hot patch build succeeded, but ${absent.length} of the '
+        'files it built ${absent.length == 1 ? 'is' : 'are'} not on this machine, '
+        'so native edits in this run need a hot restart. The build asked for '
+        'them to be downloaded (`--remote_download_toplevel`), so something '
+        'removed them or kept them remote anyway:\n'
+        '${absent.map((f) => '  $f').join('\n')}',
       );
     }
     final manifests = [
@@ -217,6 +230,17 @@ class NativeHotPatcher {
         NativeHotPatchManifest.parse(path, await File(path).readAsString()),
     ];
     final running = await _runningManifests(manifests, executionRoot);
+    if (running.isEmpty) {
+      final declared = {for (final m in manifests) p.basename(m.library)};
+      logger.warning({
+        'message': 'native_hot_patch_unavailable',
+        'text':
+            '${declared.join(', ')} declare${declared.length == 1 ? 's' : ''} a hot '
+            'patch, but $appFile bundles none of them, so there is nothing for '
+            'a hot reload to patch.',
+      });
+      return;
+    }
 
     final libraries = <_Patchable>[];
     for (final manifest in running) {

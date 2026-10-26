@@ -4,7 +4,13 @@ Writes the manifest the dev tool reads and builds everything its command needs:
 the patch library (a second build of the patchable source, in the app's own
 configuration) and the tool that decides what a reload may do with it (built for
 the machine the dev tool runs on).
+
+The tool's exec group asks for this machine's constraints. A plain `cfg =
+"exec"` lets Bazel build it for any execution platform, and with a remote Linux
+platform registered first, that is a Linux binary the dev tool cannot start.
 """
+
+load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 
 def _c_hot_patch_impl(ctx):
     library = [
@@ -46,6 +52,7 @@ c_hot_patch = rule(
         "contract": attr.label(mandatory = True, allow_single_file = True, doc = "The header a change to which needs a restart."),
         "function": attr.string(mandatory = True, doc = "The function a patch replaces, as the reply names it."),
         "sources": attr.label_list(allow_files = True, doc = "What a reload stats to decide whether to ask."),
-        "tool": attr.label(mandatory = True, executable = True, cfg = "exec"),
+        "tool": attr.label(mandatory = True, executable = True, cfg = config.exec("host")),
     },
+    exec_groups = {"host": exec_group(exec_compatible_with = HOST_CONSTRAINTS)},
 )

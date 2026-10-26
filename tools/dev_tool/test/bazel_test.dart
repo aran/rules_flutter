@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/bazel.dart';
+import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -11,9 +12,22 @@ import 'fakes.dart';
 /// reads: `bazel build //:ffi_macos -c dbg` with the hot patch aspect over
 /// `e2e/ffi_example`, output base and workspace paths scrubbed.
 const _hotPatchBuildEvents = [
+  r'''{"id":{"workspace":{}},"workspaceInfo":{"localExecRoot":"/output_base/execroot/_main"}}''',
   r'''{"id":{"targetCompleted":{"label":"//:ffi_macos","configuration":{"id":"ded4a48995378b6e91c665930388fd27a68bc9ae052e68bda3b10a50d5a2def7"}}},"completed":{"success":true,"tag":["manual"]}}''',
   r'''{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{"files":[{"name":"mul_hot_patch.hot_patch.json","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b","bin"],"digest":"e816d563bb00d826870d8b5fac4b1cdb6bb96713d6e157d403cd0c1f1bf39710","length":"360"},{"name":"c_patch_tool","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool","pathPrefix":["bazel-out","darwin_arm64-opt-exec","bin"],"digest":"5917a8f9c6437120fcaae3c1aaeba7fa9febd97e7bac28780c7df71d672fe520","length":"5878880"},{"name":"libmul_patch.dylib","uri":"file:///output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b","bin"],"digest":"c2a500134cb6a6ebd92e1b00b67acec836d10503b50f89c422240b43b104f33e","length":"16992"},{"name":"native/mul.h","uri":"file:///workspace/native/mul.h","digest":"56b8a1f81413ba96dfada5d7eb1d5b71075c00170177a83b97be02deaa4398c7","length":"422"}]}}''',
   r'''{"id":{"targetCompleted":{"label":"//:ffi_macos","aspect":"@@rules_flutter+//flutter:native_hot_patch.bzl%flutter_native_hot_patch_aspect","configuration":{"id":"ded4a48995378b6e91c665930388fd27a68bc9ae052e68bda3b10a50d5a2def7"}}},"completed":{"success":true,"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"0"}]}]}}''',
+];
+
+/// The same build under remote execution with a remote cache and
+/// `--remote_download_toplevel`, trimmed the same way. Every file —
+/// sources and outputs that were downloaded alike — is reported by its
+/// `bytestream://` address.
+const _remoteHotPatchBuildEvents = [
+  r'''{"id":{"workspace":{}},"workspaceInfo":{"localExecRoot":"/output_base/execroot/_main"}}''',
+  r'''{"id":{"namedSet":{"id":"1"}},"namedSetOfFiles":{"files":[{"name":"mul_hot_patch.hot_patch.json","uri":"bytestream://localhost:8980/blobs/3ab92b2b27e1a0427ad708d8fc5d472b98442fce505dd6b6e949e95a003c79ce/387","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc","bin"],"digest":"3ab92b2b27e1a0427ad708d8fc5d472b98442fce505dd6b6e949e95a003c79ce","length":"387"},{"name":"c_patch_tool","uri":"bytestream://localhost:8980/blobs/e6c21e54e0a95f1b60f7b3897f4e9848eb74b5ad8a6ac358596b5ac32a26bdc3/6377144","pathPrefix":["bazel-out","linux_cloud_arm64-opt-exec","bin"],"digest":"e6c21e54e0a95f1b60f7b3897f4e9848eb74b5ad8a6ac358596b5ac32a26bdc3","length":"6377144"},{"name":"libmul_patch.dylib","uri":"bytestream://localhost:8980/blobs/f6a7d85adb5497a099baeeeb0670f0e711e50560eb4ec27143f18d58ea820ac5/17040","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc","bin"],"digest":"f6a7d85adb5497a099baeeeb0670f0e711e50560eb4ec27143f18d58ea820ac5","length":"17040"},{"name":"native/mul.h","uri":"bytestream://localhost:8980/blobs/56b8a1f81413ba96dfada5d7eb1d5b71075c00170177a83b97be02deaa4398c7/422","digest":"56b8a1f81413ba96dfada5d7eb1d5b71075c00170177a83b97be02deaa4398c7","length":"422"}]}}''',
+  r'''{"id":{"namedSet":{"id":"2"}},"namedSetOfFiles":{"files":[{"name":"sub_hot_patch.hot_patch.json","uri":"bytestream://localhost:8980/blobs/89ecb240c85728fa727d386c0cf23a7add55c322d9d7ca1ed96bd251f651e64a/387","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc","bin"],"digest":"89ecb240c85728fa727d386c0cf23a7add55c322d9d7ca1ed96bd251f651e64a","length":"387"},{"name":"c_patch_tool","uri":"bytestream://localhost:8980/blobs/e6c21e54e0a95f1b60f7b3897f4e9848eb74b5ad8a6ac358596b5ac32a26bdc3/6377144","pathPrefix":["bazel-out","linux_cloud_arm64-opt-exec","bin"],"digest":"e6c21e54e0a95f1b60f7b3897f4e9848eb74b5ad8a6ac358596b5ac32a26bdc3","length":"6377144"},{"name":"libsub_patch.dylib","uri":"bytestream://localhost:8980/blobs/64fe90f3b8e61a632f529fdc8fd27d267dde5eb25899745e72706b2d0a6dc636/17040","pathPrefix":["bazel-out","darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc","bin"],"digest":"64fe90f3b8e61a632f529fdc8fd27d267dde5eb25899745e72706b2d0a6dc636","length":"17040"},{"name":"native/sub.h","uri":"bytestream://localhost:8980/blobs/70a9ed1a77c10987fffc580e1b79e45900bbe24d1b690c2936be17cf276886a1/370","digest":"70a9ed1a77c10987fffc580e1b79e45900bbe24d1b690c2936be17cf276886a1","length":"370"}]}}''',
+  r'''{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{"fileSets":[{"id":"1"},{"id":"2"}]}}''',
+  r'''{"id":{"targetCompleted":{"label":"//:ffi_macos","aspect":"@@rules_flutter+//flutter:native_hot_patch.bzl%flutter_native_hot_patch_aspect","configuration":{"id":"55bfdd55ec97cc29df1cb4d0d709d2b4dacc1438a419698e65a54c112f9ef207"}}},"completed":{"success":true,"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"0"}]}]}}''',
 ];
 
 void main() {
@@ -35,13 +49,14 @@ void main() {
           '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/libmul_patch.dylib',
           '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min10.14-ST-03fe10a2746b/bin/mul_hot_patch.hot_patch.json',
           '/output_base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/c_patch_tool',
-          '/workspace/native/mul.h',
+          '/output_base/execroot/_main/native/mul.h',
         ]);
       },
     );
 
     test('ignores another aspect\'s group and follows nested file sets', () {
       final events = [
+        '{"id":{"workspace":{}},"workspaceInfo":{"localExecRoot":"/x/root"}}',
         '{"id":{"namedSet":{"id":"1"}},"namedSetOfFiles":{"files":[{"name":"b.json","uri":"file:///x/root/bazel-out/k/bin/b.json","pathPrefix":["bazel-out","k","bin"]}]}}',
         '{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{"files":[{"name":"a.json","uri":"file:///x/root/bazel-out/k/bin/a.json","pathPrefix":["bazel-out","k","bin"]}],"fileSets":[{"id":"1"}]}}',
         '{"id":{"namedSet":{"id":"2"}},"namedSetOfFiles":{"files":[{"name":"other","uri":"file:///x/root/other"}]}}',
@@ -58,6 +73,58 @@ void main() {
         '/x/root/bazel-out/k/bin/b.json',
       ]);
       expect(outputs.executionRoot, '/x/root');
+    });
+    // Under remote execution every file is reported by its address in the
+    // remote cache, downloaded or not. Reading `uri` found no file at all, so
+    // a cloud build armed nothing and said nothing.
+    test('finds files a remote cache reported by bytestream address', () {
+      final outputs = aspectOutputsFromBuildEvents(
+        _remoteHotPatchBuildEvents.join('\n'),
+        aspect: aspect,
+        outputGroup: 'flutter_native_hot_patch',
+      );
+      expect(outputs.executionRoot, '/output_base/execroot/_main');
+      expect(
+        outputs.files,
+        [
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc/bin/libmul_patch.dylib',
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc/bin/mul_hot_patch.hot_patch.json',
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc/bin/sub_hot_patch.hot_patch.json',
+          '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc/bin/libsub_patch.dylib',
+          '/output_base/execroot/_main/bazel-out/linux_cloud_arm64-opt-exec/bin/c_patch_tool',
+          '/output_base/execroot/_main/native/mul.h',
+          '/output_base/execroot/_main/native/sub.h',
+        ]..sort(),
+      );
+    });
+
+    test('refuses a group of files with no execution root to find them in', () {
+      expect(
+        () => aspectOutputsFromBuildEvents(
+          _hotPatchBuildEvents.skip(1).join('\n'),
+          aspect: aspect,
+          outputGroup: 'flutter_native_hot_patch',
+        ),
+        throwsA(
+          isA<DevToolException>().having(
+            (e) => e.message,
+            'message',
+            contains('no execution root'),
+          ),
+        ),
+      );
+    });
+
+    test('an empty group needs no execution root', () {
+      final outputs = aspectOutputsFromBuildEvents(
+        [
+          '{"id":{"namedSet":{"id":"0"}},"namedSetOfFiles":{}}',
+          '{"id":{"targetCompleted":{"label":"//:app","aspect":"@@rules_flutter+//flutter:native_hot_patch.bzl%flutter_native_hot_patch_aspect"}},"completed":{"outputGroup":[{"name":"flutter_native_hot_patch","fileSets":[{"id":"0"}]}]}}',
+        ].join('\n'),
+        aspect: aspect,
+        outputGroup: 'flutter_native_hot_patch',
+      );
+      expect(outputs.files, isEmpty);
     });
   });
 
@@ -528,6 +595,47 @@ void main() {
         expect(result.exitCode, 1);
         expect(result.stderr, contains("Expected ';'"));
         expect(fake.spawned, hasLength(1), reason: 'no cquery after a failure');
+      });
+
+      // The dev tool reads every file in the group off this machine's disk, and
+      // `--remote_download_minimal` would leave all of them in a remote cache.
+      test('an aspect build asks for its group on this machine, and reads it '
+          'from the event stream', () async {
+        final fake = fakeBazel();
+        final build = fake.bazel.buildAspectOutputs(
+          '//:app',
+          workspace: '/ws',
+          aspect: '//:a.bzl%a',
+          outputGroup: 'flutter_native_hot_patch',
+        );
+        // It makes a directory for the event file before it starts bazel.
+        while (fake.processes.isEmpty) {
+          await pumpEventQueue();
+        }
+        final process = fake.processes.single;
+        await process.outputAttached;
+        final args = fake.spawned.single.args;
+        expect(args, contains('--remote_download_toplevel'));
+        expect(args, contains('--output_groups=flutter_native_hot_patch'));
+        final eventFile = args
+            .singleWhere((a) => a.startsWith('--build_event_json_file='))
+            .split('=')
+            .last;
+        File(eventFile).writeAsStringSync(
+          _remoteHotPatchBuildEvents
+              .map((e) => e.replaceAll('flutter_native_hot_patch_aspect', 'a'))
+              .join('\n'),
+        );
+        process.complete(0);
+
+        final outputs = await build;
+        expect(outputs.success, isTrue);
+        expect(
+          outputs.files,
+          contains(
+            '/output_base/execroot/_main/bazel-out/darwin_arm64-dbg-macos-arm64-min12.0-ST-fea79f7fcfbc/bin/mul_hot_patch.hot_patch.json',
+          ),
+        );
       });
 
       test('a build close stopped is cancelled and queries nothing', () async {
