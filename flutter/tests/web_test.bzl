@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//flutter/private:flutter_native_library.bzl", "flutter_native_library")
 load("//flutter/private:flutter_web_application.bzl", "flutter_web_bundle")
 load("//flutter/private:validation.bzl", "escape_html", "is_valid_web_compiler_renderer", "web_renderer")
 load(
@@ -568,6 +569,35 @@ def _build_package_roots_declared_test_impl(ctx):
 
 _build_package_roots_declared_test = analysistest.make(
     _build_package_roots_declared_test_impl,
+    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+)
+
+def _native_modules_declared_test_impl(ctx):
+    """Every native module the dev config names is a declared output.
+
+    The dev tool fingerprints these files on every reload, and refuses to start
+    when one is missing. A generated module is otherwise only an input to the
+    copy into the bundle, so a cache hit never writes it to this machine.
+    """
+    env = analysistest.begin(ctx)
+    config = written_json(env, "_dev_config.json")
+    if config == None:
+        return analysistest.end(env)
+    declared = [
+        f.path
+        for f in analysistest.target_under_test(env)[DefaultInfo].files.to_list()
+    ]
+    asserts.equals(env, 1, len(config["nativeLibs"]))
+    for path in config["nativeLibs"]:
+        asserts.true(
+            env,
+            path in declared,
+            "%s is named in the dev config and the target does not declare it" % path,
+        )
+    return analysistest.end(env)
+
+_native_modules_declared_test = analysistest.make(
+    _native_modules_declared_test_impl,
     config_settings = {"//command_line_option:compilation_mode": "dbg"},
 )
 
@@ -1320,6 +1350,34 @@ def _setup_web_fixtures():
         tags = ["manual"],
     )
 
+    # A native module that a build step produces, as a real one compiled from
+    # Rust or C would be.
+    native.genrule(
+        name = "_web_fixture_module_wasm",
+        outs = ["web/fixture_module.wasm"],
+        cmd = "touch $@",
+        tags = ["manual"],
+    )
+    native.genrule(
+        name = "_web_fixture_module_api",
+        outs = ["web/fixture_module.api"],
+        cmd = "touch $@",
+        tags = ["manual"],
+    )
+    flutter_native_library(
+        name = "_web_fixture_module",
+        binding_contract = [":_web_fixture_module_api"],
+        library = ":_web_fixture_module_wasm",
+        tags = ["manual"],
+    )
+    flutter_web_bundle(
+        name = "_web_native_module_fixture",
+        package_name = "web_fixture",
+        main = "lib/web_fixture_main.dart",
+        native_modules = [":_web_fixture_module"],
+        tags = ["manual"],
+    )
+
     # A `main` beside the package's `lib/` rather than inside it, which has no
     # `package:` URI at all; `_main_outside_lib_test` pins how the dev loop
     # reaches it instead.
@@ -1517,6 +1575,10 @@ def web_test_suite(name):
     _build_package_roots_declared_test(
         name = name + "_build_package_roots_declared",
         target_under_test = ":_web_codegen_fixture",
+    )
+    _native_modules_declared_test(
+        name = name + "_native_modules_declared",
+        target_under_test = ":_web_native_module_fixture",
     )
     _main_outside_lib_test(
         name = name + "_main_outside_lib",
