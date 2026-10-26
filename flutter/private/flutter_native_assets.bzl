@@ -257,9 +257,12 @@ def bridge_dart_code_assets(ctx, deps):
     on purpose. A bundled library must be re-declared in the consuming rule's
     own output namespace — a raw `cc_shared_library` output lives under
     `_solib_<arch>/…`, which trips rules_apple's
-    `bundle_paths.owner_relative_path`. Doing that in every `flutter_library`
-    would make two targets in one package declare the same output file; there
-    is exactly one application per bundle, so doing it here cannot collide.
+    `bundle_paths.owner_relative_path`. The copy goes under a directory named
+    after the consuming target, because the bare basename in its package is a
+    path someone else may already own: the library's own rule, when it sits in
+    the same package (a `cc_shared_library` named `sub` writes `libsub.dylib`
+    there), or a second application in the package whose action differs. Every
+    bundler places the library by its basename, which this keeps.
 
     Tolerates rules_dart versions predating `DartPackageInfo.code_assets`:
     those simply contribute nothing.
@@ -292,7 +295,9 @@ def bridge_dart_code_assets(ctx, deps):
                 bundle_filename = ""
                 if asset.dynamic_library != None:
                     bundle_filename = asset.dynamic_library.basename
-                    asset_file = ctx.actions.declare_file(bundle_filename)
+                    asset_file = ctx.actions.declare_file(
+                        "%s_code_assets/%s" % (ctx.label.name, bundle_filename),
+                    )
                     ctx.actions.symlink(
                         output = asset_file,
                         target_file = asset.dynamic_library,
