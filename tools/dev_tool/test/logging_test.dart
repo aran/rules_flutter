@@ -3,6 +3,28 @@ import 'package:flutter_bazel_dev_tool/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // A warning's reason is often only in its sentence, as when native hot patch
+  // cannot arm; a JSON consumer must get that sentence too.
+  group('jsonLogEntry', () {
+    test('keeps the text of a structured message', () {
+      final entry = jsonLogEntry(
+        LogRecord(Level.WARNING, 'ignored', 'dev_tool', null, null, null, {
+          'message': 'native_hot_patch_unavailable',
+          'text': 'Native hot reload is unavailable in this run.',
+        }),
+      );
+      expect(entry['message'], 'native_hot_patch_unavailable');
+      expect(entry['text'], 'Native hot reload is unavailable in this run.');
+      expect(entry['level'], 'WARNING');
+    });
+
+    test('carries a plain message as message', () {
+      final entry = jsonLogEntry(LogRecord(Level.INFO, 'hello', 'dev_tool'));
+      expect(entry['message'], 'hello');
+      expect(entry.containsKey('text'), isFalse);
+    });
+  });
+
   // Both output modes funnel through one line at a time, so what is worth
   // pinning is where the lines come from: a pipe hands over arbitrary
   // fragments, and forwarding those as-is would put the frontend server's

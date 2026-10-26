@@ -21,8 +21,8 @@
 ///       'device': device.name,
 ///     });
 ///
-/// In JSON mode, the map fields are merged into the JSON envelope (the `text`
-/// key is excluded from JSON output since it's only for human display).
+/// In JSON mode, the map fields, `text` included, are merged into the JSON
+/// envelope: the sentence is often the only place a reason is given.
 /// In text mode, the `text` value is printed; falls back to `message`.
 import 'dart:convert';
 import 'dart:io';
@@ -31,12 +31,31 @@ import 'package:logging/logging.dart';
 
 import 'dev_tool_exception.dart';
 
-export 'package:logging/logging.dart' show Logger, Level;
+export 'package:logging/logging.dart' show Level, LogRecord, Logger;
 
 bool _isJsonMode = false;
 
 /// Whether JSON logging is active.
 bool get isJsonLogging => _isJsonMode;
+
+/// The JSON-mode envelope for [record]: a structured message's fields merged
+/// over the timestamp, level and logger name.
+Map<String, dynamic> jsonLogEntry(LogRecord record) {
+  final entry = <String, dynamic>{
+    'ts': record.time.toIso8601String(),
+    'level': record.level.name,
+    'logger': record.loggerName,
+  };
+  if (record.object is Map) {
+    entry.addAll(Map<String, dynamic>.from(record.object as Map));
+  } else {
+    entry['message'] = record.message;
+  }
+  if (record.error != null) {
+    entry['error'] = record.error.toString();
+  }
+  return entry;
+}
 
 /// Initialize the logging system.
 ///
@@ -51,23 +70,7 @@ void initLogging() {
 
   Logger.root.onRecord.listen((record) {
     if (_isJsonMode) {
-      final entry = <String, dynamic>{
-        'ts': record.time.toIso8601String(),
-        'level': record.level.name,
-        'logger': record.loggerName,
-      };
-      if (record.object is Map) {
-        // Structured message — merge fields, exclude 'text' (human-only).
-        final data = Map<String, dynamic>.from(record.object as Map);
-        data.remove('text');
-        entry.addAll(data);
-      } else {
-        entry['message'] = record.message;
-      }
-      if (record.error != null) {
-        entry['error'] = record.error.toString();
-      }
-      stderr.writeln(json.encode(entry));
+      stderr.writeln(json.encode(jsonLogEntry(record)));
     } else {
       String text;
       if (record.object is Map) {
