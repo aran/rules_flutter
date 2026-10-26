@@ -1,5 +1,14 @@
 common --lockfile_mode=off
 
+# Share the results of identical actions between configurations (one
+# Android ABI and the next, -c dbg and -c fastbuild, platform transitions).
+# Bazel rewrites `bazel-out/<config>` only in actions that declare they
+# support it, and only where it can sandbox them: on Windows it fails a
+# path-mapped action rather than run it unsandboxed. See README.md, ".bazelrc".
+common --enable_platform_specific_config
+common:linux --experimental_output_paths=strip
+common:macos --experimental_output_paths=strip
+
 # Start py_binary tools with their hermetic interpreter, not python3 from
 # PATH, which a remote worker does not have. The canonical label needs no
 # direct bazel_dep on rules_python.
