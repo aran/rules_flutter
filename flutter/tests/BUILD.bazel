@@ -24,6 +24,7 @@ load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
 load(":native_assets_test.bzl", "bridge_probe", "native_assets_test_suite")
 load(":native_hot_patch_test.bzl", "native_hot_patch_test_suite")
 load(":native_sources_test.bzl", "native_sources_test_suite")
+load(":path_mapping_test.bzl", "path_mapping_test_suite")
 load(":platform_bundle_test.bzl", "platform_bundle_test_suite")
 load(":plist_merge_test.bzl", "plist_merge_test_suite")
 load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
@@ -118,3 +119,5 @@ build_test(
 )
 
 validation_test_suite(name = "validation_test")
+
+path_mapping_test_suite(name = "path_mapping_test")

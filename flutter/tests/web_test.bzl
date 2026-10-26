@@ -12,7 +12,7 @@ load(
     "service_worker_load_args",
     "service_worker_version_for",
 )
-load(":action_content.bzl", "written_json")
+load(":action_content.bzl", "action_config", "action_config_text", "written_json")
 
 def _html_title_escaping_test_impl(ctx):
     """Test that HTML special characters in titles are properly escaped."""
@@ -682,18 +682,12 @@ def _wasm_source_map_test_impl(ctx):
 
     # The bundler must be told to place it at the bundle root under the same
     # name the compiled wasm references.
-    configs = [
-        a
-        for a in analysistest.target_actions(env)
-        if a.mnemonic == "FileWrite" and
-           a.outputs.to_list()[0].basename.endswith("_web_bundle_config.json")
-    ]
-    asserts.equals(env, 1, len(configs), "expected exactly one bundle config write")
+    configs = [c for c in [action_config_text(env, "FlutterWebBundle")] if c != None]
     if configs:
         asserts.true(
             env,
-            "main.dart.wasm.map" in configs[0].content,
-            "main.dart.wasm.map missing from bundle config: %s" % configs[0].content,
+            "main.dart.wasm.map" in configs[0],
+            "main.dart.wasm.map missing from bundle config: %s" % configs[0],
         )
     return analysistest.end(env)
 
@@ -900,7 +894,7 @@ def _dump_info_test_impl(ctx):
         present = ["--stage=dump-info-all"],
     )
 
-    bundle = written_json(env, "_web_bundle_config.json")
+    bundle = action_config(env, "FlutterWebBundle")
     if bundle == None:
         return analysistest.end(env)
 
@@ -945,7 +939,7 @@ def _no_dump_info_test_impl(ctx):
         _action(env, "FlutterDart2JS"),
         absent_substrings = ["dump-info"],
     )
-    bundle = written_json(env, "_web_bundle_config.json")
+    bundle = action_config(env, "FlutterWebBundle")
     if bundle != None:
         asserts.equals(env, [], bundle["extracts"])
     asserts.equals(
@@ -1006,7 +1000,7 @@ _wasm_only_attr_refused_test = analysistest.make(
 
 def _template_config(env):
     """The config the templating action is driven by, decoded."""
-    return written_json(env, "_web_template_config.json")
+    return action_config(env, "FlutterWebTemplate")
 
 def _template_action_outputs(env):
     """Basenames the single FlutterWebTemplate action declares."""
@@ -1121,7 +1115,7 @@ def _assert_template_wiring(env, expect_dev_loop_guard):
     )
 
     # And the bundler is told to ship them under the names the page asks for.
-    bundle = written_json(env, "_web_bundle_config.json")
+    bundle = action_config(env, "FlutterWebBundle")
     if bundle != None:
         dsts = [c["dst"] for c in bundle["copies"]]
         for expected in ["index.html", "flutter_bootstrap.js"]:
@@ -1174,18 +1168,12 @@ def _reserved_allows_ordinary_asset_test_impl(ctx):
     above.
     """
     env = analysistest.begin(ctx)
-    configs = [
-        a
-        for a in analysistest.target_actions(env)
-        if a.mnemonic == "FileWrite" and
-           a.outputs.to_list()[0].basename.endswith("_web_bundle_config.json")
-    ]
-    asserts.equals(env, 1, len(configs), "expected exactly one bundle config write")
+    configs = [c for c in [action_config_text(env, "FlutterWebBundle")] if c != None]
     if configs:
         asserts.true(
             env,
-            "\"favicon.png\"" in configs[0].content,
-            "the favicon must still reach the bundle: %s" % configs[0].content,
+            "\"favicon.png\"" in configs[0],
+            "the favicon must still reach the bundle: %s" % configs[0],
         )
     return analysistest.end(env)
 
@@ -1210,14 +1198,9 @@ def _own_service_worker_test_impl(ctx):
     ]
     asserts.equals(env, [], writes, "pwa = False must generate no worker")
 
-    configs = [
-        a
-        for a in analysistest.target_actions(env)
-        if a.mnemonic == "FileWrite" and
-           a.outputs.to_list()[0].basename.endswith("_web_bundle_config.json")
-    ]
+    configs = [c for c in [action_config_text(env, "FlutterWebBundle")] if c != None]
     if configs:
-        copies = json.decode(configs[0].content)["copies"]
+        copies = json.decode(configs[0])["copies"]
         srcs = [c["src"] for c in copies if c["dst"] == "flutter_service_worker.js"]
         asserts.equals(env, 1, len(srcs), "exactly one file may claim the worker's name")
         if srcs:

@@ -41,6 +41,13 @@ bzl_library(
 )
 
 bzl_library(
+    name = "path_mapping",
+    srcs = ["path_mapping.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = ["@rules_dart//dart:utils"],
+)
+
+bzl_library(
     name = "debug_build",
     srcs = ["debug_build.bzl"],
     visibility = ["//flutter:__subpackages__"],
@@ -94,7 +101,9 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":exec_groups",
+        ":path_mapping",
         "//flutter:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -142,6 +151,7 @@ bzl_library(
         ":common",
         ":exec_groups",
         ":flutter_aot_compile",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -149,21 +159,30 @@ bzl_library(
     name = "flutter_android_engine_jar",
     srcs = ["flutter_android_engine_jar.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":common"],
+    deps = [
+        ":common",
+        "@rules_dart//dart:utils",
+    ],
 )
 
 bzl_library(
     name = "flutter_android_manifest_merge",
     srcs = ["flutter_android_manifest_merge.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":exec_groups"],
+    deps = [
+        ":exec_groups",
+        "@rules_dart//dart:utils",
+    ],
 )
 
 bzl_library(
     name = "flutter_plist_merge",
     srcs = ["flutter_plist_merge.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":exec_groups"],
+    deps = [
+        ":exec_groups",
+        "@rules_dart//dart:utils",
+    ],
 )
 
 bzl_library(
@@ -187,6 +206,7 @@ bzl_library(
         ":common",
         ":exec_groups",
         ":flutter_aot_compile",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -197,6 +217,7 @@ bzl_library(
     deps = [
         ":exec_groups",
         "//flutter:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -244,6 +265,7 @@ bzl_library(
     name = "flutter_aot_compile",
     srcs = ["flutter_aot_compile.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = ["@rules_dart//dart:utils"],
 )
 
 bzl_library(
@@ -261,7 +283,10 @@ bzl_library(
     name = "flutter_compile",
     srcs = ["flutter_compile.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":exec_groups"],
+    deps = [
+        ":exec_groups",
+        ":path_mapping",
+    ],
 )
 
 bzl_library(
@@ -280,7 +305,9 @@ bzl_library(
         ":engine_helpers",
         ":exec_groups",
         ":flutter_linux_registrant",
+        ":path_mapping",
         "//flutter:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -294,7 +321,9 @@ bzl_library(
         ":engine_helpers",
         ":exec_groups",
         ":flutter_windows_registrant",
+        ":path_mapping",
         "//flutter:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 
@@ -302,7 +331,11 @@ bzl_library(
     name = "flutter_shader_compile",
     srcs = ["flutter_shader_compile.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":exec_groups"],
+    deps = [
+        ":exec_groups",
+        ":path_mapping",
+        "@rules_dart//dart:utils",
+    ],
 )
 
 bzl_library(
@@ -312,6 +345,7 @@ bzl_library(
     deps = [
         ":common",
         ":exec_groups",
+        ":path_mapping",
     ],
 )
 
@@ -326,9 +360,11 @@ bzl_library(
         ":flutter_info",
         ":flutter_library",
         ":flutter_web_compile",
+        ":path_mapping",
         ":plugin_registrant",
         ":validation",
         "//flutter:providers",
+        "@rules_dart//dart:utils",
     ],
 )
 

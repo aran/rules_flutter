@@ -7,6 +7,7 @@ not a kernel .dill.
 
 load("//flutter/private:common.bzl", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
+load("//flutter/private:path_mapping.bzl", "sdk_action")
 
 def web_build_mode(ctx):
     """The web build mode for the current Bazel compilation mode.
@@ -179,15 +180,13 @@ def _dart2wasm_optimizing_resources(_os, _inputs):
 def _web_compiler_resources(_os, _inputs):
     return {"memory": 800}
 
-def _sandbox_env(dart, writable_dir):
-    """Build env dict that suppresses analytics and provides a writable HOME."""
-    env = {"CI": "true", "FLUTTER_SUPPRESS_ANALYTICS": "true"}
-    if dart.basename.endswith(".exe"):
-        env["USERPROFILE"] = writable_dir
-        env["LOCALAPPDATA"] = writable_dir
-    else:
-        env["HOME"] = writable_dir
-    return env
+def _main_dart_js(output_dir):
+    return output_dir.path + "/main.dart.js"
+
+def _libraries_spec(platform_dill):
+    # libraries.json is one level above the kernel/ directory holding the
+    # dill; the web SDK's includes the Dart SDK's via a relative path.
+    return platform_dill.dirname + "/../libraries.json"
 
 def flutter_dart2wasm_action(
         ctx,
@@ -248,10 +247,10 @@ def flutter_dart2wasm_action(
     args.add("wasm")
 
     # Platform dill.
-    args.add("--extra-compiler-option=--platform=" + dart2wasm_platform_dill.path)
+    args.add(dart2wasm_platform_dill, format = "--extra-compiler-option=--platform=%s")
 
     # Package config.
-    args.add("--packages=" + package_config.path)
+    args.add(package_config, format = "--packages=%s")
 
     args.add_all(web_experiment_flags(enable_experiments))
 
@@ -297,6 +296,7 @@ def flutter_dart2wasm_action(
     args.add("-o", output_wasm)
     args.add(main_dart)
 
+    home = sdk_action()
     ctx.actions.run(
         executable = dart,
         arguments = [args],
@@ -307,9 +307,10 @@ def flutter_dart2wasm_action(
         outputs = [output_wasm, output_mjs] + ([output_source_map] if output_source_map != None else []),
         mnemonic = "FlutterDart2Wasm",
         exec_group = PORTABLE,
+        execution_requirements = home["execution_requirements"],
         resource_set = _dart2wasm_optimizing_resources if level > 0 else _web_compiler_resources,
         progress_message = "Compiling Flutter to WASM %s" % ctx.label,
-        env = _sandbox_env(dart, output_wasm.dirname),
+        env = home["env"],
     )
 
 def flutter_dart2js_action(
@@ -374,12 +375,10 @@ def flutter_dart2js_action(
     args.add("compile")
     args.add("js")
 
-    # libraries.json is one level above the kernel/ directory containing the dill.
-    # The web SDK's libraries.json includes the Dart SDK's via a relative path.
-    args.add("--libraries-spec=" + dart2js_platform_dill.dirname + "/../libraries.json")
+    args.add_all([dart2js_platform_dill], map_each = _libraries_spec, format_each = "--libraries-spec=%s")
 
     # Package config.
-    args.add("--packages=" + package_config.path)
+    args.add(package_config, format = "--packages=%s")
 
     args.add_all(web_experiment_flags(enable_experiments))
 
@@ -412,7 +411,7 @@ def flutter_dart2js_action(
         args.add("-D" + d)
 
     # Output into the directory — dart2js writes main.dart.js + *.part.js here.
-    args.add("-o", output_dir.path + "/main.dart.js")
+    args.add_all("-o", [output_dir], map_each = _main_dart_js, expand_directories = False)
     args.add(main_dart)
 
     ctx.actions.run(
@@ -427,5 +426,5 @@ def flutter_dart2js_action(
         exec_group = PORTABLE,
         resource_set = _web_compiler_resources,
         progress_message = "Compiling Flutter to JavaScript %s" % ctx.label,
-        env = _sandbox_env(dart, output_dir.path),
+        **sdk_action()
     )

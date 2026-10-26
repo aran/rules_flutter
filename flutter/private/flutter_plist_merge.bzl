@@ -21,6 +21,7 @@ Two explicit modes, both never-wrong:
       debuggable VM service.
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 _TOOL = Label("//flutter/private/tools:merge_plists.dart")
@@ -33,21 +34,21 @@ def _flutter_plist_merge_impl(ctx):
         "%s/%s" % (ctx.label.name, ctx.attr.output_basename),
     )
 
-    arguments = [tool.path, "--mode", ctx.attr.mode]
+    args = ctx.actions.args()
+    args.add(tool)
+    args.add("--mode", ctx.attr.mode)
     inputs = [tool]
     if ctx.file.base:
-        arguments += ["--base", ctx.file.base.path]
+        args.add("--base", ctx.file.base)
         inputs.append(ctx.file.base)
-    for addition in ctx.files.additions:
-        arguments += ["--addition", addition.path]
-        inputs.append(addition)
-    for key in ctx.attr.drop_empty_keys:
-        arguments += ["--drop-empty", key]
-    arguments += ["--output", output.path]
+    args.add_all(ctx.files.additions, before_each = "--addition")
+    inputs.extend(ctx.files.additions)
+    args.add_all(ctx.attr.drop_empty_keys, before_each = "--drop-empty")
+    args.add("--output", output)
 
     ctx.actions.run(
         executable = tools.dart,
-        arguments = arguments,
+        arguments = [args],
         inputs = depset(
             direct = inputs,
             transitive = [tools.tool_files],
@@ -55,6 +56,7 @@ def _flutter_plist_merge_impl(ctx):
         outputs = [output],
         mnemonic = "FlutterPlistMerge",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Merging plist %s" % ctx.label,
     )
 

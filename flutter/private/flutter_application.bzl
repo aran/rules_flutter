@@ -156,13 +156,10 @@ def _flutter_application_impl(ctx):
     if not is_debug:
         # Collect gen_snapshot extra flags from user attrs.
         extra_flags = list(ctx.attr.extra_gen_snapshot_options)
-        extra_outputs = []
         if ctx.attr.obfuscate:
             extra_flags.append("--obfuscate")
         if ctx.attr.split_debug_info:
             debug_info_output = ctx.actions.declare_file(ctx.label.name + ".symbols")
-            extra_flags.extend(["--dwarf-stack-traces", "--resolve-dwarf-paths", "--save-debugging-info=" + debug_info_output.path])
-            extra_outputs.append(debug_info_output)
 
         # Step 2: AOT compile — choose format based on target platform.
         if is_ios or is_macos:
@@ -175,7 +172,7 @@ def _flutter_application_impl(ctx):
                 output = aot_output,
                 strip = strip,
                 extra_flags = extra_flags,
-                extra_outputs = extra_outputs,
+                debug_info = debug_info_output,
                 min_os_version = ctx.attr.min_os_version if ctx.attr.min_os_version else None,
             )
         else:
@@ -188,7 +185,7 @@ def _flutter_application_impl(ctx):
                 output = aot_output,
                 strip = strip,
                 extra_flags = extra_flags,
-                extra_outputs = extra_outputs,
+                debug_info = debug_info_output,
             )
 
     # Collect native shared libraries from native_deps + transitive plugin deps.

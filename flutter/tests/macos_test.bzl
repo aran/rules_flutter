@@ -93,6 +93,14 @@ _t3_test = unittest.make(_minimum_os_version_floor_test_impl)
 # named after its target so that two apps in one package cannot both declare
 # it, with the layout the bundle needs inside it.
 
+def _without_config(path):
+    # A command line is path-mapped under `--experimental_output_paths=strip`
+    # (`bazel-out/cfg/...`) while `File.path` is not, so the two are compared
+    # without the configuration segment.
+    if path.startswith("bazel-out/"):
+        return path.split("/", 2)[2]
+    return path
+
 def _native_libs_staged_test_impl(ctx):
     """Every library is copied to its basename in one package-root directory."""
     env = analysistest.begin(ctx)
@@ -119,8 +127,8 @@ def _native_libs_staged_test_impl(ctx):
     asserts.equals(env, 1, len(actions), "expected one staging action")
     if len(actions) != 1:
         return analysistest.end(env)
-    argv = actions[0].argv
-    pairs = argv[argv.index(staged.path) + 1:]
+    argv = [_without_config(arg) for arg in actions[0].argv]
+    pairs = argv[argv.index(_without_config(staged.path)) + 1:]
     sources = pairs[0::2]
     fake_prefix = "/%s/" % ctx.attr.fake_application_name
     asserts.equals(
@@ -133,7 +141,7 @@ def _native_libs_staged_test_impl(ctx):
     asserts.equals(
         env,
         sorted(sources),
-        sorted([f.path for f in actions[0].inputs.to_list()]),
+        sorted([_without_config(f.path) for f in actions[0].inputs.to_list()]),
         "the action's inputs must be exactly the libraries it copies",
     )
     return analysistest.end(env)

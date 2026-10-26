@@ -44,6 +44,7 @@ object with the ABI's machine type before packaging; a host-format binary
 is a hard build error.
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_elf_machine_for_abi", "android_platform_for_abi", "compute_android_jni_path")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
@@ -133,8 +134,14 @@ def _create_native_libs_jar(ctx, aot_output, native_libs, abi):
         for lib in native_libs
     ]
 
-    commands = [_ELF_VALIDATION_DEF]
-    zip_entries = []
+    # $1 = ABI, $2 = its ELF machine, $3 = zipper, $4 = jar, then one
+    # (zip entry, library) pair per library. Every path is an argument, so
+    # path mapping can rewrite it.
+    args = ctx.actions.args()
+    args.add(abi)
+    args.add(str(expected_machine))
+    args.add(ctx.executable._zipper)
+    args.add(jar)
     seen_basenames = {}
     for basename, lib in entries:
         if basename in seen_basenames:
@@ -149,31 +156,31 @@ def _create_native_libs_jar(ctx, aot_output, native_libs, abi):
                 "Rename one of them — Android can only load one.",
             )
         seen_basenames[basename] = lib
-        commands.append('validate_android_elf "{lib}" {machine} "{abi}"'.format(
-            lib = lib.path,
-            machine = expected_machine,
-            abi = abi,
-        ))
-        zip_entries.append("lib/{abi}/{basename}={src}".format(
-            abi = abi,
-            basename = basename,
-            src = lib.path,
-        ))
+        args.add("lib/{abi}/{basename}".format(abi = abi, basename = basename))
+        args.add(lib)
 
-    # cC = create, compressed.
-    commands.append('exec "{zipper}" cC "{jar}" "$@"'.format(
-        zipper = ctx.executable._zipper.path,
-        jar = jar.path,
-    ))
+    commands = [
+        _ELF_VALIDATION_DEF,
+        'abi="$1"; machine="$2"; zipper="$3"; jar="$4"; shift 4',
+        "entries=()",
+        'while [ "$#" -gt 0 ]; do',
+        '  validate_android_elf "$2" "$machine" "$abi"',
+        '  entries+=("$1=$2")',
+        "  shift 2",
+        "done",
+        # cC = create, compressed.
+        'exec "$zipper" cC "$jar" "${entries[@]}"',
+    ]
 
     ctx.actions.run_shell(
         command = "\n".join(commands),
-        arguments = zip_entries,
+        arguments = [args],
         inputs = [lib for _, lib in entries],
         tools = [ctx.executable._zipper],
         outputs = [jar],
         mnemonic = "FlutterNativeLibsJar",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Packaging Flutter native libs into jar %s" % ctx.label,
     )
     return jar
@@ -188,23 +195,24 @@ def _copy_assets_with_kernel(ctx, flutter_assets, kernel_dill, tools):
     """
     out = ctx.actions.declare_directory(ctx.label.name + "_debug_flutter_assets")
 
-    cmd = 'cp -RL "$1"/. "$2" && cp "$3" "$2/kernel_blob.bin"'
-    args = [flutter_assets.path, out.path, kernel_dill.path]
-    inputs = [flutter_assets, kernel_dill]
-
     vm_snapshot = tools.vm_isolate_snapshot
     iso_snapshot = tools.isolate_snapshot
-    cmd += ' && cp "%s" "$2/vm_snapshot_data"' % vm_snapshot.path
-    cmd += ' && cp "%s" "$2/isolate_snapshot_data"' % iso_snapshot.path
-    inputs.extend([vm_snapshot, iso_snapshot])
+    cmd = (
+        'cp -RL "$1"/. "$2" && cp "$3" "$2/kernel_blob.bin"' +
+        ' && cp "$4" "$2/vm_snapshot_data" && cp "$5" "$2/isolate_snapshot_data"'
+    )
+    args = ctx.actions.args()
+    args.add_all([flutter_assets, out, kernel_dill, vm_snapshot, iso_snapshot], expand_directories = False)
+    inputs = [flutter_assets, kernel_dill, vm_snapshot, iso_snapshot]
 
     ctx.actions.run_shell(
         command = cmd,
-        arguments = args,
+        arguments = [args],
         inputs = inputs,
         outputs = [out],
         mnemonic = "FlutterAndroidDebugAssets",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Assembling debug flutter_assets with kernel and VM snapshots %s" % ctx.label,
     )
     return out
@@ -244,10 +252,11 @@ def _flutter_android_bundle_impl(ctx):
         # Zipper requires at least one entry, so use a minimal valid zip header.
         ctx.actions.run_shell(
             command = 'printf "\\x50\\x4b\\x05\\x06\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00" > "$1"',
-            arguments = [native_libs_jar.path],
+            arguments = [ctx.actions.args().add(native_libs_jar)],
             outputs = [native_libs_jar],
             mnemonic = "FlutterEmptyNativeLibsJar",
             exec_group = PORTABLE,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Creating empty native libs jar (debug mode) %s" % ctx.label,
         )
 

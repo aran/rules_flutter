@@ -16,7 +16,9 @@ Bazel files the generator never writes, and the build would fail with an opaque
 grouping below is what keeps that correct.
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS")
+load("//flutter/private:path_mapping.bzl", "dirname")
 
 def _locale_of(basename, prefix, label):
     """The locale a template-prefixed arb filename encodes, e.g. `es_419`."""
@@ -106,13 +108,13 @@ def _flutter_gen_l10n_impl(ctx):
         for name in _output_names(ctx, prefix)
     ]
 
-    # The entrypoint parses `--key=value`, so each flag is one argv entry.
-    # Everything here is known at analysis time, so a plain list is clearer
-    # than an Args builder.
+    # The entrypoint parses `--key=value`, so each flag is one argv entry. The
+    # two directories reach it as Files, so they are path-mapped.
+    args = ctx.actions.args()
+    args.add("--project-dir=.")
+    args.add_all([srcs[0]], map_each = dirname, format_each = "--arb-dir=%s")
+    args.add_all([outs[0]], map_each = dirname, format_each = "--output-dir=%s")
     argv = [
-        "--project-dir=.",
-        "--arb-dir=" + arb_dir,
-        "--output-dir=" + outs[0].dirname,
         "--template-arb-file=" + template,
         "--output-localization-file=" + ctx.attr.output_localization_file,
         "--output-class=" + ctx.attr.output_class,
@@ -136,14 +138,16 @@ def _flutter_gen_l10n_impl(ctx):
         argv.append("--use-named-parameters")
     if ctx.attr.suppress_warnings:
         argv.append("--suppress-warnings")
+    args.add_all(argv)
 
     ctx.actions.run(
         executable = ctx.executable._generator,
-        arguments = argv,
+        arguments = [args],
         inputs = srcs,
         outputs = outs,
         mnemonic = "FlutterGenL10n",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Generating localizations for %{label}",
     )
 

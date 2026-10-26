@@ -19,11 +19,13 @@ Output bundle structure:
         icudtl.dat
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:cc_runner_compile.bzl", "compile_and_link_runner")
 load("//flutter/private:common.bzl", "compute_desktop_bundle_copies")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 
 # =============================================================================
 # Runner compilation rule
@@ -312,14 +314,17 @@ def _flutter_windows_bundle_impl(ctx):
     # Native FFI / Native Assets DLLs land next to the runner exe (`""`
     # prefix) so the Windows dynamic loader resolves them via the
     # standard search-path rules.
+    # Every path in the bundle config is a `file_ref`, which Bazel fills in
+    # when it writes the config, path-mapped where the action is.
+    refs = []
     copies = compute_desktop_bundle_copies(
         is_debug = is_debug,
-        kernel_dill_path = app_info.kernel_dill.path if app_info.kernel_dill else None,
-        aot_output_path = app_info.aot_output.path if app_info.aot_output else None,
+        kernel_dill_path = file_ref(refs, app_info.kernel_dill) if app_info.kernel_dill else None,
+        aot_output_path = file_ref(refs, app_info.aot_output) if app_info.aot_output else None,
         aot_dst = "data/app.so",
-        icu_data_path = icu_data.path,
-        engine_basenames = [(f.path, f.basename) for f in engine_runtime_files],
-        native_basenames = [(lib.path, lib.basename) for lib in native_libs],
+        icu_data_path = file_ref(refs, icu_data),
+        engine_basenames = [(file_ref(refs, f), f.basename) for f in engine_runtime_files],
+        native_basenames = [(file_ref(refs, lib), lib.basename) for lib in native_libs],
         engine_dst_prefix = "",
         native_dst_prefix = "",
     )
@@ -341,28 +346,25 @@ def _flutter_windows_bundle_impl(ctx):
     if not runner_binary:
         fail("No runner binary found in runner target.")
 
-    copies.append({"src": runner_binary.path, "dst": app_name + ".exe"})
+    copies.append({"src": file_ref(refs, runner_binary), "dst": app_name + ".exe"})
 
     config = {
-        "output_dir": bundle_dir.path,
+        "output_dir": file_ref(refs, bundle_dir),
         "copies": copies,
         "copy_dirs": [
-            {"src": flutter_assets.path, "dst": "data/flutter_assets"},
+            {"src": file_ref(refs, flutter_assets), "dst": "data/flutter_assets"},
         ],
     }
 
-    config_file = ctx.actions.declare_file(ctx.label.name + "_bundle_config.json")
-    ctx.actions.write(config_file, json.encode(config))
+    inputs = [ctx.file._bundle_tool, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
 
-    inputs = [ctx.file._bundle_tool, config_file, flutter_assets, icu_data, runner_binary] + extra_inputs + native_libs + engine_files
+    args = ctx.actions.args()
+    args.add(ctx.file._bundle_tool)
+    args.add("--config")
 
     ctx.actions.run(
         executable = portable_tools(ctx).dart,
-        arguments = [
-            ctx.file._bundle_tool.path,
-            "--config",
-            config_file.path,
-        ],
+        arguments = [args, json_config_args(ctx, config, refs)],
         inputs = depset(
             direct = inputs,
             transitive = [portable_tools(ctx).tool_files],
@@ -370,6 +372,7 @@ def _flutter_windows_bundle_impl(ctx):
         outputs = [bundle_dir],
         mnemonic = "FlutterWindowsBundle",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Bundling Windows app %s" % ctx.label,
     )
 

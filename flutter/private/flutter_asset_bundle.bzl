@@ -7,9 +7,11 @@ Produces a `flutter_assets/` tree artifact containing:
 - Copied asset files (images, etc.)
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions")
+load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 
 _TOOL = Label("//flutter/private/tools:generate_asset_manifest.dart")
 
@@ -122,19 +124,23 @@ def flutter_asset_bundle_action(
         fail("flutter_asset_bundle_action: `output_dir` is required — declare it with ctx.actions.declare_directory().")
     tool = ctx.file._asset_bundle_tool
 
+    # Every path in the config is a `file_ref`, which Bazel fills in when it
+    # writes the config, path-mapped where the action is.
+    refs = []
+
     # Build asset paths and copy map relative to the output directory.
     asset_paths = []
     copies = {}
     for f in assets:
         # Use short_path as the logical key inside flutter_assets/.
         asset_paths.append(f.short_path)
-        copies[f.short_path] = f.path
+        copies[f.short_path] = file_ref(refs, f)
 
     # Add extra copies with custom destination paths.
     extra_files = []
     for dest_path, f in extra_asset_copies.items():
         asset_paths.append(dest_path)
-        copies[dest_path] = f.path
+        copies[dest_path] = file_ref(refs, f)
         extra_files.append(f)
 
     # Build manifest structure.
@@ -146,40 +152,36 @@ def flutter_asset_bundle_action(
         "fonts": fonts,
         "copies": copies,
         "notices": notices,
-        "license_files": [f.path for f in license_files],
+        "license_files": [file_ref(refs, f) for f in license_files],
     }
 
     # Icon tree shaking config.
     extra_inputs = []
     if const_finder and font_subset and kernel_dill:
         config["icon_tree_shaking"] = {
-            "dart": dart.path,
-            "const_finder": const_finder.path,
-            "font_subset": font_subset.path,
-            "kernel_dill": kernel_dill.path,
+            "dart": file_ref(refs, dart),
+            "const_finder": file_ref(refs, const_finder),
+            "font_subset": file_ref(refs, font_subset),
+            "kernel_dill": file_ref(refs, kernel_dill),
         }
         extra_inputs.extend([const_finder, font_subset, kernel_dill])
 
-    config_content = json.encode(config)
-    config_file = ctx.actions.declare_file(ctx.label.name + ".asset_bundle_config.json")
-    ctx.actions.write(config_file, config_content)
+    args = ctx.actions.args()
+    args.add(tool)
+    args.add_all("--output-dir", [output_dir], expand_directories = False)
+    args.add("--config")
 
     ctx.actions.run(
         executable = dart,
-        arguments = [
-            tool.path,
-            "--config",
-            config_file.path,
-            "--output-dir",
-            output_dir.path,
-        ],
+        arguments = [args, json_config_args(ctx, config, refs)],
         inputs = depset(
-            direct = [tool, config_file] + assets + extra_files + license_files + extra_inputs,
+            direct = [tool] + assets + extra_files + license_files + extra_inputs,
             transitive = [flutter_sdk_files],
         ),
         outputs = [output_dir],
         mnemonic = "FlutterAssetBundle",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Bundling Flutter assets %s" % ctx.label,
     )
 

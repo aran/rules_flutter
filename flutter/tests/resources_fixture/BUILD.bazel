@@ -17,6 +17,8 @@ flutter_library(
         "lib/data.yaml",
         "lib/glow.frag",
     ],
+    # The path-mapping test compiles this library's shader.
+    visibility = ["//flutter/tests:__pkg__"],
 )
 
 flutter_plugin(

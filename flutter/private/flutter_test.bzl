@@ -194,14 +194,13 @@ def _kernel_root_path(short_path):
 
 # The schemes each compile mode names a test's own non-`package:` sources by:
 # the per-library link reads them through rules_dart's kernel roots, and the
-# whole-program compile mounts the exec root under the app scheme. Both are the
-# same wherever the kernel is built.
+# whole-program compile mounts the exec root and the output root under the app
+# scheme. Both are the same wherever, and in whichever configuration, the
+# kernel is built.
 _MODULAR_SCHEME = "org-dartlang-root"
 
 def _own_source_uri(file, modular):
-    if modular:
-        return "%s:///%s" % (_MODULAR_SCHEME, _kernel_root_path(file.short_path))
-    return "%s:///%s" % (APP_SCHEME, file.path)
+    return "%s:///%s" % (_MODULAR_SCHEME if modular else APP_SCHEME, _kernel_root_path(file.short_path))
 
 def _exposes_package(deps, names):
     """True if any dep transitively exposes one of `names`."""
@@ -347,13 +346,10 @@ def _flutter_test_impl(ctx):
     modular = ctx.attr._modular_kernel[BuildSettingInfo].value
 
     # Per-target bootstrap. Imports the user's test by a path relative to the
-    # bootstrap: under the kernel filesystem roots when modular, through the
-    # exec root otherwise.
+    # bootstrap under the filesystem roots both compile modes mount, so the
+    # import names no configuration.
     bootstrap = ctx.actions.declare_file(ctx.label.name + "_bootstrap.dart")
-    if modular:
-        test_import = "../" * _kernel_root_path(bootstrap.short_path).count("/") + _kernel_root_path(ctx.file.main.short_path)
-    else:
-        test_import = "../" * len(bootstrap.dirname.split("/")) + ctx.file.main.path
+    test_import = "../" * _kernel_root_path(bootstrap.short_path).count("/") + _kernel_root_path(ctx.file.main.short_path)
     ctx.actions.write(bootstrap, make_bootstrap_content(
         test_import,
         golden_comparator_import = staged_comparator.basename if staged_comparator else None,
@@ -583,7 +579,8 @@ def _compile_whole_program(ctx, tools, bootstrap, own_srcs, packages, native_ass
         # and every coverage report would carry a sandbox-specific `file://`
         # path to the test.
         entrypoint_uri = _own_source_uri(bootstrap, modular = False),
-        filesystem_roots = [""],
+        # The bootstrap's output root and the test's source root.
+        filesystem_root_files = [bootstrap, ctx.file.main],
         srcs = pc.srcs,
         package_config = pc.config_file,
         output = kernel_dill,

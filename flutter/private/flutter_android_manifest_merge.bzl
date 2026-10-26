@@ -25,6 +25,7 @@ silently mis-merge a variant manifest it does not fully understand.
 """
 
 load("@rules_android//providers:providers.bzl", "StarlarkAndroidResourcesInfo")
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 _TOOL = Label("//flutter/private/tools:merge_android_manifests.dart")
@@ -72,6 +73,7 @@ def _flutter_android_manifest_merge_impl(ctx):
         outputs = [output],
         mnemonic = "FlutterManifestMerge",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Merging Android variant manifest %s" % ctx.label,
     )
 

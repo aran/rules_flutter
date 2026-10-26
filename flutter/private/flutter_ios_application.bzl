@@ -21,6 +21,7 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 # (it accepts a single .framework). This is the same helper that rule uses.
 # buildifier: disable=bzl-visibility
 load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "DARWIN", "DARWIN_EXEC_GROUPS", "PORTABLE", "PORTABLE_AND_DARWIN_EXEC_GROUPS", "portable_tools")
@@ -155,22 +156,24 @@ def _flutter_ios_framework_impl(ctx):
         # Copy the dylib and rewrite its LC_BUILD_VERSION with vtool.
         ctx.actions.run_shell(
             command = 'cp "$1" "$2" && xcrun vtool -set-build-version "$3" "$4" "$4" -replace -output "$2" "$2"',
-            arguments = [dylib.path, framework_binary.path, vtool_platform, minimum_os_version],
+            arguments = [ctx.actions.args().add_all([dylib, framework_binary, vtool_platform, minimum_os_version])],
             inputs = [dylib],
             outputs = [framework_binary],
             mnemonic = "FlutterIOSRetagDylib",
             exec_group = DARWIN,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Retagging App dylib for %s (min %s)" % (vtool_platform, minimum_os_version),
         )
 
         # Copy flutter_assets into the framework.
         ctx.actions.run_shell(
             command = 'cp -RL "$1"/. "$2"',
-            arguments = [flutter_assets.path, framework_assets.path],
+            arguments = [ctx.actions.args().add_all([flutter_assets, framework_assets], expand_directories = False)],
             inputs = [flutter_assets],
             outputs = [framework_assets],
             mnemonic = "FlutterIOSCopyAssets",
             exec_group = PORTABLE,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Copying flutter_assets into App.framework",
         )
 
@@ -185,10 +188,11 @@ def _flutter_ios_framework_impl(ctx):
         # binary file. bundle_only=True prevents linking so it's never loaded.
         ctx.actions.run_shell(
             command = 'echo "" | xcrun -sdk "$1" clang -shared -o "$2" -x c - && xcrun vtool -set-build-version "$3" "$4" "$4" -replace -output "$2" "$2"',
-            arguments = [sdk, framework_binary.path, vtool_platform, minimum_os_version],
+            arguments = [ctx.actions.args().add_all([sdk, framework_binary, vtool_platform, minimum_os_version])],
             outputs = [framework_binary],
             mnemonic = "FlutterIOSStubDylib",
             exec_group = DARWIN,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Creating stub App.framework binary for debug mode",
         )
 
@@ -203,16 +207,20 @@ def _flutter_ios_framework_impl(ctx):
             'cp -RL "$1"/. "$2" && cp "$3" "$2/kernel_blob.bin"' +
             ' && cp "$4" "$2/vm_snapshot_data" && cp "$5" "$2/isolate_snapshot_data"'
         )
-        copy_args = [flutter_assets.path, framework_assets.path, kernel_dill.path, vm_snapshot.path, iso_snapshot.path]
+        copy_args = ctx.actions.args().add_all(
+            [flutter_assets, framework_assets, kernel_dill, vm_snapshot, iso_snapshot],
+            expand_directories = False,
+        )
         copy_inputs = [flutter_assets, kernel_dill, vm_snapshot, iso_snapshot]
 
         ctx.actions.run_shell(
             command = copy_cmd,
-            arguments = copy_args,
+            arguments = [copy_args],
             inputs = copy_inputs,
             outputs = [framework_assets],
             mnemonic = "FlutterIOSDebugAssets",
             exec_group = PORTABLE,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Assembling debug App.framework with kernel and VM snapshots",
         )
 
@@ -304,15 +312,16 @@ def _flutter_ios_native_frameworks_impl(ctx):
         # dynamic linker resolves it from the embedded framework via @rpath.
         ctx.actions.run_shell(
             command = 'cp "$1" "$2" && xcrun install_name_tool -id "$3" "$2"',
-            arguments = [
-                dylib.path,
-                binary.path,
+            arguments = [ctx.actions.args().add_all([
+                dylib,
+                binary,
                 "@rpath/%s.framework/%s" % (name, name),
-            ],
+            ])],
             inputs = [dylib],
             outputs = [binary],
             mnemonic = "FlutterIOSNativeAssetFramework",
             exec_group = DARWIN,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Wrapping %s into %s.framework" % (dylib.basename, name),
         )
 

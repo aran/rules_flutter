@@ -13,6 +13,8 @@ flutter_gen_l10n(
         "lib/l10n/app_es.arb",
         "lib/l10n/app_es_419.arb",
     ],
+    # The path-mapping test reads this target's action.
+    visibility = ["//flutter/tests:__pkg__"],
 )
 
 build_test(

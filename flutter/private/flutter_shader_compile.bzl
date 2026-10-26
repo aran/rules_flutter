@@ -5,7 +5,9 @@ impellerc offline shader processor. Platform-specific runtime stages are
 selected based on the target platform.
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
+load("//flutter/private:path_mapping.bzl", "dirname")
 
 # Platform-specific impellerc flags. Flutter's shader compiler targets:
 # - iOS: Metal only
@@ -37,6 +39,9 @@ def get_shader_platform_flags(target_platform):
         fail("Unknown target platform '%s' for shader compilation. " % target_platform +
              "Supported platforms: %s" % ", ".join(SHADER_PLATFORM_FLAGS.keys()))
     return SHADER_PLATFORM_FLAGS[target_platform]
+
+def _shader_lib_dir(file):
+    return file.path[:file.path.find("/shader_lib/") + len("/shader_lib")]
 
 def flutter_shader_compile_action(
         ctx,
@@ -73,12 +78,13 @@ def flutter_shader_compile_action(
     platform_flags = get_shader_platform_flags(target_platform)
 
     # Find the shader_lib root directory from any file in the filegroup.
-    shader_lib_dir = None
+    shader_lib_file = None
     for f in shader_lib:
         if "/shader_lib/" in f.path:
-            idx = f.path.find("/shader_lib/")
-            shader_lib_dir = f.path[:idx + len("/shader_lib")]
+            shader_lib_file = f
             break
+    if not shader_lib_file:
+        fail("%s: the Flutter toolchain's shader_lib has no file under a `shader_lib/` directory, which impellerc needs as an include root" % ctx.label)
 
     # impellerc requires a --spirv intermediate output alongside --sl when
     # using runtime stages (not platform flags). Declare it as a secondary output.
@@ -90,13 +96,12 @@ def flutter_shader_compile_action(
     args.add("--iplr")
     if is_web:
         args.add("--json")
-    args.add("--sl=" + output.path)
-    args.add("--spirv=" + spirv_output.path)
-    args.add("--input=" + shader.path)
+    args.add(output, format = "--sl=%s")
+    args.add(spirv_output, format = "--spirv=%s")
+    args.add(shader, format = "--input=%s")
     args.add("--input-type=frag")
-    args.add("--include=" + shader.dirname)
-    if shader_lib_dir:
-        args.add("--include=" + shader_lib_dir)
+    args.add_all([shader], map_each = dirname, format_each = "--include=%s")
+    args.add_all([shader_lib_file], map_each = _shader_lib_dir, format_each = "--include=%s")
 
     inputs = [shader] + shader_lib + list(includes)
     retry_possible = "--sksl" in platform_flags and len(platform_flags) > 1
@@ -115,6 +120,7 @@ def flutter_shader_compile_action(
             outputs = [output, spirv_output],
             mnemonic = "FlutterShaderCompile",
             exec_group = PORTABLE,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),
         )
     else:
@@ -125,5 +131,6 @@ def flutter_shader_compile_action(
             outputs = [output, spirv_output],
             mnemonic = "FlutterShaderCompile",
             exec_group = PORTABLE,
+            execution_requirements = PATH_MAPPING,
             progress_message = "Compiling shader %s for %s" % (shader.short_path, target_platform),
         )

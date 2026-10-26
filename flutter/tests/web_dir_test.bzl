@@ -3,11 +3,11 @@
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("//flutter:web.bzl", "flutter_web_app")
 load("//flutter/private:flutter_web_application.bzl", "flutter_web_bundle")
-load(":action_content.bzl", "written_json")
+load(":action_content.bzl", "action_config")
 
 def _sources_by_dst(env):
     """The bundle's copy list as {destination: source path}."""
-    bundle = written_json(env, "_web_bundle_config.json")
+    bundle = action_config(env, "FlutterWebBundle")
     if bundle == None:
         return {}
     return {c["dst"]: c["src"] for c in bundle["copies"]}
@@ -58,7 +58,7 @@ def _app_discovers_from_web_dir_test_impl(ctx):
         "web/ belongs to another app: %s" % copies,
     )
 
-    template = written_json(env, "_web_template_config.json")
+    template = action_config(env, "FlutterWebTemplate")
     if template != None:
         index = [f for f in template["files"] if f["label"] == "index.html"]
         asserts.equals(env, 1, len(index))

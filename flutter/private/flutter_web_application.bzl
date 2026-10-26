@@ -20,7 +20,7 @@ so we skip the frontend_server kernel compilation step used by desktop/mobile.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config", "import_check_validation")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "PATH_MAPPING", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config", "import_check_validation")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
@@ -59,6 +59,7 @@ load(
     "web_experiment_flags",
     "web_mode_defines",
 )
+load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant")
 load(
     "//flutter/private:validation.bzl",
@@ -229,17 +230,18 @@ _RESERVED_DST_PREFIX_REMEDY = {
                   "the engine revision the app was compiled against. They cannot be replaced.",
 }
 
-def _reserve(reserved, copies, src, dst):
+def _reserve(reserved, copies, refs, src, dst):
     """Append a rule-generated copy and reserve its destination.
 
     Args:
         reserved: Destination-to-source dict, mutated.
         copies: The bundler's copy list, mutated.
-        src: Source path.
+        refs: The bundler config's `file_ref` list, mutated.
+        src: Source File.
         dst: Bundle-relative destination.
     """
     reserved[dst] = src
-    copies.append({"src": src, "dst": dst})
+    copies.append({"src": file_ref(refs, src), "dst": dst})
 
 def _check_web_asset_dst(ctx, reserved, dst, short_path):
     """Fail when a `web_assets` entry lands on a destination the rule generates.
@@ -490,12 +492,12 @@ def _flutter_web_bundle_impl(ctx):
         )
         compile_outputs = [output_wasm, output_mjs]
         compile_copies = [
-            {"src": output_wasm.path, "dst": "main.dart.wasm"},
-            {"src": output_mjs.path, "dst": "main.dart.mjs"},
+            {"src": output_wasm, "dst": "main.dart.wasm"},
+            {"src": output_mjs, "dst": "main.dart.mjs"},
         ]
         if output_wasm_map != None:
             compile_outputs.append(output_wasm_map)
-            compile_copies.append({"src": output_wasm_map.path, "dst": "main.dart.wasm.map"})
+            compile_copies.append({"src": output_wasm_map, "dst": "main.dart.wasm.map"})
         dart2js_dirs = [output_js_fallback_dir]
         builds = [_wasm_build(renderer), _JS_BUILD]
     else:
@@ -689,9 +691,13 @@ def _flutter_web_bundle_impl(ctx):
         "flutter_build_config": {"value": build_config},
         "flutter_service_worker_version": {"value": worker_version},
     }
+
+    # Every path in the template config is a `file_ref`, which Bazel fills in
+    # when it writes the config, path-mapped where the action is.
+    template_refs = []
     template_inputs = [index_template, bootstrap_template]
     if flutter_js_file:
-        shared_builtins["flutter_js"] = {"file": flutter_js_file.path}
+        shared_builtins["flutter_js"] = {"file": file_ref(template_refs, flutter_js_file)}
         template_inputs.append(flutter_js_file)
 
     index_builtins = dict(shared_builtins)
@@ -719,8 +725,8 @@ def _flutter_web_bundle_impl(ctx):
         "keep_placeholders": ctx.attr.keep_placeholders,
         "files": [
             {
-                "template": bootstrap_template.path,
-                "output": bootstrap_js.path,
+                "template": file_ref(template_refs, bootstrap_template),
+                "output": file_ref(template_refs, bootstrap_js),
                 "label": "flutter_bootstrap.js",
                 # Upstream substitutes an empty base href into the bootstrap:
                 # the page's `<base>` already governs, and a bootstrap that
@@ -733,8 +739,8 @@ def _flutter_web_bundle_impl(ctx):
                 "builtins": shared_builtins,
             },
             {
-                "template": index_template.path,
-                "output": index_html.path,
+                "template": file_ref(template_refs, index_template),
+                "output": file_ref(template_refs, index_html),
                 "label": "index.html",
                 "base_href": ctx.attr.base_href,
                 "static_assets_url": ctx.attr.static_assets_url,
@@ -752,8 +758,8 @@ def _flutter_web_bundle_impl(ctx):
             },
         ] + ([
             {
-                "template": bootstrap_template.path,
-                "output": dev_bootstrap_js.path,
+                "template": file_ref(template_refs, bootstrap_template),
+                "output": file_ref(template_refs, dev_bootstrap_js),
                 "label": "flutter_bootstrap.js (dev loop)",
                 "base_href": "",
                 "static_assets_url": None,
@@ -766,23 +772,21 @@ def _flutter_web_bundle_impl(ctx):
             },
         ] if dev_bootstrap_js else []),
     }
-    template_config_file = ctx.actions.declare_file(ctx.label.name + "_web_template_config.json")
-    ctx.actions.write(template_config_file, json.encode(template_config))
+    template_args = ctx.actions.args()
+    template_args.add(ctx.file._web_template_tool)
+    template_args.add("--config")
 
     ctx.actions.run(
         executable = tools.dart,
-        arguments = [
-            ctx.file._web_template_tool.path,
-            "--config",
-            template_config_file.path,
-        ],
+        arguments = [template_args, json_config_args(ctx, template_config, template_refs)],
         inputs = depset(
-            direct = template_inputs + [template_config_file, ctx.file._web_template_tool],
+            direct = template_inputs + [ctx.file._web_template_tool],
             transitive = [tools.tool_files],
         ),
         outputs = [index_html, bootstrap_js] + ([dev_bootstrap_js] if dev_bootstrap_js else []),
         mnemonic = "FlutterWebTemplate",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Substituting web templates for %s" % ctx.label,
     )
 
@@ -793,8 +797,9 @@ def _flutter_web_bundle_impl(ctx):
     # entry (built where the outputs were declared), never a derived name.
     copies = []
     reserved = {}
+    refs = []
     for copy in compile_copies:
-        _reserve(reserved, copies, copy["src"], copy["dst"])
+        _reserve(reserved, copies, refs, copy["src"], copy["dst"])
 
     # The dart2js entrypoint reaches the bundle root inside a tree artifact, so
     # it is not in `copies` to reserve — but it is produced in both compiler
@@ -802,18 +807,18 @@ def _flutter_web_bundle_impl(ctx):
     # be named. Reserved without a copy entry.
     reserved["main.dart.js"] = "<dart2js output>"
 
-    _reserve(reserved, copies, index_html.path, "index.html")
-    _reserve(reserved, copies, bootstrap_js.path, "flutter_bootstrap.js")
-    _reserve(reserved, copies, manifest_json.path, "manifest.json")
-    _reserve(reserved, copies, version_json.path, "version.json")
+    _reserve(reserved, copies, refs, index_html, "index.html")
+    _reserve(reserved, copies, refs, bootstrap_js, "flutter_bootstrap.js")
+    _reserve(reserved, copies, refs, manifest_json, "manifest.json")
+    _reserve(reserved, copies, refs, version_json, "version.json")
 
     if service_worker_file:
-        _reserve(reserved, copies, service_worker_file.path, "flutter_service_worker.js")
+        _reserve(reserved, copies, refs, service_worker_file, "flutter_service_worker.js")
 
     # Copy flutter.js from the web SDK.
     engine_inputs = []
     if flutter_js_file:
-        _reserve(reserved, copies, flutter_js_file.path, "flutter.js")
+        _reserve(reserved, copies, refs, flutter_js_file, "flutter.js")
         engine_inputs.append(flutter_js_file)
 
     # Copy renderer engine files (canvaskit/*.wasm, *.js, etc.).
@@ -821,7 +826,7 @@ def _flutter_web_bundle_impl(ctx):
         idx = f.path.find("/web-sdk/canvaskit/")
         if idx >= 0:
             rel = "canvaskit/" + f.path[idx + len("/web-sdk/canvaskit/"):]
-            _reserve(reserved, copies, f.path, rel)
+            _reserve(reserved, copies, refs, f, rel)
             engine_inputs.append(f)
 
     # Copy user-provided web assets (favicon.png, icons/, etc.) to output root.
@@ -851,7 +856,7 @@ def _flutter_web_bundle_impl(ctx):
         if rel.startswith(web_dir + "/"):
             rel = rel[len(web_dir) + 1:]
         _check_web_asset_dst(ctx, reserved, rel, f.short_path)
-        copies.append({"src": f.path, "dst": rel})
+        copies.append({"src": file_ref(refs, f), "dst": rel})
         web_asset_files.append(f)
 
     # What each declared module's bindings were generated from. Keyed by File so
@@ -866,10 +871,10 @@ def _flutter_web_bundle_impl(ctx):
     # dart2js outputs are directories (tree artifacts) to support deferred
     # loading — dart2js may produce main.dart.js + *.part.js files.
     # Copy entire directory contents into the output root.
-    copy_dirs = [{"src": flutter_assets.path, "dst": "assets"}]
+    copy_dirs = [{"src": file_ref(refs, flutter_assets), "dst": "assets"}]
     for d in dart2js_dirs:
         copy_dirs.append({
-            "src": d.path,
+            "src": file_ref(refs, d),
             "dst": ".",
             # dart2js writes its dependency list beside the output. It is
             # build bookkeeping, not part of the app, and naming it here is
@@ -895,31 +900,28 @@ def _flutter_web_bundle_impl(ctx):
     if ctx.attr.dump_info:
         dump_info_file = ctx.actions.declare_file(ctx.label.name + "_dart2js_info.json")
         extracts.append({
-            "src": dart2js_dirs[0].path + "/main.dart.js.info.json",
-            "dst": dump_info_file.path,
+            "src": file_ref(refs, dart2js_dirs[0]) + "/main.dart.js.info.json",
+            "dst": file_ref(refs, dump_info_file),
         })
 
     config = {
-        "output_dir": output_dir.path,
+        "output_dir": file_ref(refs, output_dir),
         "copies": copies,
         "copy_dirs": copy_dirs,
         "extracts": extracts,
     }
 
-    bundle_config_file = ctx.actions.declare_file(ctx.label.name + "_web_bundle_config.json")
-    ctx.actions.write(bundle_config_file, json.encode(config))
-
-    all_inputs = compile_outputs + dart2js_dirs + engine_inputs + web_asset_files + [flutter_assets, index_html, bootstrap_js, manifest_json, version_json, bundle_config_file]
+    all_inputs = compile_outputs + dart2js_dirs + engine_inputs + web_asset_files + [flutter_assets, index_html, bootstrap_js, manifest_json, version_json]
     if service_worker_file:
         all_inputs.append(service_worker_file)
 
+    bundle_args = ctx.actions.args()
+    bundle_args.add(ctx.file._bundle_tool)
+    bundle_args.add("--config")
+
     ctx.actions.run(
         executable = tools.dart,
-        arguments = [
-            ctx.file._bundle_tool.path,
-            "--config",
-            bundle_config_file.path,
-        ],
+        arguments = [bundle_args, json_config_args(ctx, config, refs)],
         inputs = depset(
             direct = all_inputs + [ctx.file._bundle_tool],
             transitive = [tools.tool_files],
@@ -927,6 +929,7 @@ def _flutter_web_bundle_impl(ctx):
         outputs = [output_dir] + ([dump_info_file] if dump_info_file else []),
         mnemonic = "FlutterWebBundle",
         exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
         progress_message = "Bundling Flutter web app %s" % ctx.label,
     )
 

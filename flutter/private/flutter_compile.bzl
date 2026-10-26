@@ -7,6 +7,7 @@ Flutter compilation differs from vanilla Dart in that it uses:
 
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
+load("//flutter/private:path_mapping.bzl", "dirname", "output_root", "sdk_action")
 
 # frontend_server stays within about one core. The memory covers a small app;
 # a larger program needs more.
@@ -32,7 +33,7 @@ def flutter_kernel_compile_action(
         target = "flutter",
         native_assets_manifest = None,
         dart_plugin_registrant_uri = None,
-        filesystem_roots = [],
+        filesystem_root_files = [],
         recorded_uses = None):
     """Creates a Flutter kernel compilation action.
 
@@ -83,10 +84,12 @@ def flutter_kernel_compile_action(
             multi-root scheme keeps the library's importUri identical to
             the define regardless of sandbox location — the engine matches
             them by exact string equality.
-        filesystem_roots: Exec-root-relative directories (`""` for the exec
-            root) mounted under `APP_SCHEME`, for every `APP_SCHEME` URI
+        filesystem_root_files: Files whose roots (`output_root`: the exec
+            root for a source file, `bazel-out/<config>/bin` for a generated
+            one) are mounted under `APP_SCHEME`, for every `APP_SCHEME` URI
             above — the registrant's and, for a `main` with no `package:`
-            URI, [entrypoint_uri]'s.
+            URI, [entrypoint_uri]'s. Files rather than directory strings, so
+            the roots are path-mapped with the rest of the command line.
         recorded_uses: Optional declared File the compiler writes the
             `@RecordUse` uses that survive tree-shaking to (`--recorded-uses`),
             the input of package link hooks. Only an AOT compile records; a
@@ -101,9 +104,9 @@ def flutter_kernel_compile_action(
     # --sdk-root points to the directory containing the platform dill.
     # --platform-dill specifies the exact filename when it's not the
     # default "platform_strong.dill" (e.g. web's dart2wasm_platform.dill).
-    args.add("--sdk-root", platform_dill.dirname + "/")
+    args.add_all("--sdk-root", [platform_dill], map_each = dirname, format_each = "%s/")
     if platform_dill.basename != "platform_strong.dill":
-        args.add("--platform", platform_dill.path)
+        args.add("--platform", platform_dill)
 
     args.add("--target", target)
     args.add("--packages", package_config)
@@ -129,10 +132,13 @@ def flutter_kernel_compile_action(
     for d in defines:
         args.add("-D" + d)
 
-    if filesystem_roots:
-        # The action's cwd is the exec root, so `""` mounts it as `.`.
-        for root in filesystem_roots:
-            args.add("--filesystem-root", root or ".")
+    if filesystem_root_files:
+        args.add_all(
+            filesystem_root_files,
+            map_each = output_root,
+            before_each = "--filesystem-root",
+            uniquify = True,
+        )
         args.add("--filesystem-scheme", APP_SCHEME)
 
     if dart_plugin_registrant_uri:
@@ -143,7 +149,7 @@ def flutter_kernel_compile_action(
     args.add_all(extra_flags)
 
     if native_assets_manifest != None:
-        args.add("--native-assets", native_assets_manifest.path)
+        args.add("--native-assets", native_assets_manifest)
 
     if recorded_uses != None:
         args.add("--recorded-uses", recorded_uses)
@@ -152,15 +158,6 @@ def flutter_kernel_compile_action(
         args.add(entrypoint_uri)
     else:
         args.add(main)
-
-    # Suppress Dart/Flutter analytics (avoids writes to $HOME/.dart/ in sandbox).
-    # Provide a writable HOME scoped to this action's output directory.
-    env = {"CI": "true", "FLUTTER_SUPPRESS_ANALYTICS": "true"}
-    if dartaotruntime.basename.endswith(".exe"):
-        env["USERPROFILE"] = output.dirname
-        env["LOCALAPPDATA"] = output.dirname
-    else:
-        env["HOME"] = output.dirname
 
     direct_inputs = [main, package_config, frontend_server, platform_dill] + srcs
     if native_assets_manifest != None:
@@ -181,5 +178,5 @@ def flutter_kernel_compile_action(
         exec_group = PORTABLE,
         resource_set = _kernel_compile_resources,
         progress_message = "Compiling Flutter kernel %s" % ctx.label,
-        env = env,
+        **sdk_action()
     )

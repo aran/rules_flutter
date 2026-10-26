@@ -482,10 +482,8 @@ def flutter_compile_kernel(ctx, tools, aot = None, platform_dill = None, target_
         extra_flags = extra_frontend_flags,
         native_assets_manifest = native_assets_manifest,
         dart_plugin_registrant_uri = registrant_location.uri if registrant_location else None,
-        filesystem_roots = with_root(
-            with_root([], registrant_location.root if registrant_location else None),
-            entrypoint_info.root,
-        ),
+        filesystem_root_files = ([registrant] if registrant_location else []) +
+                                ([entrypoint_info.file] if entrypoint_info.root != None else []),
         recorded_uses = recorded_uses,
     )
     return struct(

@@ -20,6 +20,7 @@ jar stays in its repository for symbolizing a native engine crash.
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi")
 
 _TOOL = Label("//flutter/private/tools:strip_native_libs.dart")
@@ -63,7 +64,14 @@ def _flutter_android_engine_jar_impl(ctx):
     args = ctx.actions.args()
     args.add(ctx.file._tool)
     args.add("--zipper", ctx.executable._zipper)
-    args.add("--strip", strip)
+
+    # The toolchain names its tool by path. When that path is one of the
+    # toolchain's own files it is handed over as the File, so path mapping
+    # rewrites it with the rest; a path outside them (an absolute host path)
+    # names no configuration.
+    toolchain_files = cc_toolchain.all_files
+    strip_file = [f for f in toolchain_files.to_list() if f.path == strip]
+    args.add("--strip", strip_file[0] if strip_file else strip)
     args.add("--input", ctx.file.jar)
     args.add("--output", output)
 
@@ -77,6 +85,7 @@ def _flutter_android_engine_jar_impl(ctx):
         tools = [ctx.executable._zipper],
         outputs = [output],
         mnemonic = "FlutterStripEngine",
+        execution_requirements = PATH_MAPPING,
         progress_message = "Stripping the Flutter engine's native libraries for %{label}",
     )
     return [DefaultInfo(files = depset([output]))]
