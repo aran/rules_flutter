@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:mul_plugin/mul_plugin.dart';
+import 'package:sub_asset/sub_asset.dart';
 
 /// Minimal [QueryExecutorUser] so a raw drift executor can be opened without
 /// generating a database class — this app is proving a native library loads,
@@ -152,6 +153,13 @@ class MyApp extends StatelessWidget {
               Text(
                 'live 3 × 4 = ${mul(3, 4)}',
                 key: const ValueKey('liveMul'),
+                style: const TextStyle(fontSize: 32),
+              ),
+              // The same for `sub`, which reaches this app as a code asset on
+              // `package:sub_asset` and is called through `@Native`.
+              Text(
+                'live 9 - 4 = ${sub(9, 4)}',
+                key: const ValueKey('liveSub'),
                 style: const TextStyle(fontSize: 32),
               ),
             ],

@@ -244,6 +244,25 @@ flutter_application(
 )
 ```
 
+A library that reaches Dart as a code asset (a target providing rules_dart's `DartCodeAssetInfo`, loaded through `@Native`) is wrapped the same way. The wrapper is itself that code asset, so it goes where the bare asset would have gone: in the `code_assets` of the package that owns the asset id, whether that package is a `flutter_plugin`, a `flutter_library` or a `dart_library`.
+
+```starlark
+flutter_native_library(
+    name = "bridge",
+    library = "@my_bridge//bridge:bridge_code_asset",
+    binding_contract = ["@my_bridge//bridge:codegen.ir"],
+)
+
+dart_library(
+    name = "my_bridge_bindings",
+    package_name = "my_bridge_bindings",
+    srcs = ["lib/bindings.dart"],
+    code_assets = [":bridge"],
+)
+```
+
+The build finds a code asset's target however the package that owns it is reached. A package rule that makes its asset with no target of its own leaves nothing to find: the dev config lists that library under `nativeLibsUndescribed`, every hot reload rebuilds the app to see whether it moved, and one that moved is withheld with a restart advised. Naming the asset's target in the application's `code_assets` describes it again.
+
 `binding_contract` is whatever file decides what may be called and how: a binding generator's interface description, or the C header a hand-written FFI binding follows. The dev tool compares the bytes of those files and nothing else, so what matters is that every change to the wire format shows up in them, and that changes which do not affect the wire do not.
 
 With that declared, a reload has three outcomes:

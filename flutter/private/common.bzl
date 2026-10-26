@@ -1070,6 +1070,28 @@ def merge_dart_defines(ctx):
     validate_dart_defines(ctx.attr.defines, "defines attribute of %s" % ctx.label)
     return list(ctx.attr.defines) + ctx.attr._extra_dart_defines[BuildSettingInfo].value
 
+def flutter_deps_attr(aspects = []):
+    """The `deps` attribute of every rule that compiles a Flutter program.
+
+    Args:
+        aspects: Aspects a rule applies over its `deps` on top of the import
+            check every such rule runs.
+
+    Returns:
+        The `attr.label_list`.
+    """
+    return attr.label_list(
+        doc = "`dart_library` or `flutter_library` dependencies. A rule that " +
+              "builds an asset bundle needs `@rules_flutter//flutter:material_icons` " +
+              "listed here to bundle `MaterialIcons-Regular.otf` into " +
+              "`flutter_assets/` for Material widgets; the rules that emit only " +
+              "a kernel or an AOT artifact have no bundle for it to reach.",
+        providers = [DartInfo],
+        # Each library's imports are checked against its own `deps`, in the
+        # `_validation` output group.
+        aspects = [dart_import_check_aspect] + aspects,
+    )
+
 # The attrs `flutter_compile_kernel` reads off its caller's `ctx`. Every rule
 # that calls it spreads this bundle wholesale rather than naming the members,
 # because naming them is what let the contract break: `flutter_compile_kernel`
@@ -1133,17 +1155,7 @@ KERNEL_COMPILE_ATTRS = {
         doc = "Additional Dart source files.",
         allow_files = [".dart"],
     ),
-    "deps": attr.label_list(
-        doc = "`dart_library` or `flutter_library` dependencies. A rule that " +
-              "builds an asset bundle needs `@rules_flutter//flutter:material_icons` " +
-              "listed here to bundle `MaterialIcons-Regular.otf` into " +
-              "`flutter_assets/` for Material widgets; the rules that emit only " +
-              "a kernel or an AOT artifact have no bundle for it to reach.",
-        providers = [DartInfo],
-        # Each library's imports are checked against its own `deps`, in the
-        # `_validation` output group.
-        aspects = [dart_import_check_aspect],
-    ),
+    "deps": flutter_deps_attr(),
     "defines": attr.string_list(
         doc = "Dart environment defines (-D flags).",
     ),

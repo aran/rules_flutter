@@ -1,0 +1,81 @@
+"""A native library delivered as a Dart code asset, wrapped and bare.
+
+The wrapper — `flutter_native_library` over a target providing
+`DartCodeAssetInfo` — is what tells a debug app's dev config the library's
+binding contract and the dev tool its patch builder. It sits in the owning
+package's `code_assets` (see `owner/`), and the owner is a plain `dart_library`
+in one app and a `flutter_plugin` in another: the application has to find it
+either way. The bare asset is the control, with a library and no contract.
+"""
+
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//flutter:defs.bzl", "flutter_application", "flutter_native_library")
+load(":stand_in_code_asset.bzl", "stand_in_code_asset")
+
+package(default_visibility = [
+    "//flutter/tests:__pkg__",
+    "//flutter/tests/code_asset_fixture/owner:__pkg__",
+])
+
+_LIBRARY = "//flutter/tests/native_sources_fixture:bridge"
+
+stand_in_code_asset(
+    name = "code_asset",
+    asset_id = "package:code_asset_owner/bridge",
+    library = _LIBRARY,
+)
+
+write_file(
+    name = "manifest",
+    out = "bridge.hot_patch.json",
+    content = ["{}"],
+)
+
+filegroup(
+    name = "patcher",
+    srcs = [":manifest"],
+)
+
+flutter_native_library(
+    name = "wrapped",
+    binding_contract = ["interface.json"],
+    hot_patch = ":patcher",
+    library = ":code_asset",
+)
+
+stand_in_code_asset(
+    name = "bare_code_asset",
+    asset_id = "package:bare_owner/bridge",
+    library = _LIBRARY,
+)
+
+[
+    flutter_application(
+        name = "app_" + owner,
+        package_name = "code_asset_app",
+        main = "main.dart",
+        tags = ["manual"],
+        deps = ["//flutter/tests/code_asset_fixture/owner:" + owner],
+    )
+    for owner in [
+        "dart_owner",
+        "plugin_owner",
+        "bare_owner",
+    ]
+]
+
+# A wrapper names one library for its contract to describe, and a code asset
+# loaded from the system has none in the bundle.
+stand_in_code_asset(
+    name = "system_code_asset",
+    asset_id = "package:code_asset_owner/system",
+    link_mode = "dynamic_loading_system",
+    system_uri = "libbridge.so.1",
+)
+
+flutter_native_library(
+    name = "wrapped_system",
+    binding_contract = ["interface.json"],
+    library = ":system_code_asset",
+    tags = ["manual"],
+)

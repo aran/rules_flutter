@@ -110,9 +110,11 @@ FlutterNativeAssetInfo = provider(
 )
 
 FlutterNativeLibraryInfo = provider(
-    doc = """A native library in `native_deps` together with the contract its bindings were built against.
+    doc = """A native library in `native_deps`, or a code asset, together with the contract its bindings were built against.
 
-Produced by `flutter_native_library` and read where the dev config is written. A
+Produced by `flutter_native_library` and read where the dev config is written —
+off `native_deps` directly, and for a code asset by `code_asset_libraries.bzl`,
+which finds the wrapper in its owning package's `code_assets`. A
 `native_deps` entry without one is an ordinary shared library: the app bundles it
 and nothing says what calling into it is supposed to look like, which is what
 makes a rebuilt copy of it stop a hot reload rather than merely be reported.

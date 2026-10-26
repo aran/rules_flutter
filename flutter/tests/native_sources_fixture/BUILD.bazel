@@ -5,7 +5,10 @@ out."""
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 
-package(default_visibility = ["//flutter/tests:__pkg__"])
+package(default_visibility = [
+    "//flutter/tests:__pkg__",
+    "//flutter/tests/code_asset_fixture:__pkg__",
+])
 
 genrule(
     name = "generated",

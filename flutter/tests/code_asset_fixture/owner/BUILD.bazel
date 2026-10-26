@@ -1,0 +1,39 @@
+"""The packages that own the fixture's code assets: one Flutter package rule, one
+Dart package rule that knows nothing of Flutter, and the bare control. Each
+reaches its own application only, so sharing a root is not a conflict."""
+
+load("@rules_dart//dart:defs.bzl", "dart_library")
+load("//flutter:defs.bzl", "flutter_plugin")
+
+package(default_visibility = [
+    "//flutter/tests/code_asset_fixture:__pkg__",
+    "//flutter/tests/code_asset_fixture/test:__pkg__",
+])
+
+dart_library(
+    name = "dart_owner",
+    package_name = "code_asset_owner",
+    srcs = ["lib/owner.dart"],
+    code_assets = ["//flutter/tests/code_asset_fixture:wrapped"],
+)
+
+flutter_plugin(
+    name = "plugin_owner",
+    package_name = "code_asset_owner",
+    srcs = ["lib/owner.dart"],
+    code_assets = ["//flutter/tests/code_asset_fixture:wrapped"],
+    platforms = [
+        "android",
+        "ios",
+        "linux",
+        "macos",
+        "windows",
+    ],
+)
+
+dart_library(
+    name = "bare_owner",
+    package_name = "bare_owner",
+    srcs = ["lib/owner.dart"],
+    code_assets = ["//flutter/tests/code_asset_fixture:bare_code_asset"],
+)

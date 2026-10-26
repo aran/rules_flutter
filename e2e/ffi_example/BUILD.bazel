@@ -32,6 +32,7 @@ load(
 )
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load(":c_hot_patch.bzl", "c_hot_patch")
+load(":code_asset.bzl", "stand_in_code_asset")
 load(":ios_sim_debug.bzl", "ios_sim_debug_app")
 
 exports_files(["pubspec.lock"])
@@ -70,6 +71,7 @@ cc_library(
         "@platforms//os:linux": ["-ldl"],
         "//conditions:default": [],
     }),
+    textual_hdrs = ["native/hot_patch_router.h"],
     deps = [":mul_body_cc"],
 )
 
@@ -92,6 +94,7 @@ dart_binary(
 c_hot_patch(
     name = "mul_hot_patch",
     contract = "native/mul.h",
+    function = "mul_body",
     library = ":mul",
     patch_library = ":mul_patch",
     sources = [
@@ -110,6 +113,71 @@ flutter_native_library(
     visibility = ["//mul_plugin:__pkg__"],
 )
 
+# `sub` is patchable the same way, and reaches the app the way a bridge
+# generator's library does: as a Dart code asset, from a rule that is not
+# rules_dart's (`code_asset.bzl`), on a `dart_library` that owns its asset id
+# (`//sub_asset`), and called through `@Native`. The wrapper goes in that
+# package's `code_assets`, where the bare asset would have gone, and an edit to
+# `native/sub.c` reaches a running app on a hot reload exactly as one to
+# `native/mul.c` does.
+cc_library(
+    name = "sub_body_cc",
+    srcs = ["native/sub.c"],
+    hdrs = [
+        "native/sub.h",
+        "native/sub_body.h",
+    ],
+)
+
+cc_library(
+    name = "sub_cc",
+    srcs = ["native/sub_hot_patch.c"],
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    textual_hdrs = ["native/hot_patch_router.h"],
+    deps = [":sub_body_cc"],
+)
+
+cc_shared_library(
+    name = "sub",
+    deps = [":sub_cc"],
+)
+
+cc_shared_library(
+    name = "sub_patch",
+    deps = [":sub_body_cc"],
+)
+
+stand_in_code_asset(
+    name = "sub_code_asset",
+    asset_id = "package:sub_asset/sub",
+    library = ":sub",
+)
+
+c_hot_patch(
+    name = "sub_hot_patch",
+    contract = "native/sub.h",
+    function = "sub_body",
+    library = ":sub",
+    patch_library = ":sub_patch",
+    sources = [
+        "native/sub.c",
+        "native/sub.h",
+        "native/sub_body.h",
+    ],
+    tool = ":c_patch_tool",
+)
+
+flutter_native_library(
+    name = "sub_native",
+    binding_contract = ["native/sub.h"],
+    hot_patch = ":sub_hot_patch",
+    library = ":sub_code_asset",
+    visibility = ["//sub_asset:__pkg__"],
+)
+
 flutter_application(
     name = "ffi_app",
     package_name = "ffi_example",
@@ -117,6 +185,7 @@ flutter_application(
     deps = [
         "//add_plugin",
         "//mul_plugin",
+        "//sub_asset",
         # No code asset is named anywhere in this workspace. drift pulls
         # package:sqlite3, and the curated registry attaches sqlite3's
         # Bazel-built library to that package, so it arrives here the way pub's
@@ -431,6 +500,7 @@ flutter_library(
     deps = [
         "//add_plugin",
         "//mul_plugin",
+        "//sub_asset",
         "@deps//:drift",
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",

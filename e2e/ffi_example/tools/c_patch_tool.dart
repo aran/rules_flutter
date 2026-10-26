@@ -1,6 +1,6 @@
-// The patch builder `//:mul_hot_patch` names: the dev tool's side of
-// `flutter_native_library.hot_patch`, for a C library simple enough that a
-// patch is a whole second build of one source file.
+// The patch builder `//:mul_hot_patch` and `//:sub_hot_patch` name: the dev
+// tool's side of `flutter_native_library.hot_patch`, for a C library simple
+// enough that a patch is a whole second build of one source file.
 //
 // Bazel has already built that second library by the time this runs (it is in
 // the `hot_patch` target's outputs), so there is nothing to compile here. What
@@ -18,9 +18,12 @@
 // can carry, because Dart reaches this library by symbol and a patch is loaded
 // beside it; anything else the rebuilt code serves.
 //
-//   c_patch_tool --library <lib> --contract <header> snapshot --state <dir>
-//   c_patch_tool --library <lib> --contract <header> patch --state <dir>
-//       --symbol flutter_hot_patch_apply=0x... --out <dir>
+//   c_patch_tool --library <lib> --contract <header> --function <name>
+//       snapshot --state <dir>
+//   c_patch_tool --library <lib> --contract <header> --function <name>
+//       patch --state <dir> --symbol flutter_hot_patch_apply=0x... --out <dir>
+//
+// `--function` is the one function a patch replaces, which the reply names.
 //
 // `patch` prints one JSON line. The symbol address is accepted and unused: this
 // library's patches reach nothing in the running image by address.
@@ -40,6 +43,7 @@ Future<void> main(List<String> args) async {
   }
   final library = options['library']!;
   final contract = options['contract']!;
+  final function = options['function']!;
   final state = Directory(options['state']!);
   final launchedLibrary = File('${state.path}/library');
   final launchedContract = File('${state.path}/contract');
@@ -87,7 +91,7 @@ Future<void> main(List<String> args) async {
       _answer({
         'status': 'patched',
         'file': patch.path,
-        'functions': ['mul_body'],
+        'functions': [function],
       });
     default:
       stderr.writeln('unknown command: ${commands.single}');

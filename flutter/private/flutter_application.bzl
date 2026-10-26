@@ -17,7 +17,8 @@ load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "dart_link_hook_actions", "link_hook_runner_attr")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "host_target_arch", "launch_build_args", "shader_sources")
+load("//flutter/private:code_asset_libraries.bzl", "code_asset_libraries", "code_asset_libraries_aspect")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "host_target_arch", "launch_build_args", "shader_sources")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -93,11 +94,12 @@ def _flutter_application_impl(ctx):
     # win, since they are the deliberate ones.
     native_assets_list = transitive_native_assets.to_list()
     declared_ids = {asset.asset_id: True for asset in native_assets_list}
-    native_assets_list = native_assets_list + [
+    lifted_code_assets = [
         asset
         for asset in bridge_dart_code_assets(ctx, ctx.attr.deps)
         if asset.asset_id not in declared_ids
     ]
+    native_assets_list = native_assets_list + lifted_code_assets
 
     target_arch = host_target_arch(ctx, flutter_sdk_info)
     native_assets_manifest_file = ctx.actions.declare_file(ctx.label.name + ".native_assets.json")
@@ -292,6 +294,19 @@ def _flutter_application_impl(ctx):
                 for f in pair.sources
             ]
 
+    # A code asset off the Dart package graph is bundled under this target's
+    # own name for it, so what its build declares — a `flutter_native_library`
+    # wrapper's contract, and its sources either way — is looked up by asset id
+    # and put on that name. See `code_asset_libraries.bzl`.
+    code_asset_records = code_asset_libraries(ctx.attr.deps)
+    for asset in lifted_code_assets:
+        record = code_asset_records.get(asset.asset_id)
+        if asset.file == None or record == None:
+            continue
+        binding_contracts[asset.file.path] = [f.path for f in record.contract]
+        contract_files.extend(record.contract)
+        native_lib_sources[asset.file.path] = [f.path for f in record.sources]
+
     # The code-asset libraries join `default_files` with the manifest that names
     # them. Declaring an output is what makes its path true: the manifest is
     # built here and the dev tool reads these files back off this target, and a
@@ -459,6 +474,10 @@ flutter_application = rule(
     implementation = _flutter_application_impl,
     attrs = dicts.add(
         FLUTTER_APPLICATION_ATTRS,
+        # The application is where a debug build's dev config is written, so
+        # it is the one rule that needs to know, per code asset, what the
+        # asset's own build declared about it.
+        {"deps": flutter_deps_attr(aspects = [code_asset_libraries_aspect])},
         PLATFORM_CONSTRAINT_ATTRS,
         link_hook_runner_attr(),
         # Simulator-vs-device is an Apple *environment* constraint, not an OS

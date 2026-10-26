@@ -1,0 +1,17 @@
+load("//flutter:defs.bzl", "flutter_test")
+
+# A test that reaches the wrapped code asset. A test has no dev loop, so what
+# the wrapper adds is never read here; what matters is that it is still only a
+# code asset to the test. In a package of its own because a test cannot share
+# its package root with a dep's. Left `manual`; only the analysistests build it.
+flutter_test(
+    name = "wrapped_code_asset_test",
+    package_name = "wrapped_code_asset_test",
+    main = "main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [
+        "//flutter/tests/code_asset_fixture/owner:dart_owner",
+        "//flutter/tests/dart_asset_fixture:fake_test_api",
+    ],
+)

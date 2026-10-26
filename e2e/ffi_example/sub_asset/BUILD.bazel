@@ -1,0 +1,15 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# A package that owns a native code asset and knows nothing of Flutter: a plain
+# `dart_library`, the shape a bridge generator that does not depend on
+# rules_flutter produces. Its code asset is `//:sub_native`, a
+# `flutter_native_library` over the generator-style code asset
+# `//:sub_code_asset`, which is what lets a hot reload patch `native/sub.c` into
+# a running app.
+dart_library(
+    name = "sub_asset",
+    package_name = "sub_asset",
+    srcs = ["lib/sub_asset.dart"],
+    code_assets = ["//:sub_native"],
+    visibility = ["//visibility:public"],
+)

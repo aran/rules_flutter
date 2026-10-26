@@ -30,6 +30,13 @@
 ///     between reloads, so an edit to `native/add.c` is visible only through the
 ///     sources the build declared — the gap that let a reload report success
 ///     over machine code from before the edit.
+///  7. **A library delivered as a code asset patches the same way.** `sub`
+///     reaches the app on a plain `dart_library`'s `code_assets`, from a rule
+///     that is not rules_dart's, and is called through `@Native`. The
+///     `flutter_native_library` wrapper in those `code_assets` is the only place
+///     its contract and patch builder are declared: without the contract, the
+///     sources the build declares for it make every edit a reload withheld over
+///     a library nothing describes, and without the builder nothing is armed.
 library;
 
 import 'dart:async';
@@ -205,6 +212,54 @@ void main() {
         // And undoing it leaves the run where it was.
         addSource.writeAsStringSync(addOriginal);
         expect((await _reload(dt, appId))['succeeded'], isTrue);
+
+        // ---- 7: a library delivered as a code asset ---------------------------
+        final subSource = ws.file('native/sub.c');
+        final subHeader = ws.file('native/sub.h');
+        final subOriginal = subSource.readAsStringSync();
+        final subHeaderOriginal = subHeader.readAsStringSync();
+        expect(
+          subOriginal,
+          contains('return a - b;'),
+          reason: 'fixture marker',
+        );
+        await _expectRendered(dt, appId, 'live 9 - 4 = 5');
+
+        subSource.writeAsStringSync(
+          subOriginal.replaceFirst('return a - b;', 'return a - b + 100;'),
+        );
+        final subPatched = await _reload(dt, appId);
+        expect(subPatched['succeeded'], isTrue, reason: '$subPatched');
+        expect(subPatched['runningCode'], 'updated', reason: '$subPatched');
+        expect(subPatched['nativePatched'], {
+          'libsub.dylib': ['sub_body'],
+        });
+        await _expectRendered(dt, appId, 'live 9 - 4 = 105');
+
+        // A moved contract is the builder's question here too, which it can
+        // only be if the contract reached the dev config through the asset.
+        subHeader.writeAsStringSync(
+          subHeaderOriginal.replaceFirst(
+            'FFI_EXAMPLE_EXPORT int32_t sub(int32_t a, int32_t b);',
+            'FFI_EXAMPLE_EXPORT int32_t sub(int32_t a, int32_t b);\n'
+                'FFI_EXAMPLE_EXPORT int32_t sub_twice(int32_t a);',
+          ),
+        );
+        final subWithheld = await _reload(dt, appId);
+        expect(subWithheld['succeeded'], isFalse, reason: '$subWithheld');
+        expect(
+          '${subWithheld['error']}',
+          contains('cannot be reached through it'),
+          reason: '$subWithheld',
+        );
+        await _expectRendered(dt, appId, 'live 9 - 4 = 105');
+        subHeader.writeAsStringSync(subHeaderOriginal);
+
+        subSource.writeAsStringSync(subOriginal);
+        final subReverted = await _reload(dt, appId);
+        expect(subReverted['succeeded'], isTrue, reason: '$subReverted');
+        expect(subReverted['nativeReverted'], ['libsub.dylib']);
+        await _expectRendered(dt, appId, 'live 9 - 4 = 5');
       },
       timeout: const Timeout(Duration(minutes: 10)),
     );

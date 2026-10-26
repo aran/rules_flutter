@@ -57,6 +57,10 @@ void main() {
       '$bundlePath/Contents/Frameworks/libmul.dylib',
     );
     check(
+      'code-asset dylib libsub.dylib exists',
+      '$bundlePath/Contents/Frameworks/libsub.dylib',
+    );
+    check(
       'curated code-asset dylib libsqlite3.dylib exists',
       '$bundlePath/Contents/Frameworks/libsqlite3.dylib',
     );

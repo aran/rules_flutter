@@ -107,6 +107,9 @@ legacy_dart_library(
     name = "fake_test_api",
     package_name = "test_api",
     srcs = ["lib/fixture.dart"],
+    visibility = [
+        "//flutter/tests/code_asset_fixture/test:__pkg__",
+    ],
 )
 
 # The hook check has to fire from `flutter_test`, not just from

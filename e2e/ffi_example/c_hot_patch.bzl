@@ -32,6 +32,8 @@ def _c_hot_patch_impl(ctx):
             patch[0].path,
             "--contract",
             ctx.file.contract.path,
+            "--function",
+            ctx.attr.function,
         ],
     }))
     return [DefaultInfo(files = depset([manifest, tool, patch[0], ctx.file.contract]))]
@@ -42,6 +44,7 @@ c_hot_patch = rule(
         "library": attr.label(mandatory = True, doc = "The library the app bundles."),
         "patch_library": attr.label(mandatory = True, doc = "A build of the patchable code on its own."),
         "contract": attr.label(mandatory = True, allow_single_file = True, doc = "The header a change to which needs a restart."),
+        "function": attr.string(mandatory = True, doc = "The function a patch replaces, as the reply names it."),
         "sources": attr.label_list(allow_files = True, doc = "What a reload stats to decide whether to ask."),
         "tool": attr.label(mandatory = True, executable = True, cfg = "exec"),
     },
