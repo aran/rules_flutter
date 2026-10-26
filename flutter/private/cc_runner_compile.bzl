@@ -1,5 +1,6 @@
 """Shared helper for compiling C++ desktop runners using cc_common."""
 
+load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 
 def compile_and_link_runner(
@@ -22,7 +23,7 @@ def compile_and_link_runner(
     Uses Bazel's hermetic CC toolchain for both compilation and linking.
 
     Args:
-        ctx: Rule context (must have _cc_toolchain attr and cpp fragment).
+        ctx: Rule context (must declare the C++ toolchain type and cpp fragment).
         name: Base name for intermediate artifacts and the output binary.
         srcs: List of C++ source Files.
         engine_library_file: The engine .so or .dll File.
@@ -43,7 +44,7 @@ def compile_and_link_runner(
     Returns:
         The executable File produced by cc_common.link().
     """
-    cc_toolchain = ctx.attr._cc_toolchain[cc_common.CcToolchainInfo]
+    cc_toolchain = find_cc_toolchain(ctx)
     feature_configuration = cc_common.configure_features(
         ctx = ctx,
         cc_toolchain = cc_toolchain,

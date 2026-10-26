@@ -261,9 +261,6 @@ flutter_windows_runner_lib = rule(
             default = Label("//flutter/private/runners:windows_runner_hdrs"),
             allow_files = True,
         ),
-        "_cc_toolchain": attr.label(
-            default = "@bazel_tools//tools/cpp:current_cc_toolchain",
-        ),
     },
     fragments = ["cpp"],
     toolchains = [

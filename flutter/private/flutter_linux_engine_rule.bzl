@@ -7,6 +7,7 @@ DefaultInfo provides the engine .so + headers.
 CcInfo provides proper linking context so cc_binary can depend on this target.
 """
 
+load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
@@ -43,7 +44,7 @@ def _flutter_linux_engine_impl(ctx):
         )
 
     # Build CcInfo for cc_binary compatibility.
-    cc_toolchain = ctx.attr._cc_toolchain[cc_common.CcToolchainInfo]
+    cc_toolchain = find_cc_toolchain(ctx)
     feature_configuration = cc_common.configure_features(
         ctx = ctx,
         cc_toolchain = cc_toolchain,
@@ -89,9 +90,6 @@ def _flutter_linux_engine_impl(ctx):
 flutter_linux_engine_rule = rule(
     implementation = _flutter_linux_engine_impl,
     attrs = {
-        "_cc_toolchain": attr.label(
-            default = "@bazel_tools//tools/cpp:current_cc_toolchain",
-        ),
     },
     fragments = ["cpp"],
     toolchains = [

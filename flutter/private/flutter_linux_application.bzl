@@ -393,9 +393,6 @@ flutter_linux_runner_lib = rule(
             default = Label("//flutter/private/runners:linux_runner.cc"),
             allow_single_file = True,
         ),
-        "_cc_toolchain": attr.label(
-            default = "@bazel_tools//tools/cpp:current_cc_toolchain",
-        ),
     },
     fragments = ["cpp"],
     toolchains = [
