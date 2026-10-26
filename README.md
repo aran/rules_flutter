@@ -85,6 +85,19 @@ startup --windows_enable_symlinks
 
 Without the Java settings you get `UnsupportedClassVersionError` when an action runs, or `could not locate class file for java.lang.Record` when one compiles.
 
+One more is recommended:
+
+```bazelrc
+# Share identical work between configurations, where Bazel can sandbox.
+common --enable_platform_specific_config
+common:linux --experimental_output_paths=strip
+common:macos --experimental_output_paths=strip
+```
+
+A Flutter build reaches the same work in several configurations: each Android ABI compiles the same release kernel and bundles the same assets, `-c dbg` and `-c fastbuild` run the same codegen, and platform transitions give one target several output directories. Bazel keys an action by its paths, so each configuration's copy normally runs again. With this flag, Bazel rewrites `bazel-out/<config>/bin` to `bazel-out/cfg/bin` in every action that declares it can run that way, and the copies after the first are cache hits. rules_flutter's actions all declare it. The rewrite needs a sandbox or remote execution, so actions with `local` or `no-sandbox` tags run as before. Windows has no sandbox, and there Bazel fails a path-mapped action (`requires sandboxing due to path mapping`) rather than run it unmapped, so leave the flag off on Windows. Outputs still land in their own configuration's directory, so nothing that reads `bazel-out` changes.
+
+A debug build's kernel is the one action that does not share across configurations: it carries the path of its `flutter_assets/`, which is how `flutter_bazel` tells an app's configurations apart.
+
 ### Your first app
 
 Start from a project made with `flutter create`. It has `lib/main.dart`, a `pubspec.yaml`, and one folder per platform. rules_flutter reads those files as they are. You add a `BUILD.bazel`:
