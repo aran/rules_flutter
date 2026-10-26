@@ -157,11 +157,8 @@ def collect_native_libs(native_deps):
 def resolve_dev_generated_sources(paths, candidates):
     """The Files behind `_dev_config.json`'s `generatedSourcePaths`.
 
-    `_dev_config.json` sends the frontend_server to read these paths. Nothing
-    asks for them by label, and being an action's *input* is not what makes bazel
-    write a file to this machine — a cache hit (disk or remote) runs no action, so
-    an input-only file is never materialized and the dev tool reports "the build
-    declared files it did not write". Declaring them is what makes the paths true.
+    rules_dart reports the generated sources as paths; the dev config takes
+    Files (see `dev_config.bzl`), and these are those Files.
 
     Args:
         paths: The `generatedSourcePaths` going into the dev config.
@@ -321,9 +318,9 @@ def flutter_compile_kernel(ctx, tools, aot = None, platform_dill = None, target_
     dev_package_config = None
     dev_filesystem_roots = []
     dev_filesystem_scheme = ""
-    dev_generated_source_paths = []
+    dev_package_config_names = []
+    dev_generated_sources = []
     dev_generated_source_uris = []
-    dev_generated_source_files = []
     dev_source_packages = []
     dev_app_sources = []
     main_location = app_main_location(app_pkg_name, app_lib_root, ctx.file.main) if ctx.file.main else None
@@ -339,17 +336,16 @@ def flutter_compile_kernel(ctx, tools, aot = None, platform_dill = None, target_
         dev_filesystem_roots = with_root(dev_pc.filesystem_roots, main_location.root if main_location else None)
         dev_filesystem_scheme = dev_pc.scheme
         dev_app_sources = app_scheme_sources(app_pkg_name, app_lib_root, ctx.file.main, ctx.files.srcs) if ctx.file.main else []
-        dev_generated_source_paths = dev_pc.generated_source_paths
         dev_generated_source_uris = dev_pc.generated_source_uris
         dev_source_packages = dev_pc.source_packages
-
-        # Resolved from the same list the paths came from, so the two cannot
-        # drift — see [resolve_dev_generated_sources] for why declaring them is
-        # what makes the config's paths true.
-        dev_generated_source_files = resolve_dev_generated_sources(
-            dev_generated_source_paths,
+        dev_generated_sources = resolve_dev_generated_sources(
+            dev_pc.generated_source_paths,
             colocate_inputs,
         )
+
+        # The dev package_config's roots and the filesystem roots reach every
+        # file the dev compiler may read.
+        dev_package_config_names = colocate_inputs
 
     pc = compile_package_config(ctx, packages, colocate_inputs)
     config_file = pc.config_file
@@ -510,9 +506,9 @@ def flutter_compile_kernel(ctx, tools, aot = None, platform_dill = None, target_
         dev_package_config = dev_package_config,
         dev_filesystem_roots = dev_filesystem_roots,
         dev_filesystem_scheme = dev_filesystem_scheme,
-        dev_generated_source_paths = dev_generated_source_paths,
+        dev_package_config_names = dev_package_config_names,
+        dev_generated_sources = dev_generated_sources,
         dev_generated_source_uris = dev_generated_source_uris,
-        dev_generated_source_files = dev_generated_source_files,
         dev_source_packages = dev_source_packages,
         dev_app_sources = dev_app_sources,
     )

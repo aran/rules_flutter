@@ -19,6 +19,7 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "dart_link_h
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterInfo")
 load("//flutter/private:code_asset_libraries.bzl", "code_asset_libraries", "code_asset_libraries_aspect")
 load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "host_target_arch", "launch_build_args", "shader_sources")
+load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -265,7 +266,6 @@ def _flutter_application_impl(ctx):
     # tool has to tell "nothing describes this one" from "this one is not
     # bundled", and they mean opposite things for a reload.
     binding_contracts = {path: [] for path in bundled_native_libs}
-    contract_files = []
     for pair in collect_binding_contracts(ctx.attr.native_deps) + [
         p
         for dep in ctx.attr.deps
@@ -273,11 +273,7 @@ def _flutter_application_impl(ctx):
         for p in dep[FlutterInfo].binding_contracts.to_list()
     ]:
         if pair.library.path in binding_contracts:
-            binding_contracts[pair.library.path] = [
-                f.path
-                for f in pair.contract
-            ]
-            contract_files.extend(pair.contract)
+            binding_contracts[pair.library.path] = list(pair.contract)
 
     # And what each is built from, on the same keys, so a reload can tell that a
     # library went stale in an app that runs no build of its own.
@@ -289,10 +285,7 @@ def _flutter_application_impl(ctx):
         for p in dep[FlutterInfo].native_lib_sources.to_list()
     ]:
         if pair.library.path in native_lib_sources:
-            native_lib_sources[pair.library.path] = [
-                f.path
-                for f in pair.sources
-            ]
+            native_lib_sources[pair.library.path] = list(pair.sources)
 
     # A code asset off the Dart package graph is bundled under this target's
     # own name for it, so what its build declares — a `flutter_native_library`
@@ -303,9 +296,8 @@ def _flutter_application_impl(ctx):
         record = code_asset_records.get(asset.asset_id)
         if asset.file == None or record == None:
             continue
-        binding_contracts[asset.file.path] = [f.path for f in record.contract]
-        contract_files.extend(record.contract)
-        native_lib_sources[asset.file.path] = [f.path for f in record.sources]
+        binding_contracts[asset.file.path] = list(record.contract)
+        native_lib_sources[asset.file.path] = list(record.sources)
 
     # The code-asset libraries join `default_files` with the manifest that names
     # them. Declaring an output is what makes its path true: the manifest is
@@ -332,39 +324,45 @@ def _flutter_application_impl(ctx):
     # rebuild would prune the flutter SDK from the execroot symlink forest and
     # break the next full compile).
     if is_debug and compilation.dev_package_config != None:
-        dev_config_file = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
-        ctx.actions.write(
-            output = dev_config_file,
-            content = json.encode({
+        dartaotruntime = flutter_sdk_info.dartaotruntime
+        platform_dill = flutter_sdk_info.platform_kernel_dill
+
+        # Declares every build output the config names; see `dev_config.bzl`.
+        default_files.extend(write_dev_config(
+            ctx,
+            ctx.actions.declare_file(ctx.label.name + "_dev_config.json"),
+            {
                 "engineRevision": flutter_sdk_info.engine_revision,
                 "flutterVersion": flutter_sdk_info.version,
-                "dartSdkRoot": flutter_sdk_info.dartaotruntime.path.rsplit("/bin/", 1)[0],
-                "dartaotruntime": flutter_sdk_info.dartaotruntime.path,
-                "frontendServer": flutter_sdk_info.frontend_server.path,
-                "patchedSdkRoot": flutter_sdk_info.platform_kernel_dill.path.rsplit("/", 1)[0],
+                "dartSdkRoot": dev_source_dir(dartaotruntime, dartaotruntime.path.rsplit("/bin/", 1)[0]),
+                "dartaotruntime": dartaotruntime,
+                "frontendServer": flutter_sdk_info.frontend_server,
+                "patchedSdkRoot": dev_source_dir(platform_dill, platform_dill.dirname),
                 "appEntrypoint": compilation.app_entrypoint_uri,
                 # Merged user defines (attr + extra_dart_defines flag). The
                 # dev tool replays these as -D on its resident frontend_server
                 # so hot reload/restart recompiles keep the same environment.
                 "dartDefines": compilation.dart_defines,
-                # Generated plugin registrants, keyed by platform
-                # (exec-relative paths, "" when that platform has no Dart
-                # plugins and no agent). One per platform because this dev
-                # build runs in the host configuration while the app can be
-                # running elsewhere; the dev tool selects by the platform the
+                # Generated plugin registrants, keyed by platform ("" when
+                # that platform has no Dart plugins and no agent). One per
+                # platform because this dev build runs in the host
+                # configuration while the app can be running elsewhere; the dev tool selects by the platform the
                 # app reports (build_info.targetPlatform), compiles that file
                 # into its dills via --source, and advertises it with
                 # -Dflutter.dart_plugin_registrant so the engine's pre-main
                 # hook keeps firing — with the right plugin set — after hot
                 # restart.
                 "dartPluginRegistrants": {
-                    platform: registrant.path if registrant else ""
+                    platform: registrant or ""
                     for platform, registrant in compilation.dev_plugin_registrants.items()
                 },
-                "devPackageConfig": compilation.dev_package_config.path,
-                "filesystemRoots": compilation.dev_filesystem_roots,
+                "devPackageConfig": dev_config_file(
+                    compilation.dev_package_config,
+                    compilation.dev_package_config_names,
+                ),
+                "filesystemRoots": dev_search_roots(compilation.dev_filesystem_roots),
                 "filesystemScheme": compilation.dev_filesystem_scheme,
-                "generatedSourcePaths": compilation.dev_generated_source_paths,
+                "generatedSourcePaths": compilation.dev_generated_sources,
                 "generatedSourceUris": compilation.dev_generated_source_uris,
                 # Every bundled shader, by bundle path, with the workspace
                 # files it is compiled from. The dev tool watches those and
@@ -380,7 +378,7 @@ def _flutter_application_impl(ctx):
                 # increment would be injected over stale machine code, without
                 # paying a second build in the app's launch configuration.
                 # Empty unless the app bundles `native_deps`.
-                "nativeLibs": bundled_native_libs.keys(),
+                "nativeLibs": bundled_native_libs.values(),
                 # Per library, the files its bindings were generated from. A
                 # reload compares these bytes to decide whether an increment is
                 # one the library the running process already has can serve —
@@ -404,37 +402,8 @@ def _flutter_application_impl(ctx):
                 # `srcs` beside it — with the URI the compiler keys each by.
                 # Empty for a `main` with a `package:` URI.
                 "appSources": compilation.dev_app_sources,
-            }),
-        )
-        default_files.append(dev_config_file)
-        default_files.append(compilation.dev_package_config)
-
-        # The dev registrants are inputs to no action — without this they are
-        # declared but never materialized by the bare build, and the dev tool
-        # would absolutize a dangling path.
-        for registrant in compilation.dev_plugin_registrants.values():
-            if registrant:
-                default_files.append(registrant)
-
-        # The generated sources `_dev_config.json` points the frontend_server
-        # at. These *are* inputs to the kernel compile, which is why they
-        # looked safe — but an input is materialized on the machine that ran
-        # the action, and a cache hit runs none. Declaring them is what makes
-        # the paths in the config true.
-        default_files.extend(compilation.dev_generated_source_files)
-
-        # And the binding contracts, which have it worse than the generated
-        # sources: a contract is an input to no action of this target at all.
-        # Nothing but the dev tool ever reads its bytes, so a *generated*
-        # contract is written only if some other action happens to produce it —
-        # a bridge generator that emits its interface description beside the
-        # Dart it also emits does, and a rule that emits the description alone
-        # does not. The first case works by luck and the second one names a
-        # path in the config that this build never writes, which the dev tool
-        # reports at launch as a build that declared a file it did not write.
-        # Declaring them is what makes the paths true, and what makes the
-        # reload's own rebuild refresh them.
-        default_files.extend(contract_files)
+            },
+        ))
 
     output_groups = {
         "native_assets_manifest": depset([native_assets_manifest_file]),

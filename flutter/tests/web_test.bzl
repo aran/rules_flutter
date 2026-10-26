@@ -520,6 +520,57 @@ _dev_config_test = analysistest.make(
     attrs = {"expect_entrypoint": attr.string(mandatory = True)},
 )
 
+def _build_package_roots_declared_test_impl(ctx):
+    """Every generated root the build package config names is a declared output.
+
+    The dev tool hands this config to DWDS, which reads each first-party
+    library's source through it to show it in the debugger. A source-assembled
+    package's `rootUri` is the `.pkgsrcs` tree the bundle compiled from, which
+    is otherwise only an action input: with a disk or remote cache and Build
+    without the Bytes, a cache hit leaves it an empty directory, and the
+    debugger shows a blank pane for every library in it.
+    """
+    env = analysistest.begin(ctx)
+    config = written_json(env, ".package_config.json")
+    if config == None:
+        return analysistest.end(env)
+    config_dir = [
+        a.outputs.to_list()[0].dirname
+        for a in analysistest.target_actions(env)
+        if a.mnemonic == "FileWrite" and
+           a.outputs.to_list()[0].basename.endswith(".package_config.json")
+    ][0]
+    declared = [
+        f.path
+        for f in analysistest.target_under_test(env)[DefaultInfo].files.to_list()
+    ]
+
+    # Roots climbing out of the config's directory are the source tree or a
+    # repository, which Bazel never has to write. The rest sit beside the
+    # config, among this target's own outputs.
+    generated = [
+        config_dir + "/" + e["rootUri"]
+        for e in config["packages"]
+        if not e["rootUri"].startswith("../")
+    ]
+    asserts.true(
+        env,
+        len(generated) > 0,
+        "the fixture must source-assemble a package, or this test proves nothing",
+    )
+    for root in generated:
+        asserts.true(
+            env,
+            root in declared,
+            "%s is a package root DWDS reads sources from, and the target does not declare it" % root,
+        )
+    return analysistest.end(env)
+
+_build_package_roots_declared_test = analysistest.make(
+    _build_package_roots_declared_test_impl,
+    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+)
+
 def _main_outside_lib_test_impl(ctx):
     """A `main` outside the package's `lib/` reaches the dev loop by its path.
 
@@ -1253,6 +1304,22 @@ def _setup_web_fixtures():
         tags = ["manual"],
     )
 
+    # A generated library in the app's own `lib/`, which makes its package
+    # source-assembled: the shape of every codegen app.
+    native.genrule(
+        name = "_web_fixture_generated",
+        outs = ["lib/web_fixture_generated.dart"],
+        cmd = "echo 'const generated = 1;' > $@",
+        tags = ["manual"],
+    )
+    flutter_web_bundle(
+        name = "_web_codegen_fixture",
+        package_name = "web_fixture",
+        srcs = [":_web_fixture_generated"],
+        main = "lib/web_fixture_main.dart",
+        tags = ["manual"],
+    )
+
     # A `main` beside the package's `lib/` rather than inside it, which has no
     # `package:` URI at all; `_main_outside_lib_test` pins how the dev loop
     # reaches it instead.
@@ -1446,6 +1513,10 @@ def web_test_suite(name):
         name = name + "_dev_config",
         target_under_test = ":_web_fixture",
         expect_entrypoint = "package:web_fixture/web_fixture_main.dart",
+    )
+    _build_package_roots_declared_test(
+        name = name + "_build_package_roots_declared",
+        target_under_test = ":_web_codegen_fixture",
     )
     _main_outside_lib_test(
         name = name + "_main_outside_lib",

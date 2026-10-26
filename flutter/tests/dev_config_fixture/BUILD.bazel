@@ -1,0 +1,17 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+load("//flutter/tests:dev_config_test.bzl", "source_tree")
+
+# A package that arrives as one built directory. Its package config root is
+# that directory, an output, and the dev tool reads the sources in it.
+source_tree(
+    name = "tree",
+    tags = ["manual"],
+)
+
+dart_library(
+    name = "prebuilt",
+    package_name = "prebuilt",
+    srcs_dir = ":tree",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+)

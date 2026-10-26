@@ -270,13 +270,19 @@ def compile_package_config(ctx, packages, all_srcs):
         package siblings.
 
     Returns:
-      `struct(config_file, srcs, packages)` — `srcs` and `packages` are
-      the post-colocation values to feed the compile action.
+      `struct(config_file, srcs, packages)` — `srcs` and `packages` are the
+      post-colocation values to feed the compile action. The config's package
+      roots reach into `srcs`, so a consumer that reads sources through the
+      config after the build declares its build outputs among `srcs`.
     """
     packages2, srcs2 = colocate_packages(ctx, packages, all_srcs)
     config_file = ctx.actions.declare_file(ctx.label.name + ".package_config.json")
     ctx.actions.write(config_file, generate_package_config(packages2, srcs2, config_file))
-    return struct(config_file = config_file, srcs = srcs2, packages = packages2)
+    return struct(
+        config_file = config_file,
+        srcs = srcs2,
+        packages = packages2,
+    )
 
 def compute_wrapper_main_import(wrapper_dir_depth, main_path):
     """Relative import path from a generated wrapper to the original main.

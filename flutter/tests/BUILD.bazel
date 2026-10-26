@@ -5,6 +5,7 @@ load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
 load(":code_asset_native_library_test.bzl", "code_asset_native_library_test_suite")
 load(":common_test.bzl", "common_test_suite")
+load(":dev_config_test.bzl", "dev_config_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
 load(":flutter_info_test.bzl", "flutter_info_test_suite")
 load(":flutter_library_test.bzl", "flutter_library_test_suite")
@@ -84,6 +85,8 @@ language_version_test_suite(name = "language_version_test")
 profile_mode_test_suite(name = "profile_mode_test")
 
 app_entrypoint_test_suite(name = "app_entrypoint_test")
+
+dev_config_test_suite(name = "dev_config_test")
 
 app_defines_test_suite(name = "app_defines_test")
 

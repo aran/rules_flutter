@@ -47,6 +47,7 @@ load(
     "resolve_dev_generated_sources",
     "shader_sources",
 )
+load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_info.bzl", "dedup_plugins")
@@ -355,9 +356,9 @@ def _flutter_web_bundle_impl(ctx):
     dev_package_config = None
     dev_filesystem_roots = []
     dev_filesystem_scheme = ""
-    dev_generated_source_paths = []
+    dev_package_config_names = []
+    dev_generated_sources = []
     dev_generated_source_uris = []
-    dev_generated_source_files = []
     dev_source_packages = []
     if is_debug:
         dev_package_config = ctx.actions.declare_file(ctx.label.name + ".dev_package_config.json")
@@ -371,21 +372,16 @@ def _flutter_web_bundle_impl(ctx):
             app_main_location(ctx.attr.package_name, lib_root, ctx.file.main).root,
         )
         dev_filesystem_scheme = dev_pc.scheme
-        dev_generated_source_paths = dev_pc.generated_source_paths
         dev_generated_source_uris = dev_pc.generated_source_uris
         dev_source_packages = dev_pc.source_packages
-
-        # The same declaration the native rule makes, for the same reason and
-        # against the same failure: the dev config sends the frontend_server to
-        # read these paths, and a cache hit runs no action, so a file that is only
-        # an action *input* is never written to this machine. Without this the web
-        # dev loop fails at assembly with "the build declared files it did not
-        # write" — and only once a disk or remote cache holds those actions, which
-        # is why it took a second full-suite run to see it.
-        dev_generated_source_files = resolve_dev_generated_sources(
-            dev_generated_source_paths,
+        dev_generated_sources = resolve_dev_generated_sources(
+            dev_pc.generated_source_paths,
             all_srcs + [ctx.file.main],
         )
+
+        # The dev package_config's roots and the filesystem roots reach every
+        # file the dev compiler may read.
+        dev_package_config_names = all_srcs + [ctx.file.main]
 
     pc = compile_package_config(ctx, packages, all_srcs + [ctx.file.main])
     config_file = pc.config_file
@@ -1023,16 +1019,13 @@ def _flutter_web_bundle_impl(ctx):
         # either. Only the DDC dev loop can carry these.
         staged_agent = ctx.actions.declare_file(ctx.label.name + ".agent_extensions.dart")
         ctx.actions.symlink(output = staged_agent, target_file = ctx.file._agent_extensions_src)
-        ddc_files.append(staged_agent)
-
-        # The dev loop's bootstrap, declared a top-level debug output so it is
-        # materialized locally for the dev server to read and serve.
-        ddc_files.append(dev_bootstrap_js)
 
         # Dev config JSON with engine revision, version, and host tool paths.
         # The dart-sdk root is derived from the module loader path:
         # .../dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js → .../dart-sdk
-        dart_sdk_root = ctx.file._ddc_module_loader_js.path.rsplit("/lib/", 1)[0]
+        module_loader = ctx.file._ddc_module_loader_js
+        dart_sdk_root = dev_source_dir(module_loader, module_loader.path.rsplit("/lib/", 1)[0])
+        platform_dill = flutter_sdk_info.platform_kernel_dill
 
         # The synthetic-main entrypoint the dev tool imports: the `main`'s
         # `package:` URI, backed by the record `synthesize_app_package` wrote
@@ -1047,13 +1040,14 @@ def _flutter_web_bundle_impl(ctx):
         # mismatch.
         app_entrypoint = app_main_location(ctx.attr.package_name, lib_root, ctx.file.main).uri
 
-        dev_config_content = json.encode({
+        # Declares every build output the config names; see `dev_config.bzl`.
+        ddc_files.extend(write_dev_config(ctx, ctx.actions.declare_file(ctx.label.name + "_dev_config.json"), {
             "engineRevision": flutter_sdk_info.engine_revision,
             "flutterVersion": flutter_sdk_info.version,
             "dartSdkRoot": dart_sdk_root,
-            "dartaotruntime": flutter_sdk_info.dartaotruntime.path,
-            "frontendServer": flutter_sdk_info.frontend_server.path,
-            "patchedSdkRoot": flutter_sdk_info.platform_kernel_dill.path.rsplit("/", 1)[0],
+            "dartaotruntime": flutter_sdk_info.dartaotruntime,
+            "frontendServer": flutter_sdk_info.frontend_server,
+            "patchedSdkRoot": dev_source_dir(platform_dill, platform_dill.dirname),
             "appEntrypoint": app_entrypoint,
             # The generated web plugin registrant (`registerPlugins()`). The
             # bundled build reaches it through the wrapper main's relative
@@ -1061,18 +1055,18 @@ def _flutter_web_bundle_impl(ctx):
             # dev tool needs the path named explicitly — it stages the file
             # beside that entrypoint and imports it the same way. Empty when
             # the app has no web plugins.
-            "webPluginRegistrant": registrant.path if registrant else "",
+            "webPluginRegistrant": registrant or "",
             # The staged AI-agent service extensions. Same staging contract as
             # `webPluginRegistrant`: the build names the file, the dev tool
             # copies it beside its synthetic entrypoint and imports it. Always
             # present in this branch — a dbg web run is a dev-loop run.
-            "agentExtensions": staged_agent.path,
+            "agentExtensions": staged_agent,
             # The bootstrap the dev server answers `/flutter_bootstrap.js`
             # with: this target's template, substituted with the DDC build
             # config the dev loop runs under. Named here rather than found by
             # suffix because it is one file per target, and a run that served
             # another target's would boot the wrong app.
-            "flutterBootstrapJs": dev_bootstrap_js.path,
+            "flutterBootstrapJs": dev_bootstrap_js,
             # Merged user defines (attr + extra_dart_defines flag). The dev
             # tool replays these as -D on its resident frontend_server so
             # hot reload/restart recompiles keep the same environment.
@@ -1090,7 +1084,7 @@ def _flutter_web_bundle_impl(ctx):
             "enableExperiments": ctx.attr.enable_experiments,
             # Codegen hot-reload: dev package_config + multi-root layout +
             # generated source paths/URIs (empty for non-codegen apps).
-            "devPackageConfig": dev_package_config.path if dev_package_config else "",
+            "devPackageConfig": dev_config_file(dev_package_config, dev_package_config_names),
             # The BUILD package_config, for the one consumer that needs file
             # paths rather than live sources: DWDS, which reads a `package:`
             # URI's source off disk to show it in the debugger.
@@ -1103,10 +1097,10 @@ def _flutter_web_bundle_impl(ctx):
             # cannot: DWDS asked through it gets "Cannot extract a file path
             # from a org-dartlang-app URI" and shows no source at all. This
             # one's rootUris are ordinary relative paths, so they resolve.
-            "buildPackageConfig": config_file.path,
-            "filesystemRoots": dev_filesystem_roots,
+            "buildPackageConfig": dev_config_file(config_file, pc.srcs),
+            "filesystemRoots": dev_search_roots(dev_filesystem_roots),
             "filesystemScheme": dev_filesystem_scheme,
-            "generatedSourcePaths": dev_generated_source_paths,
+            "generatedSourcePaths": dev_generated_sources,
             "generatedSourceUris": dev_generated_source_uris,
             # See flutter_application's dev config.
             "shaders": shader_sources(ctx),
@@ -1120,9 +1114,9 @@ def _flutter_web_bundle_impl(ctx):
             # Declared, never inferred. This directory also holds Flutter's own
             # `main.dart.wasm`, which changes on every Dart edit, so a watch that
             # recognised a module by extension would flag every reload.
-            "nativeLibs": [f.path for f in native_module_files],
+            "nativeLibs": native_module_files,
             "nativeLibContracts": {
-                f.path: [c.path for c in contracts]
+                f.path: contracts
                 for f, contracts in native_module_contracts.items()
             },
             # First-party source packages (app + local deps) the dev tool maps
@@ -1142,31 +1136,7 @@ def _flutter_web_bundle_impl(ctx):
                 ctx.file.main,
                 ctx.files.srcs,
             ),
-        })
-        dev_config = ctx.actions.declare_file(ctx.label.name + "_dev_config.json")
-        ctx.actions.write(dev_config, dev_config_content)
-        ddc_files.append(dev_config)
-        ddc_files.extend(dev_generated_source_files)
-        if dev_package_config:
-            ddc_files.append(dev_package_config)
-
-        # Include package_config in debug outputs.
-        ddc_files.append(config_file)
-
-        # The web plugin registrant is otherwise only an input to the
-        # dart2wasm/dart2js compile actions; declaring it a top-level debug
-        # output guarantees it is materialized locally for the dev tool to
-        # stage next to its synthetic entrypoint.
-        if registrant:
-            ddc_files.append(registrant)
-
-        # And the declared modules' binding contracts, which are an input to no
-        # action here at all — nothing but the dev tool reads their bytes. A
-        # *generated* contract is otherwise a path in the config that this build
-        # never writes, unless some other action happens to produce it. See
-        # `flutter_application`, which declares them for the same reason.
-        for contracts in native_module_contracts.values():
-            ddc_files.extend(contracts)
+        }))
 
         return [DefaultInfo(files = depset([output_dir] + ddc_files)), output_groups, analyzable_info]
 
