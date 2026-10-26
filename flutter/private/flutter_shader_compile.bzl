@@ -82,7 +82,7 @@ def flutter_shader_compile_action(
 
     # impellerc requires a --spirv intermediate output alongside --sl when
     # using runtime stages (not platform flags). Declare it as a secondary output.
-    spirv_output = ctx.actions.declare_file(output.path + ".spirv")
+    spirv_output = ctx.actions.declare_file(output.basename + ".spirv", sibling = output)
 
     args = ctx.actions.args()
     for flag in platform_flags:
