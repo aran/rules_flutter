@@ -25,7 +25,6 @@ def _flutter_kernel_sdk_impl(ctx):
         kernel_worker = sdk.kernel_worker,
         frontend_server = sdk.frontend_server,
         platform = sdk.platform_kernel_dill,
-        sdk_root = sdk.platform_kernel_dill.dirname,
         libraries_spec = sdk.libraries_spec,
         libraries_target = "flutter",
         # What flutter_tools folds into a debug compile. A module is compiled
