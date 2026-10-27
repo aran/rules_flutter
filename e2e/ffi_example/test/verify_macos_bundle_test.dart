@@ -65,6 +65,21 @@ void main() {
       '$bundlePath/Contents/Frameworks/libsqlite3.dylib',
     );
     check(
+      'combined code-asset dylib libcounter.dylib exists',
+      '$bundlePath/Contents/Frameworks/libcounter.dylib',
+    );
+    // The app serves both packages' ids from `libcounter.dylib`, so the
+    // standalone libraries the packages declare for themselves stay out.
+    for (final name in ['libcounter_a.dylib', 'libcounter_b.dylib']) {
+      final path = '$bundlePath/Contents/Frameworks/$name';
+      if (File(path).existsSync()) {
+        stderr.writeln('FAIL: replaced code asset $name was bundled: $path');
+        failed = true;
+      } else {
+        print('OK: replaced code asset $name not bundled');
+      }
+    }
+    check(
       'App.framework exists',
       '$bundlePath/Contents/Frameworks/App.framework',
     );

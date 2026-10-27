@@ -265,6 +265,24 @@ flutter_test(
     ],
 )
 
+# Exercises: `code_assets` on a test. The package's own id is moved off its
+# standalone library onto one it shares with a second id, so both open one
+# image from the runfiles tree.
+flutter_test(
+    name = "shared_library_asset_test",
+    package_name = "codegen_e2e",
+    code_assets = [
+        "//shared_counter:package_combined",
+        "//shared_counter:test_combined",
+    ],
+    main = "test/shared_library_asset_test.dart",
+    deps = [
+        "//shared_counter",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
 # Exercises: a flutter_web_bundle whose `lib/main.dart` reaches `user.dart`
 # (with `part 'user.g.dart'`) via a relative import — covering both the
 # dart2js/dart2wasm compile and the icon-tree-shaking kernel compile. Both

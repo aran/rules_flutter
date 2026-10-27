@@ -1,9 +1,13 @@
 """The packages that own the fixture's code assets: one Flutter package rule, one
-Dart package rule that knows nothing of Flutter, and the bare control. Each
-reaches its own application only, so sharing a root is not a conflict."""
+Dart package rule that knows nothing of Flutter, the bare control, a rule that
+forwards a package under an attribute of its own name, and one that makes its
+asset with no target of its own. Each reaches its own application only, so
+sharing a root is not a conflict."""
 
 load("@rules_dart//dart:defs.bzl", "dart_library")
 load("//flutter:defs.bzl", "flutter_plugin")
+load("//flutter/tests/code_asset_fixture:forwarding_package.bzl", "forwarding_package")
+load("//flutter/tests/code_asset_fixture:inline_asset_package.bzl", "inline_asset_package")
 
 package(default_visibility = [
     "//flutter/tests/code_asset_fixture:__pkg__",
@@ -36,4 +40,23 @@ dart_library(
     package_name = "bare_owner",
     srcs = ["lib/owner.dart"],
     code_assets = ["//flutter/tests/code_asset_fixture:bare_code_asset"],
+)
+
+# The same id and library as `dart_owner`, bare.
+dart_library(
+    name = "bare_twin_owner",
+    package_name = "code_asset_owner",
+    srcs = ["lib/owner.dart"],
+    code_assets = ["//flutter/tests/code_asset_fixture:code_asset"],
+)
+
+forwarding_package(
+    name = "forwarded_owner",
+    exports = [":dart_owner"],
+)
+
+inline_asset_package(
+    name = "inline_owner",
+    package_name = "inline_owner",
+    library = "//flutter/tests/code_asset_fixture:library",
 )

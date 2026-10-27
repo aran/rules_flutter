@@ -1,0 +1,12 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# A bindings package with a standalone library of its own, as a bridge declares
+# one for its own tests. `//:ffi_app` serves this package's id from the
+# combined `//:counter` instead.
+dart_library(
+    name = "count_a",
+    package_name = "count_a",
+    srcs = ["lib/count_a.dart"],
+    code_assets = ["//:count_a_own"],
+    visibility = ["//visibility:public"],
+)

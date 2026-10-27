@@ -12,13 +12,16 @@
 ///    embedded, signed `sqlite3.framework`, which nothing in this workspace
 ///    names — the app depends on drift, and the registry attaches the
 ///    library to package:sqlite3.
+///  * one library for two ids: the app serves `package:count_a` and
+///    `package:count_b` from one `counter.framework`, and a count bumped
+///    through each reads 2 only if both reached one loaded image of it.
 ///
 /// Tagged "manual" (like the Android runtime test) because it needs a usable
 /// iOS simulator. Run explicitly:
 ///   bazel test :verify_ios_simulator_test --test_tag_filters=
 ///
 /// Pass criteria: after launch the app writes
-/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO` to
+/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2` to
 /// `tmp/ffi_result.txt` in its sandbox — written in main() only if all three
 /// calls succeeded via the bundled native libraries. The test reads the file
 /// back through `simctl get_app_container` (a deterministic signal that
@@ -34,7 +37,8 @@ import 'dart:convert';
 import 'dart:io';
 
 const _bundleId = 'com.example.ffi';
-const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO';
+const _marker =
+    'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2';
 const _resultFile = 'tmp/ffi_result.txt';
 const _timeout = Duration(seconds: 60);
 

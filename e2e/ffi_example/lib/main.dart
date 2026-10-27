@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:add_plugin/add_plugin.dart';
+import 'package:count_a/count_a.dart';
+import 'package:count_b/count_b.dart';
 import 'package:drift/drift.dart' hide Column;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -58,9 +60,16 @@ Future<void> main() async {
   // the pub package carries on its own (curated-registry pipeline). The
   // runtime e2e tests (iOS simulator, macOS, Linux, Windows) read the file
   // back — a deterministic signal that all three libraries actually loaded and
-  // the calls returned (more reliable than scraping log output). Success is
-  // `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO`; a load failure
-  // records the error instead.
+  // the calls returned (more reliable than scraping log output).
+  //
+  // `shared` is the count after one bump through each of `package:count_a`
+  // and `package:count_b`, whose asset ids the app serves from one combined
+  // library: 2 when both ids reached one loaded image of it, 1 when each got a
+  // copy of its own.
+  //
+  // Success is
+  // `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2`; a load
+  // failure records the error instead.
   String marker;
   int addResult;
   int mulResult;
@@ -70,9 +79,11 @@ Future<void> main() async {
     mulResult = mul(3, 4);
     final parts = (await _querySqlite()).split('|');
     sqliteVersion = parts[1];
+    bumpThroughA();
+    final shared = bumpThroughB();
     marker =
         'ffi_example_result add(3,4)=$addResult mul(3,4)=$mulResult '
-        'sqlite=${parts[0]}';
+        'sqlite=${parts[0]} shared=$shared';
   } on Object catch (e) {
     // Deliberately broad: a native library that fails to load throws an Error
     // (ArgumentError from asset-id resolution or DynamicLibrary.open), not an

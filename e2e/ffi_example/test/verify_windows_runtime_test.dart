@@ -21,7 +21,7 @@
 ///     --strategy=TestRunner=standalone
 ///
 /// Pass criteria: the app writes
-/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO` to `%TMP%\ffi_result.txt`.
+/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2` to `%TMP%\ffi_result.txt`.
 library;
 
 // This script's diagnostics are its product: it reports what it found in
@@ -33,7 +33,8 @@ import 'dart:io';
 
 import 'package:runfiles/runfiles.dart';
 
-const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO';
+const _marker =
+    'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2';
 const _timeout = Duration(seconds: 60);
 
 Future<void> main() async {

@@ -31,6 +31,7 @@ load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
 load(":profile_mode_test.bzl", "profile_mode_test_suite")
 load(":pub_lock_sdks_test.bzl", "pub_lock_sdks_test_suite")
 load(":shader_compile_test.bzl", "shader_compile_test_suite")
+load(":shared_code_asset_test.bzl", "shared_code_asset_test_suite")
 load(":toolchain_test.bzl", "toolchain_test_suite")
 load(":toolchains_repo_test.bzl", "toolchains_repo_test_suite")
 load(":validation_test.bzl", "validation_test_suite")
@@ -106,6 +107,8 @@ native_hot_patch_test_suite(name = "native_hot_patch_test")
 native_sources_test_suite(name = "native_sources_test")
 
 code_asset_native_library_test_suite(name = "code_asset_native_library_test")
+
+shared_code_asset_test_suite(name = "shared_code_asset_test")
 
 bridge_probe(
     name = "dart_code_asset_bridge_probe",

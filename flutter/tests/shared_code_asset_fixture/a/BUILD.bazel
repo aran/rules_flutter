@@ -1,0 +1,11 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# A bindings package that declares a standalone library of its own, for its own
+# tests. An application can serve its id from another library.
+dart_library(
+    name = "a",
+    package_name = "shared_a",
+    srcs = ["lib/a.dart"],
+    code_assets = ["//flutter/tests/shared_code_asset_fixture:a_own"],
+    visibility = ["//flutter/tests:__subpackages__"],
+)

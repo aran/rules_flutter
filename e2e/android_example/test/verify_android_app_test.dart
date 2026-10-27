@@ -12,6 +12,9 @@
 ///   androidx.profileinstaller's startup-initializer write, which runs a few
 ///   seconds after launch and exercises the profileinstaller dependency
 ///   chain (concurrent-futures, listenablefuture) at runtime
+/// - The app logs `android_example shared=2`: one bump through each of two
+///   asset ids the app serves from one library moved one count, so both ids
+///   reached one loaded image of it (two copies would log `shared=1`)
 library;
 
 // This script's diagnostics are its product: it reports what it found in
@@ -24,6 +27,7 @@ import 'dart:io';
 const _packageName = 'com.example.flutterapp';
 const _timeout = Duration(seconds: 30);
 const _stabilityWindow = Duration(seconds: 10);
+const _sharedMarker = 'android_example shared=';
 
 Future<void> main() async {
   final testSrcDir = Platform.environment['TEST_SRCDIR'];
@@ -70,8 +74,12 @@ Future<void> main() async {
   print('APK installed successfully');
 
   // Clear the crash log buffer so the stability check only sees crashes
-  // from this run.
+  // from this run, and the main buffer so the shared-counter line is this
+  // run's.
   Process.runSync('adb', ['logcat', '-b', 'crash', '-c']);
+  Process.runSync('adb', ['logcat', '-c']);
+  // A previous run's process would keep its count and skip `main`.
+  _cleanup();
 
   // Resolve the installed package's launcher activity, then launch it.
   final resolve = Process.runSync('adb', [
@@ -175,6 +183,18 @@ Future<void> main() async {
     if (!stillResumed) break;
   }
 
+  // `main` logs the count before the first frame, so by now it is there.
+  final sharedLines = Process.runSync('adb', ['logcat', '-d', '-s', 'flutter'])
+      .stdout
+      .toString()
+      .split('\n')
+      .where((l) => l.contains(_sharedMarker))
+      .toList();
+  final shared = sharedLines.isEmpty
+      ? null
+      : sharedLines.last.split(_sharedMarker).last.trim();
+  print('Shared counter: ${shared ?? '(not logged)'}');
+
   // Capture a screenshot for visual verification.
   print('Capturing screenshot...');
   Process.runSync('adb', [
@@ -204,6 +224,14 @@ Future<void> main() async {
 
   if (!stillResumed) {
     stderr.writeln('FAIL: Activity crashed or was stopped');
+    exit(1);
+  }
+  if (shared != '2') {
+    stderr.writeln(
+      'FAIL: expected "${_sharedMarker}2" in logcat, got '
+      '${shared == null ? 'no such line' : '"$_sharedMarker$shared"'}: the '
+      'two asset ids did not reach one image of the shared library',
+    );
     exit(1);
   }
 

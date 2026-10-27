@@ -16,7 +16,7 @@ load("@rules_dart//dart:providers.bzl", "DartInfo", "DartPackageInfo")
 load("//flutter:native_assets.bzl", "flutter_data_asset", "flutter_native_asset")
 load("//flutter:providers.bzl", "FlutterNativeAssetInfo")
 load("//flutter/private:common.bzl", "check_unreplaced_hooks")
-load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "native_asset_framework_name", "native_assets_target_string", "write_native_assets_manifest")
+load("//flutter/private:flutter_native_assets.bzl", "native_asset_framework_name", "native_assets_target_string", "resolve_native_assets", "write_native_assets_manifest")
 
 # -- Pure-function tests for the manifest helpers ----------------------
 
@@ -246,7 +246,7 @@ def _setup_failure_targets():
 
     # A `flutter_native_asset`-declared bundled library, probed under both
     # layouts. This is the arm the Native Assets e2e does not reach — that one
-    # goes through `bridge_dart_code_assets` — so without these the runfiles
+    # goes through `resolve_native_assets` — so without these the runfiles
     # layout is only ever exercised for bridged assets.
     flutter_native_asset(
         name = "_layout_asset",
@@ -445,14 +445,14 @@ hook_check_probe = rule(
     doc = "Runs `check_unreplaced_hooks` over `deps` and asserts the verdict.",
 )
 
-# --- bridge_dart_code_assets ---
+# --- resolve_native_assets ---
 #
 # Assets rules_dart propagates on `DartPackageInfo.code_assets` must reach the
 # application without anyone writing a `flutter_native_asset`. The probe below
 # runs the bridge over a real `dart_library` graph and reports what it lifted.
 
 def _bridge_probe_impl(ctx):
-    lifted = bridge_dart_code_assets(ctx, ctx.attr.deps)
+    lifted = resolve_native_assets(ctx, [], ctx.attr.deps, []).lifted
     ids = sorted([a.asset_id for a in lifted])
     if ids != sorted(ctx.attr.expected_asset_ids):
         fail("%s: expected %s, bridged %s" % (ctx.label, sorted(ctx.attr.expected_asset_ids), ids))

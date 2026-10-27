@@ -1,15 +1,23 @@
 import 'package:android_example/native_add.dart';
+import 'package:android_example/shared_counter.dart';
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MyApp());
+  // Counted once, before the first frame, so the log line and the screen agree.
+  // `verify_android_app_test` reads this line back from logcat.
+  final shared = sharedCount();
+  debugPrint('android_example shared=$shared');
+  runApp(MyApp(shared: shared));
 }
 
-/// Root widget of the Android example, which renders a sum computed by the
-/// native library packaged into the APK.
+/// Root widget of the Android example, which renders results computed by the
+/// native libraries packaged into the APK.
 class MyApp extends StatelessWidget {
   /// Creates the Android example's root widget.
-  const MyApp({super.key});
+  const MyApp({required this.shared, super.key});
+
+  /// The shared counter after one bump through each of its two asset ids.
+  final int shared;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +42,10 @@ class MyApp extends StatelessWidget {
               ),
               Text(
                 'native add(19, 23) = ${nativeAdd(19, 23)}',
+                style: const TextStyle(fontSize: 24),
+              ),
+              Text(
+                'shared counter = $shared',
                 style: const TextStyle(fontSize: 24),
               ),
             ],

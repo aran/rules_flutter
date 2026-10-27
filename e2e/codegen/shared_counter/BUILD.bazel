@@ -1,0 +1,56 @@
+"""One counter library serving two asset ids under `flutter_tester`.
+
+`shared_counter` declares a standalone library under its own id. The test in
+the root package names the combined `counter` for that id and for a second one
+its own code binds, so both ids must open one image of it from the runfiles
+tree.
+"""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_library")
+
+cc_library(
+    name = "counter_cc",
+    srcs = ["native/counter.c"],
+    hdrs = ["native/counter.h"],
+)
+
+[
+    cc_shared_library(
+        name = name,
+        deps = [":counter_cc"],
+    )
+    for name in [
+        "counter",
+        "counter_own",
+    ]
+]
+
+dart_code_asset(
+    name = "own",
+    asset_id = "package:shared_counter/shared_counter",
+    shared_library = ":counter_own",
+)
+
+dart_library(
+    name = "shared_counter",
+    package_name = "shared_counter",
+    srcs = ["lib/shared_counter.dart"],
+    code_assets = [":own"],
+    visibility = ["//:__pkg__"],
+)
+
+dart_code_asset(
+    name = "package_combined",
+    asset_id = "package:shared_counter/shared_counter",
+    shared_library = ":counter",
+    visibility = ["//:__pkg__"],
+)
+
+dart_code_asset(
+    name = "test_combined",
+    asset_id = "package:codegen_e2e/shared_counter",
+    shared_library = ":counter",
+    visibility = ["//:__pkg__"],
+)

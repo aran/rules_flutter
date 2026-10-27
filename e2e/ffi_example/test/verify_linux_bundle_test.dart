@@ -73,6 +73,21 @@ void main() {
     '$bundlePath/lib/libsqlite3.so',
     nonEmpty: true,
   );
+  check(
+    'combined code-asset lib libcounter.so',
+    '$bundlePath/lib/libcounter.so',
+    nonEmpty: true,
+  );
+  // The app serves both packages' ids from `libcounter.so`, so the standalone
+  // libraries the packages declare for themselves stay out.
+  for (final name in ['libcounter_a.so', 'libcounter_b.so']) {
+    if (File('$bundlePath/lib/$name').existsSync()) {
+      stderr.writeln('FAIL: replaced code asset $name was bundled');
+      failed = true;
+    } else {
+      print('OK: replaced code asset $name not bundled');
+    }
+  }
 
   // Check for either AOT or debug artifact.
   final hasAot = File('$bundlePath/lib/libapp.so').existsSync();

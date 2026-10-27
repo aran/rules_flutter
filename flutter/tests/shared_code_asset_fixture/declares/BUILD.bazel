@@ -1,0 +1,17 @@
+load("//flutter:defs.bzl", "flutter_plugin")
+
+# Settles the two `shared_a` packages' disagreement by declaring the id itself.
+flutter_plugin(
+    name = "declares",
+    package_name = "shared_declares",
+    srcs = ["lib/declares.dart"],
+    native_assets = ["//flutter/tests/shared_code_asset_fixture:a_system"],
+    platforms = [
+        "android",
+        "ios",
+        "linux",
+        "macos",
+        "windows",
+    ],
+    visibility = ["//flutter/tests:__subpackages__"],
+)

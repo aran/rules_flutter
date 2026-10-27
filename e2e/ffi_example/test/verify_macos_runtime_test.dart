@@ -11,6 +11,9 @@
 ///    the bundled libsqlite3.dylib, which nothing in this workspace names —
 ///    the app depends on drift, and the registry attaches the library to
 ///    package:sqlite3.
+///  * one library for two ids: the app serves `package:count_a` and
+///    `package:count_b` from one `libcounter.dylib`, and a count bumped through
+///    each reads 2 only if both reached one loaded image of it.
 ///
 /// The binary is launched directly (not via `open`) with TMPDIR pointed at a
 /// directory this test controls, so the marker the app writes in main() lands
@@ -21,7 +24,7 @@
 ///     --strategy=TestRunner=standalone
 ///
 /// Pass criteria: the app writes
-/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO` to `$TMPDIR/ffi_result.txt`.
+/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2` to `$TMPDIR/ffi_result.txt`.
 library;
 
 // This script's diagnostics are its product: it reports what it found in
@@ -31,7 +34,8 @@ library;
 
 import 'dart:io';
 
-const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO';
+const _marker =
+    'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2';
 const _timeout = Duration(seconds: 30);
 
 Future<void> main() async {

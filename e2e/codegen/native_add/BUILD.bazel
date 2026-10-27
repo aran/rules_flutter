@@ -7,7 +7,7 @@ manifest the frontend_server embeds names a path that resolves in the runfiles
 layout, and the library is actually staged there.
 
 Nothing here mentions Flutter. The asset rides `DartPackageInfo.code_assets`
-and is lifted off the Dart package graph by `bridge_dart_code_assets`, which is
+and is lifted off the Dart package graph by `resolve_native_assets`, which is
 how a pub package's hook-built library arrives.
 """
 

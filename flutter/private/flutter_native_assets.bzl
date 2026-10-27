@@ -26,9 +26,13 @@ The Flutter engine reads the relative-path entries verbatim and
 
   * macOS: `<App>.app/Contents/Frameworks/<basename>` (loose dylib)
   * iOS:   `<App>.app/Frameworks/<name>.framework/<name>` — iOS forbids
-           loose embedded dylibs, so each `dynamic_loading_bundle` asset is
+           loose embedded dylibs, so each `dynamic_loading_bundle` library is
            wrapped in its own `.framework` (matching flutter_tools'
            `frameworkUri`). The manifest entry is the framework-relative path.
+
+Several asset ids may name one library. It is bundled once — one file, or one
+framework on iOS — and every id's entry names it, so the loader opens one image
+for all of them.
   * Linux: `<bundle>/lib/<basename>` (resolved relative to the runner)
   * Windows: next to the runner exe
   * Android: `lib/<abi>/<basename>` inside the APK
@@ -40,6 +44,7 @@ discretion.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
+load("@rules_dart//dart:utils.bzl", "collect_transitive_code_assets", "resolve_code_assets")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterNativeAssetInfo")
 
 # Map (target_os, arch) → the Target string Dart's
@@ -62,6 +67,32 @@ _OS_ARCH_TO_TARGET = {
     ("android", "arm"): "android_arm",
     ("android", "x64"): "android_x64",
 }
+
+CODE_ASSETS_DOC = """Code assets this program loads, each replacing the asset `deps` supply under its id.
+
+Each entry provides `DartCodeAssetInfo`: a `dart_code_asset`, a
+`flutter_native_library` wrapping one, or any rule that provides it. An entry is
+this program's choice of library for its asset id, so it replaces whatever the
+packages in `deps` (or a `flutter_native_asset`) supply under that id, as
+`code_assets` does on rules_dart's `dart_binary` and `dart_test`. Ids no entry
+names keep the asset `deps` supply.
+
+Several entries may name one library, to serve several packages' ids from one
+shared library. It is bundled once (one file; one framework on iOS) and every
+id's manifest entry names it, so the process loads one image of it: one copy of
+its static state, whichever id a call goes through.
+
+```starlark
+dart_code_asset(name = "a_combined", asset_id = "package:a/a", shared_library = ":combined")
+dart_code_asset(name = "b_combined", asset_id = "package:b/b", shared_library = ":combined")
+
+flutter_application(
+    name = "app",
+    deps = ["//a", "//b"],
+    code_assets = [":a_combined", ":b_combined"],
+)
+```
+"""
 
 def native_asset_framework_name(filename):
     """Derive the framework name for a bundled native-asset dylib on Apple.
@@ -243,73 +274,111 @@ def collect_bundled_code_asset_files(native_assets):
         if asset.link_mode == "dynamic_loading_bundle" and asset.file != None
     ])
 
-def bridge_dart_code_assets(ctx, deps):
-    """Lifts rules_dart code assets off the Dart package graph.
+def resolve_native_assets(ctx, declared, deps, code_assets):
+    """The one asset per id a program loads, with each library staged once.
 
-    rules_dart propagates a pub package's native libraries on
-    `DartPackageInfo.code_assets`, so an app that depends on a package owning
-    one gets it without naming anything — the same semantics pub itself has.
-    `DartCodeAssetInfo` carries exactly what upstream's `CodeAsset` does
-    (id, link mode, library, system uri); everything here on top is
-    Flutter-specific bundling.
+    Assets arrive three ways, and on a shared id the more deliberate one wins:
 
-    Called from the application rule rather than from `build_flutter_providers`
-    on purpose. A bundled library must be re-declared in the consuming rule's
-    own output namespace — a raw `cc_shared_library` output lives under
-    `_solib_<arch>/…`, which trips rules_apple's
-    `bundle_paths.owner_relative_path`. The copy goes under a directory named
-    after the consuming target, because the bare basename in its package is a
-    path someone else may already own: the library's own rule, when it sits in
-    the same package (a `cc_shared_library` named `sub` writes `libsub.dylib`
-    there), or a second application in the package whose action differs. Every
-    bundler places the library by its basename, which this keeps.
+      * named in the consuming target's own `code_assets` — a choice made for
+        this program, so it replaces whatever arrives under its id below.
+        rules_dart's `dart_binary` and `dart_test` give their `code_assets` the
+        same meaning;
+      * declared with `flutter_native_asset` and propagated on `FlutterInfo`;
+      * owned by a Dart package and lifted off the package graph.
 
-    Tolerates rules_dart versions predating `DartPackageInfo.code_assets`:
-    those simply contribute nothing.
+    Two packages claiming one id with different libraries fail, as in
+    rules_dart, unless the target names the one to use: the Dart VM resolves
+    an id to exactly one library, and keeping either would pick a native
+    library by graph-traversal order.
+
+    Several ids may name one library, as when one shared library serves
+    several packages. They share one staged file, so every bundle carries the
+    library once and every manifest entry names that one file, and the OS
+    loader returns one image — one copy of the library's static state — for
+    all of them. Two files would load two copies.
+
+    A library is staged under a directory named after the consuming target,
+    because the bare basename in its package is a path someone else may
+    already own: the library's own rule, when it sits in the same package (a
+    `cc_shared_library` named `sub` writes `libsub.dylib` there), or a second
+    application in the package whose action differs. It also takes the
+    library out of `_solib_<arch>/`, which trips rules_apple's
+    `bundle_paths.owner_relative_path`. Every bundler places the library by its
+    basename, which this keeps.
 
     Args:
-      ctx: The application rule's context.
-      deps: Targets that may provide `DartInfo`.
+      ctx: The consuming rule's context.
+      declared: `FlutterNativeAssetInfo` from `flutter_native_asset`
+        declarations reaching the target.
+      deps: Targets whose Dart packages may carry code assets.
+      code_assets: `DartCodeAssetInfo` the target names itself.
 
     Returns:
-      List of `FlutterNativeAssetInfo`.
+      A struct with `assets`, every `FlutterNativeAssetInfo` the program loads,
+      one per id; `lifted`, the subset that came from `DartCodeAssetInfo`
+      (lifted or named) rather than from `flutter_native_asset`; and
+      `libraries`, each lifted id's library as built, before staging (None for
+      an asset with no library).
     """
-    lifted = []
-    seen = {}
-    for dep in deps:
-        if DartInfo not in dep:
-            continue
-        for pkg in dep[DartInfo].transitive_packages.to_list():
-            # `DartPackageInfo` is rules_dart's, and rules_dart deliberately
-            # tolerates a producer that predates `code_assets` — it is
-            # published, and a third-party rule set may still be building the
-            # record by hand. This mirrors its own `package_code_assets()`,
-            # which is private to rules_dart; exporting it would let this stop
-            # being a copy.
-            for asset in (pkg.code_assets if hasattr(pkg, "code_assets") else ()):
-                if asset.asset_id in seen:
-                    continue
-                seen[asset.asset_id] = True
+    named = {asset.asset_id: True for asset in code_assets}
+    declared = [asset for asset in declared if asset.asset_id not in named]
+    declared_ids = {asset.asset_id: True for asset in declared}
+    transitive = collect_transitive_code_assets([dep for dep in deps if DartInfo in dep])
+    resolved = resolve_code_assets(
+        ctx.label,
+        [asset for asset in transitive if asset.asset_id not in declared_ids],
+        code_assets,
+    )
+    lifted = _stage_code_assets(ctx, resolved)
+    return struct(
+        assets = declared + lifted,
+        lifted = lifted,
+        libraries = {asset.asset_id: asset.dynamic_library for asset in resolved},
+    )
 
-                asset_file = None
-                bundle_filename = ""
-                if asset.dynamic_library != None:
-                    bundle_filename = asset.dynamic_library.basename
-                    asset_file = ctx.actions.declare_file(
-                        "%s_code_assets/%s" % (ctx.label.name, bundle_filename),
+def _stage_code_assets(ctx, assets):
+    """`FlutterNativeAssetInfo` for `assets`, each distinct library linked once."""
+    links = {}
+    by_basename = {}
+    staged = []
+    for asset in assets:
+        library = asset.dynamic_library
+        link = None
+        if library != None:
+            link = links.get(library)
+            if link == None:
+                other = by_basename.get(library.basename)
+                if other == None:
+                    link = ctx.actions.declare_file(
+                        "%s_code_assets/%s" % (ctx.label.name, library.basename),
                     )
-                    ctx.actions.symlink(
-                        output = asset_file,
-                        target_file = asset.dynamic_library,
-                    )
-                lifted.append(FlutterNativeAssetInfo(
-                    asset_id = asset.asset_id,
-                    link_mode = asset.link_mode,
-                    file = asset_file,
-                    bundle_filename = bundle_filename,
-                    system_uri = asset.system_uri,
-                ))
-    return lifted
+                    ctx.actions.symlink(output = link, target_file = library)
+                    by_basename[library.basename] = struct(library = library, link = link)
+                elif other.library.owner == library.owner:
+                    fail((
+                        "%s: %s reaches this target in two configurations " +
+                        "(%s and %s), so two builds of it would both be " +
+                        "bundled as `%s`. Name the one to ship in this " +
+                        "target's `code_assets`, or reset the setting that " +
+                        "changes on the way to the other."
+                    ) % (ctx.label, library.owner, other.library.path, library.path, library.basename))
+                else:
+                    fail((
+                        "%s: two code-asset libraries would both be bundled as " +
+                        "`%s`: %s and %s. A bundle places each library by its " +
+                        "file name, so only one of them can ship. Rename one, " +
+                        "or serve both ids from one library by naming it in " +
+                        "this target's `code_assets`."
+                    ) % (ctx.label, library.basename, other.library.owner, library.owner))
+                links[library] = link
+        staged.append(FlutterNativeAssetInfo(
+            asset_id = asset.asset_id,
+            link_mode = asset.link_mode,
+            file = link,
+            bundle_filename = library.basename if library != None else "",
+            system_uri = asset.system_uri,
+        ))
+    return staged
 
 # -- Tier 2 standalone rule ----------------------------------------------------
 

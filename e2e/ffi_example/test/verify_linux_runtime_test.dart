@@ -24,7 +24,7 @@
 /// (XAUTHORITY must pass through or GTK fails with "Authorization required".)
 ///
 /// Pass criteria: the app writes
-/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO` to `$TMPDIR/ffi_result.txt`.
+/// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2` to `$TMPDIR/ffi_result.txt`.
 library;
 
 // This script's diagnostics are its product: it reports what it found in
@@ -34,7 +34,8 @@ library;
 
 import 'dart:io';
 
-const _marker = 'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO';
+const _marker =
+    'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2';
 // Software rendering on a GPU-less VM is slow to first frame; main() runs
 // well before that, but boot the whole engine generously.
 const _timeout = Duration(seconds: 60);

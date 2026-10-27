@@ -244,6 +244,29 @@ flutter_application(
 
 If you would rather bind with `@Native(assetId: ...)` and let the Dart VM find the library, declare it as a Native Asset with `flutter_native_asset` from `@rules_flutter//flutter:native_assets.bzl`, and carry it on a `flutter_plugin`. `e2e/ffi_example` shows both styles side by side.
 
+#### Choosing the library that serves an asset id
+
+A package that owns an asset id supplies its library through its `code_assets`. An application or a `flutter_test` can serve the id from a different library by naming one in its own `code_assets`, which replaces whatever its `deps` supply under that id, as on rules_dart's `dart_binary` and `dart_test`. Several ids can name one library. That is how two bridges linked into one shared library run against one copy of it:
+
+```starlark
+cc_shared_library(
+    name = "combined",
+    deps = ["//bridge_a:native", "//bridge_b:native"],
+)
+
+dart_code_asset(name = "a_combined", asset_id = "package:a/a", shared_library = ":combined")
+dart_code_asset(name = "b_combined", asset_id = "package:b/b", shared_library = ":combined")
+
+flutter_application(
+    name = "my_app",
+    code_assets = [":a_combined", ":b_combined"],
+    deps = ["//a", "//b", "@deps//:flutter"],
+    # ...
+)
+```
+
+The library is bundled once (one file, or one `.framework` on iOS) and every id's manifest entry names it, so the process loads one image of it: one runtime and one copy of its static state, whichever id a call goes through. Wrap each entry in a `flutter_native_library` to give each id the contract of its own bindings; the wrappers of one library may name a `hot_patch` between them, and if several do, it must be the same one, since one patch of the shared library serves every id.
+
 #### Hot reload across a native rebuild
 
 A running process cannot pick up a rebuilt native library; it keeps the one it already loaded. So when a native library goes stale under a hot reload, the dev tool has to decide whether the Dart it is about to inject still matches that library. Without more information it withholds the reload, and a pending native change blocks your Dart edits until you restart.
@@ -283,7 +306,7 @@ dart_library(
 )
 ```
 
-The build finds a code asset's target however the package that owns it is reached. A package rule that makes its asset with no target of its own leaves nothing to find: the dev config lists that library under `nativeLibsUndescribed`, every hot reload rebuilds the app to see whether it moved, and one that moved is withheld with a restart advised. Naming the asset's target in the application's `code_assets` describes it again.
+The build finds a code asset's target however the package that owns it is reached. A package rule that makes its asset with no target of its own leaves nothing to find, so hot reload could not tell when that library changes: a debug build of the application fails, naming the library. Declare the asset with a target of its own (a `dart_code_asset`, or a `flutter_native_library` wrapping one) and name it in the application's `code_assets`. Other builds bundle it as usual.
 
 `binding_contract` is whatever file decides what may be called and how: a binding generator's interface description, or the C header a hand-written FFI binding follows. The dev tool compares the bytes of those files and nothing else, so what matters is that every change to the wire format shows up in them, and that changes which do not affect the wire do not.
 

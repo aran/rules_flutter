@@ -5,7 +5,9 @@ The wrapper — `flutter_native_library` over a target providing
 binding contract and the dev tool its patch builder. It sits in the owning
 package's `code_assets` (see `owner/`), and the owner is a plain `dart_library`
 in one app and a `flutter_plugin` in another: the application has to find it
-either way. The bare asset is the control, with a library and no contract.
+either way, and when a rule forwards the owner under an attribute of its own
+name. The bare asset is the control, with a library and no contract. The inline
+owner makes its asset with no target of its own, so nothing describes it.
 """
 
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
@@ -18,6 +20,12 @@ package(default_visibility = [
 ])
 
 _LIBRARY = "//flutter/tests/native_sources_fixture:bridge"
+
+# The library for `owner/`'s inline owner, which takes it directly.
+alias(
+    name = "library",
+    actual = _LIBRARY,
+)
 
 stand_in_code_asset(
     name = "code_asset",
@@ -61,8 +69,22 @@ stand_in_code_asset(
         "dart_owner",
         "plugin_owner",
         "bare_owner",
+        "forwarded_owner",
+        "inline_owner",
     ]
 ]
+
+# One library under one id, described by its wrapper and bare.
+flutter_application(
+    name = "app_disagreeing_owners",
+    package_name = "code_asset_app",
+    main = "main.dart",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/code_asset_fixture/owner:bare_twin_owner",
+        "//flutter/tests/code_asset_fixture/owner:dart_owner",
+    ],
+)
 
 # A wrapper names one library for its contract to describe, and a code asset
 # loaded from the system has none in the bundle.

@@ -53,6 +53,21 @@ void main() {
     '$bundlePath/sqlite3.dll',
     nonEmpty: true,
   );
+  check(
+    'combined code-asset lib counter.dll',
+    '$bundlePath/counter.dll',
+    nonEmpty: true,
+  );
+  // The app serves both packages' ids from `counter.dll`, so the standalone
+  // libraries the packages declare for themselves stay out.
+  for (final name in ['counter_a.dll', 'counter_b.dll']) {
+    if (File('$bundlePath/$name').existsSync()) {
+      stderr.writeln('FAIL: replaced code asset $name was bundled');
+      failed = true;
+    } else {
+      print('OK: replaced code asset $name not bundled');
+    }
+  }
   check('flutter_assets', '$bundlePath/data/flutter_assets');
   check('icudtl.dat', '$bundlePath/data/icudtl.dat', nonEmpty: true);
 

@@ -1,0 +1,10 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# The second bindings package, the same shape as `../a`.
+dart_library(
+    name = "b",
+    package_name = "shared_b",
+    srcs = ["lib/b.dart"],
+    code_assets = ["//flutter/tests/shared_code_asset_fixture:b_own"],
+    visibility = ["//flutter/tests:__subpackages__"],
+)

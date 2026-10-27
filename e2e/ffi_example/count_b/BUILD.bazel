@@ -1,0 +1,10 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+
+# The second bindings package; see `//count_a`.
+dart_library(
+    name = "count_b",
+    package_name = "count_b",
+    srcs = ["lib/count_b.dart"],
+    code_assets = ["//:count_b_own"],
+    visibility = ["//visibility:public"],
+)

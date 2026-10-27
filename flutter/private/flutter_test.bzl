@@ -55,7 +55,7 @@ cannot write there.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
-load("@rules_dart//dart:providers.bzl", "DartInfo", "DartKernelSdkInfo")
+load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartKernelSdkInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "KERNEL_TOOL_ATTR", "collect_modules", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "dart_entry_kernel_action", "dart_import_check_aspect", "dart_link_kernel_action", "derive_lib_root", "import_check_validation", "module_defines_transition", "runfiles_path")
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "compile_package_config", "synthesize_app_package")
@@ -74,7 +74,7 @@ load(
 load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile_action")
 load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
-load("//flutter/private:flutter_native_assets.bzl", "bridge_dart_code_assets", "collect_bundled_code_asset_files", "write_native_assets_manifest")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "collect_bundled_code_asset_files", "resolve_native_assets", "write_native_assets_manifest")
 
 # Bazel runs a test's action in the rule's `test` execution group. Left
 # undeclared, Bazel's own one ties it to the target platform; this one asks for
@@ -268,21 +268,20 @@ def _flutter_test_impl(ctx):
     )
     target_platform = detect_target_platform(is_ios, is_macos, is_linux, is_windows, is_android)
 
-    # Native Assets reach a test the same two ways they reach an application:
-    # declared with `flutter_native_asset` and propagated on `FlutterInfo`, or
-    # owned by a pub package and lifted off the Dart package graph. Deliberate
-    # declarations win on a shared id, as in `flutter_application`.
-    native_assets_list = depset(transitive = [
-        dep[FlutterInfo].native_assets
-        for dep in ctx.attr.deps
-        if FlutterInfo in dep
-    ]).to_list()
-    declared_ids = {asset.asset_id: True for asset in native_assets_list}
-    native_assets_list = native_assets_list + [
-        asset
-        for asset in bridge_dart_code_assets(ctx, ctx.attr.deps)
-        if asset.asset_id not in declared_ids
-    ]
+    # Native Assets reach a test the same ways they reach an application:
+    # named in `code_assets`, declared with `flutter_native_asset` and
+    # propagated on `FlutterInfo`, or owned by a pub package and lifted off the
+    # Dart package graph. See `resolve_native_assets`.
+    native_assets_list = resolve_native_assets(
+        ctx,
+        declared = depset(transitive = [
+            dep[FlutterInfo].native_assets
+            for dep in ctx.attr.deps
+            if FlutterInfo in dep
+        ]).to_list(),
+        deps = ctx.attr.deps,
+        code_assets = [target[DartCodeAssetInfo] for target in ctx.attr.code_assets],
+    ).assets
 
     native_assets_manifest = ctx.actions.declare_file(ctx.label.name + ".native_assets.json")
     write_native_assets_manifest(
@@ -447,7 +446,7 @@ def _flutter_test_impl(ctx):
         # The bundled native-asset libraries ship here, at the runfiles-relative
         # paths the manifest names. Both arms re-declare the library into an
         # output namespace of their own first — `flutter_native_asset` under
-        # its `bundle_filename`, `bridge_dart_code_assets` under this rule's —
+        # its `bundle_filename`, `resolve_native_assets` under this rule's —
         # so what lands in runfiles is the File the manifest points at rather
         # than the `_solib_<arch>/` original.
         files = runtime_files + ctx.files.data + bundled_code_assets.to_list(),
@@ -681,6 +680,13 @@ _TEST_ATTRS["deps"] = attr.label_list(
     aspects = [flutter_module_aspect, dart_import_check_aspect],
     cfg = module_defines_transition,
 )
+
+_TEST_ATTRS["code_assets"] = attr.label_list(
+    doc = CODE_ASSETS_DOC,
+    providers = [DartCodeAssetInfo],
+    cfg = module_defines_transition,
+)
+
 _TEST_ATTRS["_modular_kernel"] = attr.label(
     default = Label("@rules_dart//dart:modular_kernel"),
     providers = [BuildSettingInfo],

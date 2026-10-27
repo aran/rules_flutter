@@ -1,0 +1,21 @@
+load("//flutter:defs.bzl", "flutter_test")
+
+# A test serving both packages' ids from the combined library, built for its
+# target. In a package of its own because a test cannot share its package root
+# with a dep's. Left `manual`; only the analysistests build it.
+flutter_test(
+    name = "shared_test",
+    package_name = "shared_test",
+    code_assets = [
+        "//flutter/tests/shared_code_asset_fixture:a_combined",
+        "//flutter/tests/shared_code_asset_fixture:b_combined",
+    ],
+    main = "main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [
+        "//flutter/tests/dart_asset_fixture:fake_test_api",
+        "//flutter/tests/shared_code_asset_fixture/a",
+        "//flutter/tests/shared_code_asset_fixture/b",
+    ],
+)

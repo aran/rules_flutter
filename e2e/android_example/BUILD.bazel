@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_android//android:rules.bzl", "android_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
-load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_analysis_test", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_analysis_test", "dart_code_asset", "dart_test")
 load(
     "@rules_flutter//flutter:android.bzl",
     "flutter_android_app",
@@ -35,13 +35,62 @@ cc_shared_library(
     deps = [":add_cc"],
 )
 
+# One counter, bound under two packages' asset ids. Each package declares a
+# standalone library of its own (`counter_a`, `counter_b`); the app serves both
+# ids from the combined `counter` instead, which the APK carries once, so the
+# process loads one image and a bump through either id moves one count. See
+# `lib/shared_counter_ffi.dart`.
+cc_library(
+    name = "counter_cc",
+    srcs = ["native/counter.c"],
+    hdrs = ["native/counter.h"],
+)
+
+[
+    cc_shared_library(
+        name = name,
+        deps = [":counter_cc"],
+    )
+    for name in [
+        "counter",
+        "counter_a",
+        "counter_b",
+    ]
+]
+
+[
+    dart_code_asset(
+        name = "count_%s_%s" % (package, which),
+        asset_id = "package:count_%s/count_%s" % (package, package),
+        shared_library = library,
+        visibility = ["//count_%s:__pkg__" % package],
+    )
+    for package in [
+        "a",
+        "b",
+    ]
+    for which, library in [
+        (
+            "own",
+            ":counter_" + package,
+        ),
+        ("combined", ":counter"),
+    ]
+]
+
 flutter_application(
     name = "app_flutter",
     package_name = "android_example",
     srcs = glob(["lib/**/*.dart"]),
+    code_assets = [
+        ":count_a_combined",
+        ":count_b_combined",
+    ],
     main = "lib/main.dart",
     native_deps = [":add"],
     deps = [
+        "//count_a",
+        "//count_b",
         "@deps//:flutter",
         "@rules_flutter//flutter:material_icons",
     ],

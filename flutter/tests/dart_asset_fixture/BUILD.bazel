@@ -38,7 +38,10 @@ dart_library(
     package_name = "asset_fixture",
     srcs = ["lib/fixture.dart"],
     code_assets = [":code_asset"],
-    visibility = ["//flutter/tests:__pkg__"],
+    visibility = [
+        "//flutter/tests:__pkg__",
+        "//flutter/tests/shared_code_asset_fixture/test:__pkg__",
+    ],
 )
 
 # A code asset is owned by the package whose id namespaces it, and a
@@ -109,6 +112,7 @@ legacy_dart_library(
     srcs = ["lib/fixture.dart"],
     visibility = [
         "//flutter/tests/code_asset_fixture/test:__pkg__",
+        "//flutter/tests/shared_code_asset_fixture/test:__pkg__",
     ],
 )
 

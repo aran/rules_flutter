@@ -1,0 +1,205 @@
+"""Two packages' code-asset ids served by one shared library.
+
+Packages `a` and `b` each declare a standalone library under their own id. The
+applications here serve both ids from `combined` instead, by naming it in
+`code_assets`, or keep the standalone ones as the control. The libraries are
+placeholder files named per platform: the tests look at how the rules lay them
+out, not at what they contain.
+"""
+
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//flutter:android.bzl", "flutter_android_bundle")
+load("//flutter:defs.bzl", "flutter_application", "flutter_native_library")
+load("//flutter:ios.bzl", "flutter_ios_native_frameworks_gen")
+load("//flutter:macos.bzl", "flutter_macos_native_libs_gen")
+load("//flutter:native_assets.bzl", "flutter_native_asset")
+load("//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+[
+    [
+        genrule(
+            name = "%s_%s" % (library, ext),
+            outs = ["lib%s.%s" % (library, ext)],
+            cmd = "echo %s > $@" % library,
+        )
+        for ext in [
+            "dylib",
+            "so",
+            "dll",
+        ]
+    ] + [
+        alias(
+            name = library + "_lib",
+            actual = select({
+                "@platforms//os:ios": ":%s_dylib" % library,
+                "@platforms//os:macos": ":%s_dylib" % library,
+                "@platforms//os:windows": ":%s_dll" % library,
+                "//conditions:default": ":%s_so" % library,
+            }),
+        ),
+    ]
+    for library in [
+        "a_own",
+        "b_own",
+        "combined",
+    ]
+]
+
+# What each package declares for itself.
+stand_in_code_asset(
+    name = "a_own",
+    asset_id = "package:shared_a/a",
+    library = ":a_own_lib",
+)
+
+stand_in_code_asset(
+    name = "b_own",
+    asset_id = "package:shared_b/b",
+    library = ":b_own_lib",
+)
+
+# Both ids served by `combined`, bare.
+stand_in_code_asset(
+    name = "a_combined_asset",
+    asset_id = "package:shared_a/a",
+    library = ":combined_lib",
+)
+
+stand_in_code_asset(
+    name = "b_combined_asset",
+    asset_id = "package:shared_b/b",
+    library = ":combined_lib",
+)
+
+write_file(
+    name = "patch_manifest",
+    out = "combined.hot_patch.json",
+    content = ["{}"],
+)
+
+filegroup(
+    name = "patcher",
+    srcs = [":patch_manifest"],
+)
+
+write_file(
+    name = "other_patch_manifest",
+    out = "other.hot_patch.json",
+    content = ["{}"],
+)
+
+filegroup(
+    name = "other_patcher",
+    srcs = [":other_patch_manifest"],
+)
+
+# And wrapped: each id with the contract of its own bindings, and one patch
+# builder for the library they share.
+flutter_native_library(
+    name = "a_combined",
+    binding_contract = ["a.json"],
+    hot_patch = ":patcher",
+    library = ":a_combined_asset",
+)
+
+flutter_native_library(
+    name = "b_combined",
+    binding_contract = ["b.json"],
+    hot_patch = ":patcher",
+    library = ":b_combined_asset",
+)
+
+# One library cannot take two patch builders.
+flutter_native_library(
+    name = "b_combined_other_patcher",
+    binding_contract = ["b.json"],
+    hot_patch = ":other_patcher",
+    library = ":b_combined_asset",
+)
+
+_DEPS = [
+    "//flutter/tests/shared_code_asset_fixture/a",
+    "//flutter/tests/shared_code_asset_fixture/b",
+]
+
+[
+    flutter_application(
+        name = name,
+        package_name = "shared_app",
+        code_assets = code_assets,
+        main = "main.dart",
+        tags = ["manual"],
+        deps = _DEPS,
+    )
+    for name, code_assets in {
+        # Each package's own library: the control.
+        "app_own": [],
+        # Both ids from `combined`, wrapped.
+        "app": [
+            ":a_combined",
+            ":b_combined",
+        ],
+        # Both from `combined`, nothing describing the bindings.
+        "app_bare": [
+            ":a_combined_asset",
+            ":b_combined_asset",
+        ],
+        # One id described and one not.
+        "app_mixed": [
+            ":a_combined",
+            ":b_combined_asset",
+        ],
+        # Only `a` moved; `b` keeps its own library.
+        "app_partial": [":a_combined"],
+        "app_two_patchers": [
+            ":a_combined",
+            ":b_combined_other_patcher",
+        ],
+    }.items()
+]
+
+# The platform bundlers, over the shared library and over the control.
+[
+    [
+        flutter_android_bundle(
+            name = app + "_android_bundle",
+            application = ":" + app,
+            tags = ["manual"],
+        ),
+        flutter_ios_native_frameworks_gen(
+            name = app + "_ios_frameworks",
+            application = ":" + app,
+        ),
+        flutter_macos_native_libs_gen(
+            name = app + "_macos_libs",
+            application = ":" + app,
+        ),
+    ]
+    for app in [
+        "app",
+        "app_own",
+    ]
+]
+
+# Two packages claim `package:shared_a/a` with different libraries, and a
+# `flutter_native_asset` declares what serves it instead.
+flutter_native_asset(
+    name = "a_system",
+    asset_id = "package:shared_a/a",
+    link_mode = "dynamic_loading_system",
+    system_uri = "libshared_a.so",
+)
+
+flutter_application(
+    name = "app_declared",
+    package_name = "shared_app",
+    main = "main.dart",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/shared_code_asset_fixture/a",
+        "//flutter/tests/shared_code_asset_fixture/a_again",
+        "//flutter/tests/shared_code_asset_fixture/declares",
+    ],
+)

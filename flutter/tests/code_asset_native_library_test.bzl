@@ -4,8 +4,8 @@ A library that reaches an app as a code asset is bundled under the application's
 own name for it, not the path its rule wrote. What the wrapper declares has to
 arrive on that name in `_dev_config.json` — the contract and the sources, as for
 a `native_deps` entry — and its `hot_patch` has to be reachable from the launch
-target, whichever package rule owns the asset. Over
-`//flutter/tests/code_asset_fixture`.
+target, whichever package rule owns the asset and whatever attribute carries
+it. Over `//flutter/tests/code_asset_fixture`.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
@@ -121,6 +121,19 @@ _refuses_test = analysistest.make(
     expect_failure = True,
 )
 
+_refuses_in_debug_test = analysistest.make(
+    _refuses_impl,
+    attrs = {"message": attr.string()},
+    expect_failure = True,
+    config_settings = _DBG,
+)
+
+def _analyzes_impl(ctx):
+    env = analysistest.begin(ctx)
+    return analysistest.end(env)
+
+_analyzes_test = analysistest.make(_analyzes_impl)
+
 def code_asset_native_library_test_suite(name):
     """Declares the tests.
 
@@ -129,7 +142,11 @@ def code_asset_native_library_test_suite(name):
     """
     sources = ["bridge.c", "bridge.h", "helper.c"]
     tests = []
-    for owner in ["dart_owner", "plugin_owner"]:
+
+    # Owned by a Flutter package rule, by a Dart one, and by one a rule
+    # forwards under `exports`: the walk follows every attribute, so the edge
+    # the package arrives on does not matter.
+    for owner in ["dart_owner", "plugin_owner", "forwarded_owner"]:
         _dev_config_test(
             name = name + "_dev_config_" + owner,
             target_under_test = _FIXTURE + "app_" + owner,
@@ -156,6 +173,27 @@ def code_asset_native_library_test_suite(name):
         contract = [],
         sources = sources,
     )
+
+    # A package that makes its asset with no target of its own leaves nothing
+    # for the walk to find. A debug build refuses it rather than describe it as
+    # a library with no sources; a build the dev tool never runs bundles it.
+    _refuses_in_debug_test(
+        name = name + "_refuses_undescribed_in_debug",
+        target_under_test = _FIXTURE + "app_inline_owner",
+        message = "no target that provides the code asset is reachable",
+    )
+    _analyzes_test(
+        name = name + "_bundles_undescribed_outside_debug",
+        target_under_test = _FIXTURE + "app_inline_owner",
+    )
+
+    # One library under one id, wrapped in one package and bare in another:
+    # which description survived would be graph order.
+    _refuses_test(
+        name = name + "_refuses_disagreeing_records",
+        target_under_test = _FIXTURE + "app_disagreeing_owners",
+        message = "disagree about it",
+    )
     _forwards_test(
         name = name + "_forwards_the_code_asset",
         target_under_test = _FIXTURE + "wrapped",
@@ -175,5 +213,8 @@ def code_asset_native_library_test_suite(name):
         name + "_dev_config_bare",
         name + "_forwards_the_code_asset",
         name + "_refuses_an_unbundled_asset",
+        name + "_refuses_undescribed_in_debug",
+        name + "_bundles_undescribed_outside_debug",
+        name + "_refuses_disagreeing_records",
     ]
     native.test_suite(name = name, tests = tests)
