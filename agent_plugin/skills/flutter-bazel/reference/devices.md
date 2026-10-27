@@ -31,9 +31,9 @@ may be using the others.
   lock screen still runs the app, but every screenshot shows the lock screen and
   the app draws nothing (`notRendering` on replies). Prefer an emulator for
   anything visual, and do not try to unlock someone's phone.
-- **iPhone.** Screenshots need the tunnel daemon running as root in another
-  terminal: `sudo <path to flutter_bazel> ios-tunnel`. The screenshot error
-  prints the exact command. Ask the user to start it; it needs their password.
+- **iPhone.** Screenshots need Xcode 27 or later, whose `devicectl` can
+  capture the screen. With an older Xcode selected, the screenshot fails and
+  says so.
 - **Chrome.** Pass `--web-run-headless` so the page stays visible to itself: a
   hidden or covered browser window draws no frames.
 - **Linux.** Screenshots use `scrot` and need a display (`DISPLAY` set, or
@@ -64,7 +64,7 @@ may be using the others.
 | Android phone | `adb screencap` |
 | Android emulator | the emulator's own framebuffer capture |
 | iOS simulator | `simctl io screenshot` |
-| iPhone | pymobiledevice3, over the tunnel |
+| iPhone | `devicectl device capture screenshot` (Xcode 27 or later) |
 | Chrome | the DevTools protocol's page capture |
 
 On macOS the window must be on screen. The tool brings it to the front at

@@ -53,7 +53,7 @@ Which probe discriminates depends on the owning target's shape:
   Unimported is what makes it proof: an imported one is reached through `main`'s
   own closure, so the target goes red whether or not `srcs` carries it.
 * **Target is `main`-only** — a `main` and no `srcs`
-  (`//tools/update_flutter_version`, `//tools/pip_lock_guard:pip_facts_test`) →
+  (`//tools/update_flutter_version`) →
   transiently repoint `main` at the probe; restoring must return it to green.
   The dropped-file form cannot discriminate here: a probe added to a `srcs` the
   committed target does not have goes red even if the `main` slot is never
@@ -506,7 +506,7 @@ When re-running to reproduce, use `--nocache_test_results` and read the
 | Android (physical) | `adb screencap` (always) | `adb screencap` |
 | Android (emulator) | `adb emu screenrecord screenshot` (always) | same |
 | iOS Simulator | `simctl io screenshot` (always) | `simctl io screenshot` (always) |
-| iOS device | pymobiledevice3 DVT (always) | pymobiledevice3 DVT (always) |
+| iOS device | `devicectl device capture screenshot` (always; Xcode 27+) | same |
 | Chrome/Web | CDP `Page.captureScreenshot` (always) | N/A (web is always debug) |
 
 Note: `_flutter.screenshot` captures only the Flutter widget tree (no OS chrome); the platform tools capture the full screen or window. The three desktop rows name the helper each `Device.screenshot` actually resolves out of runfiles (`tools/{macos,windows}_screenshot/screenshot`, and plain `scrot` on Linux). Windows must use DXGI, not GDI, which captures a Flutter surface as black (§ 4).
@@ -1433,7 +1433,7 @@ On each: wait for `native_hot_patch_armed` in the log, read the `mul` line,
 change `return a * b;` to `return a * b + 1000;`, press `r`, and confirm:
 
 - the reply names `nativePatched` and the line reads 1012 **on screen**
-  (`app.getText` on an iOS device, where a screenshot needs the tunnel daemon);
+  (`app.getText`, or a screenshot);
 - the reload took about a second — measured 0.43 s on the iOS simulator, 0.47 s
   on the Android emulator, 1.2 s on an iPhone 12 Pro over USB (signing and the
   `devicectl` copy), against a relaunch of 16 s and 27 s on the last two;

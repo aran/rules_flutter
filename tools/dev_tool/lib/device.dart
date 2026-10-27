@@ -2478,8 +2478,8 @@ class IOSDeviceInfo {
   ///
   /// This is the identifier every tool here is addressed with. `devicectl`
   /// also answers to its own CoreDevice UUID ([coreDeviceId]) and reports that
-  /// one first, but `lldb device select`, `iproxy -u` and the pymobiledevice3
-  /// screenshot helper all go through usbmuxd, which has never heard of it —
+  /// one first, but `lldb device select` and `iproxy -u` go through usbmuxd,
+  /// which has never heard of it —
   /// addressing them with it produces a port forward that binds locally and
   /// then resets every connection.
   final String udid;
@@ -3643,20 +3643,23 @@ if not error.Success():
     }
   }
 
-  /// iOS physical device screenshot via pymobiledevice3 DVT service.
+  /// How long `devicectl device capture screenshot` gets before it gives up.
   ///
-  /// `_flutter.screenshot` does not work on iOS because the Impeller renderer
-  /// (always enabled on iOS) does not implement compressed image capture.
-  /// Instead, we use pymobiledevice3's DVT screenshot, which captures via
-  /// Apple's Developer Tools service (same mechanism as Xcode).
+  /// Passed as devicectl's own `--timeout`, so a device that stops answering
+  /// fails the capture with devicectl's error rather than holding the
+  /// screenshot request open.
+  Duration screenshotBound = const Duration(seconds: 30);
+
+  /// Captures the device's screen with `devicectl device capture screenshot`.
   ///
-  /// The screenshot binary is bundled as a Bazel py_binary and resolved from
-  /// runfiles. Requires building via `bazel build //tools/dev_tool:flutter_bazel`.
+  /// `_flutter.screenshot` does not work on iOS: Impeller, always on there,
+  /// cannot encode a compressed capture. devicectl captures the whole display,
+  /// the way Xcode does.
   ///
-  /// Prerequisites: the tunnel daemon, running as root in another terminal.
-  /// It is `ios-tunnel` on this same binary — run the built binary itself
-  /// under sudo, never `sudo bazel run`, which runs bazel as root and leaves
-  /// root-owned files in the output base.
+  /// `device capture` first shipped in Xcode 27's devicectl. An older one
+  /// does not know the subcommand, and its answer is what is detected here:
+  /// devicectl's version numbers are not documented against its commands.
+  /// See [_lacksDeviceCapture].
   @override
   Future<void> screenshot(
     AppInstance instance,
@@ -3667,48 +3670,42 @@ if not error.Success():
     if (vmClient != null) {
       await vmClient.waitForFirstFrame();
     }
-
-    final resolved = resolveRunfileWithManifest(
-      'rules_flutter/tools/ios_screenshot/screenshot',
-    );
-    if (resolved == null) {
+    final result = await _runProcess('xcrun', [
+      'devicectl',
+      'device',
+      'capture',
+      'screenshot',
+      '--device',
+      _addressedUdid,
+      '--destination',
+      outputPath,
+      '--timeout',
+      '${screenshotBound.inSeconds}',
+      '--quiet',
+    ]);
+    if (result.exitCode == 0) return;
+    final err = '${result.stderr}${result.stdout}';
+    if (_lacksDeviceCapture(result.exitCode, err)) {
       throw StateError(
-        'iOS device screenshot requires the bundled screenshot tool.\n'
-        'Build via: bazel build //tools/dev_tool:flutter_bazel',
+        'iPhone screenshots need Xcode 27 or later (devicectl device '
+        'capture). The selected Xcode\'s devicectl does not have it; select '
+        'a newer one with `xcode-select` or DEVELOPER_DIR.',
       );
     }
-
-    // The py_binary needs RUNFILES_MANIFEST_FILE to find its venv and
-    // bootstrap scripts within the dart_binary's runfiles.
-    final result = await Process.run(
-      resolved.path,
-      [
-        outputPath,
-        '--udid',
-        _addressedUdid,
-      ],
-      environment: {
-        if (resolved.manifestPath != null)
-          'RUNFILES_MANIFEST_FILE': resolved.manifestPath!,
-      },
-    );
-    if (result.exitCode != 0) {
-      final err = result.stderr as String;
-      if (err.contains('Unable to connect to Tunneld') ||
-          err.contains('no devices found')) {
-        throw StateError(
-          'iOS device screenshot requires a running tunnel daemon.\n'
-          'Start it in a separate terminal, as root — it creates a TUN '
-          'interface:\n'
-          '  sudo ${Platform.resolvedExecutable} ios-tunnel\n'
-          'Not `sudo bazel run`: that runs bazel as root and leaves '
-          'root-owned files in the output base, which break the builds that '
-          'follow.',
-        );
-      }
-      throw StateError('iOS screenshot failed: $err');
-    }
+    throw StateError('devicectl screenshot of $name failed: $err');
   }
+
+  /// Whether devicectl refused the command line as a usage error (exit 64,
+  /// `EX_USAGE`) without knowing `device capture screenshot`.
+  ///
+  /// The arguments are right for every devicectl that has the command, so a
+  /// usage error means it does not. A devicectl without the subcommand stops
+  /// parsing at `device`, rejects the first option after it ("Unknown option
+  /// '--device'") and prints `devicectl device`'s usage. A capture that runs
+  /// and fails exits 1 with a CoreDevice error instead.
+  static bool _lacksDeviceCapture(int exitCode, String output) =>
+      exitCode == 64 &&
+      !output.contains('Usage: devicectl device capture screenshot');
 }
 
 /// NSPredicate selecting an app's own log output on the iOS Simulator.

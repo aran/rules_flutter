@@ -32,12 +32,8 @@ dart_binary(
     name = "flutter_bazel",
     srcs = glob(["lib/**/*.dart"]),
     compile_mode = "exe",
-    # iOS device screenshots (pymobiledevice3) work from any host, so they are
-    # always available. The desktop screen-capture helpers are local to their OS.
-    data = [
-        "//tools/ios_screenshot:screenshot",
-        "//tools/ios_screenshot:tunneld",
-    ] + select({
+    # The desktop screen-capture helpers are local to their OS.
+    data = select({
         # Every `bazel` command starts through it, off Windows. See its target.
         "@platforms//os:windows": [],
         "//conditions:default": [":process_group_exec"],

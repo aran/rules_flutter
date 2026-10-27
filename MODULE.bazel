@@ -37,7 +37,6 @@ bazel_dep(name = "rules_kotlin", version = "2.4.20")
 bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
 bazel_dep(name = "rules_dart", version = "0.8.0")
-bazel_dep(name = "rules_python", version = "2.4.0")
 bazel_dep(name = "yaml.bzl", version = "0.1.2")
 
 # Provides the copy_to_directory toolchain that rules_dart's source-set
@@ -165,45 +164,3 @@ flutter.pub(
     lock = "//flutter/private/gen_l10n:pubspec.lock",
 )
 use_repo(flutter, "gen_l10n_deps")
-
-# Python toolchain + pymobiledevice3 for iOS device screenshots and the
-# device tunnel. Not dev dependencies: the `flutter_bazel` dev tool that
-# consumers run bundles `//tools/ios_screenshot` as runfiles.
-#
-# One version, pinned on the binaries themselves (`python_version` in
-# //tools/ios_screenshot). Only a root module can choose the default Python, so
-# without the pin the helpers would build with whatever default the consumer
-# has, and this hub has wheels for 3.13 only.
-python = use_extension(
-    "@rules_python//python/extensions:python.bzl",
-    "python",
-)
-python.toolchain(python_version = "3.13")
-
-pip = use_extension(
-    "@rules_python//python/extensions:pip.bzl",
-    "pip",
-)
-
-# pymobiledevice3 talks to iOS devices over USB/network from any host, so the
-# screenshot tooling targets every platform. target_platforms controls which
-# platforms' wheels are selectable (see the rules_python pip.parse docs).
-#
-# The lock's pip facts are host-independent under rules_python 2.3.2, and
-# `//tools/pip_lock_guard:pip_facts_test` re-derives them on every host. See the
-# .bazelrc comment. Published consumers don't inherit this lock.
-_IOS_PLATFORMS = [
-    "linux_aarch64",
-    "linux_x86_64",
-    "osx_aarch64",
-    "osx_x86_64",
-    "windows_x86_64",
-]
-
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.13",
-    requirements_lock = "//tools/ios_screenshot:requirements_lock.txt",
-    target_platforms = _IOS_PLATFORMS,
-)
-use_repo(pip, "pip")

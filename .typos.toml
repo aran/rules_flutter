@@ -23,10 +23,8 @@ alls = "alls"
 # bearing: see ENTRYPOINT_EXTENTION_MARKER in web_bootstrap.dart.
 EXTENTION = "EXTENTION"
 # Apple's Unique Device IDentifier, spelled this way by every tool that emits
-# one (devicectl, simctl, pymobiledevice3) and by the code that consumes them.
+# one (devicectl, simctl) and by the code that consumes them.
 udid = "udid"
-# The Python package. It appears here only as a package name.
-certifi = "certifi"
 # From "PNGs": typos splits the plural off the acronym and reports the stem.
 PN = "PN"
 # PNG's Paeth predictor (RFC 2083 §6.6), named after Alan W. Paeth.

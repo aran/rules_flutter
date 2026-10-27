@@ -4993,21 +4993,86 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
   });
 
   group('IOSDevice.screenshot', () {
-    test('throws when not running in Bazel runfiles', () async {
+    test('captures with devicectl, addressed by the UDID', () async {
+      final calls = <List<String>>[];
       final device = IOSDevice(
         udid: 'TEST-UDID',
-        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+        runProcess: (exe, args) async {
+          calls.add([exe, ...args.cast<String>()]);
+          return ProcessResult(0, 0, '', '');
+        },
       );
+      await device.screenshot(
+        AppInstance(process: FakeProcess()),
+        '/tmp/ios.png',
+      );
+      expect(calls.single, [
+        'xcrun',
+        'devicectl',
+        'device',
+        'capture',
+        'screenshot',
+        '--device',
+        'TEST-UDID',
+        '--destination',
+        '/tmp/ios.png',
+        '--timeout',
+        '30',
+        '--quiet',
+      ]);
+    });
 
-      final instance = AppInstance(process: FakeProcess());
-      // Without runfiles, should throw telling user to build with bazel.
+    test('names Xcode 27 when devicectl lacks device capture', () async {
+      // What a devicectl without the subcommand prints for this command line:
+      // its parser stops at `device` and rejects the first option after it.
+      final device = IOSDevice(
+        udid: 'TEST-UDID',
+        runProcess: (exe, args) async => ProcessResult(
+          0,
+          64,
+          '',
+          "Error: Unknown option '--device'\n"
+              'Usage: devicectl device [--verbose] [--quiet] <subcommand>\n',
+        ),
+      );
       expect(
-        () => device.screenshot(instance, '/tmp/ios.png'),
+        () => device.screenshot(
+          AppInstance(process: FakeProcess()),
+          '/tmp/ios.png',
+        ),
         throwsA(
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            contains('bazel build'),
+            contains('iPhone screenshots need Xcode 27 or later'),
+          ),
+        ),
+      );
+    });
+
+    test('reports a capture that runs and fails as it is', () async {
+      final device = IOSDevice(
+        udid: 'TEST-UDID',
+        runProcess: (exe, args) async => ProcessResult(
+          0,
+          1,
+          '',
+          'ERROR: The specified device was not found.',
+        ),
+      );
+      expect(
+        () => device.screenshot(
+          AppInstance(process: FakeProcess()),
+          '/tmp/ios.png',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('The specified device was not found'),
+              isNot(contains('Xcode 27')),
+            ),
           ),
         ),
       );
