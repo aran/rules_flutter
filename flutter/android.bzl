@@ -482,8 +482,10 @@ def flutter_android_app(
     android/app/src/profile/AndroidManifest.xml, which `flutter create`
     writes with the `INTERNET` permission the VM service needs.
 
-    When Kotlin sources are found in android/app/src/main/kotlin/, they are
-    compiled via kt_android_library with the Flutter engine and AndroidX deps.
+    The runner's sources, where Gradle looks for them (Kotlin under
+    android/app/src/main/kotlin/ or java/, Java under java/, as
+    `flutter create --android-language java` writes it), are compiled via
+    kt_android_library with the Flutter engine and AndroidX deps.
 
     Plugin auto-wiring:
       - Generates a `flutter_android_registrant` target whose application is
@@ -644,10 +646,6 @@ def flutter_android_app(
     if pub_hub_name:
         binary_deps.append("@%s//android:all_android_plugin_libs" % pub_hub_name)
 
-    # The discovered runner's sources, whose classes the manifest's relative
-    # class names resolve to.
-    runner_sources = []
-
     if not base_manifest:
         # Try to discover flutter create output.
         discovered_manifests = native.glob(
@@ -676,17 +674,26 @@ def flutter_android_app(
             )
             resources = list(resources) + discovered_resources
 
-            # Discover and compile Kotlin sources from flutter create output.
-            discovered_kotlin = native.glob(
-                ["android/app/src/main/kotlin/**/*.kt"],
+            # Discover and compile the runner from flutter create output:
+            # Gradle's main source directories for Kotlin and Java. Not the
+            # plugin registrant `flutter run` writes there: the
+            # `__{name}_registrant` above is this app's.
+            runner_sources = native.glob(
+                [
+                    "android/app/src/main/kotlin/**/*.kt",
+                    "android/app/src/main/java/**/*.java",
+                    "android/app/src/main/java/**/*.kt",
+                ],
+                exclude = [
+                    "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+                ],
                 allow_empty = True,
             )
-            if discovered_kotlin:
-                runner_sources = discovered_kotlin
+            if runner_sources:
                 _kt_android_library(
                     name = "__%s_runner" % name,
-                    srcs = discovered_kotlin,
-                    custom_package = package_name,
+                    srcs = runner_sources,
+                    custom_package = namespace,
                     tags = tags,
                     deps = ["__%s_engine" % name],
                 )
