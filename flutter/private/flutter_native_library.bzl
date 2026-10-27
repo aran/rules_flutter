@@ -247,6 +247,18 @@ and which returns 0 or writes why it refused. A null `patch_path` sends calls ba
 to the code the library launched with: that is how the dev tool undoes a patched
 edit that was reverted, which `patch` answers as `unchanged`.
 
+A patch is loaded as a second image, and a hot reload keeps the app's state, so
+the patched code must work on the state the running library already holds: the
+same statics, globals and heap, not fresh copies of them. Storage the patch
+image defines for itself starts at its initial value and is invisible to the
+running library, which forks state without an error. A builder therefore either
+makes the patch reach the running library's state (by address, through the
+`--symbol` address, or because the library hands that state to the code it
+calls) or answers `restart` for an edit that would fork it: one that adds state,
+or changes the layout or type of state the running library holds. One library
+serving several code-asset ids is one image with one patch builder, so its state
+is shared by every id before a patch and after it.
+
 The library must carry its linker's identity — `LC_UUID` on Mach-O (ld64 writes
 one by default), a GNU build-id on ELF (`-Wl,--build-id`). A build can produce
 the same library in more than one configuration, and the identity is how the dev

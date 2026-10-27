@@ -93,6 +93,7 @@ dart_binary(
 
 c_hot_patch(
     name = "mul_hot_patch",
+    body = "native/mul.c",
     contract = "native/mul.h",
     function = "mul_body",
     library = ":mul",
@@ -158,6 +159,7 @@ stand_in_code_asset(
 
 c_hot_patch(
     name = "sub_hot_patch",
+    body = "native/sub.c",
     contract = "native/sub.h",
     function = "sub_body",
     library = ":sub",
@@ -182,10 +184,32 @@ flutter_native_library(
 # a standalone library of its own (`counter_a`, `counter_b`); the app serves
 # both ids from the combined `counter` instead, which it bundles once, so the
 # process loads one image and a bump through either id moves one count.
+#
+# The combined `counter` is patchable too, as one library: `:counter_hot_patch`
+# builds patches of `native/counter.c`, and each id's wrapper (`count_a_native`,
+# `count_b_native`) names that one builder, so an edit reaches both ids on one
+# patch. The count lives in the launched image (`native/counter_hot_patch.c`),
+# which hands it to the body on every call, so a patch carries on from the
+# count the launched code left; `state_layout` names the header that shapes it.
+cc_library(
+    name = "counter_body_cc",
+    srcs = ["native/counter.c"],
+    hdrs = [
+        "native/counter.h",
+        "native/counter_body.h",
+        "native/counter_state.h",
+    ],
+)
+
 cc_library(
     name = "counter_cc",
-    srcs = ["native/counter.c"],
-    hdrs = ["native/counter.h"],
+    srcs = ["native/counter_hot_patch.c"],
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    textual_hdrs = ["native/hot_patch_router.h"],
+    deps = [":counter_body_cc"],
 )
 
 [
@@ -199,6 +223,28 @@ cc_library(
         "counter_b",
     ]
 ]
+
+cc_shared_library(
+    name = "counter_patch",
+    deps = [":counter_body_cc"],
+)
+
+c_hot_patch(
+    name = "counter_hot_patch",
+    body = "native/counter.c",
+    contract = "native/counter.h",
+    function = "counter_bump_body",
+    library = ":counter",
+    patch_library = ":counter_patch",
+    sources = [
+        "native/counter.c",
+        "native/counter.h",
+        "native/counter_body.h",
+        "native/counter_state.h",
+    ],
+    state_layout = "native/counter_state.h",
+    tool = ":c_patch_tool",
+)
 
 [
     dart_code_asset(
@@ -220,12 +266,28 @@ cc_library(
     ]
 ]
 
+# One wrapper per asset id over the combined library, each with that id's
+# contract and all naming the one builder: the app loads one image, so one patch
+# serves both ids.
+[
+    flutter_native_library(
+        name = "count_%s_native" % package,
+        binding_contract = ["native/counter.h"],
+        hot_patch = ":counter_hot_patch",
+        library = ":count_%s_combined" % package,
+    )
+    for package in [
+        "a",
+        "b",
+    ]
+]
+
 flutter_application(
     name = "ffi_app",
     package_name = "ffi_example",
     code_assets = [
-        ":count_a_combined",
-        ":count_b_combined",
+        ":count_a_native",
+        ":count_b_native",
     ],
     main = "lib/main.dart",
     deps = [

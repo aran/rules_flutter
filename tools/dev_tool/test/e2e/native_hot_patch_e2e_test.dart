@@ -37,9 +37,20 @@
 ///     its contract and patch builder are declared: without the contract, the
 ///     sources the build declares for it make every edit a reload withheld over
 ///     a library nothing describes, and without the builder nothing is armed.
+///  8. **One library serving two asset ids patches once, and keeps its state.**
+///     `counter` serves `package:count_a` and `package:count_b` from one image,
+///     through one wrapper per id that all name one `hot_patch`. The builder is
+///     armed once for it, an edit to `native/counter.c` is one patch, and a bump
+///     through either id then runs the new code on the count the launched code
+///     left, still shared. That holds because the count lives in the launched
+///     image and is passed to the body; a patch is a second image, so a static
+///     in the patched source would be a fresh count of its own. The builder
+///     withholds the two edits that would fork state that way: the body
+///     defining storage, and the state's layout moving.
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -86,10 +97,13 @@ void main() {
         await dt.waitForHttpControl(timeout: const Duration(seconds: 120));
         // Armed before edited: the snapshot is taken at assembly, and an edit
         // inside that window would become the baseline.
-        await dt.waitForStderr(
+        final armed = await dt.waitForStderr(
           'native_hot_patch_armed',
           timeout: const Duration(minutes: 6),
         );
+        final armedLibraries = [
+          for (final l in (jsonDecode(armed) as Map)['libraries'] as List) '$l',
+        ];
         await dt.waitForStderr(
           'frontend_server_ready',
           timeout: const Duration(minutes: 6),
@@ -260,6 +274,95 @@ void main() {
         expect(subReverted['succeeded'], isTrue, reason: '$subReverted');
         expect(subReverted['nativeReverted'], ['libsub.dylib']);
         await _expectRendered(dt, appId, 'live 9 - 4 = 5');
+
+        // ---- 8: one library serving two asset ids, and its state ------------
+        final counterSource = ws.file('native/counter.c');
+        final counterState = ws.file('native/counter_state.h');
+        final counterOriginal = counterSource.readAsStringSync();
+        final counterStateOriginal = counterState.readAsStringSync();
+        expect(
+          counterOriginal,
+          contains('count += 1;'),
+          reason: 'fixture marker',
+        );
+        // One builder for the library, however many ids it serves.
+        expect(
+          armedLibraries.where((l) => l == 'libcounter.dylib'),
+          hasLength(1),
+          reason: 'armed: $armedLibraries',
+        );
+        // `main` bumped once through each id; this is the third bump.
+        await _expectBump(dt, appId, 'A', 3);
+
+        counterSource.writeAsStringSync(
+          counterOriginal.replaceFirst('count += 1;', 'count += 10;'),
+        );
+        final counterPatched = await _reload(dt, appId);
+        expect(counterPatched['succeeded'], isTrue, reason: '$counterPatched');
+        expect(counterPatched['runningCode'], 'updated');
+        // One patch, for the one library both ids load, not one per id.
+        expect(counterPatched['nativePatched'], {
+          'libcounter.dylib': ['counter_bump_body'],
+        });
+        // Dart state kept: the last bump is still on screen.
+        await _expectRendered(dt, appId, 'bumped via A: 3');
+        // Both ids run the new code, from the count the launched code left,
+        // and still share it.
+        await _expectBump(dt, appId, 'A', 13);
+        await _expectBump(dt, appId, 'B', 23);
+
+        // A patch that would keep state of its own is withheld by the
+        // builder: that state would start fresh in the patch's image and be
+        // invisible to the one the app launched.
+        counterSource.writeAsStringSync(
+          counterOriginal
+              .replaceFirst('count += 1;', 'count += 10;')
+              .replaceFirst(
+                'FFI_EXAMPLE_EXPORT int32_t counter_bump_body',
+                'static int32_t bumps = 0;\n\n'
+                    'FFI_EXAMPLE_EXPORT int32_t counter_bump_body',
+              ),
+        );
+        final forked = await _reload(dt, appId);
+        expect(forked['succeeded'], isFalse, reason: '$forked');
+        expect(forked['runningCode'], 'unchanged', reason: '$forked');
+        expect(
+          '${forked['error']}',
+          contains('static int32_t bumps = 0;'),
+          reason: '$forked',
+        );
+        await _expectBump(dt, appId, 'A', 33);
+
+        // So is one that changes the shape of the state the running image
+        // holds.
+        counterSource.writeAsStringSync(
+          counterOriginal.replaceFirst('count += 1;', 'count += 10;'),
+        );
+        counterState.writeAsStringSync(
+          counterStateOriginal.replaceFirst(
+            'int32_t count;',
+            'int32_t count;\n    int32_t bumps;',
+          ),
+        );
+        final reshaped = await _reload(dt, appId);
+        expect(reshaped['succeeded'], isFalse, reason: '$reshaped');
+        expect(
+          '${reshaped['error']}',
+          contains('counter_state.h'),
+          reason: '$reshaped',
+        );
+        counterState.writeAsStringSync(counterStateOriginal);
+
+        // Undone: back to the launched code, on the same count.
+        counterSource.writeAsStringSync(counterOriginal);
+        final counterReverted = await _reload(dt, appId);
+        expect(
+          counterReverted['succeeded'],
+          isTrue,
+          reason: '$counterReverted',
+        );
+        expect(counterReverted['nativeReverted'], ['libcounter.dylib']);
+        await _expectBump(dt, appId, 'B', 34);
       },
       timeout: const Timeout(Duration(minutes: 10)),
     );
@@ -271,6 +374,34 @@ Future<Map<String, dynamic>> _reload(DevToolProcess dt, String appId) async {
   final result = response['result'] as Map<String, dynamic>?;
   expect(result, isNotNull, reason: 'app.hotReload: ${response['error']}');
   return result!;
+}
+
+/// Bump the shared counter through asset id [via] (`A` or `B`) and require the
+/// bump to answer [count].
+Future<void> _expectBump(
+  DevToolProcess dt,
+  String appId,
+  String via,
+  int count,
+) async {
+  final tap = await dt.httpCommand('app.tap', {
+    'appId': appId,
+    'key': 'bump$via',
+  });
+  expect(tap['error'], isNull, reason: 'app.tap bump$via: ${tap['error']}');
+  final expected = 'bumped via $via: $count';
+  final found = await dt.httpCommand('app.waitFor', {
+    'appId': appId,
+    'text': expected,
+    'timeoutMs': '20000',
+  });
+  if (found['result'] == null) {
+    final shown = await dt.httpCommand('app.getText', {
+      'appId': appId,
+      'key': 'lastBump',
+    });
+    fail('expected "$expected", the app shows ${shown['result'] ?? shown}');
+  }
 }
 
 /// Require the running app to be displaying [text], exactly.

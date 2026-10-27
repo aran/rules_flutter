@@ -96,9 +96,8 @@ Future<void> main() async {
     marker = 'ffi_example_error $e';
   }
   try {
-    File(
-      '${Directory.systemTemp.path}/ffi_result.txt',
-    ).writeAsStringSync(marker);
+    File('${Directory.systemTemp.path}/ffi_result.txt')
+        .writeAsStringSync(marker);
   } on FileSystemException {
     // Temp dir unavailable — the test will time out and report it.
   }
@@ -173,10 +172,59 @@ class MyApp extends StatelessWidget {
                 key: const ValueKey('liveSub'),
                 style: const TextStyle(fontSize: 32),
               ),
+              const _SharedCounter(),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Bumps the counter both asset ids share, through either id, on a tap.
+///
+/// On a tap rather than on every build, so the count moves only when a test
+/// says so: the counter is patchable, and what a bump adds after an edit to
+/// `native/counter.c`, and from what count, is what a patch is judged by.
+class _SharedCounter extends StatefulWidget {
+  const _SharedCounter();
+
+  @override
+  State<_SharedCounter> createState() => _SharedCounterState();
+}
+
+class _SharedCounterState extends State<_SharedCounter> {
+  String _last = 'no bump yet';
+
+  void _bump(String via, int Function() bump) =>
+      setState(() => _last = 'bumped via $via: ${bump()}');
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              key: const ValueKey('bumpA'),
+              onPressed: () => _bump('A', bumpThroughA),
+              child: const Text('bump A'),
+            ),
+            TextButton(
+              key: const ValueKey('bumpB'),
+              onPressed: () => _bump('B', bumpThroughB),
+              child: const Text('bump B'),
+            ),
+          ],
+        ),
+        Text(
+          _last,
+          key: const ValueKey('lastBump'),
+          style: const TextStyle(fontSize: 32),
+        ),
+      ],
     );
   }
 }
