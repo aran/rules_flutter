@@ -1,5 +1,6 @@
 /// Merges permissions into a main (base) AndroidManifest.xml: an overlay's,
-/// and those of the app's Android libraries. Three callers, one mechanism:
+/// and those of the app's Android libraries, and qualifies its component
+/// class names. Three callers, one mechanism:
 ///
 ///   * `flutter_android_app`'s debug variant handling, folding
 ///     `android/app/src/debug/AndroidManifest.xml` into `-c dbg` APKs the
@@ -33,15 +34,29 @@
 /// (`--placeholder`, e.g. androidx.core's `\${applicationId}.…` permission);
 /// any other is a hard error.
 ///
+/// Component class names (`--namespace`): a manifest names its activities,
+/// services, receivers and providers relative to the app's code package
+/// (`.MainActivity`), which Gradle calls the `namespace` and which is not the
+/// application id. `flutter create` sets the two equal, but one runner may
+/// ship under any number of application ids, and a name left relative is
+/// resolved against the application id, where there is no such class. So
+/// each relative name is written out in full against the namespace, as AGP's
+/// manifest merger does (`XmlAttribute` in com.android.manifmerger): a name
+/// that starts with a dot or has none (`.X`, `.a.X`, `X`) becomes
+/// `<namespace>.X`, `<namespace>.a.X`, `<namespace>.X`; any other is already
+/// qualified. Without `--namespace` the names are left as they are.
+///
 /// The base manifest is never re-serialized: merged permissions are inserted
-/// textually right after the root `<manifest ...>` open tag, so every base
-/// byte the tool doesn't understand passes through untouched.
+/// textually right after the root `<manifest ...>` open tag, and qualified
+/// class names replace their attribute values in place, so every other base
+/// byte passes through untouched.
 ///
 /// It has no package dependencies and runs with the bare Dart SDK.
 ///
 /// Usage:
 ///   dart merge_android_manifests.dart --base <path> [--overlay <path>]
-///       [--library <path>]... [--placeholder <name>]... --output <path>
+///       [--library <path>]... [--placeholder <name>]... [--namespace <package>]
+///       --output <path>
 import 'dart:io';
 
 /// Pointer at the Tier-1 escape hatch, appended to every rejection.
@@ -434,9 +449,75 @@ List<LibraryPermission> parseLibraryPermissions(
   return permissions;
 }
 
+/// The attributes holding a class name relative to the code package, by
+/// element: the package-dependent class references of AGP's manifest model.
+const _classAttributes = {
+  'application': [
+    'android:name',
+    'android:backupAgent',
+    'android:manageSpaceActivity',
+  ],
+  'activity': ['android:name', 'android:parentActivityName'],
+  'activity-alias': ['android:name', 'android:targetActivity'],
+  'service': ['android:name'],
+  'receiver': ['android:name'],
+  'provider': ['android:name'],
+  'instrumentation': ['android:name'],
+};
+
+/// [xml] with every relative component class name (`.MainActivity`,
+/// `.sub.Receiver` or a bare `MainActivity`) written in full against
+/// [namespace], as AGP does. Returns [xml] unchanged when it names none.
+String qualifyClassNames(String xml, String namespace) {
+  // Comments, CDATA and processing instructions blanked to spaces, so tags
+  // are found only in markup and offsets still index into [xml].
+  final masked = xml.replaceAllMapped(
+    RegExp(r'<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>', dotAll: true),
+    (m) => ' ' * m[0]!.length,
+  );
+  final tag = RegExp(
+    r'''<([A-Za-z][\w.-]*)((?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*/?>''',
+  );
+  final attribute = RegExp(r'''([\w:.-]+)\s*=\s*(["'])(.*?)\2''');
+  final relative = <({int start, int end, String value})>[];
+  for (final t in tag.allMatches(masked)) {
+    final names = _classAttributes[t[1]];
+    if (names == null) continue;
+    final attributesStart = t.start + 1 + t[1]!.length;
+    for (final a in attribute.allMatches(t[2]!)) {
+      final value = a[3]!;
+      // A `${...}` placeholder is the binary's to substitute, not a name.
+      if (!names.contains(a[1]) || value.isEmpty || value.contains(r'${')) {
+        continue;
+      }
+      if (value.startsWith('.') || !value.contains('.')) {
+        final start = attributesStart + a.start + a[0]!.indexOf(a[2]!) + 1;
+        relative.add((start: start, end: start + value.length, value: value));
+      }
+    }
+  }
+  if (relative.isEmpty) return xml;
+
+  final out = StringBuffer();
+  var at = 0;
+  for (final r in relative) {
+    out
+      ..write(xml.substring(at, r.start))
+      ..write(
+        r.value.startsWith('.')
+            ? '$namespace${r.value}'
+            : '$namespace.${r.value}',
+      );
+    at = r.end;
+  }
+  out.write(xml.substring(at));
+  return out.toString();
+}
+
 /// Merges [overlayXml]'s permissions into [baseXml], returning the merged
-/// manifest text. Throws [FormatException] when the overlay violates the
-/// strict contract or the base has no `<manifest>` root.
+/// manifest text with its class names qualified against [namespace] when
+/// given (see [qualifyClassNames]). Throws [FormatException] when the overlay
+/// violates the strict contract or the base has no `<manifest>` root.
 String mergeManifests({
   required String baseXml,
   required String basePath,
@@ -444,7 +525,9 @@ String mergeManifests({
   String? overlayPath,
   Map<String, String> libraries = const {},
   Set<String> placeholders = const {},
+  String? namespace,
 }) {
+  if (namespace != null) baseXml = qualifyClassNames(baseXml, namespace);
   final overlayPermissions = overlayXml == null
       ? const <OverlayPermission>[]
       : parseOverlayPermissions(overlayXml, overlayPath!);
@@ -479,11 +562,14 @@ String mergeManifests({
   // An overlay always leaves its provenance, even when it adds nothing.
   if (lines.isEmpty && overlayXml == null) return baseXml;
 
-  final sources = [?overlayPath, if (libraries.isNotEmpty) 'library manifests'];
+  final provenance = [
+    ?overlayPath,
+    if (libraries.isNotEmpty) 'library manifests',
+  ];
   final inserted = StringBuffer()
     ..write(
       '\n    <!-- Permissions merged by rules_flutter from '
-      '${sources.join(' and ')} into $basePath. -->',
+      '${provenance.join(' and ')} into $basePath. -->',
     );
   for (final line in lines) {
     inserted.write('\n    $line');
@@ -500,6 +586,7 @@ void main(List<String> args) {
   String? outputPath;
   final libraryPaths = <String>[];
   final placeholders = <String>{};
+  String? namespace;
 
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--base' && i + 1 < args.length) {
@@ -510,6 +597,8 @@ void main(List<String> args) {
       libraryPaths.add(args[++i]);
     } else if (args[i] == '--placeholder' && i + 1 < args.length) {
       placeholders.add(args[++i]);
+    } else if (args[i] == '--namespace' && i + 1 < args.length) {
+      namespace = args[++i];
     } else if (args[i] == '--output' && i + 1 < args.length) {
       outputPath = args[++i];
     }
@@ -518,7 +607,8 @@ void main(List<String> args) {
   if (basePath == null || outputPath == null) {
     stderr.writeln(
       'Usage: dart merge_android_manifests.dart --base <path> '
-      '[--overlay <path>] [--library <path>]... --output <path>',
+      '[--overlay <path>] [--library <path>]... [--placeholder <name>]... '
+      '[--namespace <package>] --output <path>',
     );
     exit(1);
   }
@@ -536,6 +626,7 @@ void main(List<String> args) {
         for (final path in libraryPaths) path: File(path).readAsStringSync(),
       },
       placeholders: placeholders,
+      namespace: namespace,
     );
   } on FormatException catch (e) {
     stderr.writeln(e.message);

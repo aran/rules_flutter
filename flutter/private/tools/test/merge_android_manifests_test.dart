@@ -371,4 +371,93 @@ void main() {
       );
     });
   });
+
+  group('class names', () {
+    String qualify(String base, {String? namespace}) => mergeManifests(
+      baseXml: base,
+      basePath: 'out/base/AndroidManifest.xml',
+      namespace: namespace,
+    );
+
+    test('qualifies a relative activity against the namespace', () {
+      expect(
+        qualify(_base, namespace: 'com.example.app'),
+        _base.replaceFirst(
+          '".MainActivity"',
+          '"com.example.app.MainActivity"',
+        ),
+      );
+    });
+
+    test('leaves names relative when there is no namespace', () {
+      expect(qualify(_base), _base);
+    });
+
+    test('qualifies bare names and every component attribute', () {
+      const base = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- <activity android:name=".InComment"/> -->
+    <application android:name=".App" android:label="x">
+        <activity android:name="Bare" android:parentActivityName=".Up"/>
+        <activity-alias android:name='.Alias' android:targetActivity=".Bare"/>
+        <service android:name=".Svc"/>
+        <receiver android:name="other.pkg.Receiver"/>
+        <provider android:name=".Prov" android:authorities="a.b"/>
+        <meta-data android:name="flutterEmbedding" android:value="2"/>
+    </application>
+</manifest>
+''';
+      final out = qualify(base, namespace: 'com.example.app');
+      for (final name in [
+        'android:name="com.example.app.App"',
+        'android:name="com.example.app.Bare"',
+        'android:parentActivityName="com.example.app.Up"',
+        "android:name='com.example.app.Alias'",
+        'android:targetActivity="com.example.app.Bare"',
+        'android:name="com.example.app.Svc"',
+        'android:name="other.pkg.Receiver"',
+        'android:name="com.example.app.Prov"',
+        'android:name="flutterEmbedding"',
+        'android:authorities="a.b"',
+        '<activity android:name=".InComment"/>',
+      ]) {
+        expect(out, contains(name));
+      }
+    });
+
+    test('keeps a name with a package part under the namespace', () {
+      const base = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application><receiver android:name=".sub.Boot"/></application>
+</manifest>
+''';
+      expect(
+        qualify(base, namespace: 'com.example.app'),
+        contains('android:name="com.example.app.sub.Boot"'),
+      );
+    });
+
+    test('leaves a \${placeholder} name to the binary', () {
+      const base = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:name="\${applicationName}"/>
+</manifest>
+''';
+      expect(qualify(base, namespace: 'com.example.app'), base);
+    });
+
+    test('is independent of the application id the manifest also names', () {
+      // The namespace (the runner's code package) differs from the
+      // application id the permissions and package attribute carry.
+      const base = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.app.second">
+    <application><activity android:name=".MainActivity"/></application>
+</manifest>
+''';
+      final out = qualify(base, namespace: 'com.example.app');
+      expect(out, contains('android:name="com.example.app.MainActivity"'));
+      expect(out, contains('package="com.example.app.second"'));
+    });
+  });
 }

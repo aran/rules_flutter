@@ -10,7 +10,8 @@ library;
 // ignore_for_file: avoid_print
 
 import 'dart:io';
-import 'dart:typed_data';
+
+import 'apk_contents.dart';
 
 /// Classes the Flutter engine's Android embedding requires at app runtime,
 /// keyed by the artifact that provides them. One representative class per
@@ -85,10 +86,7 @@ void main() {
 
     // --- Structural checks ---
 
-    check(
-      'classes.dex exists',
-      '${tmpDir.path}/classes.dex',
-    );
+    check('classes.dex exists', '${tmpDir.path}/classes.dex');
     check(
       'libapp.so exists (arm64-v8a)',
       '${tmpDir.path}/lib/arm64-v8a/libapp.so',
@@ -160,7 +158,7 @@ void main() {
     for (final dex in Directory(tmpDir.path).listSync().whereType<File>().where(
       (f) => RegExp(r'/classes\d*\.dex$').hasMatch(f.path),
     )) {
-      definedClasses.addAll(_definedClassDescriptors(dex));
+      definedClasses.addAll(definedClassDescriptors(dex));
     }
     if (definedClasses.isEmpty) {
       stderr.writeln('FAIL: no class definitions parsed from dex files');
@@ -227,53 +225,6 @@ String? _validateElf(File file, int expectedMachine) {
         'expected 0x${expectedMachine.toRadixString(16)}';
   }
   return null;
-}
-
-/// Parses a dex file and returns the descriptors of all classes it defines
-/// (class_defs entries — not merely referenced types).
-///
-/// Dex layout (all offsets little-endian, per the Dalvik executable format):
-/// the header locates the string_ids, type_ids, and class_defs tables. Each
-/// class_def_item begins with a u4 index into type_ids; each type_id_item is
-/// a u4 index into string_ids; each string_id_item is a u4 offset to string
-/// data (uleb128 UTF-16 length followed by MUTF-8 bytes). Class descriptors
-/// are ASCII, so MUTF-8 decoding reduces to reading until the NUL terminator.
-Set<String> _definedClassDescriptors(File dexFile) {
-  final bytes = dexFile.readAsBytesSync();
-  final data = ByteData.sublistView(bytes);
-  const dexMagic = [0x64, 0x65, 0x78, 0x0a]; // "dex\n"
-  for (var i = 0; i < dexMagic.length; i++) {
-    if (bytes[i] != dexMagic[i]) {
-      throw FormatException('${dexFile.path} is not a dex file');
-    }
-  }
-  final stringIdsOff = data.getUint32(0x3c, Endian.little);
-  final typeIdsOff = data.getUint32(0x44, Endian.little);
-  final classDefsSize = data.getUint32(0x60, Endian.little);
-  final classDefsOff = data.getUint32(0x64, Endian.little);
-
-  String stringAt(int stringIdx) {
-    var off = data.getUint32(stringIdsOff + 4 * stringIdx, Endian.little);
-    // Skip the uleb128 UTF-16 length prefix.
-    while (bytes[off] & 0x80 != 0) {
-      off++;
-    }
-    off++;
-    final end = bytes.indexOf(0, off);
-    return String.fromCharCodes(bytes.sublist(off, end));
-  }
-
-  final descriptors = <String>{};
-  for (var i = 0; i < classDefsSize; i++) {
-    // class_def_item is 8 u4 fields; the first is the type_ids index.
-    final typeIdx = data.getUint32(classDefsOff + 32 * i, Endian.little);
-    final descriptorIdx = data.getUint32(
-      typeIdsOff + 4 * typeIdx,
-      Endian.little,
-    );
-    descriptors.add(stringAt(descriptorIdx));
-  }
-  return descriptors;
 }
 
 void _listRecursive(String path, String indent) {

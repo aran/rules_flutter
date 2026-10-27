@@ -120,6 +120,21 @@ flutter_android_app(
     permissions = ["android.permission.INTERNET"],
 )
 
+# The same flutter create runner shipped under a second application id. Its
+# MainActivity.kt declares `package com.example.flutterapp`, and the manifest
+# names `.MainActivity`, which Android resolves against the code's package
+# (Gradle's `namespace`), not the application id. Checked by
+# :verify_android_second_app_test.
+flutter_android_app(
+    name = "second_app",
+    package_name = "com.example.flutterapp.second",
+    application = ":app_flutter",
+    namespace = "com.example.flutterapp",
+    # The VM service's grant, which this workspace has no debug variant
+    # manifest to give, so `flutter_bazel run` can debug it.
+    permissions = ["android.permission.INTERNET"],
+)
+
 # =============================================================================
 # Shared Android targets (used by approaches 2 & 3)
 # =============================================================================
@@ -261,8 +276,16 @@ build_test(
 
 dart_test(
     name = "verify_android_apk_test",
+    srcs = ["test/apk_contents.dart"],
     data = [":app"],
     main = "test/verify_android_apk_test.dart",
+)
+
+dart_test(
+    name = "verify_android_second_app_test",
+    srcs = ["test/apk_contents.dart"],
+    data = [":second_app"],
+    main = "test/verify_android_second_app_test.dart",
 )
 
 # Reads the permissions out of the compiled binary AndroidManifest.xml inside
@@ -272,6 +295,7 @@ dart_test(
 # debug variant overlay.
 dart_test(
     name = "verify_android_permissions_test",
+    srcs = ["test/apk_contents.dart"],
     data = [":app"],
     main = "test/verify_android_permissions_test.dart",
 )

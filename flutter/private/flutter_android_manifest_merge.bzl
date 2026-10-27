@@ -16,6 +16,12 @@ does. Bazel's merger drops a library's permissions unless
 flag shipped without them: a plugin's POST_NOTIFICATIONS, say, so Android 13
 could never ask to show its notifications.
 
+Given a `namespace`, the same action writes the manifest's relative component
+class names (`.MainActivity`, `.sub.Receiver`, a bare `MainActivity`) in full
+against it, as AGP's manifest merger does, so they do not resolve against the
+application id instead: one `flutter create` runner can then ship under any
+application id.
+
 Each runs the rules_flutter merger tool
 (`merge_android_manifests.dart`) over a base manifest and an overlay.
 
@@ -61,6 +67,8 @@ def _flutter_android_manifest_merge_impl(ctx):
         args.add("--overlay", ctx.file.overlay)
     args.add_all(libraries, before_each = "--library")
     args.add_all(ctx.attr.placeholders, before_each = "--placeholder")
+    if ctx.attr.namespace:
+        args.add("--namespace", ctx.attr.namespace)
     args.add("--output", output)
 
     ctx.actions.run(
@@ -104,11 +112,18 @@ flutter_android_manifest_merge = rule(
                   "(its `manifest_values`): a library permission using one " +
                   "passes through verbatim; any other is an error.",
         ),
+        "namespace": attr.string(
+            doc = "The package the app's code lives in (Gradle's " +
+                  "`namespace`). Relative class names in the base " +
+                  "(`.MainActivity`, `.a.B`, `C`) are written out in full " +
+                  "against it, rather than left to resolve against the " +
+                  "application id. Empty leaves them as they are.",
+        ),
         "_merge_tool": attr.label(
             default = _TOOL,
             allow_single_file = True,
         ),
     },
     exec_groups = PORTABLE_EXEC_GROUPS,
-    doc = "Merges an overlay manifest's permissions, and those of the app's Android libraries, into a base manifest.",
+    doc = "Merges an overlay manifest's permissions, and those of the app's Android libraries, into a base manifest, and qualifies its relative class names against a namespace.",
 )

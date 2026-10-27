@@ -771,6 +771,7 @@ bazel build //:my_app_android
 |---|---|
 | `application` | A `flutter_application` target. Required. |
 | `package_name` | The Android package name, for example `"com.example.myapp"`. Required. |
+| `namespace` | The package the runner's code declares (Gradle's `namespace`). Relative class names in the manifest (`.MainActivity`, `.sub.Receiver`, `MainActivity`) are written out in full against it, as AGP does. Defaults to `package_name`. |
 | `app_name` | Display name. Defaults to the target name. |
 | `android_abi` | `"arm64"` (default) or `"x64"`. Selects the engine and the Android platform. |
 | `min_sdk_version` | Minimum Android SDK version. |
