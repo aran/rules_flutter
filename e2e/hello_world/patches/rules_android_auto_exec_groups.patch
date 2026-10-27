@@ -1,10 +1,343 @@
+diff --git a/rules/aar_import/rule.bzl b/rules/aar_import/rule.bzl
+index 9110162..2ddd02c 100644
+--- a/rules/aar_import/rule.bzl
++++ b/rules/aar_import/rule.bzl
+@@ -16,6 +16,7 @@
+ load("//providers:providers.bzl", "AndroidIdeInfo", "AndroidLibraryResourceClassJarProvider", "AndroidNativeLibsInfo")
+ load(
+     "//rules:utils.bzl",
++    "ANDROID_SDK_AND_JAVA_EXEC_GROUPS",
+     "ANDROID_SDK_TOOLCHAIN_TYPE",
+ )
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+@@ -62,6 +63,7 @@ aar_import = rule(
+         AndroidNativeLibsInfo,
+         JavaInfo,
+     ],
++    exec_groups = ANDROID_SDK_AND_JAVA_EXEC_GROUPS,
+     toolchains = [
+         "//toolchains/android:toolchain_type",
+         "@bazel_tools//tools/jdk:toolchain_type",
+diff --git a/rules/android_application/android_application_rule.bzl b/rules/android_application/android_application_rule.bzl
+index 6b48acc..7432f9f 100644
+--- a/rules/android_application/android_application_rule.bzl
++++ b/rules/android_application/android_application_rule.bzl
+@@ -48,6 +48,7 @@ load(
+ )
+ load(
+     "//rules:utils.bzl",
++    "ANDROID_SDK_AND_JAVA_EXEC_GROUPS",
+     "ANDROID_SDK_TOOLCHAIN_TYPE",
+     "get_android_sdk",
+     "get_android_toolchain",
+@@ -408,6 +409,7 @@ android_application = rule(
+         "deploy_script": "%{name}.sh",
+         "unsigned_aab": "%{name}_unsigned.aab",
+     },
++    exec_groups = ANDROID_SDK_AND_JAVA_EXEC_GROUPS,
+     toolchains = [
+         "//toolchains/android:toolchain_type",
+         "@bazel_tools//tools/jdk:toolchain_type",
+diff --git a/rules/android_binary/rule.bzl b/rules/android_binary/rule.bzl
+index 5294f31..330a6d5 100644
+--- a/rules/android_binary/rule.bzl
++++ b/rules/android_binary/rule.bzl
+@@ -23,7 +23,7 @@ load(
+     "//rules:attrs.bzl",
+     _attrs = "attrs",
+ )
+-load("//rules:utils.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE")
++load("//rules:utils.bzl", "ANDROID_SDK_AND_JAVA_EXEC_GROUPS", "ANDROID_SDK_TOOLCHAIN_TYPE")
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+ load(":attrs.bzl", "ATTRS")
+@@ -82,6 +82,7 @@ def make_rule(
+         attrs = attrs,
+         implementation = implementation,
+         provides = provides,
++        exec_groups = ANDROID_SDK_AND_JAVA_EXEC_GROUPS,
+         toolchains = [
+             "//toolchains/android:toolchain_type",
+             ANDROID_SDK_TOOLCHAIN_TYPE,
+diff --git a/rules/android_library/rule.bzl b/rules/android_library/rule.bzl
+index 4b3c532..b4d217a 100644
+--- a/rules/android_library/rule.bzl
++++ b/rules/android_library/rule.bzl
+@@ -18,7 +18,7 @@ load(
+     "//rules:attrs.bzl",
+     _attrs = "attrs",
+ )
+-load("//rules:utils.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE")
++load("//rules:utils.bzl", "ANDROID_SDK_AND_JAVA_EXEC_GROUPS", "ANDROID_SDK_TOOLCHAIN_TYPE")
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+ load(":attrs.bzl", _ATTRS = "ATTRS")
+@@ -169,6 +169,7 @@ def make_rule(
+             JavaInfo,
+         ] + additional_providers,
+         outputs = outputs,
++        exec_groups = ANDROID_SDK_AND_JAVA_EXEC_GROUPS,
+         toolchains = [
+             "//toolchains/android:toolchain_type",
+             "@bazel_tools//tools/jdk:toolchain_type",
+diff --git a/rules/android_local_test/rule.bzl b/rules/android_local_test/rule.bzl
+index 27db3b9..6c0b64d 100644
+--- a/rules/android_local_test/rule.bzl
++++ b/rules/android_local_test/rule.bzl
+@@ -14,7 +14,7 @@
+ """Bazel rule for Android local test."""
+ 
+ load("//rules:android_host_hybrid_mode_transition.bzl", "android_host_hybrid_mode_transition")
+-load("//rules:utils.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE")
++load("//rules:utils.bzl", "ANDROID_SDK_AND_JAVA_EXEC_GROUPS", "ANDROID_SDK_TOOLCHAIN_TYPE")
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+ load(":attrs.bzl", "ATTRS")
+@@ -54,6 +54,7 @@ def make_rule(
+             deploy_jar = "%{name}_deploy.jar",
+             jar = "%{name}.jar",
+         ),
++        exec_groups = ANDROID_SDK_AND_JAVA_EXEC_GROUPS,
+         toolchains = [
+             "//toolchains/android:toolchain_type",
+             ANDROID_SDK_TOOLCHAIN_TYPE,
+diff --git a/rules/android_sdk.bzl b/rules/android_sdk.bzl
+index e490cbb..cc877d9 100644
+--- a/rules/android_sdk.bzl
++++ b/rules/android_sdk.bzl
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ """Bazel rule for Android sdk."""
+ 
++load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
+ load("//providers:providers.bzl", "AndroidSdkInfo")
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load(":attrs.bzl", "ANDROID_SDK_ATTRS")
+@@ -50,6 +51,7 @@ def _impl(ctx):
+ android_sdk = rule(
+     attrs = ANDROID_SDK_ATTRS,
+     implementation = _impl,
++    exec_compatible_with = HOST_CONSTRAINTS,
+     fragments = ["java"],
+     provides = [AndroidSdkInfo],
+ )
+diff --git a/rules/apk_packaging.bzl b/rules/apk_packaging.bzl
+index d355e47..d8ab3aa 100644
+--- a/rules/apk_packaging.bzl
++++ b/rules/apk_packaging.bzl
+@@ -17,6 +17,7 @@ load("//flags:flags_wrapper.bzl", "WrappedFlagsInfo")
+ load("//providers:providers.bzl", "ApkInfo")
+ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load(":java.bzl", "java")
++load(":utils.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE")
+ 
+ visibility(PROJECT_VISIBILITY)
+ 
+@@ -339,7 +340,7 @@ def _zipalign_apk(
+         arguments = [args],
+         mnemonic = "AndroidZipAlign",
+         progress_message = "Zipaligning apk",
+-        toolchain = toolchain_type,
++        toolchain = ANDROID_SDK_TOOLCHAIN_TYPE,
+     )
+ 
+ def _sign_apk(
+@@ -415,7 +416,7 @@ def _sign_apk(
+         arguments = [args],
+         mnemonic = "ApkSignerTool",
+         progress_message = "Signing apk",
+-        toolchain = toolchain_type,
++        toolchain = ANDROID_SDK_TOOLCHAIN_TYPE,
+     )
+ 
+ def _create_deploy_info(
+diff --git a/rules/busybox.bzl b/rules/busybox.bzl
+index ce57dc2..32b50c5 100644
+--- a/rules/busybox.bzl
++++ b/rules/busybox.bzl
+@@ -17,6 +17,7 @@ load("//rules:visibility.bzl", "PROJECT_VISIBILITY")
+ load("//rules/flags:flags.bzl", "read_possibly_native_flag")
+ load(":busybox_compat.bzl", "AAPT2_COMPAT_FLAGS")
+ load(":java.bzl", _java = "java")
++load(":utils.bzl", "ANDROID_SDK_AND_JAVA_EXEC_GROUP")
+ 
+ visibility(PROJECT_VISIBILITY)
+ 
+@@ -447,7 +448,8 @@ def _package(
+ 
+     _java_run(
+         ctx = ctx,
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         executable = busybox,
+         tools = [aapt],
+         arguments = [args],
+@@ -678,7 +680,8 @@ def _validate_and_link(
+ 
+     _java_run(
+         ctx = ctx,
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         executable = busybox,
+         tools = [aapt],
+         arguments = [args],
+@@ -741,7 +744,8 @@ def _compile(
+ 
+     _java_run(
+         ctx = ctx,
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         executable = busybox,
+         tools = [aapt],
+         arguments = [args],
+@@ -865,6 +869,9 @@ def _java_run(ctx, mnemonic = None, *args, **kwargs):
+ 
+     _java.run(ctx, mnemonic = mnemonic, supports_workers = enable_workers, supports_multiplex_workers = multiplex_workers, *args, **kwargs)
+ 
++def _sdk_and_java_runtime(ctx):
++    return ctx.exec_groups[ANDROID_SDK_AND_JAVA_EXEC_GROUP].toolchains["@bazel_tools//tools/jdk:toolchain_type"].java.java_runtime
++
+ def _escape_mv(s):
+     """Escapes `:` and `,` in manifest values so they can be used as a busybox flag."""
+     return s.replace(":", "\\:").replace(",", "\\,")
+@@ -1277,7 +1284,8 @@ def _shrink(
+         arguments = [args],
+         mnemonic = "ResourceShrinker",
+         progress_message = "Shrinking resources for %{label}",
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         use_default_shell_env = True,
+     )
+ 
+@@ -1335,7 +1343,8 @@ def _convert_resources_to_apk(
+         arguments = [args],
+         mnemonic = "ResourceConverter",
+         progress_message = "Converting resources for %{label}",
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         use_default_shell_env = True,
+     )
+ 
+@@ -1391,7 +1400,8 @@ def _optimize(
+ 
+     _java_run(
+         ctx = ctx,
+-        host_javabase = host_javabase,
++        java_runtime = _sdk_and_java_runtime(ctx),
++        exec_group = ANDROID_SDK_AND_JAVA_EXEC_GROUP,
+         executable = busybox,
+         tools = [aapt],
+         arguments = [args],
+diff --git a/rules/java.bzl b/rules/java.bzl
+index a99c158..1f71362 100644
+--- a/rules/java.bzl
++++ b/rules/java.bzl
+@@ -433,7 +433,8 @@ def _singlejar(
+ 
+ def _run(
+         ctx,
+-        host_javabase,
++        host_javabase = None,
++        java_runtime = None,
+         jvm_flags = [],
+         mnemonic = None,
+         supports_workers = False,
+@@ -445,6 +446,7 @@ def _run(
+     Args:
+       ctx: The context.
+       host_javabase: Target. The host_javabase.
++      java_runtime: JavaRuntimeInfo. The Java runtime to use instead of host_javabase.
+       jvm_flags: Additional arguments to the JVM itself.
+       mnemonic: A description of the action being executed.
+       supports_workers: This action is worker-compatible (enabled with --strategy=MyAction=worker).
+@@ -456,8 +458,10 @@ def _run(
+     if type(ctx) != "ctx":
+         fail("Expected type ctx for argument ctx, got %s" % type(ctx))
+ 
+-    if type(host_javabase) != "Target":
+-        fail("Expected type Target for argument host_javabase, got %s" % type(host_javabase))
++    if java_runtime == None:
++        if type(host_javabase) != "Target":
++            fail("Expected type Target for argument host_javabase, got %s" % type(host_javabase))
++        java_runtime = host_javabase[java_common.JavaRuntimeInfo]
+ 
+     # Create a mutable copy of the exec requirements dict
+     execution_requirements = dict(execution_requirements)
+@@ -473,9 +477,9 @@ def _run(
+     elif type(jar) != "File":
+         fail("Expected type File or FilesToRunProvider for argument executable, got %s" % type(jar))
+ 
+-    java_runtime = host_javabase[java_common.JavaRuntimeInfo]
+     args["executable"] = java_runtime.java_executable_exec_path
+-    args["toolchain"] = "@bazel_tools//tools/jdk:toolchain_type"
++    if "exec_group" not in args:
++        args["toolchain"] = "@bazel_tools//tools/jdk:toolchain_type"
+ 
+     # inputs can be a list or a depset of File
+     inputs = args.get("inputs", default = [])
+diff --git a/rules/utils.bzl b/rules/utils.bzl
+index f950b6a..59ed658 100644
+--- a/rules/utils.bzl
++++ b/rules/utils.bzl
+@@ -21,6 +21,17 @@ visibility(PROJECT_VISIBILITY)
+ ANDROID_TOOLCHAIN_TYPE = Label("//toolchains/android:toolchain_type")
+ ANDROID_SDK_TOOLCHAIN_TYPE = Label("//toolchains/android_sdk:toolchain_type")
+ 
++ANDROID_SDK_AND_JAVA_EXEC_GROUP = "android_sdk_and_java"
++
++ANDROID_SDK_AND_JAVA_EXEC_GROUPS = {
++    ANDROID_SDK_AND_JAVA_EXEC_GROUP: exec_group(
++        toolchains = [
++            ANDROID_SDK_TOOLCHAIN_TYPE,
++            "@bazel_tools//tools/jdk:toolchain_type",
++        ],
++    ),
++}
++
+ _CUU = "\033[A"
+ _EL = "\033[K"
+ _DEFAULT = "\033[0m"
+diff --git a/toolchains/android_sdk/BUILD b/toolchains/android_sdk/BUILD
+index fda8241..bcc7911 100644
+--- a/toolchains/android_sdk/BUILD
++++ b/toolchains/android_sdk/BUILD
+@@ -1,6 +1,7 @@
+ # Description:
+ #   Defines the Android SDK toolchain.
+ 
++load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
+ load(":rule.bzl", "dummy_toolchain_dep")
+ 
+ licenses(["notice"])
+@@ -18,13 +19,7 @@ toolchain_type(
+ 
+ toolchain(
+     name = "android_sdk_tools",
+-    # This causes the toolchain to not be selected under arm, so
+-    # disable for now.
+-    # To be refined as part of https://github.com/bazelbuild/rules_android/issues/72
+-    #exec_compatible_with = [
+-    #    "@platforms//cpu:x86_64",
+-    #    "@platforms//os:linux",
+-    #],
++    exec_compatible_with = HOST_CONSTRAINTS,
+     # TODO(b/175833893): This causes the toolchain to not be selected, so
+     # disable for now.
+     #target_compatible_with = [
+diff --git a/tools/android/defs.bzl b/tools/android/defs.bzl
+index a50d861..d82fe10 100644
 --- a/tools/android/defs.bzl
 +++ b/tools/android/defs.bzl
-@@ -51,6 +51,7 @@
+@@ -51,6 +51,7 @@ run_singlejar = rule(
          "include_prefixes": attr.string_list(),
          "_java_toolchain": attr.label(default = Label("//tools/jdk:toolchain")),
      },
 +    toolchains = ["@bazel_tools//tools/jdk:toolchain_type"],
  )
-
+ 
  def _run_ijar(ctx):
