@@ -1,0 +1,30 @@
+diff --git a/bazel/private/oss/toolchains/prebuilt/protoc_authenticity.bzl b/bazel/private/oss/toolchains/prebuilt/protoc_authenticity.bzl
+--- a/bazel/private/oss/toolchains/prebuilt/protoc_authenticity.bzl
++++ b/bazel/private/oss/toolchains/prebuilt/protoc_authenticity.bzl
+@@ -19,6 +19,7 @@
+         mnemonic = "ProtocAuthenticityCheck",
+         outputs = [validation_output],
+         tools = [proto_lang_toolchain_info.proto_compiler],
++        toolchain = toolchains.PROTO_TOOLCHAIN,
+         command = """\
+         {protoc} --version > {validation_output}
+         grep -q -e "-dev$" {validation_output} && {{
+diff --git a/protobuf.bzl b/protobuf.bzl
+--- a/protobuf.bzl
++++ b/protobuf.bzl
+@@ -344,6 +344,7 @@
+         outputs = [srcjar],
+         arguments = [args],
+         mnemonic = "ProtoCompile",
++        toolchain = toolchains.PROTO_TOOLCHAIN,
+         use_default_shell_env = True,
+     )
+ 
+@@ -404,6 +405,7 @@
+         outputs = [srcjar],
+         arguments = [args],
+         mnemonic = "ProtoCompile",
++        toolchain = toolchains.PROTO_TOOLCHAIN,
+         use_default_shell_env = True,
+     )
+ 

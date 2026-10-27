@@ -29,6 +29,25 @@ local_path_override(
     path = "../..",
 )
 
+# Two rules this workspace's Android build reaches fail analysis under
+# `--incompatible_auto_exec_groups`: rules_android's `run_singlejar` runs
+# singlejar with the JDK toolchain but does not declare that toolchain type, and
+# protobuf's protoc check runs the proto toolchain's compiler without naming the
+# toolchain. Each patch adds the missing line (protobuf's is the one its main
+# branch has). An override only applies in the root module: an Android app built
+# with the flag needs these in its own MODULE.bazel.
+single_version_override(
+    module_name = "rules_android",
+    patch_strip = 1,
+    patches = ["//patches:rules_android_auto_exec_groups.patch"],
+)
+
+single_version_override(
+    module_name = "protobuf",
+    patch_strip = 1,
+    patches = ["//patches:protobuf_auto_exec_groups.patch"],
+)
+
 # Pinned past the 0.1.5 release for 16KB page alignment. 0.1.5 links every
 # arm64 .so with `-Wl,-z,max-page-size=4096`; a device booted with 16KB pages
 # then refuses to load it — "ELF alignment check failed" — and nothing says so

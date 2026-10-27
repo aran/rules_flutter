@@ -9,6 +9,12 @@ common --enable_platform_specific_config
 common:linux --experimental_output_paths=strip
 common:macos --experimental_output_paths=strip
 
+# Each action picks its execution platform from the toolchain it names, not
+# from every toolchain its rule uses: an iOS AOT compile stays on a Mac while
+# the same target's kernel compile can run elsewhere. rules_flutter's actions
+# all name a toolchain or run in an exec group. See README.md, ".bazelrc".
+common --incompatible_auto_exec_groups
+
 # Start py_binary tools with their hermetic interpreter, not python3 from
 # PATH, which a remote worker does not have. The canonical label needs no
 # direct bazel_dep on rules_python.
