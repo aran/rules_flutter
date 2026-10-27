@@ -12,10 +12,9 @@ helpers can read their SDK from the same group.
 
 Actions that need the target's `gen_snapshot` (AOT) or engine stay in the
 rule's default group, whose `//flutter:toolchain_type` matches the target.
-Actions that need Xcode or macOS tools run in `DARWIN`. Only rules whose
-output is Apple-only declare `DARWIN`: Bazel resolves every group a rule
-declares, so a rule declaring it analyses only where a macOS execution
-platform is registered.
+Actions that run Xcode's tools name no group of ours: they run through
+`apple_support.run_shell` in the auto exec group of the C++ toolchain resolved
+for the Apple target, whose toolchain declares where Xcode executes.
 
 `PORTABLE` is placed only by the toolchains it resolves: it names no
 execution constraints of its own, so a build that registers several
@@ -26,7 +25,6 @@ part of the rules' interface.
 """
 
 PORTABLE = "portable"
-DARWIN = "darwin"
 
 FLUTTER_EXEC_TOOLS = Label("//flutter:exec_tools_toolchain_type")
 DART_EXEC_TOOLS = Label("@rules_dart//dart:exec_tools_toolchain_type")
@@ -34,17 +32,7 @@ DART_EXEC_TOOLS = Label("@rules_dart//dart:exec_tools_toolchain_type")
 def _portable():
     return exec_group(toolchains = [FLUTTER_EXEC_TOOLS, DART_EXEC_TOOLS])
 
-def _darwin():
-    return exec_group(exec_compatible_with = ["@platforms//os:macos"])
-
 PORTABLE_EXEC_GROUPS = {PORTABLE: _portable()}
-
-DARWIN_EXEC_GROUPS = {DARWIN: _darwin()}
-
-PORTABLE_AND_DARWIN_EXEC_GROUPS = {
-    PORTABLE: _portable(),
-    DARWIN: _darwin(),
-}
 
 def portable_tools(ctx):
     """The `FlutterExecToolsInfo` of the host `PORTABLE` actions run on.
