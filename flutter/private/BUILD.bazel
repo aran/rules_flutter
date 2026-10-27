@@ -140,7 +140,16 @@ bzl_library(
     name = "flutter_pub",
     srcs = ["flutter_pub.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = ["@rules_dart//dart:utils"],
+    deps = [
+        ":host_transition",
+        "@rules_dart//dart:utils",
+    ],
+)
+
+bzl_library(
+    name = "host_transition",
+    srcs = ["host_transition.bzl"],
+    visibility = ["//flutter:__subpackages__"],
 )
 
 bzl_library(

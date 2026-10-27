@@ -31,8 +31,14 @@ they already are.
 """
 
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
+load("//flutter/private:host_transition.bzl", _host_transition = "host_transition")
 
 HOT_PATCH_OUTPUT_GROUP = "flutter_native_hot_patch"
+
+# The configuration for a `hot_patch` builder's program, which the dev tool runs
+# beside the app: `cfg = host_transition` builds it for the machine running
+# Bazel, whatever the app targets and wherever build actions run.
+host_transition = _host_transition
 
 _HotPatchFilesInfo = provider(
     doc = "Every `hot_patch` target's files at or below this node.",

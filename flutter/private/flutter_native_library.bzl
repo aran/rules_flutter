@@ -255,16 +255,16 @@ tool finds the one the app bundled.
 Only files are built, not runfiles trees: the command has to run with nothing but
 the files this target builds.
 
-The command runs on the machine the dev tool runs on, so build its program for
-that machine, not for whichever execution platform Bazel picks: with a remote
-Linux platform registered, a plain `cfg = "exec"` can give a Linux binary on a
-Mac. An exec group that asks for the host's constraints does it:
+The command runs on the machine the dev tool runs on, after the build and
+outside any build action, so build its program for that machine: not
+`cfg = "exec"`, which builds a tool for whichever execution platform a build
+action resolves to, and not `cfg = "target"`, which is the app's platform (iOS,
+Android). `host_transition` does it:
 
 ```starlark
-load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
+load("@rules_flutter//flutter:native_hot_patch.bzl", "host_transition")
 
-    attrs = {"tool": attr.label(executable = True, cfg = config.exec("host"))},
-    exec_groups = {"host": exec_group(exec_compatible_with = HOST_CONSTRAINTS)},
+    attrs = {"tool": attr.label(executable = True, cfg = host_transition)},
 ```
 """,
         ),

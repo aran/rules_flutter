@@ -26,6 +26,7 @@ from the build graph instead, so that file has no consumer here.
 """
 
 load("@rules_dart//dart:utils.bzl", "runfiles_path")
+load("//flutter/private:host_transition.bzl", "host_transition")
 
 def _flutter_pub_impl(ctx):
     flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
@@ -64,6 +65,10 @@ def _flutter_pub_impl(ctx):
 flutter_pub = rule(
     implementation = _flutter_pub_impl,
     executable = True,
+    # `bazel run` starts the runner and its `dart` on the machine running
+    # Bazel, so the whole target is built for that machine, whatever
+    # `--platforms` names; the Flutter toolchain for that platform runs there.
+    cfg = host_transition,
     toolchains = ["@rules_flutter//flutter:toolchain_type"],
     attrs = {
         "dev_root": attr.label(
@@ -78,9 +83,6 @@ flutter_pub = rule(
             default = Label("@flutter_dev_root//:version_manifest"),
             allow_single_file = True,
         ),
-        # `bazel run` starts the tool on the machine running Bazel, the target
-        # platform, beside the target toolchain's `dart`. An exec build is for
-        # whichever execution platform Bazel picks, a remote Linux one say.
         "_tool": attr.label(
             default = Label("//flutter/private/tools:pub_runner"),
             executable = True,
