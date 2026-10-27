@@ -13,17 +13,26 @@ its stripped jars, so every `flutter_android_engine` (one per pub plugin, as
 well as the app's) shares one stripping action.
 
 The strip tool is the C++ toolchain's, resolved for the Android platform of
-`android_abi` — the NDK toolchain an Android build registers. The unstripped
-jar stays in its repository for symbolizing a native engine crash.
+`android_abi` — the NDK toolchain an Android build registers. The action runs
+in its own exec group, which resolves that toolchain together with the Flutter
+host tools whose `dart` runs the stripping script. The group is pinned to the
+machine running Bazel: rules_android_ndk's NDK is the local install, and its
+toolchain declares no execution constraints, so without the pin its strip tool
+could be sent to a host it cannot run on. The unstripped jar stays in its
+repository for symbolizing a native engine crash.
 """
 
+load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
-load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
+load("@rules_cc//cc:find_cc_toolchain.bzl", "CC_TOOLCHAIN_TYPE", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi")
+load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS")
 
 _TOOL = Label("//flutter/private/tools:strip_native_libs.dart")
+
+_STRIP = "strip"
 
 def _engine_jar_transition_impl(_settings, attr):
     return {
@@ -47,8 +56,13 @@ _engine_jar_transition = transition(
 )
 
 def _flutter_android_engine_jar_impl(ctx):
-    flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
-    cc_toolchain = find_cc_toolchain(ctx)
+    toolchains = ctx.exec_groups[_STRIP].toolchains
+    flutter_tools = toolchains[FLUTTER_EXEC_TOOLS].flutter_exec_tools_info
+    cc_info = toolchains[CC_TOOLCHAIN_TYPE]
+    if not cc_info:
+        fail("%s: no C++ toolchain for the Android platform of `%s`; register the NDK's." %
+             (ctx.label, ctx.attr.android_abi))
+    cc_toolchain = cc_info.cc
     feature_configuration = cc_common.configure_features(
         ctx = ctx,
         cc_toolchain = cc_toolchain,
@@ -76,15 +90,16 @@ def _flutter_android_engine_jar_impl(ctx):
     args.add("--output", output)
 
     ctx.actions.run(
-        executable = flutter_sdk_info.dart,
+        executable = flutter_tools.dart,
         arguments = [args],
         inputs = depset(
             direct = [ctx.file._tool, ctx.file.jar],
-            transitive = [flutter_sdk_info.tool_files, cc_toolchain.all_files],
+            transitive = [flutter_tools.tool_files, cc_toolchain.all_files],
         ),
         tools = [ctx.executable._zipper],
         outputs = [output],
         mnemonic = "FlutterStripEngine",
+        exec_group = _STRIP,
         execution_requirements = PATH_MAPPING,
         progress_message = "Stripping the Flutter engine's native libraries for %{label}",
     )
@@ -111,13 +126,16 @@ flutter_android_engine_jar = rule(
         "_zipper": attr.label(
             default = "@bazel_tools//tools/zip:zipper",
             executable = True,
-            cfg = "exec",
+            cfg = config.exec(_STRIP),
         ),
         "_allowlist_function_transition": attr.label(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     },
-    toolchains = ["@rules_flutter//flutter:toolchain_type"] + use_cc_toolchain(),
+    exec_groups = {_STRIP: exec_group(
+        exec_compatible_with = HOST_CONSTRAINTS,
+        toolchains = [FLUTTER_EXEC_TOOLS] + use_cc_toolchain(),
+    )},
     fragments = ["cpp"],
     doc = "Strips the native libraries of a Flutter engine jar as the Android Gradle Plugin does.",
 )

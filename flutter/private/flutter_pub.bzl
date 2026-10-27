@@ -78,10 +78,13 @@ flutter_pub = rule(
             default = Label("@flutter_dev_root//:version_manifest"),
             allow_single_file = True,
         ),
+        # `bazel run` starts the tool on the machine running Bazel, the target
+        # platform, beside the target toolchain's `dart`. An exec build is for
+        # whichever execution platform Bazel picks, a remote Linux one say.
         "_tool": attr.label(
             default = Label("//flutter/private/tools:pub_runner"),
             executable = True,
-            cfg = "exec",
+            cfg = "target",
         ),
         "_windows_constraint": attr.label(default = "@platforms//os:windows"),
     },

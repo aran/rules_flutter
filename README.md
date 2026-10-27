@@ -98,6 +98,15 @@ A Flutter build reaches the same work in several configurations: each Android AB
 
 A debug build's kernel is the one action that does not share across configurations: it carries the path of its `flutter_assets/`, which is how `flutter_bazel` tells an app's configurations apart.
 
+rules_flutter also works with Bazel's automatic execution groups:
+
+```bazelrc
+# Run each action where the toolchain it uses is registered.
+common --incompatible_auto_exec_groups
+```
+
+With it, Bazel places each action by the toolchain it names rather than by every toolchain its rule uses, which matters once you register execution platforms of more than one kind (a Linux remote worker beside your Mac, say). rules_flutter's actions land the same with the flag on or off: `gen_snapshot` for iOS and macOS, Xcode tools and signing run on a Mac; kernel compiles, asset and shader bundling and web compiles run on any host with the Flutter SDK; stripping the Android engine runs on the machine running Bazel, where its NDK is. An Android app needs fixes to two rulesets it builds with, because rules_android 0.8.0 and protobuf 34 have actions the flag rejects: copy the two `single_version_override` patches in [`e2e/android_example/MODULE.bazel`](e2e/android_example/MODULE.bazel) into your own `MODULE.bazel`.
+
 ### Your first app
 
 Start from a project made with `flutter create`. It has `lib/main.dart`, a `pubspec.yaml`, and one folder per platform. rules_flutter reads those files as they are. You add a `BUILD.bazel`:

@@ -8,6 +8,8 @@ Output format depends on the target platform:
 
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 
+_FLUTTER_TOOLCHAIN = Label("//flutter:toolchain_type")
+
 def _flutter_aot_action(
         ctx,
         gen_snapshot,
@@ -48,6 +50,9 @@ def _flutter_aot_action(
         ),
         outputs = outputs,
         mnemonic = mnemonic,
+        # `gen_snapshot` is the target toolchain's, which also fixes the hosts
+        # it can run on: an iOS or macOS compiler runs only on a Mac.
+        toolchain = _FLUTTER_TOOLCHAIN,
         execution_requirements = PATH_MAPPING,
         progress_message = "AOT compiling Flutter %s %s" % (snapshot_kind, ctx.label),
     )
