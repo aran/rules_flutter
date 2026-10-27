@@ -129,7 +129,7 @@ _UNIT_TESTS = {
     "fake_process_stdin_test": {"fakes": True},
     "cdp_console_test": {},
     "cdp_viewport_test": {},
-    "cli_args_test": {},
+    "cli_args_test": {"deps": ["@dev_tool_deps//:args"]},
     "command_runner_test": {},
     "compiler_config_test": {},
     "compiler_test": {"fakes": True},

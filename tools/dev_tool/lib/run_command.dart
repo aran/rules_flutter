@@ -26,6 +26,7 @@ import 'package:args/args.dart';
 import 'bazel.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
+import 'device_id.dart';
 import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
@@ -71,15 +72,17 @@ class RunCommand {
       'device',
       abbr: 'd',
       help:
-          'Device to run on: macos, linux, windows, chrome, '
-          'ios-simulator, ios-simulator:<udid>, ios, ios:<udid>, android, '
-          'or android:<serial>. An id without its kind (a bare UDID or '
-          'serial) is refused. Repeat for multi-device.',
+          'Device to run on: ${acceptedDeviceIdForms.join(', ')}. An id '
+          'must name its kind, so a bare UDID or serial is refused: '
+          '-d android:emulator-5554, not -d emulator-5554. Repeat for '
+          'multi-device.',
     )
     ..addFlag(
       'hot',
       defaultsTo: true,
-      help: 'Enable hot reload (requires debug build).',
+      help:
+          'Enable hot reload. Builds -c dbg, which hot reload needs; an '
+          'explicit -c naming another mode is refused.',
     )
     ..addFlag(
       'profile',

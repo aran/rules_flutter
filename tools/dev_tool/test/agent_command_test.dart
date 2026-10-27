@@ -351,6 +351,45 @@ void main() {
 
         expect(error, 'Method not found');
       });
+
+      // The app, not the tool, checks a widget command's selector, so a
+      // missing or doubled one arrives as the app's refusal: a `failed` the
+      // HTTP channel answers 422, not the `badRequest` it answers 400. The
+      // README's status table says so; this pins the code it describes.
+      for (final (params, refusal) in const [
+        (
+          <String, String>{},
+          'missing selector: provide one of '
+              'key, text, tooltip, type, semanticsLabel',
+        ),
+        (
+          {'key': 'k', 'text': 't'},
+          'ambiguous selector: provide exactly one of '
+              'key, text, tooltip, type, semanticsLabel (got key, text)',
+        ),
+      ]) {
+        test('a selector refusal is a failed command: $refusal', () async {
+          final (fake, client) = await readyClient('ext.rules_flutter.tap');
+          fake.extensionErrors['ext.rules_flutter.tap'] = RPCError(
+            'ext.rules_flutter.tap',
+            -32602,
+            'Invalid params',
+            {'details': refusal},
+          );
+
+          final cr = CommandRunner();
+          setUpAgentCommands(cr, (_) => sessionFor(client));
+          CommandFailure? failure;
+          try {
+            await cr.run('app.tap', {'appId': 'app', ...params});
+          } on CommandFailure catch (e) {
+            failure = e;
+          }
+
+          expect(failure?.message, refusal);
+          expect(failure?.kind, CommandFailureKind.failed);
+        });
+      }
     });
 
     // The handler runs on the app's isolate, so anything that stops that

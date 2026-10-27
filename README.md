@@ -1708,7 +1708,7 @@ Methods that target a widget (`tap`, `longPress`, `doubleTap`, `drag`, `getRect`
 | `type` | A widget whose runtime type name equals the string, for example `ElevatedButton`. |
 | `semanticsLabel` | A widget whose semantics label equals the string. |
 
-Zero selectors or more than one is an error. Other params: `durationMs` (longPress, drag, scrollIntoView), `dx` and `dy` (drag, scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`, `settle`, `requireHit`.
+Zero selectors or more than one is refused with a `422` (see [How a command says no](#how-a-command-says-no)). Other params: `durationMs` (longPress, drag, scrollIntoView), `dx` and `dy` (drag, scrollIntoView), `scrollableKey` (scrollIntoView, `ValueKey` only), `timeoutMs`, `settle`, `requireHit`.
 
 Put the `Key` on the widget you would point at, such as the `Chip`, the `ListTile`, or the button, rather than on the `Text` it builds. A selector reaches the same distance for every method.
 
@@ -1814,7 +1814,7 @@ A patch that cannot be delivered withholds the reload with the patch builder's r
 
 #### How a command says no
 
-Every failure, on either transport, is a top-level `error` carrying the reason. Over HTTP the status says which kind: `404` the command or app does not exist here, `400` the request was malformed (a missing parameter, two selectors), `501` this run cannot serve it (an engine screenshot under Impeller), `422` it was asked properly and could not be done (the app refused, or never answered). A `500` means the tool itself broke, which is the one case worth retrying or reporting. On the stdin protocol the same failure is upstream's `{"id":…, "error":"<reason>"}`.
+Every failure, on either transport, is a top-level `error` carrying the reason. Over HTTP the status says which kind: `404` the command or app does not exist here, `400` the tool could not read the request (not JSON, no `method`, `app.pressKey` without `key`), `501` this run cannot serve it (an engine screenshot under Impeller), `422` it was asked and could not be done (the app refused, or never answered). The app checks a widget command's own parameters, so a missing selector or two selectors is a `422` carrying the app's reason, not a `400`. A `500` means the tool itself broke, which is the one case worth retrying or reporting. On the stdin protocol the same failure is upstream's `{"id":…, "error":"<reason>"}`.
 
 An outcome that carries its own verdict stays inside `result`. A hot reload that ran and failed answers `{"succeeded":false, "error":…}`, because it ran and reported a failure rather than refusing to run.
 

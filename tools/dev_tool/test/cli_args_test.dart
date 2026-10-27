@@ -1,10 +1,65 @@
+import 'package:args/args.dart';
 import 'package:flutter_bazel_dev_tool/attach_command.dart';
 import 'package:flutter_bazel_dev_tool/build_command.dart';
 import 'package:flutter_bazel_dev_tool/cli_args.dart';
+import 'package:flutter_bazel_dev_tool/device_id.dart';
 import 'package:flutter_bazel_dev_tool/run_command.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('topLevelUsage', () {
+    final usage = topLevelUsage(
+      ArgParser()
+        ..addCommand('build', BuildCommand.parser)
+        ..addCommand('run', RunCommand.parser)
+        ..addCommand('attach', AttachCommand.parser),
+    );
+    // Wrapping puts line breaks and indents between words; read past them.
+    final prose = usage.replaceAll(RegExp(r'\s+'), ' ');
+
+    test('offers exactly the -d forms the tool accepts', () {
+      for (final form in acceptedDeviceIdForms) {
+        expect(prose, contains(form));
+      }
+      // `resolveDevices` refuses an id that does not name its kind
+      // (device_id_test covers that), so help offering one sends the reader
+      // straight to the refusal.
+      expect(prose, isNot(contains('or Android serial')));
+      expect(prose, contains('a bare UDID or serial is refused'));
+    });
+
+    test('says run builds -c dbg for --hot, not that the user must', () {
+      // `RunPlan.compilationModeFor` picks `dbg` when hot reload is on and
+      // refuses a `-c` that contradicts it; run_plan_test covers both.
+      expect(prose, isNot(contains('requires -c dbg')));
+      expect(prose, contains('Builds -c dbg'));
+      expect(
+        RunCommand.parser.options['hot']!.help,
+        allOf(contains('Builds -c dbg'), isNot(contains('requires'))),
+      );
+    });
+
+    test('summarizes run options with run --help\'s own text', () {
+      for (final name in ['device', 'hot', 'devtools', 'machine']) {
+        final help = RunCommand.parser.options[name]!.help!;
+        expect(prose, contains(help.replaceAll(RegExp(r'\s+'), ' ')));
+      }
+      expect(prose, contains('--[no-]hot'));
+    });
+
+    test('points at the agent commands and where a run lists them', () {
+      expect(prose, contains('app.tap'));
+      expect(prose, contains('GET /commands'));
+    });
+
+    test('keeps every line within 80 columns', () {
+      final topLevel = usage.substring(0, usage.indexOf('Machine protocol'));
+      for (final line in topLevel.split('\n')) {
+        expect(line.length, lessThanOrEqualTo(80), reason: line);
+      }
+    });
+  });
+
   test('a bazel flag that could not parse as an option is refused', () {
     // The mistake this exists for. `--@rules_flutter//...` carries `@`, `/` and
     // `:`, so `ArgParser` never sees an option name and the whole thing becomes
