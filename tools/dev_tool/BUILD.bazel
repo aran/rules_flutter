@@ -232,6 +232,7 @@ _UNIT_TESTS = {
     "package_roots_test": {},
     "process_group_exec_test": {"data": [":process_group_exec"]},
     "shutdown_signals_test": {},
+    "semantics_dump_test": {},
     "screenshot_blankness_test": {
         "harness": True,
         "lifetime": True,

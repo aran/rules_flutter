@@ -19,6 +19,7 @@ import 'command_failure.dart';
 import 'command_runner.dart';
 import 'device.dart';
 import 'key_press.dart';
+import 'semantics_dump.dart';
 import 'session.dart';
 import 'vm_service_client.dart';
 
@@ -49,6 +50,15 @@ void setUpAgentCommands(
         'isSummaryTree': 'false',
         'withPreviews': 'true',
       },
+    ),
+  );
+  cr.register(
+    'app.dumpSemanticsTree',
+    (params) => _dumpSemanticsTree(
+      findSession,
+      params,
+      dispatchMargin: dispatchMargin,
+      pauseReadBound: pauseReadBound,
     ),
   );
   // `app.settle` waits for the app to go idle and answers; it is the step every
@@ -101,6 +111,44 @@ void setUpAgentCommands(
     dispatchMargin: dispatchMargin,
     pauseReadBound: pauseReadBound,
   );
+}
+
+/// `app.dumpSemanticsTree`: the app's whole semantics tree, as the text
+/// [renderCompactSemantics] writes.
+///
+/// It takes `appId` and nothing else: one output, chosen for an agent deciding
+/// what to act on — every node that says something, with a point `app.tap`
+/// takes. A parameter it does not take is refused rather than ignored, so a
+/// caller asking for something else learns that it is not offered.
+///
+/// The app enables semantics on the first agent command of any kind and keeps
+/// it on for the life of the isolate (see `_guard` in
+/// `agent_extensions/agent.dart`), so this needs no step of its own to make
+/// the tree exist.
+Future<Map<String, dynamic>> _dumpSemanticsTree(
+  DeviceSession? Function(String?) findSession,
+  Map<String, dynamic> params, {
+  required Duration dispatchMargin,
+  required Duration pauseReadBound,
+}) async {
+  final extra = params.keys.where((k) => k != 'appId').toList();
+  if (extra.isNotEmpty) {
+    throw CommandFailure.badRequest(
+      'app.dumpSemanticsTree takes only appId, not ${extra.join(', ')}',
+    );
+  }
+  final json = await _call(
+    findSession,
+    {'appId': params['appId']},
+    'ext.rules_flutter.dumpSemanticsTree',
+    dispatchMargin: dispatchMargin,
+    pauseReadBound: pauseReadBound,
+  );
+  return {
+    'text': renderCompactSemantics(json['views'] as List? ?? const []),
+    'notRendering': ?json['notRendering'],
+    'frameMissed': ?json['frameMissed'],
+  };
 }
 
 /// How `app.pressKey` reaches the app on [device].
@@ -468,6 +516,20 @@ Future<Map<String, dynamic>> _call(
   final session = findSession(params['appId'] as String?);
   if (session == null) {
     throw CommandFailure.notFound('unknown appId: ${params['appId']}');
+  }
+  // Asked before anything is waited on: an AOT build never registers these
+  // extensions, and a release one has no VM service to register them on, so
+  // waiting would only spend the readiness budget to report the wrong cause.
+  if (session.device.buildMode case final mode when mode != BuildMode.debug) {
+    final why = mode.servesVmService
+        ? 'so that profiling measures the app as it ships'
+        : 'and a release build has no VM service to reach them through';
+    throw CommandFailure.unavailable(
+      '$extensionMethod cannot run on a ${mode.name} build. The agent '
+      'extensions are compiled into debug builds only, $why. '
+      '`flutter_bazel run` builds debug (`-c dbg`) unless it is given '
+      '--profile, or --no-hot without `-c dbg`.',
+    );
   }
   var vm = session.vmClient;
   if (vm == null) {

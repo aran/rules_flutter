@@ -1648,6 +1648,7 @@ A `--machine` client does not need the endpoint. It receives the list in `daemon
 
 The commands, once the app is up:
 
+- **Reading the screen:** `app.dumpSemanticsTree`, the whole accessibility tree in one answer. See [Reading the semantics tree](#reading-the-semantics-tree).
 - **Widget driving:** `app.dumpWidgetTree`, `app.tap`, `app.longPress`, `app.doubleTap`, `app.drag`, `app.hover`, `app.hoverExit`, `app.setWindowActive`, `app.scrollIntoView`, `app.enterText`, `app.getText`, `app.getRect`, `app.waitFor`, `app.waitForAbsent`, `app.pageBack`, `app.settle`. These are served by extensions the app registers before `main()` on every launch, so they survive hot restart.
 - **Keys:** `app.pressKey`, on every run, including `--wasm` and `--profile` web runs. See [Pressing keys](#pressing-keys).
 - **Lifecycle:** `app.hotReload`, `app.restart`, `app.stop`, `daemon.shutdown`.
@@ -1660,6 +1661,38 @@ The commands, once the app is up:
 **A web run without a VM service offers no widget driving.** `--wasm`, `--profile`, and `--no-hot` serve a bundle built by dart2wasm or dart2js, where `registerExtension` is a stub and there is no service to dispatch through. The commands are absent from `/commands` rather than present and refusing, and the run says so once at startup as an `agent_surface_unavailable` log record. Such a run can still serve `app.pressKey`, `/logs`, `screenshot/native`, and `app.restart`. To drive the widget tree on the web, run the DDC dev loop: neither `--wasm` nor `--profile`.
 
 **Commands issued early wait.** `app.started` means `main()` has begun, which is what upstream's protocol means by it, and an app that has begun running has not built a widget tree yet. On `-d chrome` the gap is DWDS, which holds `main()` until the browser has connected. On an iPhone the gap is the app's own start, measured at 61 seconds after `app.started` for a debug build. A command sent in that window waits it out rather than failing, so you can fire on `app.started` without a readiness poll. The wait is reported as an `app.progress` pair — "Waiting for the app to render its first frame" opening it, and what the wait found closing it, so a client reading the stream can tell a frame that arrived from one that never did. An app that never paints is refused with a reason rather than a bare timeout. Waiting for a specific widget is still yours to ask for, with `app.waitFor`.
+
+#### Reading the semantics tree
+
+`app.dumpSemanticsTree` returns the app's accessibility tree as text: every node a screen reader would see, with its label, state, actions and where it is. It takes `appId` and nothing else, and answers `{"text": …}`, with `notRendering` when the app is not drawing frames and `frameMissed` when a frame pending at the time did not finish within 5 seconds, so the tree is from before it. It is the cheapest way to read a whole screen, and unlike a picture it says what each control is and where to tap it. Measured on `hello_world`: the dump is 1,135 bytes, which we estimate at 300 to 600 tokens. A screenshot costs, by Anthropic's published rule of width × height / 750 after scaling to fit 1568 pixels and 1.15 megapixels, about 670 tokens for the 800x632 macOS window at 1x and about 1,500 for the 1260x2736 iOS simulator or the 1080x2424 Pixel.
+
+```sh
+curl -s -X POST "$URI/command?token=$T" \
+  -d '{"method":"app.dumpSemanticsTree","params":{"appId":"'$APP'"}}' | jq -r .result.text
+```
+
+```
+view 0 800x600 @1x
+#3 scopesRoute @400,300 800x600
+  #30 header "Hello World" @400,28 120x28
+  #6 "count: 0" @400,254 56x20
+  #7 button "Increment (agent)" [tap] @400,280 171x32
+  #8 textField [tap] @400,320 200x48
+  #27 [scrollUp] @400,444 200x80
+    #13 "item 0" @400,416 200x24
+    #17 hidden "item 4"
+  #31 button tooltip="Increment" [tap] @756,556 56x56
+```
+
+Each view starts with a `view <id> <width>x<height> @<pixel ratio>x` line. Each node line is `#<id>`, then the node's role and flags, then its strings (`"label"`, `value=`, `hint=`, `tooltip=`, and `id=` for a `Semantics.identifier`), then its actions in brackets, then `@x,y`, the centre of the node in logical pixels, and its size. Indentation is nesting, and nodes come in the order a screen reader walks them. Flags are Flutter's names without `is` (`button`, `textField`, `header`, `obscured`, `readOnly`, `focused`), with each state pair folded into one word: `checked`, `unchecked` or `mixed`; `on` or `off`; `selected` on the one that is; `expanded` or `collapsed`; `disabled` for a control that is not enabled. `hidden` marks a node scrolled out of view. It has no `@` point, because its rect lies under whatever is drawn there: scroll it into view, then dump again.
+
+Some nodes are left out. A node that carries nothing but its children is dropped and its children move up a level. A node merged into its parent is dropped too, because its text and actions are already on the parent's line, which is how a screen reader sees it. Actions every focusable node has (`focus`, `showOnScreen`, cursor movement) are not listed.
+
+To act on a node, pass its point to the pointer commands: `app.tap` with `"x"` and `"y"` set to the `@` values. A node with a label can also be named with the `semanticsLabel` selector, for `getRect`, `waitFor` and the rest. To type into a field, tap it and then call `app.enterText` with no selector. Node ids are not selectors: they last only while the widget that produced the node does.
+
+This is not Flutter's own `debugDumpSemanticsTree` text. That text gives each rect in its parent's coordinates, some behind a transform matrix, so it does not say where to tap, and on `hello_world` it is 8,198 bytes, seven times the size. Flutter still serves it through its `ext.flutter.debugDumpSemanticsTreeInTraversalOrder` extension, in DevTools or over the VM service, once semantics are on.
+
+Semantics are off in a Flutter app until something asks for them. The first agent command of any kind turns them on and keeps them on until the app restarts, so the dump needs no setup step. The cost is the framework building the semantics tree for each frame that changes it, and the platform's accessibility layer receiving it, which is what any app pays while a screen reader runs. Every view the app's main isolate renders is listed. A window that runs its own engine, like the second window in `e2e/multi_window_example`, is a separate isolate the tool does not drive. Like the other agent commands, it is refused on a profile or release build, with the reason: the agent extensions are compiled into debug builds only.
 
 #### Reading logs
 

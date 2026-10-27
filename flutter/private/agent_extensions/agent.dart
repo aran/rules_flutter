@@ -23,8 +23,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' show Tooltip;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/semantics.dart' show SemanticsBinding, SemanticsHandle;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -61,6 +61,10 @@ void registerRulesFlutterAgentExtensions() {
   );
   registerExtension('ext.rules_flutter.pageBack', _guard(_handlePageBack));
   registerExtension('ext.rules_flutter.pressKey', _guard(_handlePressKey));
+  registerExtension(
+    'ext.rules_flutter.dumpSemanticsTree',
+    _guard(_handleDumpSemanticsTree),
+  );
 
   // Deliberately NOT wrapped in `_guard`: this one answers from a compile-time
   // constant and touches no binding, so it must stay answerable pre-main —
@@ -981,6 +985,131 @@ Future<ServiceExtensionResponse> _handleGetRect(
   String method,
   Map<String, String> params,
 ) => _withRect(params, (rect) async => _readBody(_rectAsMap(rect)));
+
+/// The semantics tree of every view this isolate renders, as data the dev
+/// tool renders into `app.dumpSemanticsTree`'s text.
+///
+/// Built here rather than by asking Flutter's own
+/// `ext.flutter.debugDumpSemanticsTreeInTraversalOrder`, for two reasons. That
+/// text gives each rect in its parent's coordinates, some behind a transform
+/// matrix, so the point a pointer command needs is not in it. And on an app
+/// with semantics off it answers "Semantics not generated", where [_guard] has
+/// already enabled semantics and waited out the frame that builds the tree.
+///
+/// Children come in traversal order, the order a screen reader walks.
+Future<ServiceExtensionResponse> _handleDumpSemanticsTree(
+  String method,
+  Map<String, String> params,
+) async {
+  // A frame already scheduled may change the tree: answer with what it builds
+  // rather than the one before it. Bounded for the reason [_guard]'s own wait
+  // is, and only waited on when frames can happen at all. A wait that runs out
+  // is said in the answer, because the tree then is the one from before that
+  // frame; when frames stopped meanwhile, `notRendering` says that instead.
+  final scheduler = SchedulerBinding.instance;
+  var frameMissed = false;
+  if (scheduler.framesEnabled && scheduler.hasScheduledFrame) {
+    await scheduler.endOfFrame.timeout(
+      _semanticsFrameBound,
+      onTimeout: () => frameMissed = true,
+    );
+  }
+  final views = <Map<String, Object?>>[];
+  for (final view in RendererBinding.instance.renderViews) {
+    final root = view.debugSemantics;
+    final dpr = view.configuration.devicePixelRatio;
+    views.add({
+      'viewId': view.flutterView.viewId,
+      'size': [_round1(view.size.width), _round1(view.size.height)],
+      'devicePixelRatio': dpr,
+      if (root == null)
+        'missing': _semanticsMissing()
+      else
+        'root': _semanticsNodeJson(root, Matrix4.identity(), dpr),
+    });
+  }
+  return _readOk({
+    'views': views,
+    if (frameMissed && _notRendering() == null)
+      'frameMissed':
+          'a frame was pending and did not finish within '
+          '${_semanticsFrameBound.inSeconds}s, so this tree is from before it; '
+          'ask again for the tree that frame builds',
+  });
+}
+
+/// Why a view has no semantics tree when this file enabled semantics itself.
+String _semanticsMissing() => SchedulerBinding.instance.framesEnabled
+    ? 'no semantics tree was built for this view within '
+          '${_semanticsFrameBound.inSeconds}s of enabling semantics'
+    : 'the app is not drawing frames (it is backgrounded or hidden), so the '
+          'semantics tree, which is built during a frame, does not exist yet';
+
+/// [node] and its subtree as data, with defaults left out.
+///
+/// `rect` is `[left, top, right, bottom]` in the view's logical pixels — the
+/// space `app.tap`'s `x` and `y` are in — which a node's own rect is not: each
+/// is in its parent's coordinates, and the root's is in physical pixels, so
+/// [toRoot] accumulates the transforms down from the root and the result is
+/// divided by the view's device pixel ratio.
+///
+/// Label, value, flags and actions come from `getSemanticsData`, which is what
+/// the platform's accessibility services are sent: a node that merges its
+/// descendants carries their labels and actions, and a node merged into its
+/// parent is marked `merged` rather than dropped.
+Map<String, Object?> _semanticsNodeJson(
+  SemanticsNode node,
+  Matrix4 toRoot,
+  double dpr,
+) {
+  final transform = node.transform;
+  final nodeToRoot = transform == null
+      ? toRoot
+      : (toRoot.clone()..multiply(transform));
+  final r = MatrixUtils.transformRect(nodeToRoot, node.rect);
+  final data = node.getSemanticsData();
+  final actions = [
+    for (final action in SemanticsAction.values)
+      if (action != SemanticsAction.customAction && data.hasAction(action))
+        action.name,
+  ];
+  final customActions = [
+    for (final id in data.customSemanticsActionIds ?? const <int>[])
+      if (CustomSemanticsAction.getAction(id)?.label case final label?) label,
+  ];
+  final flags = data.flagsCollection.toStrings();
+  final children = node.debugListChildrenInOrder(
+    DebugSemanticsDumpOrder.traversalOrder,
+  );
+  return {
+    'id': node.id,
+    'rect': [
+      _round1(r.left / dpr),
+      _round1(r.top / dpr),
+      _round1(r.right / dpr),
+      _round1(r.bottom / dpr),
+    ],
+    if (data.label.isNotEmpty) 'label': data.label,
+    if (data.value.isNotEmpty) 'value': data.value,
+    if (data.hint.isNotEmpty) 'hint': data.hint,
+    if (data.tooltip.isNotEmpty) 'tooltip': data.tooltip,
+    if (data.identifier.isNotEmpty) 'identifier': data.identifier,
+    if (data.role != SemanticsRole.none) 'role': data.role.name,
+    if (data.headingLevel != 0) 'headingLevel': data.headingLevel,
+    if (flags.isNotEmpty) 'flags': flags,
+    if (actions.isNotEmpty) 'actions': actions,
+    if (customActions.isNotEmpty) 'customActions': customActions,
+    if (node.isMergedIntoParent) 'merged': true,
+    if (node.isInvisible) 'invisible': true,
+    if (children.isNotEmpty)
+      'children': [
+        for (final child in children)
+          _semanticsNodeJson(child, nodeToRoot, dpr),
+      ],
+  };
+}
+
+double _round1(double v) => (v * 10).roundToDouble() / 10;
 
 /// Wait for the app to go idle, and say whether it did.
 ///

@@ -1236,6 +1236,54 @@ void main() {
         },
         timeout: const Timeout(Duration(minutes: 3)),
       );
+
+      // The semantics dump is the cheapest whole-screen read an agent has, so
+      // it has to work as the first command of a run, on an app that never
+      // turned semantics on, and what it reports has to be enough to act on.
+      test(
+        'dumps the semantics tree cold, and its point taps the node',
+        () async {
+          final dt = await startDevTool(
+            workspace: e2eWorkspace('hello_world'),
+            target: ':hello_world_macos',
+            device: 'macos',
+          );
+
+          await dt.waitForEvent('app.started');
+          await dt.waitForHttpControl();
+          final appId = dt.appId!;
+
+          // No agent command before this one: nothing else has enabled
+          // semantics.
+          final dump = await dt.httpCommand('app.dumpSemanticsTree', {
+            'appId': appId,
+          });
+          expect(dump['error'], isNull, reason: 'dump: ${dump['error']}');
+          final text = dump['result']['text'] as String;
+          expect(text, startsWith('view 0 '));
+          expect(text, contains('"Hello World"'));
+          expect(text, contains('"count: 0"'));
+          final button = RegExp(
+            r'#\d+ button "Increment \(agent\)" \[tap\] @(\d+),(\d+) ',
+          ).firstMatch(text);
+          expect(button, isNotNull, reason: 'the button line, in:\n$text');
+
+          // The point the dump gives is the one `app.tap` takes.
+          final tap = await dt.httpCommand('app.tap', {
+            'appId': appId,
+            'x': button!.group(1),
+            'y': button.group(2),
+          });
+          expect(tap['error'], isNull, reason: 'tap: ${tap['error']}');
+          final after = await dt.httpCommand('app.dumpSemanticsTree', {
+            'appId': appId,
+          });
+          expect(after['result']['text'], contains('"count: 1"'));
+
+          await dt.sendCommand(1, 'daemon.shutdown');
+        },
+        timeout: const Timeout(Duration(minutes: 3)),
+      );
     },
     skip: !Platform.isMacOS ? 'macOS only' : null,
   );
