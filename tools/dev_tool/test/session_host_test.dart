@@ -446,16 +446,35 @@ void main() {
       expect(announced['appId'], 'launched-first');
     });
 
-    // `app.started` already carries it there, and this channel's whole
-    // audience is a program that read the event.
-    test('says nothing under --machine', () async {
+    // `app.started` carries the id on stdout, but the URLs are on stderr: a
+    // client reading the channel off stderr gets them with the id filled in,
+    // and no `{appId}` to substitute.
+    test('fills in every per-session URL under --machine too', () async {
       final records = await recordsOf(
-        (host) async => host.announceSession('a'),
+        (host) async => host.announceSession('___app_macOS'),
         isMachine: true,
         withChannel: true,
       );
 
-      expect(records.where((r) => r['message'] == 'session_ready'), isEmpty);
+      final banner = records.singleWhere(
+        (r) => r['message'] == 'http_control_channel',
+      );
+      final announced = records.singleWhere(
+        (r) => r['message'] == 'session_ready',
+      );
+      expect(announced['appId'], '___app_macOS');
+      expect(announced['uri'], banner['uri']);
+      expect(announced['token'], banner['token']);
+      final templates = (banner['endpoints']! as List)
+          .cast<Map<String, String>>()
+          .where((e) => e['path']!.contains('{appId}'));
+      final filled = (announced['endpoints']! as List)
+          .cast<Map<String, String>>();
+      expect(
+        filled.map((e) => e['url']),
+        templates.map((e) => e['url']!.replaceFirst('{appId}', '___app_macOS')),
+      );
+      expect(filled.map((e) => e['url']), everyElement(isNot(contains('{'))));
     });
 
     // Without the channel the id addresses nothing: there are no per-session

@@ -1622,6 +1622,14 @@ On stderr, the tool prints the channel's record. Under `LOG_FORMAT=json` it is o
     "url":"http://localhost:PORT/command?token=...", ...}, ...]}
 ```
 
+The channel's record lists the per-app endpoints as templates, with `{appId}` in the path. Once an app is up, a `session_ready` record names it and carries those endpoints again with the id filled in, next to `uri` and `token`, so a client reading stderr has everything in one line:
+
+```json
+{"message":"session_ready","appId":"___my_app_macos_macOS","uri":"http://localhost:PORT","token":"...",
+ "endpoints":[{"method":"GET","path":"/sessions/___my_app_macos_macOS/logs",
+   "url":"http://localhost:PORT/sessions/___my_app_macos_macOS/logs?token=..."}, ...]}
+```
+
 On stdout, the protocol stream starts with `daemon.connected` and then reports `app.start`, `app.started`, and the rest.
 
 **What counts as protocol on stdout.** A line is a protocol message if and only if it is a `[{…}]` envelope. Anything else is passthrough output that a client should show to the user rather than parse. That is upstream's convention too, and it is what makes `bazel run` safe here: bazel forwards a successful action's stdout, so a run that first has to rebuild the tool prints a line like `Generated: /…/flutter_bazel` before the first envelope.

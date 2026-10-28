@@ -319,6 +319,7 @@ class SessionHost {
     for (final e in endpoints) {
       e['url'] = '$base${e['path']}?token=$t';
     }
+    _endpoints = endpoints;
     _logger.info({
       'message': 'http_control_channel',
       'text': [
@@ -336,12 +337,14 @@ class SessionHost {
     // The common order, not an edge case: this channel binds after the app is
     // up, so by now there is a session and its id is the only thing standing
     // between a reader and the URLs just printed.
-    if (!protocol.enabled) {
-      for (final session in sessions) {
-        _announceSession(session.appId);
-      }
+    for (final session in sessions) {
+      _announceSession(session.appId);
     }
   }
+
+  /// The endpoints the channel's record printed, `{appId}` templates
+  /// included, once [startHttpChannel] has bound it.
+  List<Map<String, String>> _endpoints = const [];
 
   /// Say which session the endpoints' `{appId}` stands for.
   ///
@@ -357,21 +360,36 @@ class SessionHost {
   /// already running when it binds. Whichever happens second is the one that
   /// prints, because the other found its counterpart missing and returned.
   ///
-  /// Nothing is said under `--machine`, where `app.started` already carries
-  /// the id and a second copy would be noise.
+  /// Said under `--machine` too. `app.started` carries the id on stdout, but
+  /// the URLs are on stderr, and a client reading the channel off stderr — a
+  /// coding agent with the run's output in two files — would otherwise have to
+  /// join the two streams to fill in a template. The record carries every
+  /// per-session endpoint with the id already in its URL.
   void announceSession(String appId) {
-    if (httpChannel == null || protocol.enabled) return;
+    if (httpChannel == null) return;
     _announceSession(appId);
   }
 
   void _announceSession(String appId) {
     final channel = httpChannel!;
+    final endpoints = [
+      for (final e in _endpoints)
+        if (e['path']!.contains('{appId}'))
+          {
+            'method': e['method']!,
+            'path': e['path']!.replaceFirst('{appId}', appId),
+            'url': e['url']!.replaceFirst('{appId}', appId),
+          },
+    ];
     _logger.info({
       'message': 'session_ready',
       'text':
           'Session $appId is up — that is the {appId} above, e.g.\n'
           '  ${channel.uri}/sessions/$appId/logs?token=${channel.token}',
       'appId': appId,
+      'uri': channel.uri.toString(),
+      'token': channel.token,
+      'endpoints': endpoints,
     });
   }
 

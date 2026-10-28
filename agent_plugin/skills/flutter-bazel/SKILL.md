@@ -72,30 +72,30 @@ A slow start is not a hang. Bazel's progress is in `err`.
 
 ## 3. Find the channel and the app, then send a request
 
-Wait until the app has started and the channel is up, or the run has ended. If
-your harness refuses a foreground `sleep`, run the loop as a background job and
-wait for it to finish:
+Wait until the app is up and the channel with it, or the run has ended. If your
+harness refuses a foreground `sleep`, run the loop as a background job and wait
+for it to finish:
 
 ```sh
 cd /tmp/flutter_bazel.Ab12Cd
-until { grep -q '"event":"app.started"' out &&
-        grep -q '"message":"http_control_channel"' err; } ||
-      [ -e exited ]; do sleep 2; done
+until grep -q '"message":"session_ready"' err || [ -e exited ]; do sleep 2; done
 cat exited 2>/dev/null && grep '"message":"command_failed"' err | jq -r .text
 ```
 
 No output from the last line means it started. An exit code means the run
 ended: a `command_failed` text after it says why, and with none, bazel failed
-before the tool started, and the reason is in the last lines of `err`. Then
-read the URL and token from the channel's record on stderr, and the app's id
-from the `app.started` event on stdout:
+before the tool started, and the reason is in the last lines of `err`.
+
+Each app has a `session_ready` record on stderr with the channel's URL and
+token, the app's id, and its endpoints with the id filled in:
 
 ```sh
 cd /tmp/flutter_bazel.Ab12Cd
-grep -m1 '"message":"http_control_channel"' err | jq '{uri, token}'
-# {"uri":"http://localhost:53817","token":"9f2c…e1"}
-grep -m1 '"event":"app.started"' out
-# [{"event":"app.started","params":{"appId":"___my_app_macos_macOS"}}]
+grep '"message":"session_ready"' err | jq '{appId, uri, token, urls: [.endpoints[].url]}'
+# {"appId":"___my_app_macos_macOS","uri":"http://localhost:53817","token":"9f2c…e1",
+#  "urls":[".../sessions/___my_app_macos_macOS/screenshot/flutter?token=9f2c…e1",
+#          ".../sessions/___my_app_macos_macOS/screenshot/native?token=9f2c…e1",
+#          ".../sessions/___my_app_macos_macOS/logs?token=9f2c…e1"]}
 ```
 
 The token goes in the `token` query parameter, not in a header. Every `app.*`
