@@ -63,7 +63,10 @@ apple_cc_configure = use_extension(
 )
 use_repo(apple_cc_configure, "local_config_apple_cc_toolchains")
 
-register_toolchains("@local_config_apple_cc_toolchains//:all")
+register_toolchains(
+    "@local_config_apple_cc_toolchains//:all",
+    dev_dependency = True,
+)
 
 flutter = use_extension("//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.7")
