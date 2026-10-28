@@ -1853,7 +1853,18 @@ An outcome that carries its own verdict stays inside `result`. A hot reload that
 
 ### Working with a coding agent
 
-The control channel is what lets a coding agent such as Claude Code check its own work: it can reload the app after an edit, read text back, and look at a screenshot rather than guessing from the code. Three choices make that work well.
+The control channel is what lets a coding agent such as Claude Code check its own work: it can reload the app after an edit, read text back, and look at a screenshot rather than guessing from the code.
+
+**The skill.** This repository ships a skill, `flutter-bazel`, that teaches an agent the whole loop: starting a session, finding the channel, reading the UI, driving it, reloading, and reading failures. For Claude Code it is a plugin in this repository's marketplace:
+
+```sh
+claude plugin marketplace add aran/rules_flutter
+claude plugin install rules-flutter@rules-flutter
+```
+
+Or, inside a session, `/plugin marketplace add aran/rules_flutter` and then `/plugin install rules-flutter@rules-flutter`. The skill itself is in the open Agent Skills format, in [`agent_plugin/skills/flutter-bazel`](agent_plugin/skills/flutter-bazel/SKILL.md), so an agent that reads that format can use the same directory.
+
+With the skill or without it, three choices make the loop work well.
 
 **Start the app in machine mode, in the background.** The run lives for the whole session, so start it once and send its output to files. `--machine` keeps stdout to protocol events, `LOG_FORMAT=json` makes the channel record on stderr one parseable line, and `--no-devtools` avoids opening a browser tab nobody will look at. On the web, add `--web-run-headless`.
 

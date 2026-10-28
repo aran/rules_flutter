@@ -1,0 +1,11 @@
+{
+  "name": "rules-flutter",
+  "description": "Run, inspect, drive and hot-reload Flutter apps built with rules_flutter, through its dev tool flutter_bazel.",
+  "author": {
+    "name": "Aran Donohue"
+  },
+  "homepage": "https://github.com/aran/rules_flutter",
+  "repository": "https://github.com/aran/rules_flutter",
+  "license": "Apache-2.0",
+  "keywords": ["flutter", "bazel", "hot-reload", "testing"]
+}

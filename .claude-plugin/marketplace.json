@@ -1,0 +1,14 @@
+{
+  "name": "rules-flutter",
+  "owner": {
+    "name": "Aran Donohue"
+  },
+  "description": "Agent plugins for rules_flutter, the Bazel rules for Flutter.",
+  "plugins": [
+    {
+      "name": "rules-flutter",
+      "source": "./agent_plugin",
+      "description": "Run, inspect, drive and hot-reload Flutter apps built with rules_flutter, through its dev tool flutter_bazel."
+    }
+  ]
+}
