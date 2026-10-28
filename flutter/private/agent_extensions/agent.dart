@@ -762,7 +762,7 @@ Future<ServiceExtensionResponse> _handleSetWindowActive(
     return _err('setWindowActive requires "active": "true" or "false"');
   }
   final binding = WidgetsBinding.instance;
-  binding.handleAppLifecycleStateChanged(
+  _moveLifecycleTo(
     active == 'true' ? AppLifecycleState.resumed : AppLifecycleState.inactive,
   );
   return _ok({
@@ -1330,24 +1330,28 @@ Future<ServiceExtensionResponse> _handlePressKey(
 }
 
 /// Make the app active, as a key press finds it, when its desktop window is
-/// open but not focused; say so, or return null when it already was.
+/// open but not focused or not shown; say so, or return null when it already
+/// was.
 ///
 /// A hardware key only reaches the window that has keyboard focus, so a key
 /// the engine delivers implies an active app. On desktop the framework acts on
-/// the difference: when its window stops being the focused one (lifecycle
-/// `inactive`), [FocusManager] parks the focused node and focuses nothing until
-/// the window is active again. A key simulated into that state reaches no
-/// field — typed text goes nowhere and a shortcut finds no handler — whenever
-/// another app has come to the front. Resuming gives the parked node its focus
-/// back, as the window becoming the key window would, and applying the focus
-/// change now means the key sees it.
+/// the difference: whenever its lifecycle leaves `resumed` — `inactive` when
+/// another app comes to the front, `hidden` when the window is hidden or
+/// covered after it was in front — [FocusManager] parks the focused node and
+/// focuses nothing until the app is resumed. A key simulated into that state
+/// reaches no field: typed text goes nowhere and a shortcut finds no handler.
+/// Resuming gives the parked node its focus back, as the window becoming the
+/// key window would, and applying the focus change now means the key sees it.
 ///
-/// Only `inactive`: a hidden or minimised window draws nothing, and a key
-/// cannot reach one, so that state is left to [_notRendering] to report. Only
-/// desktop, because only there does the framework move focus with the
-/// lifecycle; on a phone `inactive` is a passing system overlay that a key
-/// press does not end. The native window is untouched, as with
-/// `app.setWindowActive`, and the engine's next real change overrides this.
+/// `hidden` too, because on a desktop shared with other work the window is
+/// covered as often as it is merely behind: any window that ends up over all
+/// of it sends `hidden`. Resuming also turns frames back on, so the key's
+/// effect is built rather than waiting in a tree no read could see change.
+/// Only desktop, because only there does the framework move focus with the
+/// lifecycle; on a phone `inactive` is a passing system overlay and `hidden`
+/// another app in front, neither of which a key press ends. The native window
+/// is untouched, as with `app.setWindowActive`, and the engine's next real
+/// change overrides this.
 String? _activateForKeys() {
   final binding = WidgetsBinding.instance;
   final desktop = switch (defaultTargetPlatform) {
@@ -1356,16 +1360,45 @@ String? _activateForKeys() {
     TargetPlatform.linux => true,
     _ => false,
   };
-  if (!desktop || binding.lifecycleState != AppLifecycleState.inactive) {
+  final state = binding.lifecycleState;
+  if (!desktop ||
+      (state != AppLifecycleState.inactive &&
+          state != AppLifecycleState.hidden)) {
     return null;
   }
-  binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  _moveLifecycleTo(AppLifecycleState.resumed);
   FocusManager.instance.applyFocusChangesIfNeeded();
-  return 'the window was not the focused one (lifecycle state "inactive"), '
-      'so the framework had parked its focus and a key would have reached no '
-      'field. The app now counts as active, as a key press finds it: '
-      'lifecycle state "resumed", focus back where it was. The real window is '
-      'untouched and still behind whatever is in front of it.';
+  final why = state == AppLifecycleState.inactive
+      ? 'the window was not the focused one'
+      : 'the window was hidden or covered by another window';
+  return '$why (lifecycle state "${state!.name}"), so the framework had '
+      'parked its focus and a key would have reached no field. The app now '
+      'counts as active, as a key press finds it: lifecycle state "resumed", '
+      'focus back where it was, frames on. The real window is untouched '
+      'and still behind whatever is in front of it.';
+}
+
+/// Tell the framework the app's lifecycle is now [target], through each state
+/// between, as the engine's own lifecycle messages arrive.
+///
+/// Lifecycle listeners accept only neighbouring moves: `hidden` straight to
+/// `resumed` fails an assertion in [AppLifecycleListener], which every
+/// [EditableText] registers to tell a focus restored on resume from a fresh
+/// one. [ServicesBinding] walks an engine message through the states between,
+/// and this does the same.
+void _moveLifecycleTo(AppLifecycleState target) {
+  final binding = WidgetsBinding.instance;
+  final from = binding.lifecycleState;
+  if (from == null || from == AppLifecycleState.detached) {
+    binding.handleAppLifecycleStateChanged(target);
+    return;
+  }
+  const order = AppLifecycleState.values;
+  final step = order.indexOf(target) > order.indexOf(from) ? 1 : -1;
+  for (var i = order.indexOf(from); i != order.indexOf(target);) {
+    i += step;
+    binding.handleAppLifecycleStateChanged(order[i]);
+  }
 }
 
 /// Whether [text] is something a key types, as opposed to a control

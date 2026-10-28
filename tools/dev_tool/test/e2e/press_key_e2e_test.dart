@@ -90,7 +90,7 @@ void main() {
 
         for (final key in const ['a', 'b', 'c', 'd']) {
           final typed = await press(dt, appId, key, route: 'framework');
-          expect(typed['textInput'], {'inserted': key});
+          expect(typed['textInput'], {'inserted': key}, reason: '$typed');
         }
         // Backspace, ArrowLeft and ArrowDown are left unhandled by the
         // framework on macOS so the input method can have them; the reply
@@ -101,8 +101,8 @@ void main() {
           'Backspace',
           route: 'framework',
         );
-        expect(backspace['handled'], isFalse);
-        expect(backspace['textInput'], {
+        expect(backspace['handled'], isFalse, reason: '$backspace');
+        expect(backspace['textInput'], reason: '$backspace', {
           'selectors': ['deleteBackward:'],
         });
         for (var i = 0; i < 2; i++) {
@@ -137,7 +137,7 @@ void main() {
           'key': 'agent_test_field',
         });
         final selectAll = await press(dt, appId, 'Meta+A', route: 'framework');
-        expect(selectAll['handled'], isTrue);
+        expect(selectAll['handled'], isTrue, reason: '$selectAll');
         final z = await press(dt, appId, 'z', route: 'framework');
         expect(z['textInput'], {'inserted': 'z'}, reason: '$z');
         expect(
@@ -154,7 +154,10 @@ void main() {
         // comes to the front: the framework then parks the field's focus, and
         // a key would reach neither the field nor the shortcut above it. A key
         // press only ever reaches the focused window, so the key makes the app
-        // active again and says so.
+        // active again and says so. The real window can be covered in the
+        // meantime by whatever else is on this screen, and the engine then
+        // reports "hidden" over the simulated "inactive"; either way the
+        // focus was parked and the key has to bring it back.
         final away = await dt.httpCommand('app.setWindowActive', {
           'appId': appId,
           'active': 'false',
@@ -162,7 +165,11 @@ void main() {
         expect(away['error'], isNull, reason: '$away');
         final quote = await press(dt, appId, 'Meta+Quote', route: 'framework');
         expect(quote['handled'], isTrue, reason: '$quote');
-        expect(quote['activated'], contains('"inactive"'), reason: '$quote');
+        expect(
+          quote['activated'],
+          matches(RegExp(r'"(inactive|hidden)"')),
+          reason: '$quote',
+        );
         expect(
           await textOf(dt, appId, 'agent_test_echo'),
           "echo: z | submitted: aXbcY | shortcut: ⌘'",
