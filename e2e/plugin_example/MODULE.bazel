@@ -59,8 +59,17 @@ single_version_override(
 # 16KB alignment loads on a 4KB device too, so this is wider compatibility
 # rather than a trade. The prebuilt engine libraries are unaffected —
 # libflutter.so ships at 0x10000.
+#
+# The patch declares the exec constraints of the NDK found at
+# `ANDROID_NDK_HOME`. Without them its toolchains match any execution
+# platform, and a remote Linux worker would be sent the Mac's clang. Upstream
+# sets them only for an NDK whose platform the rule is told. Once a release
+# carries the alignment fix, keep the patch on that version, and drop it once a
+# release sets exec constraints for a local NDK too.
 archive_override(
     module_name = "rules_android_ndk",
+    patch_strip = 1,
+    patches = ["//patches:rules_android_ndk_exec_constraints.patch"],
     sha256 = "0f566314be1257379d42630e068618169e410e4ecf964b28e0c72559e2196658",
     strip_prefix = "rules_android_ndk-987213e7f982de48696f3b9cd031ff4e3e065c7c",
     urls = ["https://github.com/bazelbuild/rules_android_ndk/archive/987213e7f982de48696f3b9cd031ff4e3e065c7c.tar.gz"],

@@ -47,6 +47,34 @@ single_version_override(
     patches = ["//patches:rules_go_auto_exec_groups.patch"],
 )
 
+# Pinned past the 0.1.5 release for 16KB page alignment. 0.1.5 links every
+# arm64 .so with `-Wl,-z,max-page-size=4096`; a device booted with 16KB pages
+# then refuses to load it — "ELF alignment check failed" — and nothing says so
+# at build time, because the APK builds, installs and dies on launch. Upstream
+# replaced that with 16384 for both max- and common-page-size, ungated, so it
+# applies to every ABI; no release carries it yet, which is the only reason
+# this is a commit rather than a version. Drop this override for the first
+# release that includes it.
+#
+# 16KB alignment loads on a 4KB device too, so this is wider compatibility
+# rather than a trade. The prebuilt engine libraries are unaffected —
+# libflutter.so ships at 0x10000.
+#
+# The patch declares the exec constraints of the NDK found at
+# `ANDROID_NDK_HOME`. Without them its toolchains match any execution
+# platform, and a remote Linux worker would be sent the Mac's clang. Upstream
+# sets them only for an NDK whose platform the rule is told. Once a release
+# carries the alignment fix, keep the patch on that version, and drop it once a
+# release sets exec constraints for a local NDK too.
+archive_override(
+    module_name = "rules_android_ndk",
+    patch_strip = 1,
+    patches = ["//patches:rules_android_ndk_exec_constraints.patch"],
+    sha256 = "0f566314be1257379d42630e068618169e410e4ecf964b28e0c72559e2196658",
+    strip_prefix = "rules_android_ndk-987213e7f982de48696f3b9cd031ff4e3e065c7c",
+    urls = ["https://github.com/bazelbuild/rules_android_ndk/archive/987213e7f982de48696f3b9cd031ff4e3e065c7c.tar.gz"],
+)
+
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 flutter.toolchain(flutter_version = "3.47.8")
 flutter.pub(
