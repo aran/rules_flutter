@@ -4,7 +4,7 @@
 ///   bazel run //tools/update_flutter_version -- 3.42.0
 ///
 /// Prerequisites:
-///   - A clone of the Flutter repo at references/flutter (or FLUTTER_REPO env var)
+///   - A clone of the Flutter repo beside this one, at ../flutter (or FLUTTER_REPO env var)
 ///
 /// What it does:
 ///   1. Looks up the engine revision from the Flutter tag
@@ -38,10 +38,18 @@ Future<void> main(List<String> args) async {
       Directory.current.path;
   final flutterRepo =
       Platform.environment['FLUTTER_REPO'] ??
-      '$workspaceDir/references/flutter';
+      '${Directory(workspaceDir).parent.path}/flutter';
 
   print('Flutter version: $version');
   print('Flutter repo: $flutterRepo');
+  if (!Directory(flutterRepo).existsSync()) {
+    stderr.writeln('ERROR: No Flutter clone at $flutterRepo');
+    stderr.writeln(
+      'Clone https://github.com/flutter/flutter beside this repo, '
+      'or set FLUTTER_REPO to an existing clone.',
+    );
+    exit(1);
+  }
 
   // Get engine revision from the Flutter tag.
   final gitResult = Process.runSync(

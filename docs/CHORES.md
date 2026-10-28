@@ -13,8 +13,8 @@ file at runtime — keep file lists current as the repo evolves.
 latest stable version. Do NOT rely on web searches — they may be stale. Run:
 
 ```sh
-git -C references/flutter fetch --tags
-git -C references/flutter tag -l '[0-9]*' | grep -v pre | sort -V | tail -5
+git -C ../flutter fetch --tags
+git -C ../flutter tag -l '[0-9]*' | grep -v pre | sort -V | tail -5
 ```
 
 The latest tag is the current stable release.
@@ -34,7 +34,7 @@ The latest tag is the current stable release.
 
 1. Fetch tags and identify the latest stable version (see above)
 2. Run `bazel run //tools/update_flutter_version -- <new-version>` (requires Flutter reference
-   repo at `references/flutter` with tags fetched)
+   repo beside this one at `../flutter`, or `FLUTTER_REPO`, with tags fetched)
 3. Copy the printed snippets into `flutter/private/versions.bzl`
 4. Update `flutter_version` in `MODULE.bazel` and all `e2e/*/MODULE.bazel` files
 5. Regenerate lock files
