@@ -27,4 +27,15 @@ void main() {
     expect(find.text('0'), findsNothing);
     expect(find.text('1'), findsOneWidget);
   });
+
+  testWidgets('lays out without overflow on a phone-width screen', (
+    tester,
+  ) async {
+    // A Pixel 9a's logical size. An overflow is reported as an exception,
+    // which fails the test.
+    tester.view.physicalSize = const Size(411, 914);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MyApp());
+  });
 }

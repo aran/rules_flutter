@@ -200,8 +200,10 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            // A Wrap, not a Row: the two probes are 420 wide together, more
+            // than a phone's width, and wrap onto two lines there.
+            Wrap(
+              alignment: WrapAlignment.center,
               children: <Widget>[
                 GestureDetector(
                   key: const ValueKey('agent_gesture_box'),
