@@ -1,0 +1,351 @@
+diff --git a/go/private/actions/link.bzl b/go/private/actions/link.bzl
+index 1df51d6e..d3322b0c 100644
+--- a/go/private/actions/link.bzl
++++ b/go/private/actions/link.bzl
+@@ -22,6 +22,10 @@ load(
+     "count_group_matches",
+     "has_shared_lib_extension",
+ )
++load(
++    "//go/private:context.bzl",
++    "go_context_for_exec_group",
++)
+ load(
+     "//go/private:mode.bzl",
+     "LINKMODE_NORMAL",
+@@ -69,6 +73,10 @@ def emit_link(
+         buildinfo_main_package_path = archive.data.importpath
+     if buildinfo_module_metadata == None:
+         buildinfo_module_metadata = getattr(archive.data, "_package_metadata", None)
++    if go.mode.pure:
++        exec_group = None
++    elif exec_group:
++        go = go_context_for_exec_group(go, exec_group)
+ 
+     # Exclude -lstdc++ from link options. We don't want to link against it
+     # unless we actually have some C++ code. _cgo_codegen will include it
+diff --git a/go/private/actions/stdlib.bzl b/go/private/actions/stdlib.bzl
+index 06e21b7a..cbd155f2 100644
+--- a/go/private/actions/stdlib.bzl
++++ b/go/private/actions/stdlib.bzl
+@@ -20,6 +20,7 @@ load(
+ )
+ load(
+     "//go/private:context.bzl",
++    "go_context_for_exec_group",
+     "new_go_info",
+ )
+ load(
+@@ -33,7 +34,7 @@ load(
+ )
+ load("//go/private/actions:utils.bzl", "quote_opts")
+ 
+-def emit_stdlib(go):
++def emit_stdlib(go, exec_group = None):
+     """Returns a standard library for the target configuration.
+ 
+     If the precompiled standard library is suitable, it will be returned.
+@@ -43,10 +44,14 @@ def emit_stdlib(go):
+         A list of providers containing GoInfo and GoStdLib.
+     """
+     go_info = new_go_info(go, {}, coverage_instrumented = False)
+-    stdlib = _build_stdlib(go)
++    if go.mode.pure:
++        exec_group = None
++    elif exec_group:
++        go = go_context_for_exec_group(go, exec_group)
++    stdlib = _build_stdlib(go, exec_group)
+     return [go_info, stdlib]
+ 
+-def _build_stdlib_list_json(go):
++def _build_stdlib_list_json(go, exec_group):
+     sdk = go.sdk
+ 
+     out = go.declare_file(go, "stdlib.pkg.json")
+@@ -70,6 +75,7 @@ def _build_stdlib_list_json(go):
+         arguments = [args],
+         env = _build_env(go),
+         toolchain = GO_TOOLCHAIN_LABEL,
++        exec_group = exec_group,
+         execution_requirements = _stdlib_execution_requirements(go),
+     )
+     return out, cache_dir
+@@ -108,7 +114,7 @@ def _build_env(go):
+ def _dirname(file):
+     return file.dirname
+ 
+-def _build_stdlib(go):
++def _build_stdlib(go, exec_group):
+     pkg = go.declare_directory(go, path = "pkg")
+     args = go.builder_args(go, "stdlib")
+ 
+@@ -150,9 +156,10 @@ def _build_stdlib(go):
+         arguments = [args],
+         env = _build_env(go),
+         toolchain = GO_TOOLCHAIN_LABEL,
++        exec_group = exec_group,
+         execution_requirements = _stdlib_execution_requirements(go),
+     )
+-    list_json, cache_dir = _build_stdlib_list_json(go)
++    list_json, cache_dir = _build_stdlib_list_json(go, exec_group)
+     return GoStdLib(
+         _list_json = list_json,
+         # runtime/cgo records CGO_LDFLAGS from this configuration in its
+diff --git a/go/private/context.bzl b/go/private/context.bzl
+index 3efbd3e9..111b7496 100644
+--- a/go/private/context.bzl
++++ b/go/private/context.bzl
+@@ -586,6 +586,67 @@ def _defaults_to_pie(goos, race):
+         return True
+     return False
+ 
++def _toolchain_env(toolchain, mode, stdlib, cgo_context_info):
++    if stdlib:
++        goroot = stdlib.root_file.dirname
++    else:
++        goroot = toolchain.sdk.root_file.dirname
++
++    env = {
++        "GOARCH": mode.goarch,
++        "GOOS": mode.goos,
++        "GOEXPERIMENT": toolchain.sdk.experiments,
++        "GOROOT": goroot,
++        "GOROOT_FINAL": "GOROOT",
++        "CGO_ENABLED": "0" if mode.pure else "1",
++
++        # If we use --action_env=GOPATH, or in other cases where environment
++        # variables are passed through to this builder, the SDK build will try
++        # to write to that GOPATH (e.g. for x/net/nettest). This will fail if
++        # the GOPATH is on a read-only mount, and is generally a bad idea.
++        # Explicitly clear this environment variable to ensure that doesn't
++        # happen. See #2291 for more information.
++        "GOPATH": "",
++
++        # Since v1.21.0, set GOTOOLCHAIN to "local" to use the current toolchain
++        # and avoid downloading other toolchains.
++        #
++        # See https://go.dev/doc/toolchain for more info.
++        "GOTOOLCHAIN": "local",
++
++        # NOTE(#4049): Since Go 1.23.0, os.Readlink (and consequently
++        # filepath.EvalSymlinks) stopped treating Windows mount points and
++        # reparse points (junctions) as symbolic links. Bazel uses junctions
++        # when constructing exec roots, and we use filepath.EvalSymlinks in
++        # GoStdlib, so this broke us. Setting GODEBUG=winsymlink=0 restores
++        # the old behavior.
++        "GODEBUG": "winsymlink=0",
++    }
++
++    # The level of support is determined by the platform constraints in
++    # //go/constraints/amd64.
++    # See https://go.dev/wiki/MinimumRequirements#amd64
++    if mode.amd64:
++        env["GOAMD64"] = mode.amd64
++
++    # Similarly, set GOARM based on platform constraints in //go/constraints/arm.
++    # See https://go.dev/wiki/MinimumRequirements#arm
++    if mode.arm:
++        env["GOARM"] = mode.arm
++
++    if cgo_context_info:
++        env.update(cgo_context_info.env)
++        cgo_tools = cgo_context_info.cgo_tools
++        cc_toolchain_files = depset(transitive = [
++            cgo_context_info.cc_toolchain_files,
++            _cc_runtime_libs_for_mode(mode, cgo_tools),
++        ])
++    else:
++        cc_toolchain_files = depset()
++        cgo_tools = None
++
++    return env, cgo_tools, cc_toolchain_files
++
+ def go_context(
+         ctx,
+         attr = None,
+@@ -669,63 +730,7 @@ def go_context(
+     # It is kept out of mode since that describes how archives are compiled.
+     static_link = mode.static if static == "auto" else static == "on"
+ 
+-    if stdlib:
+-        goroot = stdlib.root_file.dirname
+-    else:
+-        goroot = toolchain.sdk.root_file.dirname
+-
+-    env = {
+-        "GOARCH": mode.goarch,
+-        "GOOS": mode.goos,
+-        "GOEXPERIMENT": toolchain.sdk.experiments,
+-        "GOROOT": goroot,
+-        "GOROOT_FINAL": "GOROOT",
+-        "CGO_ENABLED": "0" if mode.pure else "1",
+-
+-        # If we use --action_env=GOPATH, or in other cases where environment
+-        # variables are passed through to this builder, the SDK build will try
+-        # to write to that GOPATH (e.g. for x/net/nettest). This will fail if
+-        # the GOPATH is on a read-only mount, and is generally a bad idea.
+-        # Explicitly clear this environment variable to ensure that doesn't
+-        # happen. See #2291 for more information.
+-        "GOPATH": "",
+-
+-        # Since v1.21.0, set GOTOOLCHAIN to "local" to use the current toolchain
+-        # and avoid downloading other toolchains.
+-        #
+-        # See https://go.dev/doc/toolchain for more info.
+-        "GOTOOLCHAIN": "local",
+-
+-        # NOTE(#4049): Since Go 1.23.0, os.Readlink (and consequently
+-        # filepath.EvalSymlinks) stopped treating Windows mount points and
+-        # reparse points (junctions) as symbolic links. Bazel uses junctions
+-        # when constructing exec roots, and we use filepath.EvalSymlinks in
+-        # GoStdlib, so this broke us. Setting GODEBUG=winsymlink=0 restores
+-        # the old behavior.
+-        "GODEBUG": "winsymlink=0",
+-    }
+-
+-    # The level of support is determined by the platform constraints in
+-    # //go/constraints/amd64.
+-    # See https://go.dev/wiki/MinimumRequirements#amd64
+-    if mode.amd64:
+-        env["GOAMD64"] = mode.amd64
+-
+-    # Similarly, set GOARM based on platform constraints in //go/constraints/arm.
+-    # See https://go.dev/wiki/MinimumRequirements#arm
+-    if mode.arm:
+-        env["GOARM"] = mode.arm
+-
+-    if cgo_context_info:
+-        env.update(cgo_context_info.env)
+-        cgo_tools = cgo_context_info.cgo_tools
+-        cc_toolchain_files = depset(transitive = [
+-            cgo_context_info.cc_toolchain_files,
+-            _cc_runtime_libs_for_mode(mode, cgo_tools),
+-        ])
+-    else:
+-        cc_toolchain_files = depset()
+-        cgo_tools = None
++    env, cgo_tools, cc_toolchain_files = _toolchain_env(toolchain, mode, stdlib, cgo_context_info)
+ 
+     if importpath == None:
+         importpath = getattr(attr, "importpath", "")
+@@ -750,7 +755,7 @@ def go_context(
+ 
+     if include_deprecated_properties:
+         deprecated_properties = {
+-            "root": goroot,
++            "root": env["GOROOT"],
+             "go": toolchain.sdk.go,
+             "sdk_root": toolchain.sdk.root_file,
+             "sdk_tools": toolchain.sdk.tools,
+@@ -812,6 +817,53 @@ def go_context(
+         **deprecated_properties
+     )
+ 
++def go_context_for_exec_group(go, exec_group):
++    ctx = go._ctx
++    toolchains = ctx.exec_groups[exec_group].toolchains
++    toolchain = toolchains[GO_TOOLCHAIN]
++    if (toolchain.sdk.version != go.sdk.version or
++        toolchain.sdk.experiments != go.sdk.experiments):
++        fail(("{}: the Go SDK resolved for exec group {} ({}, GOEXPERIMENT={}) differs from the one " +
++              "that compiled its archives ({}, GOEXPERIMENT={}). Register Go toolchains of one " +
++              "version for every execution platform.").format(
++            ctx.label,
++            exec_group,
++            toolchain.sdk.version,
++            toolchain.sdk.experiments,
++            go.sdk.version,
++            go.sdk.experiments,
++        ))
++
++    cgo_context_info = None
++    if go.cgo_tools:
++        cc_toolchain = None
++        if CPP_TOOLCHAIN_TYPE in toolchains:
++            cc_toolchain = _cc_toolchain_info(toolchains[CPP_TOOLCHAIN_TYPE])
++        if cc_toolchain:
++            cgo_context_info = cgo_context_data_impl(ctx, cc_toolchain = cc_toolchain)
++        if not cgo_context_info:
++            fail(("{}: exec group {} resolved a Go toolchain but no C/C++ toolchain for the " +
++                  "target platform on the same execution platform.").format(ctx.label, exec_group))
++
++    env, cgo_tools, cc_toolchain_files = _toolchain_env(toolchain, go.mode, go.stdlib, cgo_context_info)
++    fields = structs.to_dict(go)
++    fields.update(
++        toolchain = toolchain,
++        sdk = toolchain.sdk,
++        cgo_tools = cgo_tools,
++        cc_toolchain_files = cc_toolchain_files,
++        env = env,
++        env_for_path_mapping = {k: v for k, v in env.items() if k != "GOROOT"},
++    )
++    return struct(**fields)
++
++def _cc_toolchain_info(toolchain_info):
++    if toolchain_info == None:
++        return None
++    if hasattr(toolchain_info, "cc_provider_in_toolchain") and hasattr(toolchain_info, "cc"):
++        return toolchain_info.cc
++    return toolchain_info
++
+ def _go_context_data_impl(ctx):
+     if "race" in ctx.features:
+         print("WARNING: --features=race is no longer supported. Use --@io_bazel_rules_go//go/config:race instead.")
+@@ -847,7 +899,7 @@ go_context_data = rule(
+     toolchains = [GO_TOOLCHAIN],
+ )
+ 
+-def cgo_context_data_impl(ctx):
++def cgo_context_data_impl(ctx, cc_toolchain = None):
+     pure_constraint = ctx.attr._pure_constraint[platform_common.ConstraintValueInfo]
+     if (ctx.target_platform_has_constraint(pure_constraint) or
+         ctx.attr._pure_flag[BuildSettingInfo].value):
+@@ -855,7 +907,8 @@ def cgo_context_data_impl(ctx):
+ 
+     # TODO(jayconrod): find a way to get a list of files that comprise the
+     # toolchain (to be inputs into actions that need it).
+-    cc_toolchain = find_cc_toolchain(ctx, mandatory = False)
++    if cc_toolchain == None:
++        cc_toolchain = find_cc_toolchain(ctx, mandatory = False)
+     if not cc_toolchain or cc_toolchain.compiler in _UNSUPPORTED_C_COMPILERS:
+         return None
+ 
+diff --git a/go/private/rules/stdlib.bzl b/go/private/rules/stdlib.bzl
+index ff994f71..6187f97a 100644
+--- a/go/private/rules/stdlib.bzl
++++ b/go/private/rules/stdlib.bzl
+@@ -12,8 +12,13 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++load(
++    "//go/private:common.bzl",
++    "GO_TOOLCHAIN",
++)
+ load(
+     "//go/private:context.bzl",
++    "CGO_TOOLCHAINS",
+     "go_context",
+     "go_rule",
+ )
+@@ -28,7 +33,7 @@ load(
+ 
+ def _stdlib_impl(ctx):
+     go = go_context(ctx)
+-    return go.toolchain.actions.stdlib(go)
++    return go.toolchain.actions.stdlib(go, exec_group = "go_stdlib")
+ 
+ stdlib = go_rule(
+     implementation = _stdlib_impl,
+@@ -42,6 +47,11 @@ stdlib = go_rule(
+             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
+         ),
+     },
++    exec_groups = {
++        "go_stdlib": exec_group(
++            toolchains = [GO_TOOLCHAIN] + CGO_TOOLCHAINS,
++        ),
++    },
+     doc = """stdlib builds the standard library for the target configuration
+ or uses the precompiled standard library from the SDK if it is suitable.""",
+ )
