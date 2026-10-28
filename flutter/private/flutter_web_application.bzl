@@ -19,6 +19,7 @@ Both dart2wasm and dart2js take .dart source directly (not kernel .dill),
 so we skip the frontend_server kernel compilation step used by desktop/mobile.
 """
 
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "PATH_MAPPING", "collect_packages", "collect_transitive_srcs", "dart_analyzable_info_with_package", "derive_lib_root", "generate_dev_package_config", "import_check_validation")
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
@@ -465,6 +466,7 @@ def _flutter_web_bundle_impl(ctx):
             enable_experiments = ctx.attr.enable_experiments,
             defines = user_defines,
             renderer = renderer,
+            optimizing_cores = ctx.attr._wasm_opt_cores[BuildSettingInfo].value,
         )
 
         # Fallback: dart2js (always canvaskit renderer) — tree artifact for deferred loading
@@ -1459,6 +1461,7 @@ build knows which served file is a native module.
                   "needs that origin allowed (or the fonts bundled) whatever this is set to.",
             default = False,
         ),
+        "_wasm_opt_cores": attr.label(default = Label("//flutter:wasm_opt_cores")),
         "_dart2wasm_platform_dill": attr.label(
             default = Label("@flutter_web_sdk//:web-sdk/kernel/dart2wasm_platform.dill"),
             allow_single_file = True,

@@ -373,6 +373,7 @@ bzl_library(
         ":plugin_registrant",
         ":validation",
         "//flutter:providers",
+        "@bazel_skylib//rules:common_settings",
         "@rules_dart//dart:utils",
     ],
 )

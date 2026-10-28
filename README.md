@@ -984,6 +984,8 @@ Unlike the other platforms, the web macro takes `main` and `deps` directly rathe
 
 The macro always compiles with dart2wasm and renders with skwasm. Compiler settings such as `optimization_level_wasm` and `minify_wasm` pass through to `flutter_web_bundle`. For dart2js or CanvasKit, use `flutter_web_bundle` directly.
 
+An optimizing wasm compile (`-O1` and up, the default outside debug) reserves 4 cores, and its optimizer uses no more. `--@rules_flutter//flutter:wasm_opt_cores=N` changes both. Fewer lets several web apps compile at once where Bazel has few cores to hand out; more makes one compile finish sooner. The output is the same either way.
+
 The files under `web/` are treated as templates and substituted the way `flutter build web` substitutes them, so raw `flutter create` output works unchanged: `web/index.html`, `web/flutter_bootstrap.js`, `web/manifest.json`, and `web/version.json` are each discovered when present, and everything else under `web/` is copied into the bundle root.
 
 <details>

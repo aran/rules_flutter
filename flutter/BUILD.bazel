@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag")
 load("//flutter/private:build_settings.bzl", "dart_defines_flag")
 load("//flutter/private:flutter_material_icons.bzl", "flutter_material_icons")
 load("//flutter/private:flutter_pub.bzl", "flutter_pub")
@@ -40,6 +40,16 @@ config_setting(
     name = "release",
     flag_values = {":profile": "false"},
     values = {"compilation_mode": "opt"},
+    visibility = ["//visibility:public"],
+)
+
+# The cores an optimizing dart2wasm (`-O1` and up) reserves, and the threads
+# its Binaryen wasm-opt may use. Fewer lets more compiles run at once on a
+# machine where CPUs are scarce; more makes a single compile finish sooner:
+#   bazel build //app --@rules_flutter//flutter:wasm_opt_cores=2
+int_flag(
+    name = "wasm_opt_cores",
+    build_setting_default = 4,
     visibility = ["//visibility:public"],
 )
 
