@@ -15,6 +15,9 @@
 /// a build is spent on it.
 library;
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:args/args.dart';
 
 import 'command_failure.dart';
@@ -41,21 +44,64 @@ const anyHostname = 'any';
 /// other thing. A deliberate divergence, not an oversight.
 const defaultHostname = 'localhost';
 
-/// The headers that cross-origin-isolate the pages this tool serves.
+/// The headers that cross-origin-isolate the pages this tool serves, with the
+/// app's [embedderPolicy].
 ///
 /// `SharedArrayBuffer` — which the skwasm renderer's multi-threading depends
 /// on — is only available to cross-origin-isolated pages, and isolation is
 /// judged per response.
 ///
-/// `credentialless` rather than `require-corp`, matching upstream
-/// (`web_constants.dart`). Both isolate the page; `require-corp` additionally
-/// blocks every cross-origin subresource that does not carry CORP or CORS
-/// headers, so a page that loads an image or a font from a CDN breaks under it
-/// and loads under `credentialless`.
-const crossOriginIsolationHeaders = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'credentialless',
+/// The embedder policy is the app's to choose
+/// (`flutter_web_bundle.cross_origin_embedder_policy`, read by
+/// [embedderPolicyOf]), because the two values trade differently. Upstream
+/// always serves `credentialless`, which WebKit does not isolate a page under,
+/// so skwasm runs single-threaded in Safari. `require-corp` isolates the page
+/// everywhere, and blocks every cross-origin subresource that carries no CORP
+/// or CORS headers.
+Map<String, String> crossOriginIsolationHeaders(String embedderPolicy) => {
+  _openerPolicyHeader: 'same-origin',
+  _embedderPolicyHeader: embedderPolicy,
 };
+
+const _openerPolicyHeader = 'Cross-Origin-Opener-Policy';
+const _embedderPolicyHeader = 'Cross-Origin-Embedder-Policy';
+
+/// The names [crossOriginIsolationHeaders] sets.
+const crossOriginIsolationHeaderNames = [
+  _openerPolicyHeader,
+  _embedderPolicyHeader,
+];
+
+/// The embedder policies a bundle can declare.
+const embedderPolicies = {'require-corp', 'credentialless'};
+
+/// The `Cross-Origin-Embedder-Policy` the bundle at [bundleDir] declares.
+///
+/// The build writes it beside the bundle, as `<bundle>.serving.json`, so it is
+/// not deployed as one of the page's files.
+String embedderPolicyOf(String bundleDir) {
+  final trimmed = bundleDir.endsWith('/') || bundleDir.endsWith(r'\')
+      ? bundleDir.substring(0, bundleDir.length - 1)
+      : bundleDir;
+  final file = File('$trimmed.serving.json');
+  if (!file.existsSync()) {
+    throw DevToolException(
+      'No ${file.path} beside the web bundle. The build writes it with the '
+      "app's cross_origin_embedder_policy; without it the app and this dev "
+      'tool were built from different revisions of rules_flutter.',
+    );
+  }
+  final policy = (jsonDecode(
+    file.readAsStringSync(),
+  ) as Map<String, Object?>)['crossOriginEmbedderPolicy'];
+  if (policy is! String || !embedderPolicies.contains(policy)) {
+    throw DevToolException(
+      '${file.path} names crossOriginEmbedderPolicy $policy, not one of '
+      '${embedderPolicies.join(', ')}.',
+    );
+  }
+  return policy;
+}
 
 /// Everything that decides what the dev server *is*.
 ///
@@ -83,7 +129,8 @@ class WebServerOptions {
   /// cannot retype an asset out from under the browser.
   final Map<String, String> headers;
 
-  /// Whether [crossOriginIsolationHeaders] go on every response.
+  /// Whether [crossOriginIsolationHeaders] go on every response, with the
+  /// policy the served bundle declares.
   ///
   /// No default here on purpose: it depends on the run's [WebMode], and a
   /// second answer living in this class is how the two come to disagree.
@@ -360,7 +407,7 @@ class WebOptions {
     final headers = parseWebHeaders(results['web-header'] as List<String>);
     if (crossOriginIsolation) {
       final clashing = headers.keys.where(
-        (k) => crossOriginIsolationHeaders.keys.any(
+        (k) => crossOriginIsolationHeaderNames.any(
           (h) => h.toLowerCase() == k.toLowerCase(),
         ),
       );

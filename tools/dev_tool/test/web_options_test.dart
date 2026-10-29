@@ -117,12 +117,11 @@ void main() {
     });
 
     test('the header values are the ones that isolate a page', () {
-      // Asserted exactly. `credentialless` rather than `require-corp`,
-      // matching upstream: both isolate, but `require-corp` also blocks every
-      // cross-origin subresource that carries no CORP header.
-      expect(crossOriginIsolationHeaders, {
+      // Asserted exactly: the opener policy is fixed, the embedder policy the
+      // app's.
+      expect(crossOriginIsolationHeaders('require-corp'), {
         'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'credentialless',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
       });
     });
 

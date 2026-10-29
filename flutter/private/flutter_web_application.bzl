@@ -795,6 +795,14 @@ def _flutter_web_bundle_impl(ctx):
     # Step 7: Assemble into output directory using the Dart bundler tool.
     output_dir = ctx.actions.declare_directory(ctx.label.name + "_web")
 
+    # How the bundle is to be served, beside it rather than in it so it is not
+    # deployed as a page asset. The dev tool's servers read it from the
+    # directory they serve: `<bundle>.serving.json`.
+    serving = ctx.actions.declare_file(output_dir.basename + ".serving.json")
+    ctx.actions.write(serving, json.encode({
+        "crossOriginEmbedderPolicy": ctx.attr.cross_origin_embedder_policy,
+    }))
+
     # Build bundle config: each compile output has an explicit destination
     # entry (built where the outputs were declared), never a derived name.
     copies = []
@@ -1143,9 +1151,9 @@ def _flutter_web_bundle_impl(ctx):
             ),
         }))
 
-        return [DefaultInfo(files = depset([output_dir] + ddc_files)), output_groups, analyzable_info]
+        return [DefaultInfo(files = depset([output_dir, serving] + ddc_files)), output_groups, analyzable_info]
 
-    return [DefaultInfo(files = depset([output_dir])), output_groups, analyzable_info]
+    return [DefaultInfo(files = depset([output_dir, serving])), output_groups, analyzable_info]
 
 # The web-only additions to the shared compile bundle. Web builds don't use
 # native_deps, obfuscate, split_debug_info, extra_gen_snapshot_options, or
@@ -1201,6 +1209,20 @@ flutter_web_bundle = rule(
         ),
         "title": attr.string(
             doc = "HTML page title. Only used when index_html is not provided.",
+        ),
+        "cross_origin_embedder_policy": attr.string(
+            doc = "The `Cross-Origin-Embedder-Policy` `flutter_bazel run` " +
+                  "serves the app with when it cross-origin-isolates the page " +
+                  "(a WASM run, by default), so skwasm can use threads. " +
+                  "`require-corp` (default) isolates the page in every " +
+                  "browser, Safari included, and blocks a cross-origin " +
+                  "subresource that sends no CORP or CORS headers. " +
+                  "`credentialless` loads such subresources without " +
+                  "credentials instead, but Safari does not isolate a page " +
+                  "under it, so skwasm runs single-threaded there. Serve the " +
+                  "deployed app with the same value.",
+            default = "require-corp",
+            values = ["require-corp", "credentialless"],
         ),
         "base_href": attr.string(
             doc = "Base URL path for the app (default: '/'). Substituted for Flutter's " +

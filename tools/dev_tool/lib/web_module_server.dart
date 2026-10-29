@@ -25,7 +25,7 @@ import 'toolchain_info.dart';
 import 'web_bootstrap.dart';
 import 'web_options.dart';
 
-export 'web_options.dart' show crossOriginIsolationHeaders;
+export 'web_options.dart' show crossOriginIsolationHeaders, embedderPolicyOf;
 
 /// Where this file's warnings and errors go.
 ///
@@ -98,10 +98,17 @@ const _maxPortDraws = 5;
 /// to find the server there. Moving onto a different port would answer a
 /// question nobody asked. `--web-port 0` is the opposite question — "any free
 /// port" — and is searched for, up to [_maxPortDraws] draws.
+///
+/// [bundleDir] is the web bundle served, whose declared embedder policy
+/// ([embedderPolicyOf]) goes out when the page is cross-origin-isolated.
 Future<HttpServer> bindWebServer(
   WebServerOptions options,
-  shelf.Handler handler,
-) async {
+  shelf.Handler handler, {
+  required String bundleDir,
+}) async {
+  final isolation = options.crossOriginIsolation
+      ? crossOriginIsolationHeaders(embedderPolicyOf(bundleDir))
+      : const <String, String>{};
   // A named port is one draw: it never moves, because something is expected to
   // find the server where it was named. `--web-port 0` is a search — "any free
   // port" — and a port whose traffic the kernel hands to somebody else is not
@@ -111,7 +118,7 @@ Future<HttpServer> bindWebServer(
   final draws = options.port == 0 ? _maxPortDraws : 1;
   for (var draw = 1; ; draw++) {
     try {
-      return await _bindOneServer(options, handler);
+      return await _bindOneServer(options, handler, isolation);
     } on _InterceptedPort catch (e) {
       if (draw == draws) throw DevToolException(e.explain(options, draws));
     }
@@ -125,6 +132,7 @@ Future<HttpServer> bindWebServer(
 Future<HttpServer> _bindOneServer(
   WebServerOptions options,
   shelf.Handler handler,
+  Map<String, String> isolation,
 ) async {
   final HttpServer server;
   try {
@@ -150,9 +158,7 @@ Future<HttpServer> _bindOneServer(
     // it. A run that wants it back can say so: `--web-header
     // X-Frame-Options=SAMEORIGIN`.
     server.defaultResponseHeaders.remove('x-frame-options', 'SAMEORIGIN');
-    if (options.crossOriginIsolation) {
-      crossOriginIsolationHeaders.forEach(server.defaultResponseHeaders.set);
-    }
+    isolation.forEach(server.defaultResponseHeaders.set);
     // Last, so a `--web-header` naming something this tool also sets is the
     // one that survives — except the isolation headers, which
     // `WebOptions.resolve` refuses outright rather than letting either side
@@ -578,7 +584,7 @@ class StaticWebServer {
   /// Bind where [options] say and start serving.
   Future<Uri> start() async {
     _basePath = basePathOf(rootPath);
-    _server = await bindWebServer(options, _handle);
+    _server = await bindWebServer(options, _handle, bundleDir: rootPath);
     return uri!;
   }
 
@@ -1334,6 +1340,7 @@ class WebModuleServer implements AssetReader {
     _server = await bindWebServer(
       options,
       (request) => _activeHandler(request),
+      bundleDir: buildOutputDir,
     );
     return uri!;
   }

@@ -1030,6 +1030,24 @@ A bundle served under `default-src 'self'` must also serve its own renderer, wit
 
 So a policy strict enough to be useful cannot live in `web/index.html` today, because the dev loop reads the same file. If you need one, compose `flutter_web_bundle` directly with a generated `index_html` for the production bundle.
 
+#### Cross-origin isolation
+
+skwasm runs its renderer on threads only in a cross-origin-isolated page, which needs two response headers: `Cross-Origin-Opener-Policy: same-origin` and a `Cross-Origin-Embedder-Policy`. `flutter_bazel run --wasm` sends both, and so must whatever serves the deployed bundle. The embedder policy is the app's choice, set once on the target:
+
+```starlark
+flutter_web_app(
+    name = "app",
+    package_name = "my_app",
+    deps = [...],
+    cross_origin_embedder_policy = "credentialless",  # default "require-corp"
+)
+```
+
+- **`require-corp`** (the default) isolates the page in every browser. It blocks a cross-origin subresource, such as an image from a CDN, unless that response carries a `Cross-Origin-Resource-Policy` header or is fetched with CORS. Flutter's own load of the skwasm renderer from `www.gstatic.com` passes.
+- **`credentialless`** loads such subresources without cookies instead of blocking them. Chrome and Firefox isolate the page under it; Safari does not, so skwasm runs single-threaded there. Upstream `flutter run` always sends this one.
+
+The dev tool reads the value from `<bundle>.serving.json`, which the build writes beside the bundle directory rather than inside it, so it is not deployed. `--no-cross-origin-isolation` turns both headers off for a run, and `--web-header` can then set your own.
+
 ### Cross-compiling
 
 `gen_snapshot`, the AOT compiler, runs on the host and produces code for the target. Flutter publishes a different binary per host and target pair, and not every pair exists.

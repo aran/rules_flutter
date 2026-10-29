@@ -223,9 +223,11 @@ void main() {
         page.response.headers.value('cross-origin-opener-policy'),
         'same-origin',
       );
+      // The bundle's declared policy: `:app_wasm` leaves
+      // `cross_origin_embedder_policy` at its default.
       expect(
         page.response.headers.value('cross-origin-embedder-policy'),
-        'credentialless',
+        'require-corp',
       );
       // dart:io adds this by itself, and it is what stopped the app being
       // embeddable in an iframe.

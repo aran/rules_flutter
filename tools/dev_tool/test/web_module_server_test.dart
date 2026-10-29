@@ -1438,10 +1438,16 @@ void main() {
       return [moduleServer.uri!, staticServer.uri!];
     }
 
-    Directory bundle() {
+    Directory bundle({String embedderPolicy = 'require-corp'}) {
       final dir = tempDir();
       writeBootFiles(dir.path);
       File('${dir.path}/styles.css').writeAsStringSync('body {}');
+      // Beside the bundle, where the build writes it.
+      final serving = File('${dir.path}.serving.json')
+        ..writeAsStringSync(
+          jsonEncode({'crossOriginEmbedderPolicy': embedderPolicy}),
+        );
+      addTearDown(() => serving.deleteSync());
       return dir;
     }
 
@@ -1466,8 +1472,12 @@ void main() {
     test(
       'isolation headers are on both servers when asked, off when not',
       () async {
-        final dir = bundle();
-        for (final isolated in [true, false]) {
+        for (final (isolated, policy) in [
+          (true, 'require-corp'),
+          (true, 'credentialless'),
+          (false, 'require-corp'),
+        ]) {
+          final dir = bundle(embedderPolicy: policy);
           final bases = await bothServers(
             dir,
             options: WebServerOptions(crossOriginIsolation: isolated),
@@ -1487,7 +1497,7 @@ void main() {
             );
             expect(
               r.response.headers.value('cross-origin-embedder-policy'),
-              isolated ? 'credentialless' : isNull,
+              isolated ? policy : isNull,
               reason: 'isolated=$isolated via $base',
             );
           }
@@ -1521,7 +1531,26 @@ void main() {
       );
       expect(
         r.response.headers.value('cross-origin-embedder-policy'),
-        'credentialless',
+        'require-corp',
+      );
+    });
+
+    test('an isolated run fails on a bundle that declares no policy', () async {
+      final dir = bundle();
+      File('${dir.path}.serving.json').writeAsStringSync('{}');
+      final server = StaticWebServer(
+        rootPath: dir.path,
+        options: const WebServerOptions(crossOriginIsolation: true),
+      );
+      await expectLater(
+        server.start(),
+        throwsA(
+          isA<DevToolException>().having(
+            (e) => e.message,
+            'message',
+            contains('crossOriginEmbedderPolicy null'),
+          ),
+        ),
       );
     });
 
