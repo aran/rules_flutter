@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_dart//dart:defs.bzl", "dart_aggregate_codegen", "dart_analysis_config", "dart_analysis_options", "dart_binary", "dart_codegen", "dart_library")
-load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_gen_l10n", "flutter_library", "flutter_native_library", "flutter_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_application", "flutter_gen_l10n", "flutter_library", "flutter_native_library", "flutter_test", "flutter_tester_binary")
 load(
     "@rules_flutter//flutter:macos.bzl",
     "MACOS_MINIMUM_OS_VERSION",
@@ -263,6 +263,33 @@ flutter_test(
         "@deps//:flutter",
         "@deps//:flutter_test",
     ],
+)
+
+# Exercises: Native Assets in a `flutter_tester_binary` started as a build
+# action, whose working directory is the exec root rather than its runfiles:
+# the same suite as `:native_asset_test`, which fails at its first call if the
+# library is not found. The action writes its stamp only if the suite passed.
+flutter_tester_binary(
+    name = "native_asset_program",
+    package_name = "codegen_e2e",
+    main = "test/native_asset_test.dart",
+    deps = [
+        "//native_add",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+genrule(
+    name = "native_asset_program_ran",
+    outs = ["native_asset_program.ran"],
+    cmd = "$(execpath :native_asset_program) && touch $@",
+    tools = [":native_asset_program"],
+)
+
+build_test(
+    name = "native_asset_program_test",
+    targets = [":native_asset_program_ran"],
 )
 
 # Exercises: `code_assets` on a test. The package's own id is moved off its

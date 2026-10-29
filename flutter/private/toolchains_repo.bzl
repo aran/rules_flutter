@@ -154,6 +154,24 @@ toolchain(
             compatible_with = meta.compatible_with,
         )
 
+    # Where a `flutter_tester_binary` runs: a host of its target's OS and CPU.
+    # Only those two constraints, not the whole target platform: an app's
+    # platform may carry others (Apple's, say) that no execution platform has.
+    for [platform, meta] in HOST_PLATFORMS.items():
+        build_content += """
+toolchain(
+    name = "{platform}_run_host_toolchain",
+    exec_compatible_with = {compatible_with},
+    target_compatible_with = {compatible_with},
+    toolchain = "@bazel_tools//tools/test:empty_toolchain",
+    toolchain_type = "@rules_flutter//flutter:run_host_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+""".format(
+            platform = platform,
+            compatible_with = meta.compatible_with,
+        )
+
     # Cross-compilation toolchains.
     for [host_platform, targets] in CROSS_COMPILATION_PAIRS.items():
         host_meta = HOST_PLATFORMS[host_platform]

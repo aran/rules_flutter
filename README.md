@@ -1252,6 +1252,33 @@ Two limits come from Flutter rather than from these rules:
 - **Goldens are host-specific.** Font rendering and antialiasing differ between operating systems, so a PNG generated on macOS may not match on Linux or Windows. Regenerate on the platform that checks them, or keep per-OS golden directories.
 - **Replacing the comparator disables regeneration.** If a test assigns its own `goldenFileComparator`, `--update-goldens` calls that object's `update()`, which for `LocalFileComparator` writes into runfiles. The run passes, prints nothing, and leaves the source PNG unchanged.
 
+### flutter_tester_binary
+
+Runs a program under `flutter_tester`, the headless engine `flutter_test` uses, as an ordinary executable rather than a test. Use it to make build outputs with Flutter's rendering, such as store screenshots: the outputs do not have to be `testonly`. It is compiled as `flutter_test` compiles a test and takes the same attributes, `enable_impeller` included.
+
+```starlark
+flutter_tester_binary(
+    name = "render",
+    package_name = "my_app",
+    main = "tool/render.dart",
+    enable_impeller = True,
+    deps = ["//:my_app_lib", "@deps//:flutter", "@deps//:flutter_test"],
+)
+
+genrule(
+    name = "screenshot",
+    outs = ["screenshot.png"],
+    cmd = "OUT=$@ $(execpath :render)",
+    tools = [":render"],
+)
+```
+
+The program is written as a test suite, because `flutter_tester` draws frames through `package:flutter_test`'s binding: its work is the bodies of its `testWidgets` and `test` calls, and `tester.pumpWidget`, `tester.view` and `RenderRepaintBoundary.toImage` work as they do in a test. The binary exits 0 when every case passes and 1 when one fails, so a failed render fails the action. A case that runs past five minutes is stopped as wedged.
+
+The program sees the environment it was started with and runs in the working directory it was started in, which for a build action is the exec root, so it can be handed paths of the action's inputs and outputs. Native Assets load from any working directory. Arguments are not passed to the program.
+
+Build it for the machine it runs on. `bazel run` does that, and a rule that runs it in an action takes it as an executable attribute with `cfg = "exec"`, as `genrule` takes `tools`. With `enable_impeller = True` it needs that machine's GPU, so keep such an action off remote executors (`execution_requirements = {"no-remote-exec": "1"}`).
+
 ### flutter_plugin
 
 Declares a Flutter plugin written in your workspace: its Dart code plus per-platform native implementations. Plugins from pub do not need this; the hub declares them.

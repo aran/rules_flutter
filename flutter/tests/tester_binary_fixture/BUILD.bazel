@@ -1,0 +1,27 @@
+load("//flutter:defs.bzl", "flutter_tester_binary")
+
+# A constraint no execution platform has, standing in for the Apple ones an
+# app's Mac platform carries.
+constraint_setting(name = "app_only")
+
+constraint_value(
+    name = "app_only_value",
+    constraint_setting = ":app_only",
+)
+
+platform(
+    name = "app_mac",
+    constraint_values = [":app_only_value"],
+    parents = ["//flutter/platforms:macos_arm64"],
+    visibility = ["//flutter/tests:__pkg__"],
+)
+
+# Left `manual`; only the analysistest builds it.
+flutter_tester_binary(
+    name = "tester_binary",
+    package_name = "tester_binary",
+    main = "main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = ["//flutter/tests/dart_asset_fixture:fake_test_api"],
+)

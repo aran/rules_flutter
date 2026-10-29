@@ -13,6 +13,7 @@ rules that compile Dart code, bundle assets, and run tests.
 - `flutter_plugin`: Declares a Flutter plugin with optional Dart registration
     class and/or native shared library dependencies.
 - `flutter_test`: Runs Flutter widget tests using the flutter_tester runtime.
+- `flutter_tester_binary`: Runs a program under flutter_tester as an executable, for build actions.
 
 ## Advanced / Low-Level
 
@@ -46,7 +47,7 @@ load("//flutter/private:flutter_kernel_target.bzl", _flutter_kernel_target = "fl
 load("//flutter/private:flutter_library.bzl", _flutter_library = "flutter_library")
 load("//flutter/private:flutter_native_library.bzl", _flutter_native_library = "flutter_native_library")
 load("//flutter/private:flutter_plugin.bzl", _flutter_plugin = "flutter_plugin")
-load("//flutter/private:flutter_test.bzl", _flutter_test = "flutter_test")
+load("//flutter/private:flutter_test.bzl", _flutter_test = "flutter_test", _flutter_tester_binary = "flutter_tester_binary")
 
 flutter_aot_target = _flutter_aot_target
 
@@ -76,3 +77,4 @@ flutter_library = _flutter_library
 flutter_native_library = _flutter_native_library
 flutter_plugin = _flutter_plugin
 flutter_test = _flutter_test
+flutter_tester_binary = _flutter_tester_binary

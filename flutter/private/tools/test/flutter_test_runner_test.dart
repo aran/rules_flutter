@@ -293,4 +293,82 @@ void main() {
       expect(runner.testCeiling('0'), const Duration(minutes: 5));
     });
   });
+
+  group('libraryPathEnvironment', () {
+    test('sets nothing without a staged directory', () {
+      expect(runner.libraryPathEnvironment(null, const {}, 'macos'), isEmpty);
+    });
+
+    test('names the directory on each host loader path', () {
+      expect(runner.libraryPathEnvironment('/r/x.native', const {}, 'macos'), {
+        'DYLD_LIBRARY_PATH': '/r/x.native',
+      });
+      expect(runner.libraryPathEnvironment('/r/x.native', const {}, 'linux'), {
+        'LD_LIBRARY_PATH': '/r/x.native',
+      });
+    });
+
+    test('goes ahead of the path the caller set', () {
+      expect(
+        runner.libraryPathEnvironment('/r/x.native', const {
+          'LD_LIBRARY_PATH': '/usr/local/lib',
+        }, 'linux'),
+        {'LD_LIBRARY_PATH': '/r/x.native:/usr/local/lib'},
+      );
+    });
+  });
+
+  group('a binary finds its own runfiles', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('runner_launch'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('in a directory beside it, with its launch data', () {
+      final exe = '${tmp.path}/tool';
+      File('$exe.runfiles/tool.launch.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"A": "1"}');
+
+      final r = runner.runfilesBeside(exe)!;
+
+      expect(runner.readLaunchEnvironment(r, exe), {'A': '1'});
+    });
+
+    test('in a manifest beside it when there is no directory', () {
+      final exe = '${tmp.path}/tool';
+      final data = File('${tmp.path}/elsewhere/data.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"B": "2"}');
+      File(
+        '$exe.runfiles_manifest',
+      ).writeAsStringSync('tool.launch.json ${data.path}\n');
+
+      final r = runner.runfilesBeside(exe)!;
+
+      expect(runner.readLaunchEnvironment(r, exe), {'B': '2'});
+    });
+
+    test('under a .exe name, as on Windows', () {
+      final exe = '${tmp.path}/tool.exe';
+      File('$exe.runfiles/tool.launch.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"C": "3"}');
+
+      final r = runner.runfilesBeside(exe)!;
+
+      expect(runner.readLaunchEnvironment(r, exe), {'C': '3'});
+    });
+
+    test('and no other: nothing beside it is null, whatever the caller '
+        'exported', () {
+      expect(runner.runfilesBeside('${tmp.path}/tool'), isNull);
+    });
+
+    test('a manifest lists runfiles paths and real paths', () {
+      expect(
+        runner.parseRunfilesManifest(['a/b /x/y', 'c /z w', 'bad']),
+        {'a/b': '/x/y', 'c': '/z w'},
+      );
+    });
+  });
 }

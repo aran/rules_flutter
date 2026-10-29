@@ -74,8 +74,116 @@ bool parseUpdateGoldens(List<String> args, String? workspaceDir) {
   return update;
 }
 
+/// The runfiles tree of the program started as [executable], or null.
+///
+/// Unlike `Runfiles.create`, which trusts `RUNFILES_DIR` first, this looks
+/// only beside [executable]: a `RUNFILES_DIR` inherited from a caller names
+/// the caller's tree, not this program's. A directory or, where Bazel makes
+/// only a manifest, `<executable>.runfiles_manifest` is found; `.exe` is
+/// spelled both ways as on Windows.
+///
+/// Public, like [testCeiling], because the test reaches it directly.
+Runfiles? runfilesBeside(String executable) {
+  final withoutExe = executable.endsWith('.exe')
+      ? executable.substring(0, executable.length - 4)
+      : executable;
+  final names = {executable, withoutExe, '$withoutExe.exe'};
+  for (final name in names) {
+    final dir = Directory('$name.runfiles');
+    if (dir.existsSync()) {
+      final root = dir.resolveSymbolicLinksSync();
+      final mapping = File('$root/_repo_mapping');
+      return Runfiles.fromState(
+        directory: root,
+        repoMapping: mapping.existsSync()
+            ? Runfiles.parseRepoMapping(mapping.readAsStringSync())
+            : null,
+      );
+    }
+  }
+  for (final name in names) {
+    final file = File('$name.runfiles_manifest');
+    if (file.existsSync()) {
+      final manifest = parseRunfilesManifest(file.readAsLinesSync());
+      final mapping = manifest['_repo_mapping'];
+      return Runfiles.fromState(
+        manifest: manifest,
+        repoMapping: mapping == null
+            ? null
+            : Runfiles.parseRepoMapping(File(mapping).readAsStringSync()),
+      );
+    }
+  }
+  return null;
+}
+
+/// A runfiles manifest's `<runfiles path> <real path>` lines as a map.
+///
+/// Public, like [testCeiling], because the test reaches it directly.
+Map<String, String> parseRunfilesManifest(Iterable<String> lines) {
+  final result = <String, String>{};
+  for (final line in lines) {
+    final space = line.indexOf(' ');
+    if (space < 0) continue;
+    result[line.substring(0, space)] = line.substring(space + 1);
+  }
+  return result;
+}
+
+/// The start-up settings a `flutter_tester_binary` carries as
+/// `<name>.launch.json` at the root of its own runfiles: a JSON object of
+/// environment variables.
+///
+/// Public, like [testCeiling], because the test reaches it directly.
+Map<String, String> readLaunchEnvironment(
+  Runfiles runfiles,
+  String executable,
+) {
+  var name = executable.split(RegExp(r'[/\\]')).last;
+  if (name.endsWith('.exe')) name = name.substring(0, name.length - 4);
+  final path = runfiles.rlocation('$name.launch.json');
+  final file = File(path);
+  if (!file.existsSync()) {
+    throw StateError('flutter_test runner: no launch data at $path');
+  }
+  return (json.decode(file.readAsStringSync()) as Map<String, dynamic>)
+      .cast<String, String>();
+}
+
+/// The directory holding the runfile [key], whose own entry may be absent.
+///
+/// A manifest lists files, not directories, so a directory is found through
+/// a file known to be under it.
+String _directoryOf(Runfiles runfiles, String key) =>
+    File(runfiles.rlocation(key)).absolute.parent.path;
+
 void main(List<String> args) async {
-  final r = Runfiles.create();
+  // A flutter_test is handed its settings by Bazel's test environment. A
+  // flutter_tester_binary carries them in its own runfiles, because the
+  // build action that runs it as a tool has no environment for it.
+  final Map<String, String> settings;
+  final Runfiles r;
+  if (Platform.environment['FLUTTER_TEST_DILL'] != null) {
+    settings = Platform.environment;
+    r = Runfiles.create();
+  } else {
+    final own = runfilesBeside(Platform.executable);
+    if (own == null) {
+      stderr.writeln(
+        'flutter_test runner: no runfiles beside ${Platform.executable}, and '
+        'no FLUTTER_TEST_DILL in the environment.',
+      );
+      exit(64);
+    }
+    r = own;
+    settings = {
+      ...Platform.environment,
+      ...readLaunchEnvironment(r, Platform.executable),
+    };
+  }
+  final launched = identical(settings, Platform.environment)
+      ? const <String, String>{}
+      : settings;
 
   final bool updateGoldens;
   try {
@@ -88,10 +196,10 @@ void main(List<String> args) async {
     exit(64);
   }
 
-  final testerKey = Platform.environment['FLUTTER_TEST_TESTER'];
-  final icuKey = Platform.environment['FLUTTER_TEST_ICU'];
-  final dillKey = Platform.environment['FLUTTER_TEST_DILL'];
-  final assetsKey = Platform.environment['FLUTTER_TEST_ASSETS'];
+  final testerKey = settings['FLUTTER_TEST_TESTER'];
+  final icuKey = settings['FLUTTER_TEST_ICU'];
+  final dillKey = settings['FLUTTER_TEST_DILL'];
+  final assetsKey = settings['FLUTTER_TEST_ASSETS'];
   if (testerKey == null || icuKey == null || dillKey == null) {
     stderr.writeln(
       'flutter_test runner: FLUTTER_TEST_TESTER, FLUTTER_TEST_ICU, and '
@@ -104,15 +212,21 @@ void main(List<String> args) async {
   final icu = r.rlocation(icuKey);
   final dill = r.rlocation(dillKey);
   final assetsDir = assetsKey == null ? null : r.rlocation(assetsKey);
-  final testPath = Platform.environment['FLUTTER_TEST_PATH'] ?? 'test.dart';
+  final nativeFile = settings['FLUTTER_TEST_NATIVE_FILE'];
+  final loader = libraryPathEnvironment(
+    nativeFile == null ? null : _directoryOf(r, nativeFile),
+    Platform.environment,
+    Platform.operatingSystem,
+  );
+  final testPath = settings['FLUTTER_TEST_PATH'] ?? 'test.dart';
   final coverageOutput = Platform.environment['COVERAGE_OUTPUT_FILE'];
   final coverageLibraries =
-      Platform.environment['FLUTTER_TEST_COVERAGE_LIBRARIES']?.split('\n') ??
+      settings['FLUTTER_TEST_COVERAGE_LIBRARIES']?.split('\n') ??
       const <String>[];
 
   final TestSelection selection;
   try {
-    selection = TestSelection.fromEnvironment(Platform.environment);
+    selection = TestSelection.fromEnvironment(settings);
   } on FormatException catch (e) {
     stderr.writeln('flutter_test runner: ${e.message}');
     exit(64);
@@ -133,8 +247,37 @@ void main(List<String> args) async {
     updateGoldens: updateGoldens,
     selection: selection,
     xmlOutput: Platform.environment['XML_OUTPUT_FILE'],
-    impeller: Platform.environment['FLUTTER_TEST_IMPELLER'] == '1',
+    impeller: settings['FLUTTER_TEST_IMPELLER'] == '1',
+    loader: {...launched, ...loader},
   );
+}
+
+/// The loader's search path for a `flutter_tester_binary`'s Native Assets.
+///
+/// Its kernel names each bundled library by filename alone, so the program
+/// may run from any working directory; this puts [nativeDir], where they are
+/// staged, ahead of the search path [environment] already has. Empty when
+/// there is no such directory, as for every `flutter_test`, whose libraries
+/// are named by their paths under the runfiles root it runs in.
+///
+/// Public, like [testCeiling], because the test reaches it directly.
+Map<String, String> libraryPathEnvironment(
+  String? nativeDir,
+  Map<String, String> environment,
+  String os,
+) {
+  if (nativeDir == null) return const {};
+  final variable = switch (os) {
+    'macos' => 'DYLD_LIBRARY_PATH',
+    'linux' => 'LD_LIBRARY_PATH',
+    _ => throw UnsupportedError('flutter_tester_binary: no loader path on $os'),
+  };
+  final existing = environment[variable];
+  return {
+    variable: existing == null || existing.isEmpty
+        ? nativeDir
+        : '$nativeDir:$existing',
+  };
 }
 
 Future<int> _runOnce({
@@ -149,6 +292,7 @@ Future<int> _runOnce({
   required TestSelection selection,
   required String? xmlOutput,
   required bool impeller,
+  required Map<String, String> loader,
 }) async {
   final harness = await _Harness.bind();
   try {
@@ -164,6 +308,7 @@ Future<int> _runOnce({
       selection: selection,
       xmlOutput: xmlOutput,
       impeller: impeller,
+      loader: loader,
     );
   } finally {
     await harness.dispose();
@@ -311,6 +456,7 @@ class _Harness {
     required TestSelection selection,
     required String? xmlOutput,
     required bool impeller,
+    required Map<String, String> loader,
   }) async {
     final enableVmService = coverageOutput != null;
     // Coverage does not start the tester paused, and `flutter test --coverage`
@@ -357,6 +503,7 @@ class _Harness {
         // default, which is how the comparator also sees
         // BUILD_WORKSPACE_DIRECTORY and TEST_UNDECLARED_OUTPUTS_DIR.
         if (updateGoldens) 'FLUTTER_TEST_UPDATE_GOLDENS': '1',
+        ...loader,
       },
     );
 

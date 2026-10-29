@@ -3,7 +3,7 @@ load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
 load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
-load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_library", "flutter_test")
+load("@rules_flutter//flutter:defs.bzl", "flutter_aot_target", "flutter_application", "flutter_asset_bundle", "flutter_kernel_target", "flutter_library", "flutter_test", "flutter_tester_binary")
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
@@ -248,6 +248,45 @@ flutter_test(
     deps = [
         "@deps//:flutter",
         "@deps//:flutter_test",
+    ],
+)
+
+# Exercises: `flutter_tester_binary` as a build action's tool. The program
+# draws with Impeller and writes a PNG into the action's outputs, which are
+# not `testonly`; the test reads that output.
+flutter_tester_binary(
+    name = "render_swatch",
+    package_name = "hello_world",
+    enable_impeller = True,
+    main = "tool/render_swatch.dart",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+genrule(
+    name = "swatch",
+    outs = ["swatch.png"],
+    cmd = "RENDER_OUT=$@ $(execpath :render_swatch)",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    tools = [":render_swatch"],
+)
+
+dart_test(
+    name = "verify_rendered_swatch_test",
+    data = [":swatch"],
+    main = "test/verify_rendered_swatch_test.dart",
+    deps = [
+        "@deps//:test",
+        "@rules_dart//dart/runfiles",
     ],
 )
 

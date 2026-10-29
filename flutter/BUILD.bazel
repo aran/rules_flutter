@@ -23,6 +23,16 @@ toolchain_type(
     visibility = ["//visibility:public"],
 )
 
+# Where a `flutter_tester_binary` runs: on a host of its target's OS and CPU,
+# which is where `bazel run` or the action using it as a tool starts it. Only
+# those two constraints, not the whole target platform: an app's platform may
+# carry others (Apple's, say) that no execution platform has. Its toolchains,
+# one per host Flutter ships flutter_tester for, are `@flutter_toolchains`'s.
+toolchain_type(
+    name = "run_host_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
 # Flutter's profile mode: AOT like release, with the Dart VM service kept so
 # DevTools can attach. Applies with `-c opt` only:
 #
