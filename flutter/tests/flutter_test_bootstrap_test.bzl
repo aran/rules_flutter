@@ -9,6 +9,7 @@ compile — so asserting on the generated source is the only way to see it.
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:flutter_test.bzl", "make_bootstrap_content")
+load("//flutter/private:test_config.bzl", "find_test_config")
 
 _TEST_IMPORT = "../../pkg/test/widget_test.dart"
 _COMPARATOR_IMPORT = "my_test.golden_comparator.dart"
@@ -71,9 +72,65 @@ def _bootstrap_keeps_its_contract_either_way_test_impl(ctx):
         asserts.true(env, "FLUTTER_TEST_HARNESS_PORT" in result)
     return unittest.end(env)
 
+def _test_config_wraps_main_after_goldens_test_impl(ctx):
+    """A config's `testExecutable` is handed the suite's main, as upstream.
+
+    After the comparator is installed, so a config that sets its own
+    `goldenFileComparator` wins, as it does under `flutter test`.
+    """
+    env = unittest.begin(ctx)
+    config = "../../pkg/test/flutter_test_config.dart"
+    result = make_bootstrap_content(
+        _TEST_IMPORT,
+        golden_comparator_import = _COMPARATOR_IMPORT,
+        test_config_import = config,
+    )
+    asserts.true(env, "import '%s' as test_config;" % config in result)
+    returned = "return () => test_config.testExecutable(_runTestMain);"
+    asserts.true(env, returned in result)
+    asserts.true(env, "return _runTestMain;" not in result)
+    asserts.true(env, result.find("goldens.installBazelGoldenFileComparator();") < result.find(returned))
+    return unittest.end(env)
+
+def _find_test_config_walks_like_flutter_test_test_impl(ctx):
+    """The nearest config up from the test, ending after the pubspec's directory."""
+    env = unittest.begin(ctx)
+
+    def finds(files, main):
+        return find_test_config(main, lambda path: path in files)
+
+    # The nearest wins.
+    asserts.equals(env, "test/a/flutter_test_config.dart", finds(
+        ["test/a/flutter_test_config.dart", "test/flutter_test_config.dart"],
+        "test/a/b_test.dart",
+    ))
+
+    # Up through directories without one, to the package root.
+    asserts.equals(env, "flutter_test_config.dart", finds(
+        ["flutter_test_config.dart"],
+        "test/a/b/c_test.dart",
+    ))
+
+    # The pubspec's directory is still searched, but nothing above it.
+    asserts.equals(env, "app/flutter_test_config.dart", finds(
+        ["app/pubspec.yaml", "app/flutter_test_config.dart"],
+        "app/test/x_test.dart",
+    ))
+    asserts.equals(env, None, finds(
+        ["app/pubspec.yaml", "flutter_test_config.dart"],
+        "app/test/x_test.dart",
+    ))
+
+    # A test at the package root, with and without one beside it.
+    asserts.equals(env, "flutter_test_config.dart", finds(["flutter_test_config.dart"], "x_test.dart"))
+    asserts.equals(env, None, finds([], "x_test.dart"))
+    return unittest.end(env)
+
 _t0_test = unittest.make(_golden_block_present_with_flutter_test_test_impl)
 _t1_test = unittest.make(_golden_block_absent_without_flutter_test_test_impl)
 _t2_test = unittest.make(_bootstrap_keeps_its_contract_either_way_test_impl)
+_t3_test = unittest.make(_test_config_wraps_main_after_goldens_test_impl)
+_t4_test = unittest.make(_find_test_config_walks_like_flutter_test_test_impl)
 
 def flutter_test_bootstrap_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test)

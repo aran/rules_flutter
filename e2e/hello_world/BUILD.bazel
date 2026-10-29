@@ -290,6 +290,29 @@ dart_test(
     ],
 )
 
+# Exercises: `flutter_test_config.dart`, found as `flutter test` finds it, two
+# directories up from the test.
+flutter_test(
+    name = "test_config_test",
+    package_name = "hello_world",
+    main = "test/configured/nested/test_config_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+# The same, with `main` spelled as an absolute label in this package.
+flutter_test(
+    name = "test_config_label_test",
+    package_name = "hello_world",
+    main = "//:test/configured/nested/test_config_test.dart",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
 flutter_test(
     name = "bazel_protocol_test",
     package_name = "hello_world",

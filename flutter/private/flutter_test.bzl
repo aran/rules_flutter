@@ -81,7 +81,7 @@ load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "collect_
 # a host with flutter_tester and nothing else.
 _TEST = "test"
 
-def make_bootstrap_content(test_relative_import, golden_comparator_import = None):
+def make_bootstrap_content(test_relative_import, golden_comparator_import = None, test_config_import = None):
     """Generate the per-test bootstrap Dart source.
 
     The bootstrap is the kernel entry point flutter_tester loads. It calls
@@ -105,10 +105,21 @@ def make_bootstrap_content(test_relative_import, golden_comparator_import = None
             to the user's test source (e.g. `../../e2e/foo/test/widget_test.dart`).
         golden_comparator_import: Import URI for the staged golden comparator,
             or None to emit no golden block (a `test_api`-only suite).
+        test_config_import: Import URI for the suite's `flutter_test_config.dart`,
+            or None. Its `testExecutable` is handed the suite's main and runs
+            it, as `flutter test` runs it, after the golden comparator is
+            installed so the config can replace it.
 
     Returns:
         Dart source string.
     """
+    if test_config_import:
+        config_import = "import '{}' as test_config;\n".format(test_config_import)
+        returned_main = "() => test_config.testExecutable(_runTestMain)"
+    else:
+        config_import = ""
+        returned_main = "_runTestMain"
+
     if golden_comparator_import:
         golden_import = "import '{}' as goldens;\n".format(golden_comparator_import)
         golden_install = "    goldens.installBazelGoldenFileComparator();\n"
@@ -130,7 +141,7 @@ import 'dart:isolate';
 import 'package:test_api/backend.dart';
 
 import '{test_import}' as test;
-{golden_import}
+{golden_import}{config_import}
 void _catchIsolateErrors() {{
   final errorPort = ReceivePort();
   Isolate.current.setErrorsFatal(false);
@@ -159,7 +170,7 @@ Future<void> main() async {{
 
   final testChannel = RemoteListener.start(() {{
     _catchIsolateErrors();
-{golden_install}    return _runTestMain;
+{golden_install}    return {returned_main};
   }});
 
   // 127.0.0.1 and not `localhost`: deliberately the same address family the
@@ -185,6 +196,8 @@ Future<void> main() async {{
         test_import = test_relative_import,
         golden_import = golden_import,
         golden_install = golden_install,
+        config_import = config_import,
+        returned_main = returned_main,
     )
 
 def _kernel_root_path(short_path):
@@ -439,11 +452,17 @@ def _program(ctx, kind, runner_tools, asset_deps, named_assets, layout):
     # bootstrap under the filesystem roots both compile modes mount, so the
     # import names no configuration.
     bootstrap = ctx.actions.declare_file(ctx.label.name + "_bootstrap.dart")
-    test_import = "../" * _kernel_root_path(bootstrap.short_path).count("/") + _kernel_root_path(ctx.file.main.short_path)
+    to_root = "../" * _kernel_root_path(bootstrap.short_path).count("/")
+    config = ctx.file.test_config
     ctx.actions.write(bootstrap, make_bootstrap_content(
-        test_import,
+        to_root + _kernel_root_path(ctx.file.main.short_path),
         golden_comparator_import = staged_comparator.basename if staged_comparator else None,
+        test_config_import = to_root + _kernel_root_path(config.short_path) if config else None,
     ))
+
+    # The files that are the user's own and in no package: the main, and the
+    # `flutter_test_config.dart` that wraps it.
+    entry_files = [ctx.file.main] + ([config] if config else [])
 
     # Register the test's own package so `package:<self>/foo` imports inside
     # test sources resolve.
@@ -455,7 +474,7 @@ def _program(ctx, kind, runner_tools, asset_deps, named_assets, layout):
         ctx.attr.language_version,
     )
 
-    own_srcs = list(ctx.files.srcs) + [ctx.file.main]
+    own_srcs = list(ctx.files.srcs) + entry_files
     if staged_comparator:
         own_srcs.append(staged_comparator)
     kernel_dill = ctx.actions.declare_file(ctx.label.name + ".dill")
@@ -529,7 +548,7 @@ def _program(ctx, kind, runner_tools, asset_deps, named_assets, layout):
         OutputGroupInfo(_validation = import_check_validation(
             ctx,
             ctx.executable._kernel_tool,
-            [ctx.file.main] + ctx.files.srcs,
+            entry_files + ctx.files.srcs,
             # `synthesize_app_package` appends the test's own package last.
             packages[-1],
             ctx.attr.deps,
@@ -568,7 +587,7 @@ def _program(ctx, kind, runner_tools, asset_deps, named_assets, layout):
             package_name = ctx.attr.package_name,
             lib_root = derive_lib_root(ctx.label.workspace_root, ctx.label.package),
             deps = ctx.attr.deps + [ctx.attr._sky_engine],
-            srcs = [ctx.file.main],
+            srcs = entry_files,
             package_srcs = ctx.files.srcs,
             # The same version the compile path above states. Analysis reading
             # a different one than the compiler is the divergence this attr
@@ -626,7 +645,7 @@ def _compile_whole_program(ctx, tools, bootstrap, own_srcs, packages, native_ass
         # path to the test.
         entrypoint_uri = _own_source_uri(bootstrap, modular = False),
         # The bootstrap's output root and the test's source root.
-        filesystem_root_files = [bootstrap, ctx.file.main],
+        filesystem_root_files = [bootstrap, ctx.file.main] + ([ctx.file.test_config] if ctx.file.test_config else []),
         srcs = pc.srcs,
         package_config = pc.config_file,
         output = kernel_dill,
@@ -700,6 +719,15 @@ _TEST_ATTRS["data"] = attr.label_list(
 # The five `FLUTTER_TEST_*` keys the rule sets are the runner's start-up
 # contract; supplying one is rejected in the implementation rather than
 # silently honoured or silently dropped.
+_TEST_ATTRS["test_config"] = attr.label(
+    doc = "The suite's `flutter_test_config.dart`: its " +
+          "`testExecutable(FutureOr<void> Function() testMain)` runs the " +
+          "suite, as under `flutter test`. `flutter_test` finds it itself, " +
+          "the way `flutter test` does; name one here only when it is above " +
+          "the BUILD file's package, where that search cannot see.",
+    allow_single_file = [".dart"],
+)
+
 _TEST_ATTRS["enable_impeller"] = attr.bool(
     doc = "Render with Impeller in flutter_tester, as `flutter test " +
           "--enable-impeller` does, instead of software Skia. A test that " +
@@ -858,6 +886,15 @@ _BINARY_ATTRS = {
     for k, v in _TEST_ATTRS.items()
     if k != "_tool"
 }
+
+_BINARY_ATTRS["test_config"] = attr.label(
+    doc = "A `flutter_test_config.dart` whose " +
+          "`testExecutable(FutureOr<void> Function() testMain)` runs the " +
+          "program, as it runs a suite under `flutter test`. Unlike " +
+          "`flutter_test`'s, it is not searched for: a binary runs through " +
+          "one only when it names it.",
+    allow_single_file = [".dart"],
+)
 
 _BINARY_ATTRS["_tool"] = attr.label(
     default = Label("//flutter/private/tools:flutter_test_runner"),

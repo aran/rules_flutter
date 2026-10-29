@@ -1233,6 +1233,8 @@ It takes the compile attributes of `flutter_application` (`main`, `srcs`, `deps`
 
 `enable_impeller = True` renders with Impeller in `flutter_tester`, as `flutter test --enable-impeller` does, instead of software Skia. A test that draws a shader SkSL cannot compile needs it, and so does a golden meant to match an Impeller device. Shaders are compiled for `flutter_tester` either way, with the SkSL and Vulkan stages `flutter test` gives them.
 
+A `flutter_test_config.dart` wraps the suite as it does under `flutter test`: its `testExecutable(FutureOr<void> Function() testMain)` is handed the suite and runs it, so setup shared by every test in a directory lives in one file. The config used is the nearest one walking up from `main`'s directory, and the walk ends after the directory holding `pubspec.yaml`. Bazel can see only the BUILD file's own package, so the walk also ends there; name a config above it with `test_config = "//path:flutter_test_config.dart"`. The config is compiled into the test like its `main`, and its imports come from the test's `deps`.
+
 Bazel's test protocol applies, as it does to `dart_test`:
 
 - **Time.** The target's `size` or `timeout` replaces `package:test`'s 30-second default, so a test with no `timeout:` of its own runs as long as Bazel lets the target run. A `timeout:` written on a test still applies, and `Timeout.factor` scales Bazel's limit.

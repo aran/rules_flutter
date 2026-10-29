@@ -48,6 +48,7 @@ load("//flutter/private:flutter_library.bzl", _flutter_library = "flutter_librar
 load("//flutter/private:flutter_native_library.bzl", _flutter_native_library = "flutter_native_library")
 load("//flutter/private:flutter_plugin.bzl", _flutter_plugin = "flutter_plugin")
 load("//flutter/private:flutter_test.bzl", _flutter_test = "flutter_test", _flutter_tester_binary = "flutter_tester_binary")
+load("//flutter/private:test_config.bzl", "find_test_config")
 
 flutter_aot_target = _flutter_aot_target
 
@@ -76,5 +77,33 @@ flutter_kernel_target = _flutter_kernel_target
 flutter_library = _flutter_library
 flutter_native_library = _flutter_native_library
 flutter_plugin = _flutter_plugin
-flutter_test = _flutter_test
+
+def flutter_test(name, main, test_config = None, **kwargs):
+    """Compiles a Flutter test and runs it under flutter_tester.
+
+    Like `flutter test`, runs the suite through the nearest
+    `flutter_test_config.dart`: the first found walking up from `main`'s
+    directory, ending after the directory holding `pubspec.yaml`. The search
+    sees only this BUILD file's package; name a config above it with
+    `test_config`. See the rule's own docs for every other attribute.
+
+    Args:
+        name: Target name.
+        main: The test's entry point.
+        test_config: The suite's `flutter_test_config.dart`, in place of the
+            one the search would find.
+        **kwargs: Forwarded to the rule.
+    """
+    if test_config == None and type(main) in ("string", "Label"):
+        # `main` as a path in this package, however it is spelled: the search
+        # sees nothing outside the package.
+        label = native.package_relative_label(main)
+        here = native.package_relative_label(":" + name)
+        if (label.repo_name, label.package) == (here.repo_name, here.package):
+            test_config = find_test_config(
+                label.name,
+                lambda path: bool(native.glob([path], allow_empty = True)),
+            )
+    _flutter_test(name = name, main = main, test_config = test_config, **kwargs)
+
 flutter_tester_binary = _flutter_tester_binary
