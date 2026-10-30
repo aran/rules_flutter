@@ -1,7 +1,8 @@
 """Sources for `native_sources_test`: a native library built from checked-in
-files, one of its dependencies, and one generated file the aspect must leave
-out."""
+files, one of its dependencies, one generated file the aspect must leave out,
+and the library again behind a wrapper that moves it."""
 
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 
@@ -36,4 +37,13 @@ cc_library(
 cc_shared_library(
     name = "bridge",
     deps = [":bridge_cc"],
+)
+
+# The library moved under `vendor/lib/` by a wrapper, the way an app bundles one
+# that must not sit at its package root. Its sources are the library's own: an
+# edit to `bridge.c` changes these bytes as much as the original's.
+copy_file(
+    name = "vendored_bridge",
+    src = ":bridge",
+    out = "vendor/lib/libbridge.dylib",
 )

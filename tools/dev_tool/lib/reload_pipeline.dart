@@ -89,6 +89,19 @@ class ReloadPipeline {
   /// the bazel path entirely.
   Future<bool> Function()? refreshGenerated;
 
+  /// Rebuilds the native libraries [nativeLibsVerdict] reads, for a restart
+  /// with no relauncher to rebuild them — an `attach` run. Null where the
+  /// relauncher answers the restart, and for an app with no loose native
+  /// libraries.
+  ///
+  /// The built bytes are the authority on whether native code changed; the
+  /// declared sources the gate also reads are the cheaper, earlier signal, and
+  /// they miss any library whose sources the build cannot name. A reload
+  /// leaves the build out to stay instant. A restart is not that path, and
+  /// judging one from stats alone let it answer "successful" over a library
+  /// that a build would have moved.
+  Future<bool> Function()? rebuildNativeLibs;
+
   /// Tracks the built `flutter_assets` tree so an edit to a PNG or a font
   /// reaches the running app the way an edit to a `.dart` file does.
   AssetTracker? assetTracker;
@@ -743,6 +756,24 @@ class ReloadPipeline {
       // no relauncher. A restart re-runs `main()` in the same process over the
       // same mapped images, so it can no more deliver the new library than a
       // reload can, and saying so is all this run can do about it.
+      // Built first, so the gate compares the library a build makes of this
+      // tree — unless the codegen rebuild above already built the same target.
+      final rebuildLibs = rebuildNativeLibs;
+      if (relaunch == null &&
+          refreshGenerated == null &&
+          rebuildLibs != null &&
+          !await rebuildLibs()) {
+        return toWire(
+          CommandReport(
+            verb: 'Restart',
+            appIds: addressed,
+            assets: assets,
+            sourceRebuildFailed:
+                'Rebuilding the native libraries (bazel) failed; see build '
+                'output.',
+          ),
+        );
+      }
       final native = relaunch == null
           ? await _checkNativeLibs('Restart', addressed, assets)
           : null;

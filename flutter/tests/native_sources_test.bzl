@@ -40,4 +40,13 @@ def native_sources_test_suite(name):
         expected = ["bridge.c", "bridge.h", "helper.c"],
     )
 
-    native.test_suite(name = name, tests = [name + "_through_the_library_graph"])
+    _collects_test(
+        name = name + "_through_a_wrapper",
+        target_under_test = "//flutter/tests/native_sources_fixture:vendored_bridge",
+        expected = ["bridge.c", "bridge.h", "helper.c"],
+    )
+
+    native.test_suite(name = name, tests = [
+        name + "_through_the_library_graph",
+        name + "_through_a_wrapper",
+    ])

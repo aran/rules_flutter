@@ -30,7 +30,14 @@ NativeSourcesInfo = provider(
 # The attributes a native library reaches its own sources through. Named rather
 # than `*`: a walk over everything follows toolchains and their sources too, and
 # a `bazel-out` path among them would be stat-ed on every reload forever.
+#
+# `src` and `srcs` are how a wrapper takes the library it passes on — a
+# `copy_file` that moves a library under `vendor/lib/`, a genrule that renames
+# or stamps one. Without them the walk stops at the wrapper, the library has no
+# sources a reload can stat, and an edit to them is reported as nothing.
 _SOURCE_ATTRS = [
+    "src",
+    "srcs",
     "deps",
     "dynamic_deps",
     "exports",

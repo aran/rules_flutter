@@ -601,6 +601,17 @@ class NativePipelineAssembler {
     pipeline.nativeLibsVerdict = nativeLibs?.verdict;
 
     await _wireRelauncher(orchestrator, assetsDir, nativeLibs);
+    // No relauncher means nothing rebuilds the libraries on a restart, and the
+    // watch would judge from source stats alone — see
+    // `ReloadPipeline.rebuildNativeLibs`.
+    if (nativeLibs != null && pipeline.relaunchIfNativeLibsChanged == null) {
+      pipeline.rebuildNativeLibs = () async => (await host.bazel.build(
+        devAppLabel,
+        workspace: workspace,
+        compilationMode: 'dbg',
+        extraArgs: _devArgs,
+      )).success;
+    }
 
     pipeline.strategy = configDevice.createReloadStrategy();
     // What is true, not what was hoped for. A unit whose first compile failed

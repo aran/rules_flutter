@@ -106,6 +106,11 @@ enum _Library {
 
   /// Neither: every edit is one nothing can vouch for.
   undeclared,
+
+  /// Neither, and no sources the build can name either — a library reached
+  /// through a rule the source walk does not follow. Only its built bytes say
+  /// it changed.
+  sourceless,
 }
 
 class _World {
@@ -276,16 +281,28 @@ Future<SessionHost> _assemble(_World world, {required bool launched}) async {
   final watch = await NativeLibsWatch.of(
     {
       world.devLib: [
-        if (world.library != _Library.undeclared) world.header.path,
+        if (world.library case _Library.patchable || _Library.contracted)
+          world.header.path,
       ],
     },
     sources: {
-      world.devLib: [world.body.path, world.header.path],
+      world.devLib: [
+        if (world.library != _Library.sourceless) ...[
+          world.body.path,
+          world.header.path,
+        ],
+      ],
     },
   );
   pipeline.nativeLibsVerdict = watch.verdict;
 
   if (!launched) {
+    // What the assembler wires for a run with no relauncher: the dev build,
+    // which writes the libraries the watch reads.
+    pipeline.rebuildNativeLibs = () async {
+      File(world.devLib).writeAsBytesSync(world.image());
+      return true;
+    };
     pipeline.ready.signalReady();
     return host;
   }
@@ -426,39 +443,43 @@ void main() {
             if (reply['relaunched'] == true) running = world.image();
           }
 
-          for (final (name, edit) in edits) {
-            edit(world);
-            final reload = await run('app.hotReload');
-            track(reload);
-            if (clean(reload)) continue;
-            final advice = '${reload['message']}';
-
+          /// Hold [reply] to its advice: when it did not land, take the action
+          /// it names, check that action does what it said, and require the
+          /// tree to be delivered afterwards.
+          Future<void> settle(
+            String name,
+            String verb,
+            Map<String, dynamic> reply,
+          ) async {
+            if (clean(reply)) return;
+            final advice = '${reply['message']}';
             if (advice.contains('Stop the app, launch it again')) {
-              // The advice says a restart cannot deliver the edit. Hold it to
-              // that, then take the action it names instead.
-              final restart = await run('app.restart');
-              expect(
-                clean(restart),
-                isFalse,
-                reason:
-                    'after $name, the advice said a restart cannot deliver '
-                    'it, and the restart answered: ${restart['message']}',
-              );
+              if (verb == 'reload') {
+                // It says a restart cannot deliver the edit. Hold it to that.
+                final restart = await run('app.restart');
+                expect(
+                  clean(restart),
+                  isFalse,
+                  reason:
+                      'after $name, the advice said a restart cannot deliver '
+                      'it, and the restart answered: ${restart['message']}',
+                );
+              }
               host = await _assemble(world, launched: launched);
               running = world.image();
             } else {
               expect(
                 advice,
                 contains('restart (R'),
-                reason: 'after $name, the advice names no action: $advice',
+                reason: 'after $name, the $verb named no action: $advice',
               );
               final restart = await run('app.restart');
               expect(
                 clean(restart),
                 isTrue,
                 reason:
-                    'after $name, the advice named a restart and the restart '
-                    'answered: ${restart['message']}',
+                    'after $name, the $verb advised a restart and the '
+                    'restart answered: ${restart['message']}',
               );
               // It said a restart relaunches when the code the app runs
               // differs from what the tree builds, and restarts in place
@@ -482,6 +503,30 @@ void main() {
                   'after $name and the action its advice named, a reload over '
                   'the same tree answered: ${again['message']}',
             );
+          }
+
+          for (final (name, edit) in edits) {
+            edit(world);
+            final reload = await run('app.hotReload');
+            track(reload);
+            await settle(name, 'reload', reload);
+
+            // A reload runs no build, so it may miss what only a build shows.
+            // A restart may not: when it says it delivered the tree, the app
+            // runs what the tree builds.
+            final restart = await run('app.restart');
+            track(restart);
+            if (clean(restart)) {
+              expect(
+                running != null && _sameBytes(running!, world.image()),
+                isTrue,
+                reason:
+                    'after $name, a restart answered "${restart['message']}" '
+                    'while the app runs native code the tree no longer builds',
+              );
+            } else {
+              await settle(name, 'restart', restart);
+            }
           }
         });
       }
