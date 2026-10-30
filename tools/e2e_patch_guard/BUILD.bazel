@@ -1,0 +1,20 @@
+load("@rules_dart//dart:defs.bzl", "dart_test")
+load(":source_repo.bzl", "SOURCE_REPO")
+
+# The e2e workspaces each carry a copy of the same upstream-fix patches (they
+# are separate Bazel projects and cannot share files). This fails when copies
+# of one patch drift apart.
+dart_test(
+    name = "patches_identical_test",
+    size = "small",
+    data = ["@e2e_patches//:patches"],
+    env = {
+        "RUNFILES_SOURCE_REPO": SOURCE_REPO,
+        "E2E_PATCHES_INDEX": "e2e_patches/index.txt",
+    },
+    main = "patches_identical_test.dart",
+    deps = [
+        "@dev_tool_deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
