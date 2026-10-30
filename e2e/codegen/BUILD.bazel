@@ -1,3 +1,4 @@
+load("@bazel_lib//lib:transitions.bzl", "platform_transition_test")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
@@ -264,6 +265,36 @@ flutter_test(
         "@deps//:flutter",
         "@deps//:flutter_test",
     ],
+)
+
+# Exercises: a `flutter_test` run under a platform transition, the way a test
+# is built for, and so run on, a platform the command line did not name. The
+# platform is this host again, so the test runs here; its one flag is the
+# proof the transition happened, a define the suite requires. The native code
+# asset is built for the transitioned platform and must still load.
+platform(
+    name = "host_transitioned",
+    flags = ["--@rules_flutter//flutter:extra_dart_defines=PLATFORM_TRANSITIONED=true"],
+    parents = ["@platforms//host"],
+)
+
+flutter_test(
+    name = "transitioned_native_asset_test_untransitioned",
+    package_name = "codegen_e2e",
+    main = "test/transitioned_native_asset_test.dart",
+    # Fails untransitioned, by design; only the transition below runs it.
+    tags = ["manual"],
+    deps = [
+        "//native_add",
+        "@deps//:flutter",
+        "@deps//:flutter_test",
+    ],
+)
+
+platform_transition_test(
+    name = "transitioned_native_asset_test",
+    binary = ":transitioned_native_asset_test_untransitioned",
+    target_platform = ":host_transitioned",
 )
 
 # Exercises: Native Assets in a `flutter_tester_binary` started as a build
