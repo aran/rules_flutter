@@ -35,6 +35,8 @@ NativeSourcesInfo = provider(
 # `copy_file` that moves a library under `vendor/lib/`, a genrule that renames
 # or stamps one. Without them the walk stops at the wrapper, the library has no
 # sources a reload can stat, and an edit to them is reported as nothing.
+#
+# `shared_library` is how rules_dart's `dart_code_asset` takes its library.
 _SOURCE_ATTRS = [
     "src",
     "srcs",
@@ -46,6 +48,7 @@ _SOURCE_ATTRS = [
     "roots",
     "proc_macro_deps",
     "crate",
+    "shared_library",
 ]
 
 def _native_sources_aspect_impl(_target, ctx):

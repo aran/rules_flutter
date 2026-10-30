@@ -1,10 +1,12 @@
 """Sources for `native_sources_test`: a native library built from checked-in
 files, one of its dependencies, one generated file the aspect must leave out,
-and the library again behind a wrapper that moves it."""
+and the library again behind a wrapper that moves it and as a Dart code
+asset."""
 
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_dart//dart:defs.bzl", "dart_code_asset")
 
 package(default_visibility = [
     "//flutter/tests:__pkg__",
@@ -46,4 +48,11 @@ copy_file(
     name = "vendored_bridge",
     src = ":bridge",
     out = "vendor/lib/libbridge.dylib",
+)
+
+# The library as rules_dart's code asset, which takes it as `shared_library`.
+dart_code_asset(
+    name = "bridge_code_asset",
+    asset_id = "package:native_sources_fixture/bridge",
+    shared_library = ":bridge",
 )
