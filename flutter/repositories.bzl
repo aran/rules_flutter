@@ -319,6 +319,7 @@ flutter_exec_tools(
     patched_sdk = ":patched_sdk",
     platform_kernel_dill = "patched-sdk/flutter_patched_sdk/platform_strong.dill",
     platform_kernel_dill_product = "patched-sdk-product/flutter_patched_sdk_product/platform_strong.dill",
+    shader_include_dir = "host-tools/shader_lib",
     shader_lib = ":shader_lib_files",
     version = "{flutter_version}",
     vm_isolate_snapshot = "host-tools/vm_isolate_snapshot.bin",

@@ -65,6 +65,9 @@ FlutterExecToolsInfo = provider(
         "font_subset": "File: The `font-subset` binary for font subsetting.",
         "impellerc": "File: The `impellerc` shader compiler binary.",
         "shader_lib": "list[File]: Shader include files for impellerc (shader_lib/ directory contents).",
+        "shader_include_dir": "str: The execution path of the directory holding `shader_lib`, which " +
+                              "impellerc takes as `--include`. A source directory, so path mapping " +
+                              "leaves it as it is.",
         "tool_files": "depset[File]: All files needed to run the Dart tools above (for use in action inputs).",
     },
 )

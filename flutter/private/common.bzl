@@ -619,6 +619,7 @@ def flutter_compile_shaders(ctx, tools, target_platform):
             ctx = ctx,
             impellerc = tools.impellerc,
             shader_lib = tools.shader_lib,
+            shader_include_dir = tools.shader_include_dir,
             shader = job.file,
             output = output,
             target_platform = target_platform,

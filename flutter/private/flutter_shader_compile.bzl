@@ -40,13 +40,11 @@ def get_shader_platform_flags(target_platform):
              "Supported platforms: %s" % ", ".join(SHADER_PLATFORM_FLAGS.keys()))
     return SHADER_PLATFORM_FLAGS[target_platform]
 
-def _shader_lib_dir(file):
-    return file.path[:file.path.find("/shader_lib/") + len("/shader_lib")]
-
 def flutter_shader_compile_action(
         ctx,
         impellerc,
         shader_lib,
+        shader_include_dir,
         shader,
         output,
         target_platform,
@@ -62,6 +60,8 @@ def flutter_shader_compile_action(
         ctx: Rule context.
         impellerc: The impellerc executable File.
         shader_lib: List of shader_lib include Files.
+        shader_include_dir: The directory holding `shader_lib`, impellerc's
+            include root (`FlutterExecToolsInfo.shader_include_dir`).
         shader: The input .frag/.glsl shader File.
         output: The output .iplr File.
         target_platform: Target platform string ("ios", "macos", "android", "linux", "windows", "web").
@@ -76,15 +76,6 @@ def flutter_shader_compile_action(
         require_sksl: Make an SkSL failure an error instead of a warning.
     """
     platform_flags = get_shader_platform_flags(target_platform)
-
-    # Find the shader_lib root directory from any file in the filegroup.
-    shader_lib_file = None
-    for f in shader_lib:
-        if "/shader_lib/" in f.path:
-            shader_lib_file = f
-            break
-    if not shader_lib_file:
-        fail("%s: the Flutter toolchain's shader_lib has no file under a `shader_lib/` directory, which impellerc needs as an include root" % ctx.label)
 
     # impellerc requires a --spirv intermediate output alongside --sl when
     # using runtime stages (not platform flags). Declare it as a secondary output.
@@ -101,7 +92,7 @@ def flutter_shader_compile_action(
     args.add(shader, format = "--input=%s")
     args.add("--input-type=frag")
     args.add_all([shader], map_each = dirname, format_each = "--include=%s")
-    args.add_all([shader_lib_file], map_each = _shader_lib_dir, format_each = "--include=%s")
+    args.add(shader_include_dir, format = "--include=%s")
 
     inputs = [shader] + shader_lib + list(includes)
     retry_possible = "--sksl" in platform_flags and len(platform_flags) > 1
