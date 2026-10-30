@@ -141,6 +141,13 @@ void main() {
       expect(help, contains('app.*'));
     });
 
+    test('--machine help says what else it changes', () {
+      final help = RunCommand.parser.usage;
+      expect(help, contains('JSON-RPC'));
+      expect(help, contains('keyboard shortcuts'));
+      expect(help, contains('File watching defaults to off'));
+    });
+
     test('defaults --allow-no-vm-service to false', () {
       final results = RunCommand.parser.parse(['-t', '//:app']);
       expect(results['allow-no-vm-service'], isFalse);

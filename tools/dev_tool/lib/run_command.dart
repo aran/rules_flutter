@@ -109,7 +109,11 @@ class RunCommand {
     ..addFlag(
       'machine',
       defaultsTo: false,
-      help: 'Enable machine-readable JSON protocol.',
+      help:
+          'Drive the session over a JSON-RPC protocol on stdin/stdout, as an '
+          'editor does. The keyboard shortcuts (r, R, q) are off and '
+          'human-facing messages are not printed to stdout. File watching '
+          'defaults to off; pass --watch to turn it back on.',
     )
     ..addFlag(
       'watch',
