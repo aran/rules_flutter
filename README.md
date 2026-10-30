@@ -1879,7 +1879,7 @@ A reload after a native rebuild, with the bindings unchanged, delivers the edit 
 ```json
 {"succeeded":true,"runningCode":"updated",
  "nativeLibsStale":["…/libbridge.dylib"],
- "message":"Hot reload successful. …/libbridge.dylib was rebuilt and its bindings did not change, so the increment is live over the library the app already loaded — the new native code is not running. A restart (R) relaunches the app on it."}
+ "message":"Hot reload successful. …/libbridge.dylib was rebuilt and its bindings did not change, so the increment is live over the library the app already loaded — the new native code is not running. A restart (R, or `app.restart`) delivers it: it relaunches the app when the native code the app runs differs from what the tree builds, and otherwise restarts it in place."}
 ```
 
 With the bindings changed, or nothing declaring them, the edit is withheld:
@@ -1890,7 +1890,7 @@ With the bindings changed, or nothing declaring them, the edit is withheld:
  "message":"Hot reload withheld: …/libbridge.dylib changed, and so did what its bindings are generated from …"}
 ```
 
-Nothing is compiled and nothing is sent, so the app keeps the code and the library it launched with, and `app.restart` picks up the new one. `nativeLibsStale` means the same thing in both replies, and `succeeded` says whether the edit landed. The check costs no Bazel of its own: a `stat` per declared file, and a content hash only for a file the build rewrote.
+Nothing is compiled and nothing is sent, so the app keeps the code and the library it launched with, and `app.restart` picks up the new one. An `attach` run cannot replace a process it did not start, so there the reply says to launch the app again and attach to it instead. `nativeLibsStale` means the same thing in both replies, and `succeeded` says whether the edit landed. The check costs no Bazel of its own: a `stat` per declared file, and a content hash only for a file the build rewrote.
 
 A reload that patched native code into the app says what it patched, and `nativeReverted` lists libraries sent back to their launched code:
 

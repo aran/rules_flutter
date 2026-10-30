@@ -1,5 +1,6 @@
-/// Whatever a reload withholds over a native edit, the restart it advises
-/// works — and leaves the tool agreeing that it worked.
+/// Whatever a reload withholds over a native edit, the action its advice names
+/// works, does what the advice said it would, and leaves the tool agreeing
+/// that it worked.
 ///
 /// The reload and the restart decide from different evidence about one edit.
 /// The reload asks [NativeLibsWatch] (stats of sources, contracts and the dev
@@ -11,8 +12,12 @@
 ///
 /// So this drives all of them for real, over files a model build writes, and
 /// asserts one property across a sequence of native edits rather than one
-/// reply per case: a reload either lands cleanly, or it names a restart; that
-/// restart succeeds; and a reload after it, over the same tree, lands cleanly.
+/// reply per case: a reload either lands cleanly, or its advice names an
+/// action; that action does what the advice says; and a reload after it, over
+/// the same tree, lands cleanly. In a run that launched the app the action is a
+/// restart, which relaunches exactly when the code the app runs differs from
+/// what the tree builds. In an `attach` run it is launching the app again,
+/// and a restart — which it says cannot deliver the edit — must not.
 /// Only bazel, the device and the builder's own judgement are modelled.
 import 'dart:convert';
 import 'dart:io';
@@ -232,8 +237,13 @@ class _PatchTarget implements NativePatchTarget {
   };
 }
 
-/// A pipeline wired the way `NativePipelineAssembler` wires one, over [world].
-Future<SessionHost> _assemble(_World world) async {
+/// A pipeline wired the way `NativePipelineAssembler` wires one, over [world],
+/// for an app launched from the tree as it is now.
+///
+/// [launched] is whether the run launched the app. An `attach` run gets the
+/// watch and nothing else: no relauncher, because it may not replace a
+/// process it did not start, and no patcher, which is armed beside it.
+Future<SessionHost> _assemble(_World world, {required bool launched}) async {
   final host = SessionHost(isMachine: false, logger: Logger('test.advice'));
   final pipeline = ReloadPipeline(host: host);
   host.registerReloadCommands(pipeline);
@@ -274,6 +284,11 @@ Future<SessionHost> _assemble(_World world) async {
     },
   );
   pipeline.nativeLibsVerdict = watch.verdict;
+
+  if (!launched) {
+    pipeline.ready.signalReady();
+    return host;
+  }
 
   NativeHotPatcher? patcher;
   if (world.library == _Library.patchable) {
@@ -384,48 +399,100 @@ void main() {
     ),
   ];
 
-  for (final platform in _Platform.values) {
-    for (final library in _Library.values) {
-      test('on ${platform.name}, a ${library.name} library: every withheld '
-          'edit is delivered by the restart it advises', () async {
-        final tmp = await Directory.systemTemp.createTemp('restart_advice_');
-        addTearDown(() => tmp.delete(recursive: true));
-        final world = _World(tmp, platform, library)..setUp();
-        final host = await _assemble(world);
+  for (final launched in [true, false]) {
+    for (final platform in _Platform.values) {
+      for (final library in _Library.values) {
+        test('${launched ? 'launched' : 'attached'}, on ${platform.name}, a '
+            '${library.name} library: the advice names an action that works', () async {
+          final tmp = await Directory.systemTemp.createTemp('restart_advice_');
+          addTearDown(() => tmp.delete(recursive: true));
+          final world = _World(tmp, platform, library)..setUp();
+          var host = await _assemble(world, launched: launched);
 
-        Future<Map<String, dynamic>> run(String method) =>
-            host.commandRunner.run(method, {});
+          // What the process runs, in the model's terms: the image it
+          // launched from, or null while a patch has it on other code.
+          Uint8List? running = world.image();
 
-        bool clean(Map<String, dynamic> reply) =>
-            reply['succeeded'] == true && !reply.containsKey('nativeLibsStale');
+          Future<Map<String, dynamic>> run(String method) =>
+              host.commandRunner.run(method, {});
 
-        for (final (name, edit) in edits) {
-          edit(world);
-          final reload = await run('app.hotReload');
-          if (clean(reload)) continue;
-          expect(
-            reload['message'],
-            contains('restart (R'),
-            reason: 'after $name, a reload that did not land names the way on',
-          );
-          final restart = await run('app.restart');
-          expect(
-            clean(restart),
-            isTrue,
-            reason:
-                'after $name, the reload advised a restart and the restart '
-                'answered: ${restart['message']}',
-          );
-          final again = await run('app.hotReload');
-          expect(
-            clean(again),
-            isTrue,
-            reason:
-                'after $name and the restart it advised, a reload over the '
-                'same tree answered: ${again['message']}',
-          );
-        }
-      });
+          bool clean(Map<String, dynamic> reply) =>
+              reply['succeeded'] == true &&
+              !reply.containsKey('nativeLibsStale');
+
+          void track(Map<String, dynamic> reply) {
+            if (reply.containsKey('nativePatched')) running = null;
+            if (reply.containsKey('nativeReverted')) running = world.image();
+            if (reply['relaunched'] == true) running = world.image();
+          }
+
+          for (final (name, edit) in edits) {
+            edit(world);
+            final reload = await run('app.hotReload');
+            track(reload);
+            if (clean(reload)) continue;
+            final advice = '${reload['message']}';
+
+            if (advice.contains('Stop the app, launch it again')) {
+              // The advice says a restart cannot deliver the edit. Hold it to
+              // that, then take the action it names instead.
+              final restart = await run('app.restart');
+              expect(
+                clean(restart),
+                isFalse,
+                reason:
+                    'after $name, the advice said a restart cannot deliver '
+                    'it, and the restart answered: ${restart['message']}',
+              );
+              host = await _assemble(world, launched: launched);
+              running = world.image();
+            } else {
+              expect(
+                advice,
+                contains('restart (R'),
+                reason: 'after $name, the advice names no action: $advice',
+              );
+              final restart = await run('app.restart');
+              expect(
+                clean(restart),
+                isTrue,
+                reason:
+                    'after $name, the advice named a restart and the restart '
+                    'answered: ${restart['message']}',
+              );
+              // It said a restart relaunches when the code the app runs
+              // differs from what the tree builds, and restarts in place
+              // otherwise.
+              final differs =
+                  running == null || !_sameBytes(running!, world.image());
+              expect(
+                restart['relaunched'] == true,
+                differs,
+                reason:
+                    'after $name, the advice described the restart, and the '
+                    'restart answered: ${restart['message']}',
+              );
+              track(restart);
+            }
+            final again = await run('app.hotReload');
+            expect(
+              clean(again),
+              isTrue,
+              reason:
+                  'after $name and the action its advice named, a reload over '
+                  'the same tree answered: ${again['message']}',
+            );
+          }
+        });
+      }
     }
   }
+}
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

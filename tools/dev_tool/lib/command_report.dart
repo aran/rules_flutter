@@ -141,6 +141,16 @@ class CommandReport {
   /// needed. A patched library is one [nativeLibs] no longer calls stale.
   final NativePatchOutcome? nativePatch;
 
+  /// What can put new native code into the app in this run — what the reply
+  /// tells the reader to do when [nativeLibs] or [nativePatch] has left it
+  /// running code from before their edit.
+  ///
+  /// Required whenever either is set, because the advice is only worth giving
+  /// if the action it names works, and that is a fact about the run rather than
+  /// the edit: a run that launched the app can replace its process, a web page
+  /// re-fetches its modules on a restart, and an `attach` run can do neither.
+  final NativeRemedy? nativeRemedy;
+
   /// Set when the command replaced the app's process instead of restarting its
   /// isolate, because the rebuilt bundle's native libraries differ from the
   /// ones the running process had already `dlopen`ed.
@@ -189,10 +199,14 @@ class CommandReport {
     this.sourceRebuildFailed,
     this.nativeLibs,
     this.nativePatch,
+    this.nativeRemedy,
     this.relaunch,
     this.relaunchFailed,
     this.elapsed,
-  });
+  }) : assert(
+         (nativeLibs == null && nativePatch == null) || nativeRemedy != null,
+         'a report about native code says what can deliver it',
+       );
 
   /// Whether the edit is running now.
   ///
@@ -333,4 +347,21 @@ class CommandReport {
     },
     _ => const {},
   };
+}
+
+/// What can put new native code into a running app, by what the run is.
+enum NativeRemedy {
+  /// The run launched the app, so a restart rebuilds it and replaces the
+  /// process when the native code it runs differs from what was built — and
+  /// restarts it in place when the edit changed nothing that was built.
+  restart,
+
+  /// A web page: a restart re-runs `main()`, which fetches and instantiates
+  /// the modules again.
+  pageRestart,
+
+  /// The run attached to an app it did not launch. It cannot replace the
+  /// process, and a restart keeps the libraries the process has loaded, so the
+  /// only thing that works is launching the app again.
+  relaunchByHand,
 }

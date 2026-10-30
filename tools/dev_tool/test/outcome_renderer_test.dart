@@ -23,6 +23,7 @@ void main() {
     assets: assets,
     unavailable: unavailable,
     nativeLibs: nativeLibs,
+    nativeRemedy: NativeRemedy.restart,
   );
 
   group('every failure carries an error', () {
@@ -67,6 +68,7 @@ void main() {
       // into the sentence after them.
       final report = CommandReport(
         verb: 'Hot reload',
+        nativeRemedy: NativeRemedy.restart,
         nativePatch: const NativePatchNeedsRestart({
           'libdemo_rust.dylib': [
             'adds static `demo_rust::api::GREETS`, which the running library '

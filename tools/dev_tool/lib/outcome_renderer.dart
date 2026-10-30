@@ -192,7 +192,7 @@ Map<String, dynamic> toWire(CommandReport report) {
   if (report.nativeLibs case NativeCodeStale(:final libs)) {
     map['nativeLibsStale'] = libs;
     map['message'] =
-        '${map['message'] ?? _headline(report)}. ${_staleCodeClause(libs)}';
+        '${map['message'] ?? _headline(report)}. ${_staleCodeClause(report, libs)}';
   }
 
   // Delivered native code, said on the success sentence the way a stale library
@@ -326,8 +326,7 @@ Map<String, dynamic>? _nativePatchRefusal(
         '${reasons.keys.join(', ')} changed in a way that cannot be '
         'patched into the running app: '
         '${_oneSentence([for (final r in reasons.values) ...r])} Nothing was '
-        'compiled and nothing was sent. A restart (R) relaunches the app '
-        'on the new code.',
+        'compiled and nothing was sent. ${_remedy(report)}',
     'nativePatchRestart': reasons,
   },
   NativePatchBuildFailed(:final message) => {
@@ -340,8 +339,7 @@ Map<String, dynamic>? _nativePatchRefusal(
         'the native patch did not load in '
         '${failures.entries.map((e) => '${e.key} (${e.value})').join(', ')}'
         '${applied.isEmpty ? '' : ', and did in ${applied.join(', ')}, which now run the new native code'}'
-        '. The Dart edit was not sent. A restart (R) relaunches the app on '
-        'the new code.',
+        '. The Dart edit was not sent. ${_remedy(report)}',
     'nativePatchFailed': failures,
     'nativePatchApplied': applied,
   },
@@ -389,17 +387,15 @@ String? _nativeLibsReason(CommandReport report) => switch (report.nativeLibs) {
     '${libs.join(', ')} changed, and so did what its bindings are generated '
         'from (${contracts.join(', ')}) — so the increment would be injected '
         'over a library that cannot serve it, and a process cannot replace a '
-        'library it has already loaded. ${_stillRunning(report)} Only a new '
-        'process picks both up, which a restart (R, or `app.restart`) '
-        'relaunches when this run launched the app.',
+        'library it has already loaded. ${_stillRunning(report)} '
+        '${_remedy(report)}',
   NativeLibsUnverifiable(:final libs) =>
     '${libs.join(', ')} changed, and nothing declares what its bindings are '
         'generated from — so whether the increment still matches it is not '
         'knowable here, and a process cannot replace a library it has already '
-        'loaded. ${_stillRunning(report)} A restart (R, or `app.restart`) '
-        'relaunches it; declaring the library through '
-        '`flutter_native_library(binding_contract = …)` is what lets a reload '
-        'through when only its code changed.',
+        'loaded. ${_stillRunning(report)} ${_remedy(report)} Declaring the '
+        'library through `flutter_native_library(binding_contract = …)` is '
+        'what lets a reload through when only its code changed.',
   _ => null,
 };
 
@@ -430,10 +426,36 @@ String? _nativeLibsSentence(CommandReport report) =>
 /// Its own clause appended to a success sentence rather than a verdict of its
 /// own, because the command did work — the edit is live — and the one thing it
 /// could not do is the thing no command but a relaunch can.
-String _staleCodeClause(List<String> libs) =>
+String _staleCodeClause(CommandReport report, List<String> libs) =>
     '${libs.join(', ')} was rebuilt and its bindings did not change, so the '
     'increment is live over the library the app already loaded — the new '
-    'native code is not running. A restart (R) relaunches the app on it.';
+    'native code is not running. ${_remedy(report)}';
+
+/// The one thing that puts native code from after an edit into the app, in
+/// this run — named by what the run can do, so the advice is an action that
+/// works.
+///
+/// A restart is not the answer everywhere, and saying it where it is not
+/// leaves the reader refused twice. An `attach` run cannot replace a process
+/// it did not start, and a restart keeps the libraries that process loaded.
+/// Where a restart is the answer, it does not always relaunch: an edit that
+/// changed no built byte (a declaration nothing defines yet, a comment) needs
+/// only the restart in place, and promising a relaunch there describes
+/// something the reader will not see.
+String _remedy(CommandReport report) => switch (report.nativeRemedy!) {
+  NativeRemedy.restart =>
+    'A restart (R, or `app.restart`) delivers it: it relaunches the app when '
+        'the native code the app runs differs from what the tree builds, and '
+        'otherwise restarts it in place.',
+  NativeRemedy.pageRestart =>
+    'A restart (R, or `app.restart`) delivers it: the page re-runs `main()`, '
+        'which fetches the module again.',
+  NativeRemedy.relaunchByHand =>
+    'A restart cannot deliver it: this run attached to an app it did not '
+        'launch, so it cannot replace the process, and a restart keeps the '
+        'libraries the process loaded. Stop the app, launch it again, and '
+        'attach to it again.',
+};
 
 /// The failing web apply's own sentence, or null when the apply did not fail.
 ///

@@ -438,6 +438,15 @@ class ReloadPipeline {
     );
   }
 
+  /// What can deliver new native code in this run, read off what is wired:
+  /// only a run that launched the app has a relauncher, and only a web run
+  /// re-baselines on a restart. Anything else is an `attach`.
+  NativeRemedy get _nativeRemedy => relaunchIfNativeLibsChanged != null
+      ? NativeRemedy.restart
+      : markNativeLibsLive != null
+      ? NativeRemedy.pageRestart
+      : NativeRemedy.relaunchByHand;
+
   /// What the native libraries allow, and the reply when the answer is "nothing".
   ///
   /// [refusal] is non-null when the command must stop — the increment would be
@@ -505,6 +514,7 @@ class ReloadPipeline {
             verb: verb,
             appIds: addressed,
             nativeLibs: verdict,
+            nativeRemedy: _nativeRemedy,
             assets: assets,
           ),
         ),
@@ -527,6 +537,7 @@ class ReloadPipeline {
       verb: verb,
       appIds: addressed,
       nativeLibs: verdict,
+      nativeRemedy: _nativeRemedy,
       nativePatch: outcome,
       assets: assets,
     );
@@ -564,6 +575,7 @@ class ReloadPipeline {
             verb: verb,
             appIds: addressed,
             nativeLibs: verdict,
+            nativeRemedy: _nativeRemedy,
             nativePatch: outcome,
             assets: assets,
           ),
@@ -742,6 +754,7 @@ class ReloadPipeline {
           outcome: await orch.restart(targets: targets),
           assets: assets,
           nativeLibs: native?.verdict,
+          nativeRemedy: _nativeRemedy,
         ),
       );
     }
@@ -910,6 +923,7 @@ class ReloadPipeline {
           outcome: outcome,
           assets: assets,
           nativeLibs: native.verdict,
+          nativeRemedy: _nativeRemedy,
           nativePatch: native.patch,
           elapsed: elapsed.elapsed,
         ),
@@ -1004,6 +1018,7 @@ class ReloadPipeline {
           outcome: const ReloadNoChange(),
           assets: assets,
           nativeLibs: native.verdict,
+          nativeRemedy: _nativeRemedy,
         ),
       );
     }
@@ -1028,6 +1043,7 @@ class ReloadPipeline {
         strategy: result.outcome,
         assets: assets,
         nativeLibs: native.verdict,
+        nativeRemedy: _nativeRemedy,
         elapsed: Duration(milliseconds: result.elapsedMs),
       ),
     );
