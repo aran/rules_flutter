@@ -31,7 +31,10 @@
 /// On every platform above, the VM-service URI arrives in-band: the engine
 /// prints it, so discovery is a *reader* of the log stream and never an owner
 /// of the underlying subscriptions (see [pumpProcessLines] and
-/// [discoverVmServiceUri]).
+/// [discoverVmServiceUri]). Android's logcat and the iOS Simulator's log
+/// stream carry every app on the device, not just this one, so there an
+/// announcement counts only when this launch's app process made it
+/// ([discoverOwnVmServiceUri]).
 ///
 /// A physical iOS device is the one exception, and it is out-of-band rather
 /// than a second in-band source: a wirelessly attached device has no console
@@ -1298,8 +1301,14 @@ class AndroidDevice extends Device {
       throw StateError(_adbFailure('am start', startResult.stderr));
     }
 
-    // Step 4: Discover VM service URI from logcat.
-    final deviceUri = await discoverVmServiceUri(logs);
+    // Step 4: Discover VM service URI from logcat — the announcement this
+    // app's process made. logcat is the whole device's log, so another Flutter
+    // app starting meanwhile announces its own there too.
+    final deviceUri = await discoverOwnVmServiceUri(
+      logs,
+      parse: parseLogcatAnnouncement,
+      isOwnProcess: (pid) => _isProcessOf(packageName, pid),
+    );
 
     // Port forwarding — the URI logcat announces is device-local, and a failed
     // forward has no usable second answer. `127.0.0.1:<devicePort>` on the host
@@ -1338,6 +1347,24 @@ class AndroidDevice extends Device {
     }
 
     return AppInstance(process: logcat, vmServiceUri: vmServiceUri, logs: logs);
+  }
+
+  /// Whether [pid] is a running process of [packageName].
+  ///
+  /// Asked when an announcement arrives, so a process that made one is still
+  /// there to be found; `pidof` names an app's processes by its package name.
+  Future<bool> _isProcessOf(String packageName, int pid) async {
+    final result = await _runProcess(
+      adbPath,
+      _adbArgs(['shell', 'pidof', packageName]),
+    );
+    final pids = '${result.stdout}'.trim();
+    // `pidof` exits 1, saying nothing, when no process has the name.
+    final stderr = '${result.stderr}'.trim();
+    if (result.exitCode != 0 && stderr.isNotEmpty) {
+      throw StateError(_adbFailure('shell pidof $packageName', stderr));
+    }
+    return pids.split(RegExp(r'\s+')).contains('$pid');
   }
 
   /// Read the package name (and launchable activity) out of the APK.
@@ -1799,6 +1826,9 @@ class LogcatLine {
   /// Priority letter: V, D, I, W, E or F.
   final String level;
   final String tag;
+
+  /// The process that logged the record.
+  final int pid;
   final String message;
 
   /// The record without its timestamp — what gets shown.
@@ -1807,17 +1837,19 @@ class LogcatLine {
   const LogcatLine({
     required this.level,
     required this.tag,
+    required this.pid,
     required this.message,
     required this.display,
   });
 }
 
 const _logcatTimestamp = r'^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\s+';
+const _logcatRecord = r'([VDIWEF])/(.*?)\(\s*(\d+)\):\s?(.*)$';
 final _logcatTimestampPrefix = RegExp(_logcatTimestamp);
-final _logcatTimeFormat = RegExp(
-  '$_logcatTimestamp'
-  r'([VDIWEF])/(.*?)\(\s*\d+\):\s?(.*)$',
-);
+final _logcatTimeFormat = RegExp('$_logcatTimestamp$_logcatRecord');
+
+/// A record as [LogcatLine.display] shows it: no timestamp.
+final _logcatDisplayFormat = RegExp('^$_logcatRecord');
 
 /// Parse a `-v time` logcat record, or null if the line isn't one (banners,
 /// continuation lines, partial reads).
@@ -1831,15 +1863,24 @@ final _logcatTimeFormat = RegExp(
 LogcatLine? parseLogcatLine(String rawLine) {
   final match = _logcatTimeFormat.firstMatch(rawLine);
   if (match == null) return null;
-  final level = match.group(1)!;
-  final tag = match.group(2)!.trim();
-  final message = match.group(3)!;
   return LogcatLine(
-    level: level,
-    tag: tag,
-    message: message,
+    level: match.group(1)!,
+    tag: match.group(2)!.trim(),
+    pid: int.parse(match.group(3)!),
+    message: match.group(4)!,
     display: rawLine.replaceFirst(_logcatTimestampPrefix, ''),
   );
+}
+
+/// The VM-service announcement in a logcat record as [androidLogFilter] passes
+/// it on (`I/flutter ( 1234): The Dart VM service is listening on ...`), with
+/// the pid that logged it; null for any other line.
+VmServiceAnnouncement? parseLogcatAnnouncement(String displayLine) {
+  final record = _logcatDisplayFormat.firstMatch(displayLine);
+  if (record == null) return null;
+  final match = vmServiceUriPattern.firstMatch(record.group(4)!);
+  if (match == null) return null;
+  return (pid: int.parse(record.group(3)!), uri: Uri.parse(match.group(1)!));
 }
 
 /// Tags worth showing from an Android device.
@@ -1912,6 +1953,11 @@ const _vmServiceDiscoveryTimeout = Duration(seconds: 30);
 /// The Flutter engine prints a line like:
 ///   "The Dart VM service is listening on http://127.0.0.1:XXXXX/..."
 ///
+/// Only for a log the app's own process writes and nothing else does: its
+/// stdout and stderr. A log other processes write to as well needs
+/// [discoverOwnVmServiceUri], or another app's announcement is taken for this
+/// one's.
+///
 /// This is a pure *reader*: it owns only its own subscription to [logs] and
 /// cancels only that, leaving whatever feeds the stream running for the app's
 /// lifetime. Cancelling the app's own stdout/stderr subscriptions here would
@@ -1923,20 +1969,72 @@ const _vmServiceDiscoveryTimeout = Duration(seconds: 30);
 Future<Uri?> discoverVmServiceUri(
   AppLogStream logs, {
   Duration timeout = _vmServiceDiscoveryTimeout,
-}) async {
+}) => _watchForVmService(logs, timeout, (line) {
+  final match = vmServiceUriPattern.firstMatch(line);
+  return match == null ? null : Uri.parse(match.group(1)!);
+});
+
+/// A VM-service announcement read off a log several processes write to, with
+/// the process that made it.
+typedef VmServiceAnnouncement = ({int pid, Uri uri});
+
+/// Watch [logs], which other processes write to as well, for the VM-service
+/// announcement made by this launch's own app.
+///
+/// [parse] reads an announcement and the pid that made it out of one line, or
+/// returns null for any other line. [isOwnProcess] says whether a pid is this
+/// launch's app. An announcement from any other process is passed over: on a
+/// shared simulator or device, another Flutter app starting while this one
+/// launches announces its VM service on the same log, and taking it attaches
+/// this session to that app.
+///
+/// Lines are checked in the order they arrive, one at a time, so an
+/// announcement is never chosen over an earlier one of this app's.
+///
+/// Returns null if the app announced no VM service within [timeout] or the
+/// stream ended first.
+Future<Uri?> discoverOwnVmServiceUri(
+  AppLogStream logs, {
+  required VmServiceAnnouncement? Function(String line) parse,
+  required Future<bool> Function(int pid) isOwnProcess,
+  Duration timeout = _vmServiceDiscoveryTimeout,
+}) => _watchForVmService(logs, timeout, (line) async {
+  final announcement = parse(line);
+  if (announcement == null) return null;
+  return await isOwnProcess(announcement.pid) ? announcement.uri : null;
+});
+
+/// The URI [accept] takes from the first line it accepts, read off [logs] in
+/// order; null on [timeout] or when the stream ends first.
+Future<Uri?> _watchForVmService(
+  AppLogStream logs,
+  Duration timeout,
+  FutureOr<Uri?> Function(String line) accept,
+) async {
   final completer = Completer<Uri?>();
   final timer = Timer(timeout, () {
     if (!completer.isCompleted) completer.complete(null);
   });
 
+  // Each line waits for the one before it, so an asynchronous [accept] cannot
+  // let a later line win.
+  var checked = Future<void>.value();
   final sub = logs.lines.listen(
     (line) {
-      if (completer.isCompleted) return;
-      final match = vmServiceUriPattern.firstMatch(line.text);
-      if (match != null) completer.complete(Uri.parse(match.group(1)!));
+      checked = checked
+          .then((_) async {
+            if (completer.isCompleted) return;
+            final uri = await accept(line.text);
+            if (uri != null && !completer.isCompleted) completer.complete(uri);
+          })
+          .catchError((Object error, StackTrace stack) {
+            if (!completer.isCompleted) completer.completeError(error, stack);
+          });
     },
     onDone: () {
-      if (!completer.isCompleted) completer.complete(null);
+      checked.then((_) {
+        if (!completer.isCompleted) completer.complete(null);
+      });
     },
   );
 
@@ -2181,12 +2279,18 @@ class IOSSimulatorDevice extends Device {
     // all depend on — contingent on those exclusion clauses continuing to
     // spare the announcement. Two narrow streams fail independently and
     // visibly; one broad stream fails silently.
+    //
+    // The discovery stream is the whole simulator's, so every Flutter app on
+    // it announces there. ndjson puts each record's pid on the record's own
+    // line, which is how discovery keeps to the pid `simctl launch` reports.
     final discoveryLog = await _startHelper('xcrun', [
       'simctl',
       'spawn',
       udid,
       'log',
       'stream',
+      '--style',
+      'ndjson',
       '--predicate',
       'eventMessage contains "Observatory" or eventMessage contains "Dart VM service"',
     ]);
@@ -2216,15 +2320,31 @@ class IOSSimulatorDevice extends Device {
     // Launch app.
     final bundleId = _launchedBundleId =
         _bundleId ?? await _extractBundleId(installPath, _runProcess);
-    await _runProcess('xcrun', [
+    final launchResult = await _runProcess('xcrun', [
       'simctl', 'launch', udid, bundleId,
       // Anything after the bundle id is passed to the app as argv, which is
       // where the iOS embedder looks for engine switches.
       if (startPaused) '--start-paused',
     ]);
+    if (launchResult.exitCode != 0) {
+      throw StateError(
+        'simctl launch $bundleId failed: ${launchResult.stderr}',
+      );
+    }
+    final pid = simctlLaunchedPid('${launchResult.stdout}', bundleId);
+    if (pid == null) {
+      throw StateError(
+        'simctl launch $bundleId did not say which process it started, so '
+        "this app's VM service cannot be told apart from another app's. It "
+        'printed: "${'${launchResult.stdout}'.trim()}"',
+      );
+    }
 
-    // Discover VM service URI from the dedicated discovery stream.
-    final uri = await discoverVmServiceUriFromProcess(discoveryLog);
+    final uri = await discoverVmServiceUriFromProcess(
+      discoveryLog,
+      parse: parseUnifiedLoggingAnnouncement,
+      isOwnProcess: (announcer) async => announcer == pid,
+    );
 
     _launchHelpers.clear();
     return AppInstance(
@@ -3644,13 +3764,47 @@ String? parseUnifiedLoggingLine(String line) {
   }
 }
 
-/// Watch a log-emitting helper process for the VM-service announcement.
+/// The pid `simctl launch` reports for [bundleId] in its [stdout]
+/// (`com.example.app: 12345`), or null if it reports none.
+int? simctlLaunchedPid(String stdout, String bundleId) {
+  final match = RegExp(
+    '^${RegExp.escape(bundleId)}: (\\d+)\$',
+    multiLine: true,
+  ).firstMatch(stdout.trim());
+  return match == null ? null : int.parse(match.group(1)!);
+}
+
+/// The VM-service announcement in one record of `log stream --style ndjson`,
+/// with the pid that logged it; null for any other line.
+VmServiceAnnouncement? parseUnifiedLoggingAnnouncement(String line) {
+  // `log stream` also prints a plain-text banner naming its filter, which
+  // quotes the predicate and so contains the very words looked for.
+  if (!line.startsWith('{')) return null;
+  final Object? record;
+  try {
+    record = json.decode(line);
+  } on FormatException {
+    return null;
+  }
+  if (record is! Map) return null;
+  final pid = record['processID'];
+  final message = record['eventMessage'];
+  if (pid is! int || message is! String) return null;
+  final match = vmServiceUriPattern.firstMatch(message);
+  if (match == null) return null;
+  return (pid: pid, uri: Uri.parse(match.group(1)!));
+}
+
+/// Watch a log-emitting helper process for the VM-service announcement of the
+/// app [isOwnProcess] accepts — see [discoverOwnVmServiceUri].
 ///
 /// For sources where the helper process exists *only* to find the URI (the iOS
 /// Simulator's discovery stream); app output comes from a separate stream. Like
 /// [discoverVmServiceUri], this owns only its own subscription.
 Future<Uri?> discoverVmServiceUriFromProcess(
   Process log, {
+  required VmServiceAnnouncement? Function(String line) parse,
+  required Future<bool> Function(int pid) isOwnProcess,
   Duration timeout = _vmServiceDiscoveryTimeout,
 }) async {
   final logs = AppLogStream();
@@ -3660,7 +3814,12 @@ Future<Uri?> discoverVmServiceUriFromProcess(
   // timeout on a process that will never say anything again.
   logs.closeWhen([pump.done]);
   try {
-    return await discoverVmServiceUri(logs, timeout: timeout);
+    return await discoverOwnVmServiceUri(
+      logs,
+      parse: parse,
+      isOwnProcess: isOwnProcess,
+      timeout: timeout,
+    );
   } finally {
     await pump.dispose();
     await logs.close();

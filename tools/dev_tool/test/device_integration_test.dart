@@ -172,6 +172,8 @@ void main() {
           if ((args as List).contains('forward')) {
             return ProcessResult(0, 0, '54321', '');
           }
+          // The announcing pid is the app's own.
+          if (args.contains('pidof')) return ProcessResult(0, 0, '1234\n', '');
           return ProcessResult(0, 0, '', '');
         },
         startProcess: (exe, args) async {

@@ -37,6 +37,20 @@ String devicesJson(String transportType) => json.encode({
   },
 });
 
+/// What a fake `simctl` answers: success, and for `simctl launch` the line
+/// naming the pid it started, which a launch needs to find its own app's VM
+/// service.
+ProcessResult simctlOk(List<String> args, {int pid = 1234}) =>
+    args.length > 3 && args[0] == 'simctl' && args[1] == 'launch'
+    ? ProcessResult(0, 0, '${args[3]}: $pid\n', '')
+    : ProcessResult(0, 0, '', '');
+
+/// What a fake `adb` answers: success, and for `pidof` the pid that the
+/// fixtures' logcat announcements carry, so a launch takes them as its app's.
+ProcessResult adbOk(List<String> args) => args.contains('pidof')
+    ? ProcessResult(0, 0, '1234\n', '')
+    : ProcessResult(0, 0, '', '');
+
 void main() {
   group('vmServiceUriPattern', () {
     test('matches "Dart VM service is listening on http://..."', () {
@@ -193,7 +207,7 @@ void main() {
         bundleId: 'com.example.test',
         runProcess: (exe, args) async {
           calls.add((exe, args));
-          return ProcessResult(0, 0, '', '');
+          return simctlOk(args);
         },
         startProcess: (exe, args) async {
           calls.add((exe, args));
@@ -230,7 +244,7 @@ void main() {
           if ((args as List).contains('install')) {
             return ProcessResult(0, 1, '', 'INSTALL_FAILED');
           }
-          return ProcessResult(0, 0, '', '');
+          return simctlOk(args);
         },
         startProcess: (exe, args) async => FakeProcess(),
       );
@@ -262,7 +276,7 @@ void main() {
             if (args.contains(failAt)) {
               return ProcessResult(0, 1, '', '$failAt failed');
             }
-            return ProcessResult(0, 0, '', '');
+            return simctlOk(args);
           },
           startProcess: (exe, args) async {
             final process = FakeProcess();
@@ -303,7 +317,7 @@ void main() {
         bundleId: 'com.example.test',
         runProcess: (exe, args) async {
           calls.add((exe, args));
-          return ProcessResult(0, 0, '', '');
+          return simctlOk(args);
         },
         startProcess: (exe, args) async => fakeLog,
       );
@@ -331,7 +345,7 @@ void main() {
             if (exe == 'defaults') {
               return ProcessResult(0, 0, 'com.example.fromplist\n', '');
             }
-            return ProcessResult(0, 0, '', '');
+            return simctlOk(args);
           },
           startProcess: (exe, args) async => fakeLog,
         );
@@ -370,7 +384,7 @@ void main() {
             Directory('$dest/Payload/app.app').createSync(recursive: true);
             File('$dest/Payload/app.app/Info.plist').writeAsStringSync('');
           }
-          return ProcessResult(0, 0, '', '');
+          return simctlOk(args);
         },
         startProcess: (exe, args) async {
           calls.add((exe, args));
@@ -424,7 +438,7 @@ void main() {
             if (exe == 'xcrun' && args.contains('install')) {
               mtimeAtInstall = File(extractedLib).lastModifiedSync();
             }
-            return ProcessResult(0, 0, '', '');
+            return simctlOk(args);
           },
           startProcess: (exe, args) async => fakeLog,
         );
@@ -441,8 +455,8 @@ void main() {
 
     test('discovers VM service URI from log stream', () async {
       // launch() starts two `log stream` processes: a discovery stream
-      // matching only the VM-service announcement, then the app's own output
-      // stream (`--style json`). They need separate fakes. The announcement
+      // matching only the VM-service announcement (`--style ndjson`), then the
+      // app's own output stream (`--style json`). They need separate fakes. The announcement
       // has to be written once the *discovery* pump is reading — a single
       // shared fake signals "attached" when the output-log pump subscribes,
       // which happens first, and FakeProcess's controllers are broadcast, so
@@ -451,15 +465,19 @@ void main() {
       final device = IOSSimulatorDevice(
         udid: 'TEST-UDID',
         bundleId: 'com.example.test',
-        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+        runProcess: (exe, args) async => simctlOk(args),
         startProcess: (exe, args) async {
           final p = FakeProcess();
-          if (!args.contains('--style')) {
+          if (args.contains('ndjson')) {
             unawaited(
               p.outputAttached.then(
                 (_) => p.emitStdout(
-                  'The Dart VM service is listening on '
-                  'http://127.0.0.1:54321/abc=/',
+                  json.encode({
+                    'processID': 1234,
+                    'eventMessage':
+                        'flutter: The Dart VM service is listening on '
+                        'http://127.0.0.1:54321/abc=/',
+                  }),
                 ),
               ),
             );
@@ -1465,7 +1483,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       packageName: 'com.example.app',
       adbPath: 'adb',
       runProcess: (exe, args) async =>
-          args.contains('forward') ? onForward() : ProcessResult(0, 0, '', ''),
+          args.contains('forward') ? onForward() : adbOk(args),
       startProcess: (exe, args) async => logcat,
     );
 
@@ -1581,7 +1599,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           calls.add(args);
           return args.contains('forward') && !args.contains('--remove')
               ? ProcessResult(0, 0, '$hostPort\n', '')
-              : ProcessResult(0, 0, '', '');
+              : adbOk(args);
         },
         startProcess: (exe, args) async => logcat,
       );
@@ -1927,7 +1945,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           // that reaches the forward at all needs one to go on with.
           if (args.contains('forward'))
             return ProcessResult(0, 0, '41234\n', '');
-          return ProcessResult(0, 0, '', '');
+          return adbOk(args);
         },
         startProcess: (exe, args) async {
           calls.add((exe, args));
@@ -2687,6 +2705,188 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     });
   });
 
+  // A simulator or Android device is shared: every Flutter app on it
+  // announces its VM service on the same log. Taking the first announcement
+  // attached a run to another project's app that started meanwhile.
+  group('VM service discovery on a shared log', () {
+    String announce(int port) =>
+        'The Dart VM service is listening on http://127.0.0.1:$port/k=/';
+
+    /// One `log stream --style ndjson` record.
+    String ndjson(int pid, String message) => json.encode({
+      'eventType': 'logEvent',
+      'processImagePath': '/sim/Bundle/app.app/app',
+      'processID': pid,
+      'eventMessage': 'flutter: $message',
+    });
+
+    test('passes over another process and takes its own', () async {
+      final logs = AppLogStream()
+        ..add('I/flutter (  555): ${announce(1111)}')
+        ..add('I/flutter (  777): ${announce(2222)}');
+      final uri = await discoverOwnVmServiceUri(
+        logs,
+        parse: parseLogcatAnnouncement,
+        isOwnProcess: (pid) async => pid == 777,
+      );
+      expect(uri, Uri.parse('http://127.0.0.1:2222/k=/'));
+    });
+
+    test('takes nothing when only another process announced', () async {
+      final logs = AppLogStream()..add('I/flutter (  555): ${announce(1111)}');
+      final pending = discoverOwnVmServiceUri(
+        logs,
+        parse: parseLogcatAnnouncement,
+        isOwnProcess: (pid) async => pid == 777,
+      );
+      await logs.close();
+      expect(await pending, isNull);
+    });
+
+    test(
+      'keeps to the order lines arrived in, however long a check takes',
+      () async {
+        final first = Completer<bool>();
+        final logs = AppLogStream()
+          ..add(ndjson(1, announce(1111)))
+          ..add(ndjson(2, announce(2222)));
+        final pending = discoverOwnVmServiceUri(
+          logs,
+          parse: parseUnifiedLoggingAnnouncement,
+          isOwnProcess: (pid) => pid == 1 ? first.future : Future.value(true),
+        );
+        await Future<void>.delayed(Duration.zero);
+        first.complete(true);
+        expect(await pending, Uri.parse('http://127.0.0.1:1111/k=/'));
+      },
+    );
+
+    test('a failed check fails discovery', () async {
+      final logs = AppLogStream()..add('I/flutter (  555): ${announce(1111)}');
+      await expectLater(
+        discoverOwnVmServiceUri(
+          logs,
+          parse: parseLogcatAnnouncement,
+          isOwnProcess: (_) async => throw StateError('adb gone'),
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('parseUnifiedLoggingAnnouncement reads the pid and URI', () {
+      expect(
+        parseUnifiedLoggingAnnouncement(ndjson(23143, announce(52226))),
+        (pid: 23143, uri: Uri.parse('http://127.0.0.1:52226/k=/')),
+      );
+    });
+
+    test('parseUnifiedLoggingAnnouncement skips the banner quoting its '
+        'filter', () {
+      expect(
+        parseUnifiedLoggingAnnouncement(
+          'Filtering the log data using "composedMessage CONTAINS '
+          '"Dart VM service""',
+        ),
+        isNull,
+      );
+      expect(parseUnifiedLoggingAnnouncement(ndjson(1, 'hello')), isNull);
+    });
+
+    test('parseLogcatAnnouncement reads the pid and URI', () {
+      expect(
+        parseLogcatAnnouncement('I/flutter ( 4321): ${announce(40000)}'),
+        (pid: 4321, uri: Uri.parse('http://127.0.0.1:40000/k=/')),
+      );
+      expect(parseLogcatAnnouncement('I/flutter ( 4321): hello'), isNull);
+    });
+
+    test('simctlLaunchedPid reads the pid simctl launch prints', () {
+      expect(
+        simctlLaunchedPid('com.example.app: 21879\n', 'com.example.app'),
+        21879,
+      );
+      expect(
+        simctlLaunchedPid('com.example.app.second: 5\n', 'com.example.app'),
+        isNull,
+      );
+      expect(simctlLaunchedPid('', 'com.example.app'), isNull);
+    });
+
+    test('an iOS Simulator launch attaches to the app it launched', () async {
+      final device = IOSSimulatorDevice(
+        udid: 'TEST-UDID',
+        bundleId: 'com.example.test',
+        runProcess: (exe, args) async => args.contains('launch')
+            ? ProcessResult(0, 0, 'com.example.test: 1234\n', '')
+            : ProcessResult(0, 0, '', ''),
+        startProcess: (exe, args) async {
+          final p = FakeProcess();
+          if (args.contains('ndjson')) {
+            unawaited(
+              p.outputAttached.then((_) {
+                p.emitStdout(ndjson(999, announce(1111)));
+                p.emitStdout(ndjson(1234, announce(2222)));
+              }),
+            );
+          }
+          return p;
+        },
+      );
+      final instance = await device.launch('/path/to/MyApp.app');
+      expect(instance.vmServiceUri, Uri.parse('http://127.0.0.1:2222/k=/'));
+    });
+
+    test('an iOS Simulator launch that reports no pid fails', () async {
+      final device = IOSSimulatorDevice(
+        udid: 'TEST-UDID',
+        bundleId: 'com.example.test',
+        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+        startProcess: (exe, args) async => FakeProcess(),
+      );
+      await expectLater(
+        device.launch('/path/to/MyApp.app'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('did not say which process it started'),
+          ),
+        ),
+      );
+    });
+
+    test('an Android launch attaches to its own package', () async {
+      final logcat = FakeProcess();
+      final forwards = <String>[];
+      final device = AndroidDevice(
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async {
+          if (args.contains('pidof')) return ProcessResult(0, 0, '777\n', '');
+          if (args.contains('forward')) {
+            forwards.add(args.last);
+            return ProcessResult(0, 0, '40001\n', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+        startProcess: (exe, args) async => logcat,
+      );
+      unawaited(
+        logcat.outputAttached.then((_) {
+          logcat.emitStdout(
+            '01-02 03:04:05.678 I/flutter (  555): ${announce(1111)}',
+          );
+          logcat.emitStdout(
+            '01-02 03:04:05.679 I/flutter (  777): ${announce(2222)}',
+          );
+        }),
+      );
+      final instance = await device.launch('/path/to/app.apk');
+      expect(forwards, ['tcp:2222']);
+      expect(instance.vmServiceUri, Uri.parse('http://127.0.0.1:40001/k=/'));
+    });
+  });
+
   group('iOS Simulator log capture', () {
     test('the output predicate scopes to the app process', () {
       final predicate = iosSimulatorLogPredicate('MyApp');
@@ -2744,7 +2944,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final device = IOSSimulatorDevice(
         udid: 'TEST-UDID',
         bundleId: 'com.example.test',
-        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+        runProcess: (exe, args) async => simctlOk(args),
         startProcess: (exe, args) async {
           started.add((exe, args));
           return FakeProcess()..complete(0);
@@ -2783,7 +2983,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         bundleId: 'com.example.test',
         runProcess: (exe, args) async {
           runs.add((exe, args));
-          return ProcessResult(0, 0, '', '');
+          return simctlOk(args);
         },
         startProcess: (exe, args) async {
           final p = FakeProcess();
@@ -2813,7 +3013,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final device = IOSSimulatorDevice(
         udid: 'TEST-UDID',
         bundleId: 'com.example.test',
-        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+        runProcess: (exe, args) async => simctlOk(args),
         startProcess: (exe, args) async {
           final p = FakeProcess();
           spawned.add(p);
@@ -2827,10 +3027,11 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final pending = device.launch('/path/to/MyApp.app');
       await bothSpawned.future;
       await Future.wait([for (final p in spawned) p.outputAttached]);
-      // Complete the discovery stream so launch returns.
-      for (final p in spawned) {
-        p.emitStdout('  "eventMessage" : "$_vmServiceLine",');
-      }
+      // Announce on the discovery stream, as the launched app, so launch
+      // returns.
+      spawned.first.emitStdout(
+        json.encode({'processID': 1234, 'eventMessage': _vmServiceLine}),
+      );
       final instance = await pending;
 
       expect(
