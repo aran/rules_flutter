@@ -47,6 +47,9 @@
 ///     in the patched source would be a fresh count of its own. The builder
 ///     withholds the two edits that would fork state that way: the body
 ///     defining storage, and the state's layout moving.
+///  9. **The advice works.** Edits 4 and 6 kept rather than undone: the reload
+///     names a restart, the restart goes through though no bundled byte moved,
+///     and the reload after it is clean.
 library;
 
 import 'dart:async';
@@ -363,6 +366,34 @@ void main() {
         );
         expect(counterReverted['nativeReverted'], ['libcounter.dylib']);
         await _expectBump(dt, appId, 'B', 34);
+
+        // ---- 9: the advice, followed -----------------------------------------
+        //
+        // Steps 4 and 6 undo their edits; here they are kept and the advice
+        // the reload gives is taken. Neither edit moves a bundled byte — a
+        // declaration nothing defines, a comment — so the restart has no new
+        // process to make, and the process it keeps is what a fresh launch of
+        // this tree would be. The restart must go through, and the reload after
+        // it must not withhold over the same edits again.
+        mulHeader.writeAsStringSync(
+          headerOriginal.replaceFirst(
+            'FFI_EXAMPLE_EXPORT int32_t mul(int32_t a, int32_t b);',
+            'FFI_EXAMPLE_EXPORT int32_t mul(int32_t a, int32_t b);\n'
+                'FFI_EXAMPLE_EXPORT int32_t mul_twice(int32_t a);',
+          ),
+        );
+        addSource.writeAsStringSync('$addOriginal// edited\n');
+        final advised = await _reload(dt, appId);
+        expect(advised['succeeded'], isFalse, reason: '$advised');
+        expect('${advised['message']}', contains('restart (R'));
+        final restarted = await _restart(dt, appId);
+        expect(restarted['succeeded'], isTrue, reason: '$restarted');
+        final settled = await _reload(dt, appId);
+        expect(settled['succeeded'], isTrue, reason: '$settled');
+        expect(settled.containsKey('nativeLibsStale'), isFalse);
+        await _expectRendered(dt, appId, 'live 3 × 4 = 12');
+        mulHeader.writeAsStringSync(headerOriginal);
+        addSource.writeAsStringSync(addOriginal);
       },
       timeout: const Timeout(Duration(minutes: 10)),
     );
@@ -373,6 +404,13 @@ Future<Map<String, dynamic>> _reload(DevToolProcess dt, String appId) async {
   final response = await dt.httpCommand('app.hotReload', {'appId': appId});
   final result = response['result'] as Map<String, dynamic>?;
   expect(result, isNotNull, reason: 'app.hotReload: ${response['error']}');
+  return result!;
+}
+
+Future<Map<String, dynamic>> _restart(DevToolProcess dt, String appId) async {
+  final response = await dt.httpCommand('app.restart', {'appId': appId});
+  final result = response['result'] as Map<String, dynamic>?;
+  expect(result, isNotNull, reason: 'app.restart: ${response['error']}');
   return result!;
 }
 

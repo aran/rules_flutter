@@ -714,26 +714,34 @@ class ReloadPipeline {
                 relaunchFailed: failed,
               ),
             );
-          // The libraries are unchanged; fall through to the isolate restart,
-          // the fast path this whole check exists to protect.
+          // The launched bundle's libraries are the ones the tree builds, so
+          // the process already holds every native edit there is: the isolate
+          // restart is all that is left, the fast path this whole check exists
+          // to protect. Not the gate below — the relauncher has just answered
+          // the restart's question from the bundle itself, and re-baselined the
+          // cheaper views the gate reads. Asking them as well would be a second
+          // answer from weaker evidence, and where they disagree (a source
+          // moved, no bundled byte did) it refuses the one command that works.
           case RelaunchNotNeeded():
             break;
         }
       }
-      // Nothing replaced the process, so a library that moved is still beyond
-      // reach — an `attach` run, which never launched the app and so has no
-      // relauncher. A restart re-runs `main()` in the same process over the same
-      // mapped images, so it can no more deliver the new library than a reload
-      // can, and saying so is all this run can do about it.
-      final native = await _checkNativeLibs('Restart', addressed, assets);
-      if (native.refusal case final refusal?) return refusal;
+      // Nothing can replace the process, so a library that moved is still
+      // beyond reach — an `attach` run, which never launched the app and so has
+      // no relauncher. A restart re-runs `main()` in the same process over the
+      // same mapped images, so it can no more deliver the new library than a
+      // reload can, and saying so is all this run can do about it.
+      final native = relaunch == null
+          ? await _checkNativeLibs('Restart', addressed, assets)
+          : null;
+      if (native?.refusal case final refusal?) return refusal;
       return toWire(
         CommandReport(
           verb: 'Restart',
           appIds: addressed,
           outcome: await orch.restart(targets: targets),
           assets: assets,
-          nativeLibs: native.verdict,
+          nativeLibs: native?.verdict,
         ),
       );
     }

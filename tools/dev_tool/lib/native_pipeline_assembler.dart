@@ -817,9 +817,13 @@ class NativePipelineAssembler {
       patchedLibs: hotPatcher == null
           ? null
           : () => hotPatcher.livePatchedLibraries,
-      afterRelaunch: hotPatcher == null
+      catchUpPatcher: hotPatcher == null
           ? null
-          : () => _rebaselineHotPatcher(hotPatcher),
+          : ({required newProcess}) async {
+              if (newProcess || await hotPatcher.sourcesMoved()) {
+                await _rebaselineHotPatcher(hotPatcher);
+              }
+            },
     );
     pipeline.relaunchIfNativeLibsChanged = relauncher.relaunchIfNeeded;
   }
@@ -870,8 +874,9 @@ class NativePipelineAssembler {
     return patcher;
   }
 
-  /// Re-snapshot after a relaunch. A failure leaves the run patching nothing —
-  /// said, not swallowed: a restart still delivers native edits.
+  /// Re-snapshot for the process a restart left running. A failure leaves the
+  /// run patching nothing — said, not swallowed: a restart still delivers
+  /// native edits.
   Future<void> _rebaselineHotPatcher(NativeHotPatcher patcher) async {
     try {
       await patcher.rebaseline();

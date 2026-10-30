@@ -1958,6 +1958,29 @@ void main() {
       expect(h.compiler.fullCompileCalls, isEmpty);
     });
 
+    test('a relauncher that kept the process is the restart\'s only judge', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      h.writeSource('main.dart', 'void main() {}');
+      // The gate's evidence moved — a header gained a declaration — and the
+      // launched bundle's did not: the process already holds what the tree
+      // builds. The gate's answer is for a run with no relauncher; asked here,
+      // it would refuse the one command its own advice names.
+      h.nativeLibs = const NativeBindingsMoved(
+        libs: ['libmul.dylib'],
+        contracts: ['native/mul.h'],
+      );
+      h.seedApplied();
+      h.pipeline.relaunchIfNativeLibsChanged = () async =>
+          const RelaunchNotNeeded();
+      h.pipeline.ready.signalReady();
+
+      final result = await h.restart();
+      expect(result['succeeded'], isTrue, reason: '${result['message']}');
+      expect(h.nativeLibsGateCalls, 0);
+      expect(h.compiler.fullCompileCalls, hasLength(1));
+    });
+
     test('a failed relaunch rebuild reports a source rebuild failure', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);

@@ -339,6 +339,21 @@ class NativeHotPatcher {
     return running;
   }
 
+  /// Whether a source of some library moved since its snapshot, or since the
+  /// last patch delivered it — what makes [patchIfMoved] ask the builder.
+  ///
+  /// For a restart that kept the process: one that did not relaunch runs what
+  /// the tree builds, so a moved source means this snapshot no longer describes
+  /// it, and the caller re-snapshots with [rebaseline]. A stat per source, so
+  /// asking costs a restart nothing when no native source was touched.
+  Future<bool> sourcesMoved() async {
+    for (final library in _libraries) {
+      final stamps = await _stamps(library.tool.manifest.sources);
+      if (!_sameStamps(stamps, library.sourceStamps)) return true;
+    }
+    return false;
+  }
+
   /// Patch every app whose library code moved, or say why it cannot be.
   ///
   /// [movedLibraries] are file names a reload's own rebuild saw move — the

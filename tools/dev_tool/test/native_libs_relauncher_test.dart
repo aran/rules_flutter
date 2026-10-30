@@ -22,6 +22,7 @@ import 'package:flutter_bazel_dev_tool/logging.dart';
 import 'package:flutter_bazel_dev_tool/machine_protocol.dart';
 import 'package:flutter_bazel_dev_tool/native_libs_fingerprint.dart';
 import 'package:flutter_bazel_dev_tool/native_libs_relauncher.dart';
+import 'package:flutter_bazel_dev_tool/native_libs_watch.dart';
 import 'package:flutter_bazel_dev_tool/outcome_renderer.dart';
 import 'package:flutter_bazel_dev_tool/session.dart';
 import 'package:path/path.dart' as p;
@@ -139,7 +140,8 @@ class _Harness {
   Future<Relauncher> relauncher({
     required Future<bool> Function() rebuild,
     List<String> Function()? patchedLibs,
-    Future<void> Function()? afterRelaunch,
+    Future<void> Function({required bool newProcess})? catchUpPatcher,
+    NativeLibsWatch? nativeLibs,
   }) async {
     return Relauncher(
       appFile: appDir,
@@ -151,7 +153,8 @@ class _Harness {
       logger: Logger('test.relauncher'),
       liveFingerprint: await nativeLibsFingerprint(appDir),
       patchedLibs: patchedLibs,
-      afterRelaunch: afterRelaunch,
+      catchUpPatcher: catchUpPatcher,
+      nativeLibs: nativeLibs,
     );
   }
 }
@@ -183,11 +186,12 @@ void main() {
         'library', () async {
       final h = await _Harness.create();
       addTearDown(h.dispose);
-      var rebaselined = 0;
+      final caughtUp = <bool>[];
       final r = await h.relauncher(
         rebuild: () async => true,
         patchedLibs: () => ['libnative.dylib'],
-        afterRelaunch: () async => rebaselined++,
+        catchUpPatcher: ({required newProcess}) async =>
+            caughtUp.add(newProcess),
       );
       expect(
         await r.relaunchIfNeeded(),
@@ -197,7 +201,7 @@ void main() {
       );
       expect(h.device.launches, 1);
       // The hot patcher re-snapshots the image the new process loaded.
-      expect(rebaselined, 1);
+      expect(caughtUp, [true]);
     });
 
     test(
@@ -205,16 +209,52 @@ void main() {
       () async {
         final h = await _Harness.create();
         addTearDown(h.dispose);
-        var rebaselined = 0;
+        final caughtUp = <bool>[];
         final r = await h.relauncher(
           rebuild: () async => true,
           patchedLibs: () => const [],
-          afterRelaunch: () async => rebaselined++,
+          catchUpPatcher: ({required newProcess}) async =>
+              caughtUp.add(newProcess),
         );
         expect(await r.relaunchIfNeeded(), isA<RelaunchNotNeeded>());
-        expect(rebaselined, 0);
+        // Asked, as the process that stayed: the patcher decides from its
+        // own sources whether its snapshot still describes it.
+        expect(caughtUp, [false]);
       },
     );
+  });
+
+  test('a restart that keeps the process brings the watch up to it', () async {
+    // A source moved and no bundled byte did — a declaration added to a header
+    // nothing defines yet. The process already runs what the tree builds, so
+    // the watch must stop calling the edit undelivered, or every reload after
+    // this restart is withheld with advice to restart.
+    final h = await _Harness.create();
+    addTearDown(h.dispose);
+    final header = File(p.join(h.tmp.path, 'native.h'))
+      ..writeAsStringSync('int f(void);');
+    final contract = File(p.join(h.tmp.path, 'native.api'))
+      ..writeAsStringSync('f');
+    final lib = p.join(h.appDir, 'libnative.dylib');
+    final watch = await NativeLibsWatch.of(
+      {
+        lib: [contract.path],
+      },
+      sources: {
+        lib: [header.path],
+      },
+    );
+    header.writeAsStringSync('int f(void);\nint g(void);');
+    contract.writeAsStringSync('f\ng');
+    expect(await watch.verdict(), isA<NativeBindingsMoved>());
+
+    final r = await h.relauncher(
+      rebuild: () async => true,
+      nativeLibs: watch,
+    );
+    expect(await r.relaunchIfNeeded(), isA<RelaunchNotNeeded>());
+    expect(h.device.launches, 0);
+    expect(await watch.verdict(), isA<NativeLibsCurrent>());
   });
 
   test('a failed rebuild reports it and relaunches nothing', () async {

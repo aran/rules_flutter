@@ -170,6 +170,10 @@ _UNIT_TESTS = {
         "deps": _PATH_DEP,
     },
     "native_pipeline_assembler_test": {"fakes": True},
+    "native_restart_advice_test": {
+        "fakes": True,
+        "deps": _PATH_DEP,
+    },
     "outcome_renderer_test": {"fakes": True},
     "process_cpu_time_test": {},
     "source_uri_resolver_test": {"deps": _PATH_DEP},

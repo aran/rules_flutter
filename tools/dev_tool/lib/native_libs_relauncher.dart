@@ -65,10 +65,9 @@ class Relauncher {
   ///
   /// It tracks the files the *dev* build writes and this class tracks the
   /// launched bundle, but both describe one thing — the images the running
-  /// process has mapped — and a relaunch is the single event that moves it. A
-  /// watch left on the old baseline would go on withholding every reload of a
-  /// process that is already running the new library. Null for a run with no
-  /// loose native libraries, which never constructs one of these either.
+  /// process has mapped — and this class is the authority on it. See
+  /// [_caughtUp] for when the watch is told. Null for a run with no loose
+  /// native libraries, which never constructs one of these either.
   final NativeLibsWatch? nativeLibs;
 
   /// The libraries a native hot patch has changed in the running process, by
@@ -77,9 +76,11 @@ class Relauncher {
   /// one — an edit patched in and then undone is exactly that.
   final List<String> Function()? patchedLibs;
 
-  /// Run after a relaunch the rest of the run has to hear about: the native hot
-  /// patcher re-snapshots the image the new process loaded.
-  final Future<void> Function()? afterRelaunch;
+  /// Brings the native hot patcher's snapshot up to the process a restart left
+  /// running — see [_caughtUp]. [newProcess] is true after a relaunch, whose
+  /// process loaded a rebuilt image and runs no patch; false when the process
+  /// stayed because its bundle already matched what the tree builds.
+  final Future<void> Function({required bool newProcess})? catchUpPatcher;
 
   Relauncher({
     required this.appFile,
@@ -92,7 +93,7 @@ class Relauncher {
     required Map<String, String> liveFingerprint,
     this.nativeLibs,
     this.patchedLibs,
-    this.afterRelaunch,
+    this.catchUpPatcher,
   }) : _live = liveFingerprint;
 
   /// Rebuild, and relaunch if the native libraries moved.
@@ -109,7 +110,10 @@ class Relauncher {
     final fingerprint = await nativeLibsFingerprint(appFile);
     final patched = patchedLibs?.call() ?? const [];
     final bundleMoved = !fingerprintsEqual(fingerprint, _live);
-    if (!bundleMoved && patched.isEmpty) return const RelaunchNotNeeded();
+    if (!bundleMoved && patched.isEmpty) {
+      await _caughtUp(newProcess: false);
+      return const RelaunchNotNeeded();
+    }
     // The bundle's own difference when it has one. Only when it has none is the
     // patch the reason — an edit patched in and then undone — and then the
     // patched libraries are what the reply has to name.
@@ -183,8 +187,7 @@ class Relauncher {
       return RelaunchFailed(changedLibs: changed, failures: failures);
     }
     _live = fingerprint;
-    await nativeLibs?.markLive();
-    await afterRelaunch?.call();
+    await _caughtUp(newProcess: true);
 
     return Relaunched(
       changedLibs: changed,
@@ -193,6 +196,36 @@ class Relauncher {
         for (final session in relaunched) session.appId: session.launch,
       },
     );
+  }
+
+  /// Tell the reload path that the running process holds what the tree builds.
+  ///
+  /// The reload path decides from cheaper evidence than this class: the watch
+  /// stats sources, contracts and dev-build libraries, and the patch builder
+  /// compares sources against its snapshot. Both are baselined on the process,
+  /// and this class is the only thing that knows when the process changes — so
+  /// it re-baselines them every time it answers, not only when it relaunched.
+  ///
+  /// The answer that does not relaunch matters as much as the one that does.
+  /// An edit can move a source and leave every bundled byte alone: a
+  /// declaration added to a header that nothing defines or calls yet, a
+  /// comment, a reformat. There is then no new process to make, so the
+  /// isolate restart is the whole of what the edit requires — and the process
+  /// it leaves running is exactly what a fresh launch from this tree would be.
+  /// Views still baselined on the launch would go on calling that edit
+  /// undelivered, and withhold every reload over it with advice to restart,
+  /// however many restarts followed.
+  ///
+  /// The watch is re-read only when it has something to say, and the patcher
+  /// re-snapshots only when one of its sources moved: both answer from a stat,
+  /// so a restart over an untouched tree costs neither a hash nor a build.
+  Future<void> _caughtUp({required bool newProcess}) async {
+    final watch = nativeLibs;
+    if (watch != null &&
+        (newProcess || await watch.verdict() is! NativeLibsCurrent)) {
+      await watch.markLive();
+    }
+    await catchUpPatcher?.call(newProcess: newProcess);
   }
 
   /// Reconnect [session] to its replacement process's VM service.
