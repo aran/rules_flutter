@@ -1026,17 +1026,19 @@ Tests the full dev tool hot reload cycle: launch app, take screenshot, edit sour
 ```sh
 cd e2e/macos_example
 
-# 1. Start the dev tool with --machine for structured JSON events on stdout
-dart run ../../tools/dev_tool/bin/flutter_bazel.dart run \
-  -t :app -d macos --machine &
+# 1. Start the dev tool with --machine for structured JSON events on stdout.
+#    Run the built binary (`bazel build //tools/dev_tool:flutter_bazel` in the
+#    root first): under `dart run` the bundled macOS screenshot tool is missing
+#    and screenshot/native answers "Could not find bundled macOS screenshot tool".
+../../bazel-bin/tools/dev_tool/flutter_bazel run -t :app -d macos --machine &
 
 # 2. Read stdout for the app.started event (contains appId) and
 #    http_control_channel event on stderr. Its `endpoints` each carry a `url`
 #    that already includes the token; the token is a query parameter, never an
 #    Authorization header.
 
-# 3. Take a screenshot
-curl -s "http://localhost:PORT/sessions/APPID/screenshot/flutter?token=TOKEN" \
+# 3. Take a screenshot (screenshot/flutter answers 501 under Impeller)
+curl -s "http://localhost:PORT/sessions/APPID/screenshot/native?token=TOKEN" \
   -o /tmp/before.png
 
 # 4. Edit lib/main.dart (change visible text)
@@ -1046,7 +1048,7 @@ curl -s -X POST "http://localhost:PORT/command?token=TOKEN" \
   -H "Content-Type: application/json" -d '{"method": "app.hotReload"}'
 
 # 6. Take another screenshot (should show the changed text)
-curl -s "http://localhost:PORT/sessions/APPID/screenshot/flutter?token=TOKEN" \
+curl -s "http://localhost:PORT/sessions/APPID/screenshot/native?token=TOKEN" \
   -o /tmp/after.png
 
 # 7. Revert the source change and stop the dev tool.
