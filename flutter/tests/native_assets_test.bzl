@@ -162,6 +162,62 @@ manifest_path_test = analysistest.make(
     },
 )
 
+# -- Where a flutter_test's libraries are built ------------------------
+
+_CODE_ASSET_LIBRARIES = ["libasset_fixture.dylib", "libplugin_asset_fixture.dylib"]
+_CODE_ASSET_IDS = [
+    "package:asset_fixture/src/ffi/asset_fixture.g.dart",
+    "package:plugin_asset_fixture/plugin_asset.dart",
+]
+
+def _test_host_assets_test_impl(ctx):
+    """Assert that a `flutter_test` loads the libraries `deps` builds for its target.
+
+    They are built once, in the target configuration, and the manifest names
+    them under the target's ABI, which is the host's when the test runs on a
+    host matching its target.
+    """
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+
+    writes = [
+        a
+        for a in actions
+        if a.mnemonic == "FileWrite" and
+           a.outputs.to_list()[0].basename.endswith(".native_assets.json")
+    ]
+    asserts.equals(env, 1, len(writes), "expected exactly one manifest write")
+    abis = json.decode(writes[0].content)["native-assets"]
+    asserts.equals(env, 1, len(abis), "expected one ABI in the manifest: %s" % abis)
+    for abi, section in abis.items():
+        asserts.true(env, abi.startswith("macos_"), "manifest keyed by %s, not the target's ABI" % abi)
+        asserts.equals(env, sorted(_CODE_ASSET_IDS), sorted(section.keys()))
+
+    # A library the test re-declares into its own namespace is a symlink: what
+    # was built is the symlink's input.
+    symlinked = {}
+    for a in actions:
+        if a.mnemonic == "Symlink":
+            for out in a.outputs.to_list():
+                symlinked[out.path] = a.inputs.to_list()[0]
+    runfiles = target[DefaultInfo].default_runfiles.files.to_list()
+    for name in _CODE_ASSET_LIBRARIES:
+        found = [f for f in runfiles if f.basename == name]
+        asserts.equals(env, 1, len(found), "%s in the test's runfiles" % name)
+        if not found:
+            continue
+        built = symlinked.get(found[0].path, found[0])
+        asserts.equals(
+            env,
+            False,
+            "-exec" in built.path,
+            "%s built at %s" % (name, built.path),
+        )
+    return analysistest.end(env)
+
+_test_host_assets_test = analysistest.make(_test_host_assets_test_impl)
+
 # -- Analysis-time failure tests ---------------------------------------
 
 def _expect_failure_test_impl(ctx):
@@ -365,6 +421,13 @@ def native_assets_test_suite(name):
         expected_substrings = ["\"flutter/tests/liblayout_probe.dylib\""],
     )
 
+    # A test loads the libraries `deps` builds for its target.
+    _test_host_assets_test(
+        name = name + "_test_host_is_target",
+        target_under_test = "//flutter/tests/dart_asset_fixture/code_asset_test:code_asset_flutter_test",
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+
     unittest.suite(
         name + "_pure",
         _target_string_t0_test,
@@ -386,6 +449,7 @@ def native_assets_test_suite(name):
             ":" + name + "_unreplaced_hook_in_test",
             ":" + name + "_bundle_layout_path",
             ":" + name + "_runfiles_layout_path",
+            ":" + name + "_test_host_is_target",
             ":" + name + "_pure",
         ],
     )

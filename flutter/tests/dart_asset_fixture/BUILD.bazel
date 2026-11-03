@@ -2,7 +2,8 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_code_asset", "dart_library")
-load("//flutter:defs.bzl", "flutter_application", "flutter_library", "flutter_test")
+load("//flutter:defs.bzl", "flutter_application", "flutter_library", "flutter_plugin", "flutter_test")
+load("//flutter:native_assets.bzl", "flutter_native_asset")
 load("//flutter/tests:native_assets_test.bzl", "hook_check_probe", "legacy_dart_library")
 
 # A pub-package-shaped `dart_library` that owns a native code asset, exactly as
@@ -40,6 +41,7 @@ dart_library(
     code_assets = [":code_asset"],
     visibility = [
         "//flutter/tests:__pkg__",
+        "//flutter/tests/dart_asset_fixture/code_asset_test:__pkg__",
         "//flutter/tests/shared_code_asset_fixture/test:__pkg__",
     ],
 )
@@ -112,6 +114,7 @@ legacy_dart_library(
     srcs = ["lib/fixture.dart"],
     visibility = [
         "//flutter/tests/code_asset_fixture/test:__pkg__",
+        "//flutter/tests/dart_asset_fixture/code_asset_test:__pkg__",
         "//flutter/tests/shared_code_asset_fixture/test:__pkg__",
         "//flutter/tests/tester_binary_fixture:__pkg__",
     ],
@@ -146,4 +149,22 @@ build_test(
         ":hook_fixture_is_an_offender",
         ":legacy_package_has_no_hook",
     ],
+)
+
+# The other way a code asset reaches a test: declared with
+# `flutter_native_asset` and propagated on `FlutterInfo` by a plugin.
+flutter_native_asset(
+    name = "plugin_asset",
+    asset_id = "package:plugin_asset_fixture/plugin_asset.dart",
+    bundle_filename = "libplugin_asset_fixture.dylib",
+    library = ":asset_fixture_shared",
+    link_mode = "dynamic_loading_bundle",
+)
+
+flutter_plugin(
+    name = "plugin_asset_fixture",
+    package_name = "plugin_asset_fixture",
+    srcs = ["lib/fixture.dart"],
+    native_assets = [":plugin_asset"],
+    visibility = ["//flutter/tests/dart_asset_fixture/code_asset_test:__pkg__"],
 )

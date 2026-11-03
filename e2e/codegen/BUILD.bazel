@@ -253,7 +253,8 @@ flutter_test(
 # dependency, so nothing here names an asset — the way a pub package's
 # hook-built library arrives. A test loads no application bundle, so this is
 # what pins the runfiles-resolved path in the manifest the frontend_server
-# embeds into the test's kernel.
+# embeds into the test's kernel. The library is built for the target, which
+# is the host the test runs on.
 flutter_test(
     name = "native_asset_test",
     package_name = "codegen_e2e",

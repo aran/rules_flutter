@@ -1231,6 +1231,13 @@ flutter_test(
 
 It takes the compile attributes of `flutter_application` (`main`, `srcs`, `deps`, `defines`, `package_name`, `language_version`, `assets`, `shaders`) plus the usual `data` and `env`. Values in `env` are literal; there is no `$(location)` expansion.
 
+A test runs where its target runs, as a `cc_test` does: its `deps`, native code included, and the `flutter_tester` that runs it are built for the target platform, and Bazel's default test toolchain runs it on an execution platform matching that platform. On a Mac that is the Mac. To run tests on other machines, a Linux remote worker say:
+
+- **`--platforms`** builds every test for that platform, so Bazel runs them on an execution platform matching it.
+- **A platform transition** does the same for one test: wrap it in `platform_transition_test` from `@bazel_lib//lib:transitions.bzl` with `target_platform` set, and tag the wrapped `flutter_test` `manual`.
+- **`exec_group_compatible_with = {"test": [...]}`** narrows the execution platforms a test may run on, and execution-requirement tags such as `no-remote-exec` keep it local. A test whose result depends on the machine, such as a golden, and one that loads an FFI library from `data`, are pinned this way.
+- **A toolchain for `@bazel_tools//tools/test:default_test_toolchain_type`** registered in your root module changes where every test rule's tests may run, `flutter_test` included, as it does for `cc_test`. A test sent to a machine other than the one it was built for fails when it starts there, as a `cc_test` does.
+
 `enable_impeller = True` renders with Impeller in `flutter_tester`, as `flutter test --enable-impeller` does, instead of software Skia. A test that draws a shader SkSL cannot compile needs it, and so does a golden meant to match an Impeller device. Shaders are compiled for `flutter_tester` either way, with the SkSL and Vulkan stages `flutter test` gives them.
 
 A `flutter_test_config.dart` wraps the suite as it does under `flutter test`: its `testExecutable(FutureOr<void> Function() testMain)` is handed the suite and runs it, so setup shared by every test in a directory lives in one file. The config used is the nearest one walking up from `main`'s directory, and the walk ends after the directory holding `pubspec.yaml`. Bazel can see only the BUILD file's own package, so the walk also ends there; name a config above it with `test_config = "//path:flutter_test_config.dart"`. The config is compiled into the test like its `main`, and its imports come from the test's `deps`.

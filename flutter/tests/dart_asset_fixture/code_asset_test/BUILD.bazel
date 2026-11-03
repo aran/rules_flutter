@@ -1,0 +1,18 @@
+load("//flutter:defs.bzl", "flutter_test")
+
+# A test that loads native code assets both ways. The analysis tests build it
+# for this host and for another platform, and check which configuration its
+# libraries come from. In a package of its own because a test cannot share its
+# package root with a dep's. Left `manual`; only the analysistests build it.
+flutter_test(
+    name = "code_asset_flutter_test",
+    package_name = "code_asset_test",
+    main = "main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [
+        "//flutter/tests/dart_asset_fixture:asset_fixture",
+        "//flutter/tests/dart_asset_fixture:fake_test_api",
+        "//flutter/tests/dart_asset_fixture:plugin_asset_fixture",
+    ],
+)
