@@ -115,7 +115,14 @@ def gtk3_sysroot_link_inputs(sysroot_files, lib_dir):
         # DT_NEEDED entries (libX11, libfreetype, ...) inside the sysroot.
         # Unlike `-L` it is consulted *only* for dependencies of shared
         # libraries, never for `-l`, so it cannot shadow the C runtime.
-        link_flags = ["-Wl,-rpath-link," + lib_dir],
+        #
+        # `--allow-shlib-undefined`: the runner calls GTK, GLib and GObject
+        # directly, and what those need in turn is resolved on the machine
+        # that runs the app. The sysroot does not hold all of it (libpcre
+        # sits in `lib/<triple>`, outside this directory), so without the flag
+        # GNU ld goes looking on the build host and the link succeeds only
+        # where the host happens to carry the same libraries.
+        link_flags = ["-Wl,-rpath-link," + lib_dir, "-Wl,--allow-shlib-undefined"],
     )
 
 # =============================================================================

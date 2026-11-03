@@ -71,7 +71,11 @@ def _never_adds_a_library_search_path_test_impl(ctx):
             flag.startswith("-l"),
             "GTK3 is linked as files, not with -l, got: " + flag,
         )
-    asserts.equals(env, ["-Wl,-rpath-link," + _LIB_DIR], result.link_flags)
+    asserts.equals(
+        env,
+        ["-Wl,-rpath-link," + _LIB_DIR, "-Wl,--allow-shlib-undefined"],
+        result.link_flags,
+    )
     return unittest.end(env)
 
 def _ignores_matching_names_outside_the_lib_dir_test_impl(ctx):
