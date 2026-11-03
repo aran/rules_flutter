@@ -660,6 +660,24 @@ cd e2e/windows_example && bazel test //...  # Windows-only (target_compatible_wi
   rm -rf "$ob/external/bazel_tools+xcode_configure_extension+local_config_xcode" \
          "$ob/external/@bazel_tools+xcode_configure_extension+local_config_xcode.marker"
   ```
+  `bazel fetch --force --repo=@@bazel_tools+xcode_configure_extension+local_config_xcode`
+  does the same in one command.
+- **rules_swift's SDK scan outlives an Xcode upgrade too.** A workspace that
+  scanned the old Xcode fails analysis with `no such package
+  '@@rules_swift++system_sdk+system_sdk_xcode_<old version>//': xcode-locator
+  failed`, or with `configurable attribute "actual" in
+  @@rules_swift++system_sdk+system_sdk//:all_modules doesn't match this
+  configuration`. The `system_sdk` extension declares itself reproducible, so
+  Bazel keeps its result in the output base's own `MODULE.bazel.lock`, not the
+  checked-in one, and neither a server restart nor `fetch --force` reruns the
+  scan. With the server stopped, delete that one entry and refresh
+  `local_config_xcode` as above:
+  ```sh
+  ob=$(bazel info output_base) && bazel shutdown
+  python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); \
+  d['moduleExtensions'].pop('@@rules_swift+//swift:extensions.bzl%system_sdk', None); \
+  json.dump(d, open(p, 'w'), indent=2)" "$ob/MODULE.bazel.lock"
+  ```
 - **After a Dart SDK upgrade**, `dart run` inside a workspace whose packages
   have native-asset build hooks fails outright:
   ```
