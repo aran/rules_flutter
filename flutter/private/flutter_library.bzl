@@ -33,15 +33,19 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
     Returns:
         Tuple of (extra_pub_fonts, extra_pub_assets, extra_pub_shaders) lists.
     """
+    path_to_file = {}
+    for target, asset_path in font_files_dict.items():
+        files = target.files.to_list()
+        if len(files) != 1:
+            fail("font_files entry %s must resolve to exactly one File; got %d" % (target.label, len(files)))
+        if asset_path in path_to_file:
+            fail("font_files lists two files for font asset \"%s\": %s and %s" % (asset_path, path_to_file[asset_path].short_path, files[0].short_path))
+        path_to_file[asset_path] = files[0]
+
     extra_pub_fonts = []
+    named_assets = {}
     if fonts_json:
         decoded = json.decode(fonts_json)
-        path_to_file = {}
-        for target, asset_path in font_files_dict.items():
-            files = target.files.to_list()
-            if len(files) != 1:
-                fail("font_files entry %s must resolve to exactly one File; got %d" % (target.label, len(files)))
-            path_to_file[asset_path] = files[0]
 
         # Tuples (not lists) inside the struct because depset elements must
         # be fully immutable — mutable fields propagate to the struct's
@@ -58,7 +62,8 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
                     style = font.get("style"),
                 ))
                 if asset_path not in path_to_file:
-                    fail("fonts_json names font asset \"%s\" but font_files does not provide it" % asset_path)
+                    fail("fonts_json names font asset \"%s\" but font_files does not provide it. List its file in font_files, even if pkg_assets also has it." % asset_path)
+                named_assets[asset_path] = True
                 file_list.append(path_to_file[asset_path])
             extra_pub_fonts.append(struct(
                 package_name = package_name,
@@ -66,6 +71,10 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
                 fonts = tuple(fonts_list),
                 files = tuple(file_list),
             ))
+
+    for asset_path in path_to_file:
+        if asset_path not in named_assets:
+            fail("font_files provides font asset \"%s\" but fonts_json does not name it" % asset_path)
 
     extra_pub_assets = []
     for target, asset_path in pkg_assets_dict.items():

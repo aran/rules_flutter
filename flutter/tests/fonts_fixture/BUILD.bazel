@@ -1,0 +1,89 @@
+load("//flutter:defs.bzl", "flutter_library", "flutter_plugin")
+load("//flutter/tests:flutter_fonts_test.bzl", "font_mismatch_fails_test")
+
+# The first of two fonts has no file, so the second must not take its place.
+flutter_library(
+    name = "first_of_two_missing",
+    package_name = "first_of_two_missing",
+    srcs = ["lib/fixture.dart"],
+    font_files = {"fonts/Bold.ttf": "fonts/Bold.ttf"},
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"},{"asset":"fonts/Bold.ttf","weight":700}]}]',
+    tags = ["manual"],
+)
+
+font_mismatch_fails_test(
+    name = "first_of_two_missing_test",
+    size = "small",
+    message = "names font asset \"fonts/Regular.ttf\" but font_files does not provide it",
+    target_under_test = ":first_of_two_missing",
+)
+
+flutter_plugin(
+    name = "plugin_missing_font",
+    package_name = "plugin_missing_font",
+    srcs = ["lib/fixture.dart"],
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"}]}]',
+    plugin_platforms_json = '{"web":{"pluginClass":"FixturePlugin"}}',
+    tags = ["manual"],
+)
+
+font_mismatch_fails_test(
+    name = "plugin_missing_font_test",
+    size = "small",
+    message = "names font asset \"fonts/Regular.ttf\" but font_files does not provide it",
+    target_under_test = ":plugin_missing_font",
+)
+
+# A file listed for a font nobody declared would never reach the bundle.
+flutter_library(
+    name = "undeclared_file",
+    package_name = "undeclared_file",
+    srcs = ["lib/fixture.dart"],
+    font_files = {
+        "fonts/Bold.ttf": "fonts/Bold.ttf",
+        "fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"}]}]',
+    tags = ["manual"],
+)
+
+font_mismatch_fails_test(
+    name = "undeclared_file_test",
+    size = "small",
+    message = "font_files provides font asset \"fonts/Bold.ttf\" but fonts_json does not name it",
+    target_under_test = ":undeclared_file",
+)
+
+flutter_library(
+    name = "files_without_fonts_json",
+    package_name = "files_without_fonts_json",
+    srcs = ["lib/fixture.dart"],
+    font_files = {"fonts/Bold.ttf": "fonts/Bold.ttf"},
+    tags = ["manual"],
+)
+
+font_mismatch_fails_test(
+    name = "files_without_fonts_json_test",
+    size = "small",
+    message = "font_files provides font asset \"fonts/Bold.ttf\" but fonts_json does not name it",
+    target_under_test = ":files_without_fonts_json",
+)
+
+flutter_library(
+    name = "two_files_for_one_font",
+    package_name = "two_files_for_one_font",
+    srcs = ["lib/fixture.dart"],
+    font_files = {
+        "fonts/Bold.ttf": "fonts/Regular.ttf",
+        "fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"}]}]',
+    tags = ["manual"],
+)
+
+font_mismatch_fails_test(
+    name = "two_files_for_one_font_test",
+    size = "small",
+    message = "font_files lists two files for font asset \"fonts/Regular.ttf\"",
+    target_under_test = ":two_files_for_one_font",
+)
