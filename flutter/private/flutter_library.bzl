@@ -57,8 +57,9 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
                     weight = font.get("weight"),
                     style = font.get("style"),
                 ))
-                if asset_path in path_to_file:
-                    file_list.append(path_to_file[asset_path])
+                if asset_path not in path_to_file:
+                    fail("fonts_json names font asset \"%s\" but font_files does not provide it" % asset_path)
+                file_list.append(path_to_file[asset_path])
             extra_pub_fonts.append(struct(
                 package_name = package_name,
                 family = family,

@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//flutter:defs.bzl", "flutter_library", "flutter_plugin")
-load("//flutter/tests:dart_resources_test.bzl", "dart_in_resources_fails_test", "resources_probe")
+load("//flutter/tests:dart_resources_test.bzl", "dart_in_resources_fails_test", "missing_font_fails_test", "resources_probe")
 
 # A library whose lib/ holds a Dart source, a YAML file, and a shader. The
 # shader is deliberately listed on BOTH channels: `resources` says it is part
@@ -81,4 +81,19 @@ dart_in_resources_fails_test(
     name = "dart_in_resources_plugin_test",
     size = "small",
     target_under_test = ":dart_in_resources_plugin",
+)
+
+# fonts_json names a font that font_files does not provide.
+flutter_library(
+    name = "missing_font_library",
+    package_name = "missing_font",
+    srcs = ["lib/fixture.dart"],
+    fonts_json = '[{"family":"Missing","fonts":[{"asset":"assets/fonts/Missing.ttf"}]}]',
+    tags = ["manual"],
+)
+
+missing_font_fails_test(
+    name = "missing_font_library_test",
+    size = "small",
+    target_under_test = ":missing_font_library",
 )
