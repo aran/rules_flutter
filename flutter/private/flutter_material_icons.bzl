@@ -40,11 +40,11 @@ def _flutter_material_icons_impl(ctx):
         package_name = "",
         family = "MaterialIcons",
         fonts = (struct(
-            asset_path = _MATERIAL_ICONS_BUNDLE_PATH,
+            bundle_path = _MATERIAL_ICONS_BUNDLE_PATH,
+            file = material_font,
             weight = None,
             style = None,
         ),),
-        files = (material_font,),
     )
 
     return [

@@ -5,6 +5,25 @@ load("@rules_dart//dart:utils.bzl", "dart_analyzable_info_with_package", "dart_i
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_info.bzl", "LINK_HOOK_ATTR", "flutter_info")
 
+def _font_bundle_path(package_name, asset_path, file):
+    """Where a font of `package_name` is bundled.
+
+    As in flutter_tools, an asset `packages/<other>/<path>` that is no file of
+    the declaring package names a font of `<other>`, which stays at that path.
+    Any other asset is bundled under the declaring package.
+
+    Args:
+        package_name: The declaring package, or empty for a bare path.
+        asset_path: The `asset` of the font in `fonts_json`.
+        file: The font's File, from `font_files`.
+
+    Returns:
+        The font's path in the bundle.
+    """
+    if not package_name or (asset_path.startswith("packages/") and file.owner.name != asset_path):
+        return asset_path
+    return "packages/{}/{}".format(package_name, asset_path)
+
 def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_assets_dict, pkg_shaders_dict, shader_includes = []):
     """Build pub_fonts/pub_assets/pub_shaders contribution structs from rule attrs.
 
@@ -53,23 +72,21 @@ def build_pub_contributions(package_name, fonts_json, font_files_dict, pkg_asset
         for family_entry in decoded:
             family = family_entry.get("family", "")
             fonts_list = []
-            file_list = []
             for font in family_entry.get("fonts", []):
                 asset_path = font.get("asset", "")
-                fonts_list.append(struct(
-                    asset_path = asset_path,
-                    weight = font.get("weight"),
-                    style = font.get("style"),
-                ))
                 if asset_path not in path_to_file:
                     fail("fonts_json names font asset \"%s\" but font_files does not provide it. List its file in font_files, even if pkg_assets also has it." % asset_path)
                 named_assets[asset_path] = True
-                file_list.append(path_to_file[asset_path])
+                fonts_list.append(struct(
+                    bundle_path = _font_bundle_path(package_name, asset_path, path_to_file[asset_path]),
+                    file = path_to_file[asset_path],
+                    weight = font.get("weight"),
+                    style = font.get("style"),
+                ))
             extra_pub_fonts.append(struct(
                 package_name = package_name,
                 family = family,
                 fonts = tuple(fonts_list),
-                files = tuple(file_list),
             ))
 
     for asset_path in path_to_file:
@@ -107,9 +124,10 @@ def aggregate_pub_contributions(deps):
     Each contribution carries `package_name` — the empty string sentinel
     means "non-package contribution, bundle at bare path"; any other value
     triggers a `packages/<package_name>/` prefix on the family name and
-    every asset path. This matches Flutter's CLI behavior and the const
-    finder's tree-shaking key shape (`packages/<pkg>/<family>` only when
-    the IconData has a non-null `fontPackage`).
+    every non-font asset path. Each font states its own bundle path. This
+    matches Flutter's CLI behavior and the const finder's tree-shaking key
+    shape (`packages/<pkg>/<family>` only when the IconData has a non-null
+    `fontPackage`).
 
     Args:
         deps: List of Targets — typically `ctx.attr.deps`.
@@ -137,15 +155,14 @@ def aggregate_pub_contributions(deps):
         prefix = "packages/{}/".format(entry.package_name) if entry.package_name else ""
         family_str = prefix + entry.family
         fonts_descriptors = []
-        for i, font in enumerate(entry.fonts):
-            descriptor = {"asset": prefix + font.asset_path}
+        for font in entry.fonts:
+            descriptor = {"asset": font.bundle_path}
             if font.weight != None:
                 descriptor["weight"] = font.weight
             if font.style != None:
                 descriptor["style"] = font.style
             fonts_descriptors.append(descriptor)
-            if i < len(entry.files):
-                extra_asset_copies[prefix + font.asset_path] = entry.files[i]
+            extra_asset_copies[font.bundle_path] = font.file
         fonts.append({"family": family_str, "fonts": fonts_descriptors})
 
     for entry in pub_assets:
@@ -329,7 +346,7 @@ flutter_library = rule(
             doc = "Dart language version (`<major>.<minor>`) for this package's `package_config.json` entry. Mirrors `dart_library`'s attribute. Empty string means defer to the toolchain default.",
         ),
         "fonts_json": attr.string(
-            doc = "JSON-encoded list of font-family declarations (mirrors `flutter.fonts` in pubspec.yaml). Each entry: `{family: str, fonts: [{asset: str, weight: int?, style: str?}]}`. The `asset` paths are package-relative and must each match a key in `font_files`. The asset bundle aggregator prefixes family + asset paths with `packages/<package_name>/` when this rule's `package_name` is non-empty (empty = bare paths, used for non-package contributions like the toolchain MaterialIcons target).",
+            doc = "JSON-encoded list of font-family declarations (mirrors `flutter.fonts` in pubspec.yaml). Each entry: `{family: str, fonts: [{asset: str, weight: int?, style: str?}]}`. The `asset` paths are package-relative and must each match a value in `font_files`. The asset bundle aggregator prefixes family + asset paths with `packages/<package_name>/` when this rule's `package_name` is non-empty (empty = bare paths, used for non-package contributions like the toolchain MaterialIcons target). An `asset` of `packages/<other>/<path>` whose file is not at that path in this package names a font of the package `<other>`: it stays at that path, as in a pubspec, and `font_files` gives the label of its file.",
             default = "",
         ),
         "font_files": attr.label_keyed_string_dict(

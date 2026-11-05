@@ -58,7 +58,7 @@ def _single_channel_library_impl(ctx):
         # must be immutable. The real `pub_fonts` contributions are built the
         # same way.
         flutter_info(pub_fonts = [
-            struct(package_name = "", family = ctx.attr.family, fonts = (), files = ()),
+            struct(package_name = "", family = ctx.attr.family, fonts = ()),
         ]),
     ]
 

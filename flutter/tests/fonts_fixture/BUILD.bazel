@@ -1,5 +1,81 @@
 load("//flutter:defs.bzl", "flutter_library", "flutter_plugin")
-load("//flutter/tests:flutter_fonts_test.bzl", "font_mismatch_fails_test")
+load("//flutter/tests:flutter_fonts_test.bzl", "font_mismatch_fails_test", "fonts_bundled_test")
+
+flutter_library(
+    name = "two_fonts",
+    package_name = "two_fonts",
+    srcs = ["lib/fixture.dart"],
+    font_files = {
+        "fonts/Bold.ttf": "fonts/Bold.ttf",
+        "fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"},{"asset":"fonts/Bold.ttf","weight":700}]}]',
+    tags = ["manual"],
+)
+
+fonts_bundled_test(
+    name = "two_fonts_test",
+    size = "small",
+    files = {
+        "packages/two_fonts/fonts/Bold.ttf": "fonts/Bold.ttf",
+        "packages/two_fonts/fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    manifest = '[{"family":"packages/two_fonts/F","fonts":[{"asset":"packages/two_fonts/fonts/Regular.ttf"},{"asset":"packages/two_fonts/fonts/Bold.ttf","weight":700}]}]',
+    target_under_test = ":two_fonts",
+)
+
+flutter_library(
+    name = "bare_paths",
+    srcs = ["lib/fixture.dart"],
+    font_files = {"fonts/Regular.ttf": "fonts/Regular.ttf"},
+    fonts_json = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"}]}]',
+    tags = ["manual"],
+)
+
+fonts_bundled_test(
+    name = "bare_paths_test",
+    size = "small",
+    files = {"fonts/Regular.ttf": "fonts/Regular.ttf"},
+    manifest = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"}]}]',
+    target_under_test = ":bare_paths",
+)
+
+# A font of another package keeps that package's path; only the family is this
+# package's, which is what flutter_tools writes to FontManifest.json.
+flutter_library(
+    name = "font_of_other_package",
+    package_name = "font_of_other_package",
+    srcs = ["lib/fixture.dart"],
+    font_files = {"//flutter/tests/fonts_fixture/other:fonts/Other.ttf": "packages/other/fonts/Other.ttf"},
+    fonts_json = '[{"family":"F","fonts":[{"asset":"packages/other/fonts/Other.ttf"}]}]',
+    tags = ["manual"],
+)
+
+fonts_bundled_test(
+    name = "font_of_other_package_test",
+    size = "small",
+    files = {"packages/other/fonts/Other.ttf": "other/fonts/Other.ttf"},
+    manifest = '[{"family":"packages/font_of_other_package/F","fonts":[{"asset":"packages/other/fonts/Other.ttf"}]}]',
+    target_under_test = ":font_of_other_package",
+)
+
+# A file of this package at that literal path is this package's own font.
+flutter_library(
+    name = "own_packages_directory",
+    package_name = "own_packages_directory",
+    srcs = ["lib/fixture.dart"],
+    font_files = {"packages/other/fonts/Own.ttf": "packages/other/fonts/Own.ttf"},
+    fonts_json = '[{"family":"F","fonts":[{"asset":"packages/other/fonts/Own.ttf"}]}]',
+    tags = ["manual"],
+)
+
+fonts_bundled_test(
+    name = "own_packages_directory_test",
+    size = "small",
+    files = {"packages/own_packages_directory/packages/other/fonts/Own.ttf": "packages/other/fonts/Own.ttf"},
+    manifest = '[{"family":"packages/own_packages_directory/F","fonts":[{"asset":"packages/own_packages_directory/packages/other/fonts/Own.ttf"}]}]',
+    target_under_test = ":own_packages_directory",
+)
 
 # The first of two fonts has no file, so the second must not take its place.
 flutter_library(
