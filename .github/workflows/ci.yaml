@@ -44,14 +44,15 @@ concurrency:
 # used beyond that. Each OS's cache was 5.2-5.7 GB, so the three evicted one
 # another; about 2 GB of each was Bazel's unpacked repositories (the repo
 # contents cache), which CI_BAZELRC now keeps outside the saved directory.
-# That leaves about 3.7 GB on macOS and 3.2 GB on Linux, 7 GB in all. A key
-# change saves a second copy for its OS, up to 10.7 GB, and GitHub then evicts
-# the least recently used entry, the superseded one unless the other OS's has
-# gone longer unused. Windows keeps none: it restored its 5.2 GB at about 64 MB/s and
+# That leaves 3.1 GB on macOS and 2.8 GB on Linux, 5.9 GB in all, beside
+# about 0.8 GB the shared overhead workflows keep (Commit messages) and 1.4 GB
+# a release saves under its tag. A key change saves a second copy for its OS,
+# and GitHub then evicts the least recently used entry, the superseded one
+# unless another has gone longer unused. Windows keeps none: it restored its 5.2 GB at about 64 MB/s and
 # took as long again to unpack it, no faster than downloading, and a third
 # cache would not fit beside the other two.
 #
-# No job keeps setup-bazel's disk cache of action outputs. The 3 GB left would
+# No job keeps setup-bazel's disk cache of action outputs. The 2 GB left would
 # not hold one for a job slow enough to gain from it (one e2e workspace's
 # outputs are several GB), and setup-bazel keys it by every BUILD file in the
 # repository, so each edit of one would save another copy and evict the
