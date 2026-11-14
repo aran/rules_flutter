@@ -39,7 +39,6 @@ dart_library(
 
 dart_binary(
     name = "flutter_bazel",
-    srcs = glob(["lib/**/*.dart"]),
     compile_mode = "exe",
     # The desktop screen-capture helpers are local to their OS.
     data = select({
@@ -58,7 +57,10 @@ dart_binary(
     defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
     main = "bin/flutter_bazel.dart",
     visibility = ["//visibility:public"],
-    deps = _LIB_DEPS,
+    deps = [
+        ":lib",
+        "@dev_tool_deps//:args",
+    ],
 )
 
 # The host side of the integration test rules (`flutter/integration_test.bzl`):
@@ -68,12 +70,15 @@ dart_binary(
 # nothing to parse and no Bazel to drive.
 dart_binary(
     name = "integration_test_runner",
-    srcs = glob(["lib/**/*.dart"]),
     compile_mode = "exe",
     defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
     main = "bin/integration_test_runner.dart",
     visibility = ["//visibility:public"],
-    deps = _LIB_DEPS,
+    deps = [
+        ":lib",
+        "//flutter/private/tools:remote_suite",
+        "@rules_dart//dart/runfiles",
+    ],
 )
 
 # Starts a program as the leader of a new process group, so that stopping a
@@ -308,7 +313,7 @@ _UNIT_TESTS = {
         "fakes": True,
         "deps": _PATH_DEP,
     },
-    "outcome_renderer_test": {"fakes": True},
+    "outcome_renderer_test": {},
     "phase_log_test": {},
     "process_cpu_time_test": {},
     "source_uri_resolver_test": {"deps": _PATH_DEP},

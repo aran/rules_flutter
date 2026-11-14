@@ -164,11 +164,12 @@ dart_binary(
     deps = ["@rules_dart//dart/runfiles"],
 )
 
-# The pub runner: `dart compile exe` builds it from these two files, which
-# import only the Dart libraries, so that it depends on no pub repository (a
-# lock conflict there must not stop the command that fixes the lock). They are
-# files, not a library, because the runner must not depend on a Dart target; the
-# test below owns them for analysis and formatting.
+# The pub runner and the Swift package resolver: `dart compile exe` builds each
+# from its main and `pub_runfiles.dart`, which import only the Dart libraries,
+# so that they depend on no pub repository (a lock conflict there must not stop
+# the command that fixes the lock). They are files, not a library, because the
+# runners must not depend on a Dart target; the two programs below compile them
+# as the rules do, and own them for analysis and formatting.
 exports_files(
     [
         "pub.dart",
@@ -178,13 +179,23 @@ exports_files(
     visibility = ["//flutter:__subpackages__"],
 )
 
+dart_binary(
+    name = "pub",
+    srcs = ["pub_runfiles.dart"],
+    compile_mode = "kernel",
+    main = "pub.dart",
+)
+
+dart_binary(
+    name = "swift_resolve",
+    srcs = ["pub_runfiles.dart"],
+    compile_mode = "kernel",
+    main = "swift_resolve.dart",
+)
+
 dart_test(
     name = "pub_runfiles_test",
-    srcs = [
-        "pub.dart",
-        "pub_runfiles.dart",
-        "swift_resolve.dart",
-    ],
+    srcs = ["pub_runfiles.dart"],
     main = "test/pub_runfiles_test.dart",
     deps = ["@dev_tool_deps//:test"],
 )

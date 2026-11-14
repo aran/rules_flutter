@@ -7,11 +7,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/integration/integration_runner_config.dart';
+import 'package:flutter_bazel_dev_tool/integration/integration_test_run.dart';
 import 'package:flutter_rule_tools/remote_suite.dart' show parseUpdateGoldens;
 import 'package:runfiles/runfiles.dart';
-
-import '../lib/integration/integration_runner_config.dart';
-import '../lib/integration/integration_test_run.dart';
 
 /// Canonical name of the repository this binary is built in, which runfiles
 /// paths are resolved from; set by the BUILD target.

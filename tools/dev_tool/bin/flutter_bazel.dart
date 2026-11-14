@@ -13,15 +13,16 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/args.dart';
-
-import '../lib/attach_command.dart';
-import '../lib/build_command.dart';
-import '../lib/chrome_profile.dart';
-import '../lib/cli_args.dart';
-import '../lib/devices_command.dart';
-import '../lib/logging.dart';
-import '../lib/run_command.dart' show RunCommand, DevToolException;
-import '../lib/runfiles_helper.dart' show pinProcessLocation;
+import 'package:flutter_bazel_dev_tool/attach_command.dart';
+import 'package:flutter_bazel_dev_tool/build_command.dart';
+import 'package:flutter_bazel_dev_tool/chrome_profile.dart';
+import 'package:flutter_bazel_dev_tool/cli_args.dart';
+import 'package:flutter_bazel_dev_tool/devices_command.dart';
+import 'package:flutter_bazel_dev_tool/logging.dart';
+import 'package:flutter_bazel_dev_tool/run_command.dart'
+    show RunCommand, DevToolException;
+import 'package:flutter_bazel_dev_tool/runfiles_helper.dart'
+    show pinProcessLocation;
 
 void main(List<String> args) {
   // The VM ends the process on an error nothing caught, and nothing between
