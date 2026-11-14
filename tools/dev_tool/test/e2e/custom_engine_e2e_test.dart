@@ -157,150 +157,70 @@ String _abiFlag(String abi) =>
     '--@rules_android//flags:android_platforms=@rules_android//:$abi';
 
 void main() {
-  for (final mode in [
-    ['release', <String>[]],
-    [
-      'debug',
-      ['-c', 'dbg'],
-    ],
-  ]) {
-    test('the ${mode[0]} app records the checkout it was built from', () async {
-      final record = (await _record('local', mode[1] as List<String>))!;
+  // The tests are grouped by the options they build with: Bazel drops its
+  // analysis cache whenever they change, and analysing this workspace again
+  // costs more than most of the builds. Each group's options are the comment
+  // above it; `--@rules_flutter//flutter:sdk=` is `local` unless it says
+  // otherwise.
+
+  void appRecordsTheCheckout(String mode, List<String> flags) {
+    test('the $mode app records the checkout it was built from', () async {
+      final record = (await _record('local', flags))!;
       _expectRecordOfTheCheckout(record);
-      expect(_outDirs(record), contains('host_${mode[0]}_arm64'));
+      expect(_outDirs(record), contains('host_${mode}_arm64'));
     }, skip: _appleOnly);
   }
 
-  test(
-    'the iOS simulator app records the simulator out dir',
-    skip: _appleOnly,
-    () async {
+  void apkRecordsOutDir(String abi, String cpu) {
+    test('the $abi APK records the $cpu out dir', skip: _appleOnly, () async {
       final record = (await _record(
         'local',
-        const ['-c', 'dbg'],
-        target: '//:ios_simulator',
-      ))!;
-      _expectRecordOfTheCheckout(record);
-      expect(
-        _outDirs(record),
-        containsAll(['ios_debug_sim_arm64', 'host_debug_arm64']),
-      );
-    },
-  );
-
-  test(
-    'the iOS device framework records the release out dir',
-    skip: _appleOnly,
-    () async {
-      final record = (await _record(
-        'local',
-        const [_iosDevice],
-        target: '//:ios_device_framework',
-      ))!;
-      _expectRecordOfTheCheckout(record);
-      expect(
-        _outDirs(record),
-        containsAll(['ios_release', 'host_release_arm64']),
-      );
-    },
-  );
-
-  for (final abi in [
-    ['arm64-v8a', 'arm64'],
-    ['x86_64', 'x64'],
-    ['armeabi-v7a', ''],
-  ]) {
-    test(
-      'the ${abi[0]} APK records the ${abi[1]} out dir',
-      skip: _appleOnly,
-      () async {
-        final record = (await _record(
-          'local',
-          [_abiFlag(abi[0])],
-          target: '//:android_app',
-        ))!;
-        _expectRecordOfTheCheckout(record);
-        expect(
-          _outDirs(record),
-          contains('android_release${abi[1].isEmpty ? '' : '_${abi[1]}'}'),
-        );
-      },
-    );
-  }
-
-  test(
-    'the debug APK is built from the debug out dir',
-    skip: _appleOnly,
-    () async {
-      final record = (await _record(
-        'local',
-        const ['-c', 'dbg'],
+        [_abiFlag(abi)],
         target: '//:android_app',
       ))!;
       _expectRecordOfTheCheckout(record);
-      expect(_outDirs(record), contains('android_debug_arm64'));
-    },
-  );
+      expect(
+        _outDirs(record),
+        contains('android_release${cpu.isEmpty ? '' : '_$cpu'}'),
+      );
+    });
+  }
 
-  test(
-    'an APK for every ABI carries the engine of each',
-    skip: _appleOnly,
-    () async {
-      const flags = [_allAbis];
-      final build = await _bazel([
-        'build',
-        '//:android_app',
-        '${_sdkFlag}local',
-        ...flags,
+  // The release SDK, then the local one.
+  test('the program is told what the selected SDK is', () async {
+    Future<String> kernelDefines(String sdk) async {
+      final aquery = await _bazel([
+        'aquery',
+        'mnemonic(".*Kernel.*", //:app_flutter)',
+        '$_sdkFlag$sdk',
+        '--output=text',
       ]);
-      expect(build.exitCode, 0, reason: '${build.stderr}');
-      final files = await _bazel([
-        'cquery',
-        '//:android_app',
-        '${_sdkFlag}local',
-        ...flags,
-        '--output=files',
-      ]);
-      final apk = (files.stdout as String)
-          .split('\n')
-          .firstWhere((l) => RegExp(r'(?<!_unsigned)\.apk$').hasMatch(l));
-      final listing = await Process.run('unzip', [
-        '-Z1',
-        p.join(_workspace, apk),
-      ]);
-      final entries = '${listing.stdout}'.split('\n');
-      for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
-        expect(entries, contains('lib/$abi/libflutter.so'));
-        expect(entries, contains('lib/$abi/libapp.so'));
-      }
-    },
-  );
+      expect(aquery.exitCode, 0, reason: '${aquery.stderr}');
+      return RegExp(
+        r'FLUTTER_[A-Z_]+=[^ ,\x27"]*',
+      ).allMatches('${aquery.stdout}').map((m) => m.group(0)).toSet().join(' ');
+    }
 
-  test('the Linux bundle is built from the Linux out dir', () async {
-    // Cross-built from a Mac (`linux_debug`), or built on a Linux machine from
-    // its own host build.
-    final record = (await _record(
-      'local',
-      const [_linuxPlatform, '-c', 'dbg'],
-      target: '//:linux_app',
-    ))!;
-    _expectRecordOfTheCheckout(record);
+    // The release's framework revision is versions.bzl's; the stand-in
+    // checkout is not a git repository, so it has none to report.
     expect(
-      _outDirs(record),
-      containsAll([
-        if (Platform.isLinux)
-          'host_debug'
-        else ...[
-          'linux_debug',
-          'host_debug_arm64',
-        ],
-      ]),
+      await kernelDefines('flutter'),
+      isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),
     );
     expect(
-      (record['engine'] as Map).keys,
-      contains(endsWith('//linux-x64/debug:engine')),
+      await kernelDefines('local'),
+      allOf(
+        matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
+        contains('FLUTTER_ENGINE_REVISION=89c39edfdf'),
+      ),
     );
   });
+
+  // The local SDK alone.
+  appRecordsTheCheckout('release', const []);
+
+  // .bazelrc's ABI, so these options too.
+  apkRecordsOutDir('arm64-v8a', 'arm64');
 
   test(
     'a Linux machine builds its release bundle with its own gen_snapshot',
@@ -318,34 +238,6 @@ void main() {
       );
     },
     skip: Platform.isLinux ? null : 'a Linux machine only',
-  );
-
-  test('the Windows and Linux arm64 engines are the checkout\'s too', () async {
-    final build = await _bazel([
-      'build',
-      '@local_engine//windows-x64/debug:engine',
-      '@local_engine//windows-x64/release:engine',
-      '@local_engine//linux-arm64/release:engine',
-    ]);
-    expect(build.exitCode, 0, reason: '${build.stderr}');
-  });
-
-  test(
-    'a desktop gen_snapshot is the machine\'s own, and says so',
-    skip: Platform.isMacOS ? null : 'a Mac cannot run the Linux one',
-    () async {
-      final build = await _bazel([
-        'build',
-        '@local_engine//linux-x64/release:gen_snapshot_linux-x64',
-      ]);
-      expect(build.exitCode, isNot(0));
-      expect(
-        '${build.stderr}',
-        contains(
-          'runs on a linux-x64 machine, and the engine out dirs are read on',
-        ),
-      );
-    },
   );
 
   test('the web app is built from the web SDK and records it', () async {
@@ -423,59 +315,6 @@ void main() {
     expect(dills, everyElement(contains('local_engine')));
   });
 
-  test('a flutter_test is told which SDK it runs under', () async {
-    Future<String> defines(String sdk) async {
-      final aquery = await _bazel([
-        'aquery',
-        'mnemonic("DartEntryKernel", deps(//:widget_test))',
-        '$_sdkFlag$sdk',
-        '--output=text',
-      ]);
-      expect(aquery.exitCode, 0, reason: '${aquery.stderr}');
-      return RegExp(
-        r'FLUTTER_[A-Z_]+=[^ ,\x27"]*',
-      ).allMatches('${aquery.stdout}').map((m) => m.group(0)).toSet().join(' ');
-    }
-
-    expect(
-      await defines('local'),
-      matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
-    );
-    expect(
-      await defines('flutter'),
-      isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),
-    );
-  });
-
-  test('the program is told what the selected SDK is', () async {
-    Future<String> kernelDefines(String sdk) async {
-      final aquery = await _bazel([
-        'aquery',
-        'mnemonic(".*Kernel.*", //:app_flutter)',
-        '$_sdkFlag$sdk',
-        '--output=text',
-      ]);
-      expect(aquery.exitCode, 0, reason: '${aquery.stderr}');
-      return RegExp(
-        r'FLUTTER_[A-Z_]+=[^ ,\x27"]*',
-      ).allMatches('${aquery.stdout}').map((m) => m.group(0)).toSet().join(' ');
-    }
-
-    // The release's framework revision is versions.bzl's; the stand-in
-    // checkout is not a git repository, so it has none to report.
-    expect(
-      await kernelDefines('local'),
-      allOf(
-        matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
-        contains('FLUTTER_ENGINE_REVISION=89c39edfdf'),
-      ),
-    );
-    expect(
-      await kernelDefines('flutter'),
-      isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),
-    );
-  });
-
   test('the checkout\'s packages are linked, never written into', () async {
     // integration_test has Android plugin code, so its repository writes an
     // `android/BUILD.bazel`: into a directory of its own, not through a link
@@ -502,9 +341,71 @@ void main() {
     expect(File(p.join(android, 'BUILD.bazel')).existsSync(), isTrue);
   });
 
+  // The local SDK, then the release one.
+  test('a flutter_test is told which SDK it runs under', () async {
+    Future<String> defines(String sdk) async {
+      final aquery = await _bazel([
+        'aquery',
+        'mnemonic("DartEntryKernel", deps(//:widget_test))',
+        '$_sdkFlag$sdk',
+        '--output=text',
+      ]);
+      expect(aquery.exitCode, 0, reason: '${aquery.stderr}');
+      return RegExp(
+        r'FLUTTER_[A-Z_]+=[^ ,\x27"]*',
+      ).allMatches('${aquery.stdout}').map((m) => m.group(0)).toSet().join(' ');
+    }
+
+    expect(
+      await defines('local'),
+      matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
+    );
+    expect(
+      await defines('flutter'),
+      isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),
+    );
+  });
+
+  // The release SDK (the default), then -c dbg and the Linux platform with it.
+  test('the Windows and Linux arm64 engines are the checkout\'s too', () async {
+    final build = await _bazel([
+      'build',
+      '@local_engine//windows-x64/debug:engine',
+      '@local_engine//windows-x64/release:engine',
+      '@local_engine//linux-arm64/release:engine',
+    ]);
+    expect(build.exitCode, 0, reason: '${build.stderr}');
+  });
+
+  test(
+    'a desktop gen_snapshot is the machine\'s own, and says so',
+    skip: Platform.isMacOS ? null : 'a Mac cannot run the Linux one',
+    () async {
+      final build = await _bazel([
+        'build',
+        '@local_engine//linux-x64/release:gen_snapshot_linux-x64',
+      ]);
+      expect(build.exitCode, isNot(0));
+      expect(
+        '${build.stderr}',
+        contains(
+          'runs on a linux-x64 machine, and the engine out dirs are read on',
+        ),
+      );
+    },
+  );
+
   test('the release SDK records nothing', () async {
+    // The default options first, then each other set once.
     if (Platform.isMacOS) {
       expect(await _record('flutter', const []), isNull);
+      expect(
+        await _record('flutter', const [], target: '//:android_app'),
+        isNull,
+      );
+    }
+    expect(await _record('flutter', const [], target: '//:web_app'), isNull);
+    if (Platform.isMacOS) {
       expect(
         await _record('flutter', const [
           '-c',
@@ -512,12 +413,7 @@ void main() {
         ], target: '//:ios_simulator'),
         isNull,
       );
-      expect(
-        await _record('flutter', const [], target: '//:android_app'),
-        isNull,
-      );
     }
-    expect(await _record('flutter', const [], target: '//:web_app'), isNull);
     expect(
       await _record(
         'flutter',
@@ -528,6 +424,125 @@ void main() {
     );
   });
 
+  // The Linux platform, -c dbg.
+  test('the Linux bundle is built from the Linux out dir', () async {
+    // Cross-built from a Mac (`linux_debug`), or built on a Linux machine from
+    // its own host build.
+    final record = (await _record(
+      'local',
+      const [_linuxPlatform, '-c', 'dbg'],
+      target: '//:linux_app',
+    ))!;
+    _expectRecordOfTheCheckout(record);
+    expect(
+      _outDirs(record),
+      containsAll([
+        if (Platform.isLinux)
+          'host_debug'
+        else ...[
+          'linux_debug',
+          'host_debug_arm64',
+        ],
+      ]),
+    );
+    expect(
+      (record['engine'] as Map).keys,
+      contains(endsWith('//linux-x64/debug:engine')),
+    );
+  });
+
+  // -c dbg.
+  appRecordsTheCheckout('debug', const ['-c', 'dbg']);
+
+  test(
+    'the iOS simulator app records the simulator out dir',
+    skip: _appleOnly,
+    () async {
+      final record = (await _record(
+        'local',
+        const ['-c', 'dbg'],
+        target: '//:ios_simulator',
+      ))!;
+      _expectRecordOfTheCheckout(record);
+      expect(
+        _outDirs(record),
+        containsAll(['ios_debug_sim_arm64', 'host_debug_arm64']),
+      );
+    },
+  );
+
+  test(
+    'the debug APK is built from the debug out dir',
+    skip: _appleOnly,
+    () async {
+      final record = (await _record(
+        'local',
+        const ['-c', 'dbg'],
+        target: '//:android_app',
+      ))!;
+      _expectRecordOfTheCheckout(record);
+      expect(_outDirs(record), contains('android_debug_arm64'));
+    },
+  );
+
+  // The iOS device platform.
+  test(
+    'the iOS device framework records the release out dir',
+    skip: _appleOnly,
+    () async {
+      final record = (await _record(
+        'local',
+        const [_iosDevice],
+        target: '//:ios_device_framework',
+      ))!;
+      _expectRecordOfTheCheckout(record);
+      expect(
+        _outDirs(record),
+        containsAll(['ios_release', 'host_release_arm64']),
+      );
+    },
+  );
+
+  // One Android ABI other than .bazelrc's, then all three.
+  apkRecordsOutDir('x86_64', 'x64');
+
+  apkRecordsOutDir('armeabi-v7a', '');
+
+  test(
+    'an APK for every ABI carries the engine of each',
+    skip: _appleOnly,
+    () async {
+      const flags = [_allAbis];
+      final build = await _bazel([
+        'build',
+        '//:android_app',
+        '${_sdkFlag}local',
+        ...flags,
+      ]);
+      expect(build.exitCode, 0, reason: '${build.stderr}');
+      final files = await _bazel([
+        'cquery',
+        '//:android_app',
+        '${_sdkFlag}local',
+        ...flags,
+        '--output=files',
+      ]);
+      final apk = (files.stdout as String)
+          .split('\n')
+          .firstWhere((l) => RegExp(r'(?<!_unsigned)\.apk$').hasMatch(l));
+      final listing = await Process.run('unzip', [
+        '-Z1',
+        p.join(_workspace, apk),
+      ]);
+      final entries = '${listing.stdout}'.split('\n');
+      for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+        expect(entries, contains('lib/$abi/libflutter.so'));
+        expect(entries, contains('lib/$abi/libapp.so'));
+      }
+    },
+  );
+
+  // The mismatched SDK.
   test('a web SDK of another Dart is refused, naming both', () async {
     final build = await _bazel([
       'build',
@@ -582,6 +597,7 @@ void main() {
     );
   }
 
+  // The SDK the environment names.
   test(
     'an unset checkout loads, and a build that selects it says what to set',
     () async {
