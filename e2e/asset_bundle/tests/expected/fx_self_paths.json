@@ -13,9 +13,7 @@
           "asset": "images/android_only.txt"
         }
       ],
-      "platforms": [
-        "android"
-      ]
+      "platforms": ["android"]
     },
     "images/logo.png": {
       "variants": [
