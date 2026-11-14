@@ -396,7 +396,7 @@ class _BazelCommand {
 /// Every bazel command this tool runs, and the one way to stop them.
 ///
 /// A dev-loop command runs bazel before it launches anything — `bazel info`,
-/// a first `bazel fetch` of the toolchain, the launch build — and again on
+/// the first analysis, which fetches the toolchain, the launch build — and again on
 /// reloads that regenerate code or rebuild assets. Any of those can be running
 /// when the run is stopped, and a bazel command is not stopped by the tool that
 /// started it exiting: measured, a build ran on for five seconds after the

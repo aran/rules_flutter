@@ -104,8 +104,8 @@ void main() {
 
     test('fetches when the output base has never been built', () async {
       // A cold output base — every `editableWorkspace` copy, and every first
-      // run in a fresh clone — has no external repo to find. The fetch is the
-      // step that creates it, not a retry.
+      // run in a fresh clone — has no external repo to find. The analysis is
+      // the step that creates it, not a retry.
       final platform = detectHostPlatform();
       final base = outputBaseWith(null);
       final repoName = 'rules_flutter++flutter+flutter_$platform';
@@ -116,7 +116,7 @@ void main() {
       }) async {
         calls.add(args);
         if (args.first == 'info') return ok('$base\n');
-        // The fetch materializes the repo, as bazel's would.
+        // The analysis materializes the repo, as bazel's would.
         Directory(
           p.join(base, 'external', repoName),
         ).createSync(recursive: true);
@@ -131,15 +131,15 @@ void main() {
       expect(paths.dart, contains(repoName));
       expect(calls.map((c) => c.join(' ')), [
         'info output_base',
-        'fetch //:app',
+        'build --nobuild //:app',
       ]);
     });
 
-    test('fetches with the flags the run builds with', () async {
-      // The fetch analyses the target, so it has to see the configuration the
-      // build will: an iOS simulator app is refused at analysis outside
-      // `-c dbg`, and a fetch without the run's `-c dbg` failed on exactly
-      // that before anything was built.
+    test('analyses with the flags the run builds with', () async {
+      // The analysis has to see the configuration the build will: an iOS
+      // simulator app is refused at analysis outside `-c dbg`, and an analysis
+      // without the run's `-c dbg` failed on exactly that before anything was
+      // built.
       final platform = detectHostPlatform();
       final base = outputBaseWith(null);
       final repoName = 'rules_flutter++flutter+flutter_$platform';
@@ -164,11 +164,11 @@ void main() {
       );
       expect(calls.map((c) => c.join(' ')), [
         'info output_base',
-        'fetch //:app_ios -c dbg --ios_multi_cpus=sim_arm64',
+        'build --nobuild //:app_ios -c dbg --ios_multi_cpus=sim_arm64',
       ]);
     });
 
-    test('reports bazel’s own error when the fetch fails', () async {
+    test('reports bazel’s own error when the analysis fails', () async {
       // A workspace that cannot be analysed at all is reported as bazel's own
       // failure, naming it and its remedy, rather than as a missing Flutter
       // toolchain.
@@ -179,7 +179,7 @@ void main() {
       final base = outputBaseWith(null);
       final bazel = fakeBazel({
         'info': ok('$base\n'),
-        'fetch': ProcessResult(0, 2, '', ndk),
+        'build': ProcessResult(0, 2, '', ndk),
       });
 
       expect(
@@ -194,14 +194,14 @@ void main() {
               .having(
                 (e) => e.message,
                 'message',
-                contains('bazel fetch //:plugin_macos'),
+                contains('bazel build --nobuild //:plugin_macos'),
               )
               .having((e) => e.message, 'message', contains('/ws')),
         ),
       );
     });
 
-    test('separates a fetch that succeeded and left no toolchain', () async {
+    test('separates a clean analysis that left no toolchain', () async {
       // A different fact from the one above, and it has a different remedy:
       // bazel is happy, so the target simply does not resolve a rules_flutter
       // toolchain. Merging the two points the message at the toolchain for
@@ -209,7 +209,7 @@ void main() {
       final base = outputBaseWith(null);
       final bazel = fakeBazel({
         'info': ok('$base\n'),
-        'fetch': ok(''),
+        'build': ok(''),
       });
 
       expect(
