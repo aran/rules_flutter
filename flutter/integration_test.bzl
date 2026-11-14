@@ -156,6 +156,10 @@ def _golden_service(name, deps, srcs, test_config, application = None, package =
             srcs = srcs + [str(Label("//flutter/private/goldens:comparator.dart"))],
             test_config = test_config,
             deps = deps,
+            # Its `srcs` and `deps` are what the config may import, not what
+            # the service loads, so only the strict half of the import check
+            # applies.
+            features = ["-dart_unused_deps"],
             tags = ["manual"],
             testonly = True,
             visibility = ["//visibility:private"],

@@ -49,11 +49,18 @@ dart_analysis_test(
     }),
 )
 
+# The threshold the tolerant golden tests' `flutter_test_config.dart` imports
+# from the app's package: theirs, not the app's.
+_TOLERANCE = "lib/golden_tolerance.dart"
+
 # The counter app. Each integration test runs it as the application with the
 # test as its program.
 flutter_application(
     name = "app_flutter",
-    srcs = glob(["lib/**/*.dart"]),
+    srcs = glob(
+        ["lib/**/*.dart"],
+        exclude = [_TOLERANCE],
+    ),
     main = "lib/main.dart",
     package = ":pubspec-metadata",
     deps = ["@deps//:flutter"],
@@ -443,7 +450,7 @@ flutter_macos_integration_test(
 flutter_macos_integration_test(
     name = "macos_golden_config_test",
     src = "integration_test/tolerant/golden_tolerant_test.dart",
-    srcs = _GOLDEN_SRCS,
+    srcs = _GOLDEN_SRCS + [_TOLERANCE],
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
     data = _TOLERANT_FILES,
@@ -843,7 +850,7 @@ flutter_web_integration_test(
 flutter_web_integration_test(
     name = "web_golden_config_test",
     src = "integration_test/tolerant/golden_tolerant_test.dart",
-    srcs = _GOLDEN_SRCS,
+    srcs = _GOLDEN_SRCS + [_TOLERANCE],
     application = ":app_flutter",
     data = _TOLERANT_FILES,
     target_compatible_with = _WEB_HOSTS,

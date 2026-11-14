@@ -411,6 +411,10 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     # agent extensions) is compiled with it, so its imports are uses of `deps`;
     # they are that rule's to get right, so the check judges only the user's.
     generated = [f for f in inputs.unchecked_srcs if f.extension == "dart"]
+
+    # `entry_srcs` stay among the checked sources, and start the program as
+    # far as the reach check goes: what they import counts as reached.
+    generated.extend([f for f in inputs.entry_srcs if f.extension == "dart" and f not in generated])
     if registrant:
         generated.append(registrant)
     if staged_agent:
@@ -421,6 +425,7 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
         [f for f in [inputs.main] + inputs.srcs if f not in inputs.unchecked_srcs],
         packages[-1],
         inputs.deps,
+        main = inputs.main,
         generated = generated,
     )
 
@@ -1300,6 +1305,8 @@ def flutter_program_inputs(ctx, metadata = None):
         fields of their own; `main`, `srcs`, `assets`, `shaders`,
         `shader_includes`, `license_file` and `additional_licenses` are Files
         (`unchecked_srcs`, among `srcs`, are not checked against `deps`;
+        `entry_srcs`, among `srcs`, need not be reached from `main`, as a
+        variant's application's are;
         `staged_sources` are the sources of staged copies among them, which
         analysis checks in their place); `deps`,
         `native_deps` and `code_assets` are Targets, as is `package_target`,
@@ -1318,6 +1325,7 @@ def flutter_program_inputs(ctx, metadata = None):
         main = getattr(ctx.file, "main", None),
         srcs = list(getattr(ctx.files, "srcs", [])),
         unchecked_srcs = [],
+        entry_srcs = [],
         staged_sources = [],
         deps = getattr(ctx.attr, "deps", []),
         package_target = getattr(ctx.attr, "package", None),

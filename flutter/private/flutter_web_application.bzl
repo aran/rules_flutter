@@ -641,7 +641,12 @@ def _flutter_web_bundle_impl(ctx):
         [f for f in [main] + program.srcs if f not in unchecked],
         primary.packages[-1],
         primary.deps,
-        generated = [f for f in unchecked if f.extension == "dart"] + [f for f in extra_wrapper_srcs if f != main],
+        # The user's `main`, not the wrapper: the wrapper, among `generated`,
+        # starts the program too, and `main` is the file `srcs` must hang from.
+        main = main,
+        # A variant's application's sources start the program for the reach
+        # check too, as `flutter_compile_kernel` passes them.
+        generated = [f for f in unchecked + program.entry_srcs if f.extension == "dart"] + [f for f in extra_wrapper_srcs if f != main],
     )
 
     # What a compile of each branch reads: the branch's co-located sources and

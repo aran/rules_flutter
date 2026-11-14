@@ -604,6 +604,7 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
             # `synthesize_app_package` appends the test's own package last.
             packages[-1],
             deps,
+            main = ctx.file.main,
             generated = [bootstrap] + ([staged_comparator] if staged_comparator else []),
         )),
         # What lets rules_dart's analysis check a `flutter_test`. The test's

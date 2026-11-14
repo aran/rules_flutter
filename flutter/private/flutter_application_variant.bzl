@@ -25,10 +25,14 @@ def _flutter_application_variant_impl(ctx):
     # The application's own `main` stays a source: the new one is likely to
     # import it (`package:<app>/main.dart`) to start the app it tests.
     kept_main = [program.main] if program.main not in program.srcs else []
+    application_srcs = program.srcs + kept_main
     inputs = structs.to_dict(program) | {
         "main": ctx.file.main,
-        "srcs": program.srcs + kept_main + ctx.files.srcs + ctx.files.unchecked_srcs,
+        "srcs": application_srcs + ctx.files.srcs + ctx.files.unchecked_srcs,
         "unchecked_srcs": program.unchecked_srcs + ctx.files.unchecked_srcs,
+        # The new `main` need not load them all: the application's own target
+        # checks that its `main` does.
+        "entry_srcs": application_srcs,
         "staged_sources": program.staged_sources + staged_sources(ctx.attr.unchecked_srcs),
         "deps": deps,
         "defines": program.defines + ctx.attr.defines,
