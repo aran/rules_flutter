@@ -57,6 +57,7 @@ use_repo(
     fx_nolicence = "flutter_pub_lib__fx_nolicence",
     fx_notices = "flutter_pub_lib__fx_notices",
     fx_platforms = "flutter_pub_lib__fx_platforms",
+    fx_self_paths = "flutter_pub_lib__fx_self_paths",
     fx_shader_flavors = "flutter_pub_lib__fx_shader_flavors",
     fx_shaders = "flutter_pub_lib__fx_shaders",
     fx_variants = "flutter_pub_lib__fx_variants",

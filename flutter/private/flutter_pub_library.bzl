@@ -80,7 +80,11 @@ flutter_pub_member = rule(
     attrs = PLUGIN_PACKAGE_ATTRS | package_identity_attrs(
         mandatory = True,
         doc = "The package's `dart_package_metadata`, which states its facts.",
-    ),
+    ) | {
+        "bundle_paths": attr.string_dict(
+            doc = "For a file of `assets` or `shaders` bundled by a path other than its own in the package, its package-relative path and that path: the `lib/x` a pubspec names `packages/<the package>/x`, which flutter_tools bundles as `x`.",
+        ),
+    },
     doc = "One Flutter pub package's files and facts, which a `flutter_pub_library` builds; not a library by itself. A plugin when it has `platforms`; otherwise it contributes only its assets, fonts and shaders.",
 )
 

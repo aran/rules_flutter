@@ -1,0 +1,13 @@
+name: fx_self_paths
+version: 1.0.0
+environment:
+  sdk: ^3.13.0
+flutter:
+  assets:
+    - packages/fx_self_paths/images/logo.png
+    - path: packages/fx_self_paths/images/android_only.txt
+      platforms: [android]
+    - packages/fx_self_paths/literal.txt
+    - assets/plain.txt
+  shaders:
+    - packages/fx_self_paths/shaders/ink.frag

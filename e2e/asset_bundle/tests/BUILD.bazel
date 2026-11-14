@@ -138,6 +138,19 @@ bundle_test(
     }.items()
 ]
 
+# Property: a pub package's file entry (asset or shader) `packages/<the
+# package>/x` is its `lib/x`, bundled at `packages/<the package>/x`, unless the
+# package has a file at the path as written, as flutter_tools' `_resolveAsset`
+# reads it. The variants of such an image are the ones beside its `lib/x`, its
+# `platforms:` restrict it, and such a shader `#include`s from beside its
+# `lib/x`.
+bundle_test(
+    name = "pub_package_own_package_prefix_is_its_lib_test",
+    bundle = "//:app_with_fx_self_paths_bundle",
+    expected = "//tests:expected/fx_self_paths.json",
+    prefix = "packages/fx_self_paths/",
+)
+
 # -- Platforms and flavors -------------------------------------------------------
 
 # Property: a pub package's asset entry with `platforms:` is bundled only for

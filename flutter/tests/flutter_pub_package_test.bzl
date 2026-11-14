@@ -22,6 +22,7 @@ load(
     "make_android_subpackage_build_content",
     "make_dart_member_build_content",
     "make_flutter_member_build_content",
+    "own_lib_path",
     "parse_android_manifest_package",
     "parse_gradle_android_namespace",
     "removed_hub_placeholder_error",
@@ -567,6 +568,20 @@ def _spoke_with_shaders_declares_their_includes_test_impl(ctx):
 
 spoke_with_shaders_declares_their_includes_test = unittest.make(_spoke_with_shaders_declares_their_includes_test_impl)
 
+def _own_lib_path_test_impl(ctx):
+    """A file entry `packages/<self>/x` is the package's lib/x, unless a file is at the path as written."""
+    env = unittest.begin(ctx)
+    asserts.equals(env, "shaders/ink_sparkle.frag", own_lib_path("material_ui", "packages/material_ui/shaders/ink_sparkle.frag", False))
+    asserts.equals(env, None, own_lib_path("material_ui", "packages/material_ui/shaders/ink_sparkle.frag", True))
+    asserts.equals(env, None, own_lib_path("glass_plugin", "shaders/tint.frag", False))
+
+    # Another package's prefix is not this package's lib/.
+    asserts.equals(env, None, own_lib_path("glass_plugin", "packages/material_ui/x.png", False))
+    asserts.equals(env, None, own_lib_path("material", "packages/material_ui/x.png", False))
+    return unittest.end(env)
+
+own_lib_path_test = unittest.make(_own_lib_path_test_impl)
+
 def _overlay_substitutes_the_language_version_test_impl(ctx):
     """An overlay declares the language version by placeholder, never by value.
 
@@ -1068,6 +1083,7 @@ def flutter_pub_package_test_suite(name):
         library_spoke_carries_resources_test,
         file_names_are_written_as_string_literals_test,
         spoke_with_shaders_declares_their_includes_test,
+        own_lib_path_test,
         desktop_plugin_libraries_carry_their_link_libraries_test,
         platform_restricted_assets_are_stated_in_the_spoke_test,
         platform_restricted_shaders_are_stated_in_the_spoke_test,

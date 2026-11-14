@@ -1,0 +1,46 @@
+{
+  "assets": {
+    "assets/plain.txt": {
+      "variants": [
+        {
+          "asset": "assets/plain.txt"
+        }
+      ]
+    },
+    "images/android_only.txt": {
+      "variants": [
+        {
+          "asset": "images/android_only.txt"
+        }
+      ],
+      "platforms": [
+        "android"
+      ]
+    },
+    "images/logo.png": {
+      "variants": [
+        {
+          "asset": "images/logo.png"
+        },
+        {
+          "asset": "images/2.0x/logo.png",
+          "dpr": 2.0
+        }
+      ]
+    },
+    "packages/fx_self_paths/literal.txt": {
+      "variants": [
+        {
+          "asset": "packages/fx_self_paths/literal.txt"
+        }
+      ]
+    },
+    "shaders/ink.frag": {
+      "variants": [
+        {
+          "asset": "shaders/ink.frag"
+        }
+      ]
+    }
+  }
+}
