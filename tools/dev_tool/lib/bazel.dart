@@ -396,14 +396,15 @@ class _BazelCommand {
 /// Every bazel command this tool runs, and the one way to stop them.
 ///
 /// A dev-loop command runs bazel before it launches anything — `bazel info`,
-/// a first `bazel fetch` of the toolchain, the launch build — and again on
-/// reloads that regenerate code or rebuild assets. Any of those can be running
-/// when the run is stopped, and a bazel command is not stopped by the tool that
-/// started it exiting: measured, a build ran on for five seconds after the
-/// tool had gone, to "Processing and signing app", and a `bazel` command issued
-/// meanwhile printed `Another command (pid=…) is running` and waited behind it.
-/// On a real project that is minutes of a build nobody wants, holding the
-/// output base's lock against the rerun the user stopped the old run to make.
+/// the first analysis, which fetches the toolchain, the launch build — and
+/// again on reloads that regenerate code or rebuild assets. Any of those can be
+/// running when the run is stopped, and a bazel command is not stopped by the
+/// tool that started it exiting: measured, a build ran on for five seconds
+/// after the tool had gone, to "Processing and signing app", and a `bazel`
+/// command issued meanwhile printed `Another command (pid=…) is running` and
+/// waited behind it. On a real project that is minutes of a build nobody wants,
+/// holding the output base's lock against the rerun the user stopped the old
+/// run to make.
 ///
 /// So every bazel command goes through here, and [close] — reached from the
 /// run's [Teardown], and so from a signal and from `daemon.shutdown` alike —

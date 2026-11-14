@@ -1305,8 +1305,8 @@ Future<DevToolProcess> attachDevTool({
 );
 
 /// Cache of resolved toolchain Darts, keyed by workspace. Resolution costs a
-/// `bazel info` (and on a cold repo a `bazel fetch`) subprocess, and one e2e
-/// file starts many runs against the same workspace.
+/// `bazel info` (and on a cold repo a `bazel build --nobuild`) subprocess, and
+/// one e2e file starts many runs against the same workspace.
 final Map<String, String> _hermeticDartByWorkspace = {};
 
 /// The `dart` the dev tool itself runs on: the Flutter toolchain's, resolved

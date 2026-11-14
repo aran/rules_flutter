@@ -355,10 +355,10 @@ void main() {
 
   // A run is stopped with a signal or `daemon.shutdown`, and either can land
   // while a bazel command is running — the launch build, a codegen rebuild on
-  // reload, a first `bazel fetch` of the toolchain. Left alone, that command
-  // outlives the tool: measured, a build ran on to "Processing and signing
-  // app" five seconds after the tool had exited, and every bazel command in
-  // the workspace waited behind it for the output base's lock.
+  // reload, the first analysis, which fetches the toolchain. Left alone, that
+  // command outlives the tool: measured, a build ran on to "Processing and
+  // signing app" five seconds after the tool had exited, and every bazel
+  // command in the workspace waited behind it for the output base's lock.
   group('Bazel', () {
     /// A [Bazel] whose commands are [FakeProcess]es the test finishes by hand.
     ({

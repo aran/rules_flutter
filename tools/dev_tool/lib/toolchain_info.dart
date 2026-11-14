@@ -31,11 +31,11 @@ class ToolchainPaths {
 /// How [resolveToolchainPaths] reaches bazel.
 ///
 /// Required, with no default that spawns `bazel` itself: in the dev tool this
-/// is `Bazel.run`, so a `bazel fetch` of the toolchain — minutes, on a fresh
-/// output base — is one a stopped run can stop. A default would be a way to
-/// run bazel that nothing stops. It is also the seam a test here needs: a test
-/// target runs inside a Bazel sandbox, where nesting a `bazel` invocation is
-/// not possible (see the comment on the analysis targets in this package's
+/// is `Bazel.run`, so the analysis that fetches the toolchain — minutes, on a
+/// fresh output base — is one a stopped run can stop. A default would be a way
+/// to run bazel that nothing stops. It is also the seam a test here needs: a
+/// test target runs inside a Bazel sandbox, where nesting a `bazel` invocation
+/// is not possible (see the comment on the analysis targets in this package's
 /// BUILD file), so the failures below cannot be provoked without one.
 typedef BazelRunner = Future<ProcessResult> Function(
   List<String> args, {
@@ -66,13 +66,20 @@ List<String> flutterToolchainRepoNames(String platform) => [
 ///
 /// Runs before anything is built, because the run needs its `dart` before the
 /// build has said anything. That is
-/// what makes the fetch below load-bearing rather than incidental: on a
+/// what makes the analysis below load-bearing rather than incidental: on a
 /// workspace whose output base has never been built there is no external repo
 /// to find yet, and this is the call that creates it.
 ///
 /// [buildFlags] are the configuration flags the run's own build uses. The
-/// fetch analyses [target], so it has to see that configuration: an iOS
-/// simulator app is refused at analysis outside `-c dbg`.
+/// analysis has to see that configuration: an iOS simulator app is refused at
+/// analysis outside `-c dbg`.
+///
+/// It is `bazel build --nobuild` rather than `bazel fetch`, so that it is the
+/// same command as the build after it: a wrapper that adds options to builds
+/// (an execution platform, say) adds them here too, and Bazel keeps this
+/// analysis for that build. `bazel fetch` gets neither, and an execution
+/// platform missing from it once made the same tool compile twice, a
+/// conflict that failed the run before it built anything.
 Future<ToolchainPaths> resolveToolchainPaths(
   String target, {
   required String workspace,
@@ -99,30 +106,33 @@ Future<ToolchainPaths> resolveToolchainPaths(
 
   var externalDir = _existingRepo(externalBase, candidates);
   if (externalDir == null) {
-    // `bazel fetch` analyses the target, and analysis is what resolves the
+    // Analysing the target is what resolves the
     // Flutter toolchain and materializes its repo. Its result is checked: this
     // is the first bazel command a run makes, so every way the workspace is
     // unusable surfaces here, and discarding it would turn all of them into
     // "could not find Flutter toolchain".
-    final fetch = await runBazel([
-      'fetch',
+    final analysis = await runBazel([
+      'build',
+      '--nobuild',
       target,
       ...buildFlags,
     ], workingDirectory: workspace);
-    if (fetch.exitCode != 0) {
+    if (analysis.exitCode != 0) {
       throw DevToolException(
-        'Could not fetch what $target needs, so the Flutter toolchain was '
-        'never materialized.\n'
-        '  cd $workspace && bazel fetch ${[target, ...buildFlags].join(' ')}\n'
-        '  exit ${fetch.exitCode}\n'
-        '${_tail(fetch.stderr as String)}',
+        'Could not analyse $target, so the Flutter toolchain was never '
+        'materialized.\n'
+        '  cd $workspace && bazel build --nobuild '
+        '${[target, ...buildFlags].join(' ')}\n'
+        '  exit ${analysis.exitCode}\n'
+        '${_tail(analysis.stderr as String)}',
       );
     }
     externalDir = _existingRepo(externalBase, candidates);
   }
   if (externalDir == null) {
     throw DevToolException(
-      '`bazel fetch $target` succeeded but left no Flutter toolchain in '
+      '`bazel build --nobuild $target` succeeded but left no Flutter '
+      'toolchain in '
       '$externalBase.\n'
       'Looked for: ${candidates.join(', ')}.\n'
       'That means $target resolves no rules_flutter toolchain — check that '
