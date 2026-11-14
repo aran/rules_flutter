@@ -117,7 +117,10 @@ dart_package_metadata(
 
 flutter_application(
     name = "app_flutter",
-    srcs = glob(["lib/**/*.dart"]),
+    srcs = glob(
+        ["lib/**/*.dart"],
+        exclude = ["lib/testonly_main.dart"],
+    ),
     # Not the default: every app built over this has it as its version, and
     # `:second_app` states it too, which has to agree.
     build_name = "2.3.4",
@@ -144,7 +147,6 @@ flutter_application(
 flutter_application(
     name = "testonly_flutter",
     testonly = True,
-    srcs = glob(["lib/**/*.dart"]),
     main = "lib/testonly_main.dart",
     package = ":pubspec-metadata",
     deps = ["@deps//:flutter"],

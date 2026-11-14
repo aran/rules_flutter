@@ -12,13 +12,13 @@ load(":icon_font_test.bzl", "icon_font_test")
 # has to accept the same apps and keep the same icons. These targets build in
 # the default (release) configuration.
 
-_SRCS = glob(["lib/**/*.dart"])
-
 _DEPS = [
     "@deps//:flutter",
-    "@deps//:web",
     "@rules_flutter//flutter:material_icons",
 ]
+
+# What `lib/interop_main.dart` imports beyond `_DEPS`.
+_INTEROP_DEPS = _DEPS + ["@deps//:web"]
 
 dart_package_metadata(
     name = "pubspec-metadata",
@@ -35,11 +35,10 @@ _WEB_ONLY = select({
 
 flutter_application(
     name = "interop",
-    srcs = _SRCS,
     main = "lib/interop_main.dart",
     package = ":pubspec-metadata",
     target_compatible_with = _WEB_ONLY,
-    deps = _DEPS,
+    deps = _INTEROP_DEPS,
 )
 
 # An app whose own code imports `dart:js_interop`, `package:web` and
@@ -48,12 +47,11 @@ flutter_application(
 # beside it for browsers that cannot run WebAssembly, so one build covers both.
 flutter_application(
     name = "interop_no_icon_shaking",
-    srcs = _SRCS,
     main = "lib/interop_main.dart",
     package = ":pubspec-metadata",
     target_compatible_with = _WEB_ONLY,
     tree_shake_icons = False,
-    deps = _DEPS,
+    deps = _INTEROP_DEPS,
 )
 
 flutter_web_app(
@@ -71,7 +69,10 @@ build_test(
 # another from a web plugin; see `lib/glyph_main.dart`.
 flutter_application(
     name = "glyph",
-    srcs = _SRCS,
+    srcs = [
+        "lib/platform_icon_stub.dart",
+        "lib/platform_icon_web.dart",
+    ],
     main = "lib/glyph_main.dart",
     package = ":pubspec-metadata",
     target_compatible_with = _WEB_ONLY,
