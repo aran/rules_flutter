@@ -4103,6 +4103,16 @@ flutter_test(
 
 The generated files land beside the `.arb` files, which must all be in one directory, or in `output_dir`. List the target in `srcs` to compile them. The app needs `intl` in its own lock, as with `flutter gen-l10n`; the generator has its own copy.
 
+As with `flutter gen-l10n`, the generated `localizationsDelegates` list registers `package:flutter_localizations`'s Material and Cupertino delegates. Those localize `package:flutter`'s own widgets, not `material_ui`'s or `cupertino_ui`'s, so an app built on those packages finds no `MaterialLocalizations` in any locale but English. Such an app registers the generated `delegate` with its UI package's delegates instead:
+
+```dart
+// package:material_ui's
+localizationsDelegates: [
+  AppLocalizations.delegate,
+  ...GlobalMaterialLocalizations.delegates,
+],
+```
+
 `l10n.yaml` is not read, because Bazel must know the output file names during analysis, before any file is read. Its settings are attributes instead, with `flutter gen-l10n`'s defaults:
 
 | `l10n.yaml` / `flutter gen-l10n` flag | Attribute | Default |
