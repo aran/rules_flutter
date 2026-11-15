@@ -46,7 +46,7 @@ void main() {
       containsAll([
         'flutter/private/repositories.bzl',
         'flutter/private/flutter_web_sdk_repo.bzl',
-        'flutter/private/flutter_pub_package.bzl',
+        'flutter/private/flutter_source_files.bzl',
         'flutter/private/flutter_framework_package.bzl',
       ]),
     );
@@ -72,10 +72,9 @@ void main() {
     // `pinned` (flutter/private/pinned.bzl) refuses a missing or malformed
     // digest before any request is made. A site that hands an attribute or a
     // table lookup straight to the download would fetch unchecked whenever
-    // that value happens to be unset. A hosted pub package is fetched by
-    // rules_dart's `fetch_pub_archive`, which refuses a missing digest
-    // itself; the walk counts that call (loaded from rules_dart, given a
-    // `sha256`) as pinned.
+    // that value happens to be unset. A call to rules_dart's
+    // `fetch_pub_archive`, which refuses a missing digest itself, counts as
+    // pinned when it is loaded from rules_dart and given a `sha256`.
     final unchecked = [
       for (final s in sites)
         if (!s.isPinned) '${s.where}: ${s.digest ?? 'no sha256'}',
@@ -85,8 +84,8 @@ void main() {
       isEmpty,
       reason:
           'Wrap the digest: sha256 = pinned("<artifact>", <digest>), so a '
-          'missing one fails the fetch naming the artifact. (A pub package '
-          'goes through fetch_pub_archive from '
+          'missing one fails the fetch naming the artifact. (A hosted pub '
+          'package goes through fetch_pub_archive from '
           '@rules_dart//dart/pub:pub_lock_package.bzl, with a sha256.)',
     );
   });

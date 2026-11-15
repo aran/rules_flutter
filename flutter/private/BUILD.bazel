@@ -1029,6 +1029,17 @@ bzl_library(
 )
 
 bzl_library(
+    name = "flutter_source_files",
+    srcs = ["flutter_source_files.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":artifact_urls",
+        ":pinned",
+        "@rules_dart//dart/pub:pub_files_root",
+    ],
+)
+
+bzl_library(
     name = "pub_extension",
     srcs = ["pub_extension.bzl"],
     visibility = ["//flutter:__subpackages__"],
@@ -1039,6 +1050,7 @@ bzl_library(
         ":flutter_pub_library_repo",
         ":flutter_resolved_package",
         ":flutter_sdks_repo",
+        ":flutter_source_files",
         ":flutter_unsupported_package",
         ":lock_entry_kind",
         ":pub_cycles",

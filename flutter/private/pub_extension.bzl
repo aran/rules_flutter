@@ -11,7 +11,7 @@ extension is identified by the file that defines it and its name.
 """
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url", "pub_archive_files", "pub_files_label", "pub_git_files")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven")
@@ -21,12 +21,13 @@ load("//flutter/private:flutter_face_repo.bzl", "flutter_face_repo")
 load("//flutter/private:flutter_framework_package.bzl", "flutter_framework_package")
 load("//flutter/private:flutter_gen_l10n_repo.bzl", "flutter_gen_l10n_repo")
 load("//flutter/private:flutter_pub_goldens.bzl", "flutter_pub_goldens")
-load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
 load("//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
 load("//flutter/private:flutter_resolved_package.bzl", "flutter_resolved_package")
 load("//flutter/private:flutter_sdks_repo.bzl", "SDKS_FILE", "decode_sdks")
+load("//flutter/private:flutter_source_files.bzl", "flutter_source_files")
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
@@ -687,8 +688,16 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
             apple_repos[name] = apple_repo(name)
+            pub_archive_files(
+                name = files_repo(name),
+                package_name = name,
+                version = e.version,
+                sha256 = e.sha256,
+                base_url = e.url,
+            )
             flutter_pub_package(
                 name = source_repo(name),
+                files = pub_files_label(files_repo(name)),
                 package_name = name,
                 version = e.version,
                 sha256 = e.sha256,
@@ -709,14 +718,23 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
             apple_repos[name] = apple_repo(name)
+            pub_git_files(
+                name = files_repo(name),
+                package_name = name,
+                version = e.version,
+                url = e.git_url,
+                resolved_ref = e.resolved_ref,
+                path = e.git_path,
+                lock = e.lock,
+            )
             flutter_pub_package(
                 name = source_repo(name),
+                files = pub_files_label(files_repo(name)),
                 package_name = name,
                 version = e.version,
                 git_url = e.git_url,
                 resolved_ref = e.resolved_ref,
                 git_path = e.git_path,
-                lock = e.lock,
                 overlay_roots = overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,
@@ -744,13 +762,21 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 flutter_apple_plugin_repo(name = apple_repo(name, prefix), package_name = name, prefix = prefix, version = e.version)
                 if prefix == SPOKE_PREFIX:
                     apple_repos[name] = apple_repo(name)
+                files = None
+                if sdk.version and not sdk.framework:
+                    flutter_source_files(
+                        name = files_repo(name, prefix),
+                        package_name = name,
+                        flutter_version = sdk.version,
+                        sha256 = flutter_source_sha256(sdk.version),
+                        packages = flutter_sdk_packages(sdk.version),
+                    )
+                    files = pub_files_label(files_repo(name, prefix))
                 flutter_pub_package(
                     name = source_repo(name, prefix),
+                    files = files,
                     package_name = name,
                     version = e.version,
-                    sha256 = flutter_source_sha256(sdk.version) if sdk.version and not sdk.framework else "",
-                    flutter_source_version = sdk.version if not sdk.framework else "",
-                    flutter_source_packages = flutter_sdk_packages(sdk.version) if sdk.version and not sdk.framework else [],
                     framework_json = framework_json(sdk.framework) if sdk.framework else None,
                     sdk = sdk.name,
                     prefix = prefix,

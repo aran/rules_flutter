@@ -56,12 +56,70 @@ class ProbeRepo {
   /// The repository rule's symbol.
   final String rule;
 
-  /// The file under `//flutter/private` that defines [rule], without `.bzl`.
+  /// The file under `//flutter/private` that defines [rule], without `.bzl`,
+  /// or the label of another module's file (`@rules_dart//...`).
   final String bzl;
+
+  /// The label of the file defining [rule].
+  String get bzlLabel =>
+      bzl.startsWith('@') ? bzl : '@rules_flutter//flutter/private:$bzl.bzl';
 
   /// Starlark source of each attribute's value.
   final Map<String, String> attrs;
 }
+
+/// A hosted pub package's source repository [name] and the repository its
+/// files are fetched into, from [baseUrl] and checked against [sha256], as
+/// `flutter_pub.from_lock()` declares the two.
+List<ProbeRepo> hostedPubPackage(
+  String name, {
+  required String package,
+  required String version,
+  required String sha256,
+  required String baseUrl,
+}) => [
+  ProbeRepo(
+    '${name}_files',
+    'pub_archive_files',
+    {
+      'package_name': str(package),
+      'version': str(version),
+      'sha256': str(sha256),
+      'base_url': str(baseUrl),
+    },
+    bzl: '@rules_dart//dart/pub:pub_lock_package.bzl',
+  ),
+  ProbeRepo(name, 'flutter_pub_package', {
+    'files': str('@${name}_files//:BUILD.bazel'),
+    'package_name': str(package),
+    'version': str(version),
+    'sha256': str(sha256),
+    'base_url': str(baseUrl),
+  }),
+];
+
+/// A Flutter SDK package's source repository [name] and the repository its
+/// files are extracted into from the Flutter source tarball of
+/// [fakeFlutterVersion], checked against [sha256], as `flutter_pub.from_lock()`
+/// declares the two. [packages] are those the release's source has.
+List<ProbeRepo> sdkSourcePackage(
+  String name, {
+  required String package,
+  required String sha256,
+  required List<String> packages,
+}) => [
+  ProbeRepo('${name}_files', 'flutter_source_files', {
+    'package_name': str(package),
+    'flutter_version': str(fakeFlutterVersion),
+    'sha256': str(sha256),
+    'packages': '[${packages.map(str).join(', ')}]',
+  }),
+  ProbeRepo(name, 'flutter_pub_package', {
+    'files': str('@${name}_files//:BUILD.bazel'),
+    'package_name': str(package),
+    'version': str('0.0.0'),
+  }),
+];
 
 /// A Starlark string literal.
 String str(String value) => jsonEncode(value);
@@ -97,6 +155,9 @@ class Probe {
   Probe._(this._workspace);
 
   final EditableWorkspace _workspace;
+
+  /// The workspace's root.
+  String get root => _workspace.root;
 
   /// Where `--distdir` points; each archive is a file here.
   String get distdir => p.join(_workspace.root, 'distdir');
@@ -155,8 +216,7 @@ Future<Probe> probe({
     ..writeln('bazel_dep(name = "rules_dart", version = "${rulesDart[1]}")');
   for (final repo in {for (final r in repos) r.rule: r}.values) {
     module.writeln(
-      '${repo.rule} = use_repo_rule('
-      '"@rules_flutter//flutter/private:${repo.bzl}.bzl", "${repo.rule}")',
+      '${repo.rule} = use_repo_rule("${repo.bzlLabel}", "${repo.rule}")',
     );
   }
   if (extension != null) {

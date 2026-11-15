@@ -19,6 +19,7 @@ load(
     "find_hardcoded_language_version",
     "flavor_restrictions",
     "has_removed_hub_placeholder",
+    "make_android_native_build_content",
     "make_android_subpackage_build_content",
     "make_dart_member_build_content",
     "make_flutter_member_build_content",
@@ -26,6 +27,7 @@ load(
     "parse_gradle_android_namespace",
     "removed_hub_placeholder_error",
     "render_overlay_deps",
+    "write_android_build",
 )
 
 # Verbatim shape of record_android 1.5.1's android/build.gradle (trimmed):
@@ -567,6 +569,22 @@ def _spoke_with_shaders_declares_their_includes_test_impl(ctx):
 
 spoke_with_shaders_declares_their_includes_test = unittest.make(_spoke_with_shaders_declares_their_includes_test_impl)
 
+def _android_build_file_begins_with_the_files_repository_load_test_impl(ctx):
+    """A plugin's `android/BUILD.bazel` begins with the load the root BUILD file does.
+
+    Its globs read through the same links; a vendored repository is never
+    fetched again, so without the load they match nothing in a new output base.
+    """
+    env = unittest.begin(ctx)
+    written = {}
+    fake = struct(file = lambda path, content: written.update({path: content}))
+    load_line = 'load("@@files//:pub_files.bzl", "FILES")\n'
+    write_android_build(fake, load_line, make_android_native_build_content("broken"))
+    asserts.true(env, written["android/BUILD.bazel"].startswith(load_line), written)
+    return unittest.end(env)
+
+android_build_file_begins_with_the_files_repository_load_test = unittest.make(_android_build_file_begins_with_the_files_repository_load_test_impl)
+
 def _overlay_substitutes_the_language_version_test_impl(ctx):
     """An overlay declares the language version by placeholder, never by value.
 
@@ -1068,6 +1086,7 @@ def flutter_pub_package_test_suite(name):
         library_spoke_carries_resources_test,
         file_names_are_written_as_string_literals_test,
         spoke_with_shaders_declares_their_includes_test,
+        android_build_file_begins_with_the_files_repository_load_test,
         desktop_plugin_libraries_carry_their_link_libraries_test,
         platform_restricted_assets_are_stated_in_the_spoke_test,
         platform_restricted_shaders_are_stated_in_the_spoke_test,

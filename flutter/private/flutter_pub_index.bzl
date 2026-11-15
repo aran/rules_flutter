@@ -56,7 +56,7 @@ MEMBER_OVERLAY = "overlay"  # an overlay's whole BUILD file, which `:<package>` 
 _INDEX_FILE = "index.json"
 
 def source_repo(package, prefix = SPOKE_PREFIX):
-    """The name of the repository holding a package's files.
+    """The name of a package's source repository: its files and the build it states.
 
     Args:
         package: The package.
@@ -67,6 +67,10 @@ def source_repo(package, prefix = SPOKE_PREFIX):
         The repository's name.
     """
     return "{}__{}".format(prefix, package)
+
+def files_repo(package, prefix = SPOKE_PREFIX):
+    """The name of the repository holding a hosted, git or Flutter SDK package's fetched files."""
+    return "{}_files__{}".format(prefix, package)
 
 def library_repo(package, prefix = SPOKE_PREFIX):
     """The name of the repository holding a built package's library."""

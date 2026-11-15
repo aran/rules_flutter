@@ -10,12 +10,12 @@ import 'digest_probe.dart';
 
 /// A Flutter SDK package of the lock is fetched from the pinned Flutter source.
 ///
-/// **The property:** `flutter_pub_package` with `flutter_source_version` set
-/// builds a package out of `packages/<name>` of the Flutter source tarball, and
+/// **The property:** `flutter_pub_package` over `flutter_source_files` builds a
+/// package out of `packages/<name>` of the Flutter source tarball, and
 /// the package's files are at the repository's root as a hosted package's are.
 /// Only that package is extracted: nothing else of `packages/` is in the
 /// repository. A lock that lists an `sdk: flutter` package the release's
-/// source does not have (one not in `flutter_source_packages`, the list
+/// source does not have (one not in `packages`, the list
 /// versions.bzl records per release) fails the fetch, naming the package, the
 /// Flutter version and the command that re-resolves the lock, instead of
 /// Bazel's message about archive prefixes.
@@ -39,23 +39,26 @@ void main() {
   });
   final digest = sha256Hex(tarball);
 
-  ProbeRepo sdkPackage(String repo, String package) =>
-      ProbeRepo(repo, 'flutter_pub_package', {
-        'package_name': str(package),
-        'version': str('0.0.0'),
-        'sha256': str(digest),
-        'flutter_source_version': str(fakeFlutterVersion),
-        'flutter_source_packages':
-            '[${str('flutter_driver')}, ${str('integration_test')}]',
-      });
+  List<ProbeRepo> sdkPackage(String repo, String package) => sdkSourcePackage(
+    repo,
+    package: package,
+    sha256: digest,
+    packages: ['flutter_driver', 'integration_test'],
+  );
 
   setUpAll(() async {
     fetcher = await probe(
       archives: {'$fakeFlutterVersion.tar.gz': tarball},
       repos: [
-        sdkPackage('sdk_integration_test', 'integration_test'),
-        sdkPackage('sdk_flutter_driver', 'flutter_driver'),
-        sdkPackage('sdk_absent', 'package_the_release_lacks'),
+        ...sdkPackage('sdk_integration_test', 'integration_test'),
+        ...sdkPackage('sdk_flutter_driver', 'flutter_driver'),
+        ...sdkPackage('sdk_absent', 'package_the_release_lacks'),
+        // As the extension would declare a Flutter SDK package under an SDK
+        // that names neither a Flutter release nor a framework source.
+        ProbeRepo('sdk_no_files', 'flutter_pub_package', {
+          'package_name': str('integration_test'),
+          'version': str('0.0.0'),
+        }),
       ],
     );
   });
@@ -125,6 +128,19 @@ void main() {
         result.output,
         contains('bazel run @rules_flutter//flutter/pub -- get'),
         reason: 'the failure does not say how to re-resolve the lock\n$result',
+      );
+    },
+  );
+
+  test(
+    'a package given no files fails the fetch, naming it and what it lacks',
+    () async {
+      final result = await fetcher.fetch('sdk_no_files');
+      expect(result.succeeded, isFalse, reason: 'fetched a package of no files');
+      expect(
+        result.output,
+        allOf(contains('integration_test'), contains('`files`')),
+        reason: 'the failure does not name the package and its cause\n$result',
       );
     },
   );

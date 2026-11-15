@@ -4,18 +4,20 @@ named in `build_from_pubspec`, or a Flutter SDK package built from the pinned
 Flutter source.
 
 For each such package in a Flutter app's pubspec.lock this rule:
-  1. Downloads the same `pub.dev/api/packages/<name>/versions/<version>.tar.gz`
-     archive, checked against `pubspec.lock`'s digest, that rules_dart's
-     `pub_lock_package` would (through the shared `fetch_pub_archive`). A
-     Flutter SDK package (`sdk: flutter` in the lock: `flutter_test`,
-     `integration_test`, `flutter_driver`, ...) has no archive: with
-     `flutter_source_version` set, its tree is `packages/<name>` of the
-     toolchain's pinned Flutter source tarball, checked against that
-     tarball's recorded digest. A git package (`source: git`) is fetched at the
-     lock's `resolved-ref` by rules_dart's `fetch_pub_git`, which lays out its
-     directory of the repository exactly as pub does. A `path` package
-     (`directory` set) is its directory, linked (`fetch_local_package`).
-     Everything after this step is the same.
+  1. Links in the package's files, which a repository of their own holds
+     (`files`): a hosted package's archive, checked against `pubspec.lock`'s
+     digest, as rules_dart's `pub_archive_files` fetches it for its own
+     `pub_lock_package`; a git package (`source: git`) at the lock's
+     `resolved-ref`, laid out as pub lays it out, by rules_dart's
+     `pub_git_files`; a Flutter SDK package (`sdk: flutter` in the lock:
+     `flutter_test`, `integration_test`, `flutter_driver`, ...) as
+     `packages/<name>` of the toolchain's pinned Flutter source tarball, by
+     `flutter_source_files`. Kept apart, the files are stored once in Bazel's
+     repository cache however often the Starlark generating the build
+     changes. A `path` package (`directory` set) is its directory, linked
+     (`fetch_local_package`), and a package of a framework source
+     (`framework_json`) its directory there. Everything after this step is the
+     same.
   2. Reads the package's pubspec.yaml, as pub does (rules_dart's `read_pubspec`).
   3. Projects `flutter.plugin.platforms` via `flutter_plugin_block`.
   4. Finds each Apple platform's library: the plugin's `Package.swift`
@@ -44,17 +46,16 @@ which is why a member has no dependencies of its own.
 This is the rules_flutter sibling of rules_dart's `pub_lock_package`. The two
 rules never run for the same package: `flutter_pub.from_lock()` always invokes
 this one for hosted pub packages; `pub.pub()` (in non-Flutter modules) keeps
-using `pub_lock_package`. Both fetch and lay out the archive with rules_dart's
-`fetch_pub_archive`, so one package version is the same tree whichever rule asks
-for it.
+using `pub_lock_package`. Both build over the files rules_dart's
+`pub_archive_files` fetches, so one package version is the same tree whichever
+rule asks for it.
 """
 
-load("@rules_dart//dart/pub:pub_graph.bzl", "write_pubspec_dependencies")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_archive", "fetch_pub_git", "fetch_pub_path", "find_pub_license_file", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
+load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "gradle_statements", "parse_gradle_maven_dependencies")
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "PLUGIN_PLATFORMS")
@@ -62,7 +63,6 @@ load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "M
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "PACKAGE_METADATA_LOAD", "make_package_metadata_content")
-load("//flutter/private:pinned.bzl", "pinned")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
 load(
     "//flutter/private:unbuilt_native_code.bzl",
@@ -81,6 +81,22 @@ _DESKTOP_SRC_EXTENSIONS = ("cc", "cpp", "c", "h", "hh", "hpp")
 
 # Kotlin/Java source extensions for Android plugin libraries.
 _ANDROID_SRC_EXTENSIONS = ("kt", "java")
+
+# Where the font files of other packages a package's pubspec names are linked.
+_OTHER_PACKAGES_FONTS = "_fonts_of_other_packages"
+
+# What this repository writes at its root, besides Bazel's own files, and the
+# one directory it writes in, `android/`. None of them is linked from the
+# package's files: a write through a link would land in the files repository,
+# which every repository linking it shares.
+_WRITTEN = [
+    MEMBER_FILE,
+    APPLE_PLUGIN_FILE,
+    MAVEN_DEPS_FILE,
+    PUBSPEC_DEPENDENCIES,
+    _OTHER_PACKAGES_FONTS,
+    "android",
+]
 
 def _has_files_under(ctx, relative_path, extensions = None):
     """Check `<package>/<relative_path>` for source files.
@@ -806,7 +822,7 @@ def _font_source(ctx, path):
     file = sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child(rest)
     if not file.exists:
         fail("package {}: the font file {} names {} of the package {}, which has no such file.".format(ctx.attr.package_name, repr(path), repr(rest), other))
-    link = "_fonts_of_other_packages/{}/{}".format(other, rest)
+    link = "{}/{}/{}".format(_OTHER_PACKAGES_FONTS, other, rest)
     ctx.symlink(file, link)
     return struct(src = ":" + link, asset = path)
 
@@ -2071,42 +2087,41 @@ def _resolve_overlay(ctx, overlay_root_label, package_name, version, language_ve
         license_file = license_file,
     )
 
-def fetch_flutter_source_package(ctx, package_name, flutter_version, sha256, packages):
-    """Extracts `packages/<package_name>` of the pinned Flutter source at the repository root.
+def _linked_repo_metadata(ctx):
+    # Never reproducible: the package's files are links, into this output
+    # base's files repository or to a directory outside Bazel's control (a
+    # `path` package, a framework source). A cached copy would link into
+    # another output base, or miss a change to the directory.
+    return ctx.repo_metadata(reproducible = False)
 
-    The tarball is the one every consumer of the framework source fetches,
-    pinned to the same digest, so Bazel's repository cache serves it to all
-    of them from one download. Only the one package is extracted, straight to
-    the root. Extracting a prefix the archive lacks fails with a message about
-    archive prefixes that names neither the package nor the lock, and a
-    failed extraction cannot be caught, so the package is first looked up in
-    `packages`, the release's own list of them.
+def _link_package_files(ctx):
+    """Links the package's files, held by the repository `files` names, into this one.
 
-    Args:
-        ctx: The `repository_ctx`.
-        package_name: The package under `packages/` of the Flutter source.
-        flutter_version: The Flutter version whose source tarball to fetch.
-        sha256: The recorded digest of that tarball.
-        packages: The packages under `packages/` of that source
-            (`flutter_sdk_packages`).
+    `android/` is a directory of this repository with its entries linked,
+    because the repository writes its `android/BUILD.bazel` there. A `BUILD`
+    file the package ships in `android/` is not linked, for the same reason.
+
+    Returns:
+        The load statement the repository's BUILD file begins with, which
+        makes Bazel set up the files repository before the links are read
+        through: a vendored repository is never fetched again.
     """
-    if not packages:
+    if not ctx.attr.files:
         fail((
-            "flutter_pub_package `{name}` has `flutter_source_version` {version} " +
-            "but no `flutter_source_packages`, so it cannot tell whether the " +
-            "source has packages/{name}."
-        ).format(name = package_name, version = flutter_version))
-    if package_name not in packages:
-        fail((
-            "pubspec.lock lists `{name}` from the Flutter SDK, but Flutter {version}'s " +
-            "source has no packages/{name}; re-resolve the lock with the pinned " +
-            "toolchain (`bazel run @rules_flutter//flutter/pub -- get`)."
-        ).format(name = package_name, version = flutter_version))
-    ctx.download_and_extract(
-        url = flutter_source_tarball_url(flutter_version),
-        sha256 = pinned(flutter_version + ".tar.gz", sha256),
-        stripPrefix = "flutter-{}/packages/{}".format(flutter_version, package_name),
-    )
+            "package {name} (@{repo}) has no files: it is given no repository of them (`files`), " +
+            "and is neither a `path` package (`directory`) nor of a framework source (`framework_json`). " +
+            "A Flutter SDK package's files are its SDK's: `packages/{name}` of its Flutter release, " +
+            "or of its framework."
+        ).format(name = ctx.attr.package_name, repo = ctx.name))
+    prelude = link_pub_files(ctx, ctx.attr.files, written = _WRITTEN)
+    android = ctx.path(ctx.attr.files).dirname.get_child("android")
+    if android.is_dir:
+        # Unwatched, as `link_pub_files` reads the root: the files repository
+        # changes only with its attributes.
+        for entry in android.readdir(watch = "no"):
+            if entry.basename not in ("BUILD", "BUILD.bazel"):
+                ctx.symlink(entry, "android/" + entry.basename)
+    return prelude
 
 # What of a package's directory its build reads besides `pubspec.yaml`, its
 # `android/` and what its pubspec lists: pub's (rules_dart links the same) and
@@ -2157,7 +2172,16 @@ def fetch_local_package(ctx, directory):
     fetch_pub_path(ctx, directory, ["pubspec.yaml"])
     fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory))
 
+def write_android_build(ctx, prelude, content):
+    """Write the `android/BUILD.bazel` of a plugin: `content` after the load of the files repository.
+
+    Its globs read through the same links as the root BUILD file's, so a
+    vendored repository, never fetched again, needs the same load first.
+    """
+    ctx.file("android/BUILD.bazel", prelude + content)
+
 def _flutter_pub_package_impl(ctx):
+    build_prelude = ""
     # What the package is and where it came from, for SBOM tools: that of a
     # hosted or git package, as rules_dart's pub repositories state theirs.
     # A Flutter SDK package (built from the Flutter source, or linked from a
@@ -2170,50 +2194,28 @@ def _flutter_pub_package_impl(ctx):
             write_unset_stub(ctx, [ctx.attr.package_name], unset, member = True)
             return ctx.repo_metadata(reproducible = True)
         link_framework_package(ctx, ctx.attr.package_name)
-    elif ctx.attr.flutter_source_version:
-        fetch_flutter_source_package(
-            ctx,
-            package_name = ctx.attr.package_name,
-            flutter_version = ctx.attr.flutter_source_version,
-            sha256 = ctx.attr.sha256,
-            packages = ctx.attr.flutter_source_packages,
-        )
     elif ctx.attr.directory:
         fetch_local_package(ctx, ctx.attr.directory)
-    elif ctx.attr.git_url:
-        # The lock's commit, laid out as pub lays it out, whichever rule asks.
-        fetch_pub_git(
-            ctx,
-            package_name = ctx.attr.package_name,
-            version = ctx.attr.version,
-            url = ctx.attr.git_url,
-            resolved_ref = ctx.attr.resolved_ref,
-            path = ctx.attr.git_path,
-            lock = ctx.attr.lock,
-        )
-        purl = pub_git_purl(
-            ctx.attr.package_name,
-            ctx.attr.version,
-            ctx.attr.git_url,
-            ctx.attr.resolved_ref,
-            ctx.attr.git_path,
-        )
     else:
-        # Downloads, verifies and extracts the archive the way every pub-backed
-        # repository does, so a package is laid out the same whichever rule asks.
-        fetch_pub_archive(
-            ctx,
-            package_name = ctx.attr.package_name,
-            version = ctx.attr.version,
-            sha256 = ctx.attr.sha256,
-            base_url = ctx.attr.base_url,
-        )
-        purl = pub_hosted_purl(
-            ctx.attr.package_name,
-            ctx.attr.version,
-            ctx.attr.sha256,
-            ctx.attr.base_url,
-        )
+        # A hosted, git or Flutter SDK package: its files are another
+        # repository's, linked in.
+        build_prelude = _link_package_files(ctx)
+        if ctx.attr.git_url:
+            purl = pub_git_purl(
+                ctx.attr.package_name,
+                ctx.attr.version,
+                ctx.attr.git_url,
+                ctx.attr.resolved_ref,
+                ctx.attr.git_path,
+            )
+        elif ctx.attr.sha256:
+            # A hosted package's digest; a Flutter SDK package has none.
+            purl = pub_hosted_purl(
+                ctx.attr.package_name,
+                ctx.attr.version,
+                ctx.attr.sha256,
+                ctx.attr.base_url,
+            )
     identity = pub_package_identity(purl)
     if purl:
         ctx.file("REPO.bazel", identity.repo_file)
@@ -2337,7 +2339,7 @@ def _flutter_pub_package_impl(ctx):
     if overlay_content:
         # The overlay is the whole of the BUILD file, which the package's
         # identity joins, as it joins a generated one.
-        ctx.file("BUILD.bazel", identity.loads + overlay_content + identity.target)
+        ctx.file("BUILD.bazel", build_prelude + identity.loads + overlay_content + identity.target)
         ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_OVERLAY, "material_icons": False, "android_lib": False}))
 
         # When the overlay ships an `android/BUILD.bazel.tpl`, use it
@@ -2357,8 +2359,8 @@ def _flutter_pub_package_impl(ctx):
             overlay_script = overlay_parsed.script
         _write_maven_deps(ctx, overlay_maven_deps, [], overlay_script)
         if overlay_android_content:
-            ctx.file("android/BUILD.bazel", overlay_android_content)
-        return ctx.repo_metadata(reproducible = not ctx.attr.directory)
+            write_android_build(ctx, build_prelude, overlay_android_content)
+        return _linked_repo_metadata(ctx)
 
     if plugin_block.present:
         macos_info = plugin_block.platforms.get("macos", {})
@@ -2533,7 +2535,7 @@ def _flutter_pub_package_impl(ctx):
         android_has_resources = False
         android_native_build = ""
 
-    ctx.file("BUILD.bazel", build_content)
+    ctx.file("BUILD.bazel", build_prelude + build_content)
     is_flutter_member = plugin_block.present or has_asset_contributions or uses_material_icons or bool(additional_licenses)
     ctx.file(MEMBER_FILE, json.encode({
         "kind": MEMBER_FLUTTER if is_flutter_member else MEMBER_DART,
@@ -2569,9 +2571,9 @@ def _flutter_pub_package_impl(ctx):
         maven_unread = _unread_dicts(android_gradle_maven)
         maven_script = android_gradle_maven.script
     if android_native_build:
-        ctx.file("android/BUILD.bazel", make_android_native_build_content(android_native_build))
+        write_android_build(ctx, build_prelude, make_android_native_build_content(android_native_build))
     elif android_src_dir or android_has_resources:
-        ctx.file("android/BUILD.bazel", make_android_subpackage_build_content(
+        write_android_build(ctx, build_prelude, make_android_subpackage_build_content(
             android_src_dir = android_src_dir,
             java_package = android_java_package,
             maven_deps = maven_deps,
@@ -2581,7 +2583,7 @@ def _flutter_pub_package_impl(ctx):
             has_resources = android_has_resources,
         ))
     _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps))
-    return ctx.repo_metadata(reproducible = not ctx.attr.directory)
+    return _linked_repo_metadata(ctx)
 
 flutter_pub_package = repository_rule(
     implementation = _flutter_pub_package_impl,
@@ -2591,15 +2593,20 @@ flutter_pub_package = repository_rule(
             mandatory = True,
         ),
         "version": attr.string(
-            doc = "The package version, as pubspec.lock records it (`0.0.0` for an SDK package). Downloaded when `flutter_source_version` is empty.",
+            doc = "The package version, as pubspec.lock records it (`0.0.0` for an SDK package).",
             mandatory = True,
         ),
+        "files": attr.label(
+            doc = "The repository holding a hosted, git or Flutter SDK package's files, as rules_dart's " +
+                  "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
+                  "Unused with `directory` or `framework_json`.",
+        ),
         "sha256": attr.string(
-            doc = "SHA256 hash of the archive fetched: the package's, as pubspec.lock records it, or, with `flutter_source_version`, the Flutter source tarball's (`flutter_source_sha256`). Mandatory for both: nothing is downloaded without one. Unused for a git package.",
+            doc = "A hosted package's archive digest, as pubspec.lock records it, for its purl. Empty for any other package.",
             default = "",
         ),
         "git_url": attr.string(
-            doc = "A git package's repository: `description.url` in the lock. When set, the package is fetched from it at `resolved_ref` instead of downloaded.",
+            doc = "A git package's repository: `description.url` in the lock, for its purl.",
             default = "",
         ),
         "resolved_ref": attr.string(
@@ -2610,17 +2617,13 @@ flutter_pub_package = repository_rule(
             doc = "A git package's directory in the repository: `description.path`.",
             default = ".",
         ),
-        "lock": attr.label(
-            doc = "The lock, against whose directory a relative `git_url` is resolved, as pub resolves it. Read only for a relative `git_url`.",
-            allow_single_file = True,
-        ),
         "directory": attr.string(
             doc = "A `path` package's directory, absolute: the lock's `description.path`, resolved against the lock's directory. " +
-                  "When set, the package is linked from it instead of downloaded.",
+                  "When set, the package is linked from it.",
             default = "",
         ),
         "base_url": attr.string(
-            doc = "Base URL for the pub repository. Ignored with `flutter_source_version`.",
+            doc = "Base URL of a hosted package's pub repository, for its purl.",
             default = "https://pub.dev",
         ),
         "framework_json": attr.label(
@@ -2635,17 +2638,6 @@ flutter_pub_package = repository_rule(
         "prefix": attr.string(
             doc = "The prefix of the index the package is planned against: the build's, or another SDK framework's.",
             default = "flutter_pub",
-        ),
-        "flutter_source_version": attr.string(
-            doc = "The Flutter version whose pinned source tarball holds this package as `packages/<package_name>`, for a Flutter SDK package " +
-                  "(`source: sdk` in the lock). When empty, the package is downloaded from a pub registry.",
-            default = "",
-        ),
-        "flutter_source_packages": attr.string_list(
-            doc = "With `flutter_source_version`, the packages under `packages/` of that Flutter version's source " +
-                  "(`flutter_sdk_packages`). A `package_name` not among them fails the fetch, before anything is " +
-                  "downloaded, saying to re-resolve the lock.",
-            default = [],
         ),
         "code_assets": attr.string_list(
             doc = "Labels of `dart_code_asset` targets standing in for this " +
@@ -2681,5 +2673,5 @@ flutter_pub_package = repository_rule(
             default = [],
         ),
     },
-    doc = "Fetches (or, for a `path` package, links) a single Flutter pub package, its source repository, and emits its member: a `flutter_pub_member` (a plugin when `flutter.plugin` is present, otherwise a package bundling fonts, assets or shaders) or rules_dart's `pub_package_member` (for a package with nothing of Flutter's). When Apple sources are detected, also emits per-platform `flutter_apple_plugin_library` sub-targets. Honors per-package overlay BUILD.bazel.tpl overrides under `overlay_roots`, which replace the member with a whole target. The package's library repository (`flutter_pub_library_repo`) builds the member with the others of its dependency cycle. The `flutter pub get` analog of `pub_lock_package`.",
+    doc = "Links in a single Flutter pub package's files, its source repository, and emits its member: a `flutter_pub_member` (a plugin when `flutter.plugin` is present, otherwise a package bundling fonts, assets or shaders) or rules_dart's `pub_package_member` (for a package with nothing of Flutter's). When Apple sources are detected, also emits per-platform `flutter_apple_plugin_library` sub-targets. Honors per-package overlay BUILD.bazel.tpl overrides under `overlay_roots`, which replace the member with a whole target. The package's library repository (`flutter_pub_library_repo`) builds the member with the others of its dependency cycle. The `flutter pub get` analog of `pub_lock_package`.",
 )

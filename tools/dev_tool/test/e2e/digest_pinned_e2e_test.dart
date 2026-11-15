@@ -92,13 +92,13 @@ void main() {
 
     pubBase = await servePubArchive('sample', '1.0.0', pubArchive);
 
-    ProbeRepo pub(String name, String d) =>
-        ProbeRepo(name, 'flutter_pub_package', {
-          'package_name': str('sample'),
-          'version': str('1.0.0'),
-          'sha256': str(d),
-          'base_url': str(pubBase),
-        });
+    List<ProbeRepo> pub(String name, String d) => hostedPubPackage(
+      name,
+      package: 'sample',
+      version: '1.0.0',
+      sha256: d,
+      baseUrl: pubBase,
+    );
     ProbeRepo profile(String name, String d) =>
         ProbeRepo(name, 'flutter_profile_repo', {
           'engine_revision': str(revision),
@@ -157,27 +157,27 @@ void main() {
             for (final host in hostPlatforms) host: dartSdkDigest,
           }),
         }),
-        pub('pub_ok', pubDigest),
-        ProbeRepo('sdk_source_ok', 'flutter_pub_package', {
-          'package_name': str('integration_test'),
-          'version': str('0.0.0'),
-          'sha256': str(sha256Hex(flutterSource)),
-          'flutter_source_version': str(fakeFlutterVersion),
-          'flutter_source_packages': '[${str('integration_test')}]',
-        }),
+        ...pub('pub_ok', pubDigest),
+        ...sdkSourcePackage(
+          'sdk_source_ok',
+          package: 'integration_test',
+          sha256: sha256Hex(flutterSource),
+          packages: ['integration_test'],
+        ),
         // A digest that is a SHA-256 but not these bytes'.
         ProbeRepo('sky_wrong', 'flutter_sky_engine_repo', {
           'engine_revision': str(revision),
           'sha256': str(wrongDigest),
         }),
-        pub('pub_wrong', wrongDigest),
+        ...pub('pub_wrong', wrongDigest),
         // Not a SHA-256 at all: too short, not hex, an SRI string.
         for (final (name, bad) in _malformed(digest))
           ProbeRepo('sky_$name', 'flutter_sky_engine_repo', {
             'engine_revision': str(revision),
             'sha256': str(bad),
           }),
-        for (final (name, bad) in _malformed(pubDigest)) pub('pub_$name', bad),
+        for (final (name, bad) in _malformed(pubDigest))
+          ...pub('pub_$name', bad),
       ],
     );
   });
