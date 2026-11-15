@@ -276,7 +276,11 @@ String codeAssetPathInDirectory(String os, String fileName) {
 /// The native-assets manifest of an app for [os] (Dart's `<os>_<arch>`
 /// [target]): each code asset that ships, by id, to how the engine loads it.
 /// A bundled library is named by its path in the platform's code-asset
-/// directory, which the engine resolves it against. The app ships it as
+/// directory, which the engine resolves it against; on iOS by its framework's
+/// install name, `@rpath/<name>.framework/<name>`, as flutter_tools 3.50
+/// names it. The name the VM hands `dlopen` must be the install name: under
+/// any other, dyld knows the library only as the file on disk, and a rebuild
+/// that replaces the file while the app runs maps a second copy of it. The app ships it as
 /// `flutter_assets/NativeAssetsManifest.json`, which the engine reads at
 /// startup, as upstream's `InstallCodeAssets` ships it.
 String nativeAssetsManifest(
@@ -289,7 +293,9 @@ String nativeAssetsManifest(
       asset.id: switch (asset.linkMode) {
         'dynamic_loading_bundle' when asset.fileName != null => [
           'absolute',
-          codeAssetPathInDirectory(os, asset.fileName!),
+          os == 'ios'
+              ? '@rpath/${codeAssetPathInDirectory(os, asset.fileName!)}'
+              : codeAssetPathInDirectory(os, asset.fileName!),
         ],
         'dynamic_loading_system' when asset.uri != null => [
           'system',

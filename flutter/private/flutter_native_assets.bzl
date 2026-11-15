@@ -25,7 +25,8 @@ directory:
   * macOS:   `<App>.app/Contents/Frameworks/<basename>`
   * iOS:     `<App>.app/Frameworks/<name>.framework/<name>`: iOS forbids loose
              embedded dylibs, so each library is wrapped in a framework of its
-             own (flutter_tools' `frameworkUri`)
+             own (flutter_tools' `frameworkUri`), which the manifest names by
+             its install name, `@rpath/<name>.framework/<name>`
   * Linux:   `<bundle>/lib/<basename>`
   * Windows: next to the runner exe
   * Android: `lib/<abi>/<basename>` inside the APK

@@ -272,7 +272,7 @@ void main() {
               as Map<String, Object?>;
       expect(section['package:pick/add'], [
         'absolute',
-        'libaddso.framework/libaddso',
+        '@rpath/libaddso.framework/libaddso',
       ]);
     });
 
