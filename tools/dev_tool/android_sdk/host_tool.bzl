@@ -8,17 +8,16 @@ name any `--platforms`, so the tool's edge moves to the host platform here
 rather than through the command line.
 
 The host, not an execution platform: an execution platform can be a remote
-worker's, and these run where the dev tool does.
+worker's, and these run where the dev tool does. It is `@platforms//host`
+itself, as everywhere else in these rules: `--host_platform` names an alias of
+it, and a configuration that spells the same platform differently builds every
+shared dependency twice.
 """
 
-def _to_host_impl(settings, _attr):
-    return {"//command_line_option:platforms": [settings["//command_line_option:host_platform"]]}
-
-_to_host = transition(
-    implementation = _to_host_impl,
-    inputs = ["//command_line_option:host_platform"],
-    outputs = ["//command_line_option:platforms"],
-)
+# The transition itself, rather than the copy `//flutter:native_hot_patch.bzl`
+# exports for users: this tool has nothing to do with hot patching.
+# buildifier: disable=bzl-visibility
+load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
 def _host_tool_impl(ctx):
     tool = ctx.attr.tool[0]
@@ -42,7 +41,7 @@ host_tool = rule(
             executable = True,
             # An SDK's `adb` is often a file of its repository, not a rule.
             allow_files = True,
-            cfg = _to_host,
+            cfg = host_platform_transition,
             doc = "The executable to build for the host.",
         ),
     },
