@@ -45,6 +45,27 @@ fonts_bundled_test(
     target_under_test = ":two_fonts",
 )
 
+# A program reaching the library through two of its deps lists each family
+# once.
+flutter_library(
+    name = "reaches_two_fonts",
+    srcs = ["lib/fixture.dart"],
+    tags = ["manual"],
+    deps = [":two_fonts"],
+)
+
+fonts_bundled_test(
+    name = "two_fonts_reached_twice_test",
+    size = "small",
+    also_through = ":reaches_two_fonts",
+    files = {
+        "packages/font_package/fonts/Bold.ttf": "fonts/Bold.ttf",
+        "packages/font_package/fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    manifest = '[{"family":"packages/font_package/F","fonts":[{"asset":"packages/font_package/fonts/Regular.ttf"},{"asset":"packages/font_package/fonts/Bold.ttf","style":"italic","weight":700}]}]',
+    target_under_test = ":two_fonts",
+)
+
 # In a program of the library's own package (its own `flutter_test`, say) the
 # fonts are the program's: the family and the files are bare, as the
 # package's pubspec declares them.

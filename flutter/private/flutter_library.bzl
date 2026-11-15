@@ -260,14 +260,12 @@ def aggregate_pub_contributions(deps, target_platform = None, flavor = "", progr
             icon font. Two entries may name one path; telling whether that is
             one file reached twice or a conflict is for the bundle action.
     """
-    pub_fonts = []
-    pub_assets = []
-    for dep in deps:
-        if FlutterInfo not in dep:
-            continue
-        info = dep[FlutterInfo]
-        pub_fonts.extend(info.pub_fonts.to_list())
-        pub_assets.extend(info.pub_assets.to_list())
+
+    # One depset over every dep: a package reached through two deps is one
+    # contribution, not two manifest entries.
+    infos = [dep[FlutterInfo] for dep in deps if FlutterInfo in dep]
+    pub_fonts = depset(transitive = [info.pub_fonts for info in infos]).to_list()
+    pub_assets = depset(transitive = [info.pub_assets for info in infos]).to_list()
 
     fonts = []
     copies = []

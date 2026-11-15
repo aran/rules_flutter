@@ -24,7 +24,8 @@ def _fonts_bundled_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     program_root = package_root_of(target) if ctx.attr.own_package else None
-    manifest, copies, _ = aggregate_pub_contributions([target], program_root = program_root)
+    deps = [target, ctx.attr.also_through] if ctx.attr.also_through else [target]
+    manifest, copies, _ = aggregate_pub_contributions(deps, program_root = program_root)
     asserts.equals(env, json.decode(ctx.attr.manifest), manifest)
     font_keys = [font["asset"] for family in manifest for font in family["fonts"]]
     files = {
@@ -38,10 +39,12 @@ def _fonts_bundled_test_impl(ctx):
 # `manifest` is the JSON of the library's FontManifest entries; `files` maps
 # each font's bundle path to its file, relative to this test's package. Both
 # are as a program of another package bundles them, or with `own_package` as
-# a program of the library's own package does.
+# a program of the library's own package does. `also_through` is a second dep
+# of the program that reaches the same library.
 fonts_bundled_test = analysistest.make(
     _fonts_bundled_test_impl,
     attrs = {
+        "also_through": attr.label(),
         "files": attr.string_dict(mandatory = True),
         "manifest": attr.string(mandatory = True),
         "own_package": attr.bool(),
