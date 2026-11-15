@@ -802,26 +802,31 @@ def _font_source(ctx, path):
     """The file of the font a package lists at `path`, and its `asset` if it is another package's.
 
     As in flutter_tools, `packages/<other>/<rest>` that is no file of this
-    package is the file `<rest>` of the package `<other>`, which need not list
-    it. A file of another package is linked into this repository rather than
-    named across repositories: a package's files are private to it, and any of
-    them can be named this way. Its `flutter_font` keeps `path` as its `asset`.
+    package is the file `<rest>` of the `lib/` of the package `<other>`, this
+    one or another, which need not list it. A file of another package is linked
+    into this repository rather than named across repositories: a package's
+    files are private to it, and any of them can be named this way. Its
+    `flutter_font` keeps `path` as its `asset`.
 
     Returns:
         `struct(src, asset)`: the label of the file, and `path` or None.
     """
     parts = path.split("/", 2)
-    if parts[0] != "packages" or len(parts) < 3 or ctx.path(path).exists:
+    listed = ctx.path(path)
+    if parts[0] != "packages" or len(parts) < 3 or (listed.exists and not listed.is_dir):
         return struct(src = ":" + path, asset = None)
     other, rest = parts[1], parts[2]
     if other == ctx.attr.package_name:
-        return struct(src = ":" + rest, asset = path)
+        source = ctx.path("lib/" + rest)
+        if not source.exists or source.is_dir:
+            fail("package {}: it lists the font file {}, but neither that file nor lib/{} exists.".format(other, repr(path), rest))
+        return struct(src = ":lib/" + rest, asset = path)
     index = read_index(ctx, ctx.attr.prefix)
     if other not in index.built:
         fail("package {}: the font file {} names the package {}, which the lock does not build.".format(ctx.attr.package_name, repr(path), other))
-    file = sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child(rest)
-    if not file.exists:
-        fail("package {}: the font file {} names {} of the package {}, which has no such file.".format(ctx.attr.package_name, repr(path), repr(rest), other))
+    file = sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child("lib/" + rest)
+    if not file.exists or file.is_dir:
+        fail("package {}: the font file {} names lib/{} of the package {}, which has no such file.".format(ctx.attr.package_name, repr(path), rest, other))
     link = "{}/{}/{}".format(_OTHER_PACKAGES_FONTS, other, rest)
     ctx.symlink(file, link)
     return struct(src = ":" + link, asset = path)

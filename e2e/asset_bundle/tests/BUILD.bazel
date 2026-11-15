@@ -320,9 +320,10 @@ bundle_test(
     ]
 ]
 
-# Property: a pub package's font named `packages/<other>/<path>` is the file of
-# the package `<other>`, at that key, though `<other>` does not list it; only
-# the family is under the declaring package.
+# Property: a pub package's font named `packages/<package>/<path>`, that is no
+# file of the declaring package, is the file `<path>` of the `lib/` of
+# `<package>`, the declaring package or another, at that key, though `<package>`
+# does not list it; only the family is under the declaring package.
 bundle_test(
     name = "font_of_other_package_is_bundled_at_its_own_key_test",
     bundle = "//:app_with_font_of_other_package_bundle",

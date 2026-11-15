@@ -134,10 +134,11 @@ assets_owner_test(
 )
 
 # A font of another package keeps that package's path; only the family is this
-# package's, which is what flutter_tools writes to FontManifest.json.
+# package's, which is what flutter_tools writes to FontManifest.json. The file
+# is under that package's `lib/`, where flutter_tools finds it.
 flutter_font(
     name = "other",
-    src = "//flutter/tests/fonts_fixture/other:fonts/Other.ttf",
+    src = "//flutter/tests/fonts_fixture/other:lib/fonts/Other.ttf",
     asset = "packages/other/fonts/Other.ttf",
 )
 
@@ -158,7 +159,7 @@ flutter_library(
 fonts_bundled_test(
     name = "font_of_other_package_test",
     size = "small",
-    files = {"packages/other/fonts/Other.ttf": "other/fonts/Other.ttf"},
+    files = {"packages/other/fonts/Other.ttf": "other/lib/fonts/Other.ttf"},
     manifest = '[{"family":"packages/font_package/F","fonts":[{"asset":"packages/other/fonts/Other.ttf"}]}]',
     target_under_test = ":font_of_other_package",
 )
@@ -168,7 +169,7 @@ fonts_bundled_test(
 fonts_bundled_test(
     name = "font_of_other_package_own_package_test",
     size = "small",
-    files = {"packages/other/fonts/Other.ttf": "other/fonts/Other.ttf"},
+    files = {"packages/other/fonts/Other.ttf": "other/lib/fonts/Other.ttf"},
     manifest = '[{"family":"F","fonts":[{"asset":"packages/other/fonts/Other.ttf"}]}]',
     own_package = True,
     target_under_test = ":font_of_other_package",

@@ -1,5 +1,12 @@
 {
   "assets": {
+    "packages/fx_font_borrower/fonts/Self.ttf": {
+      "variants": [
+        {
+          "asset": "packages/fx_font_borrower/fonts/Self.ttf"
+        }
+      ]
+    },
     "packages/fx_font_owner/fonts/Owner.ttf": {
       "variants": [
         {

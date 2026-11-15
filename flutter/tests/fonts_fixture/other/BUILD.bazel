@@ -1,1 +1,1 @@
-exports_files(["fonts/Other.ttf"])
+exports_files(["lib/fonts/Other.ttf"])

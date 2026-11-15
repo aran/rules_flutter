@@ -9,3 +9,4 @@ flutter:
     - family: Borrowed
       fonts:
         - asset: packages/fx_font_owner/fonts/Owner.ttf
+        - asset: packages/fx_font_borrower/fonts/Self.ttf

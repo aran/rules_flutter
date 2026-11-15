@@ -1,0 +1,1 @@
+A directory at the path the font is listed by: flutter_tools reads only a file there, so the font is lib/fonts/Self.ttf.
