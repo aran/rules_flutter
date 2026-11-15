@@ -6,6 +6,7 @@ load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_appli
 load(
     "@rules_flutter//flutter:ios.bzl",
     "IOS_DEFAULT_LAUNCH_STORYBOARD",
+    "IOS_MINIMUM_OS_VERSION",
     "flutter_ios_app_framework_gen",
     "flutter_ios_engine",
     "flutter_ios_native_frameworks_gen",
@@ -37,12 +38,9 @@ dart_package_metadata(
     package_name = "multi_window_example",
 )
 
-# iOS 13.0 minimum: UIScene / UIWindowSceneDelegate APIs (required for
-# multi-scene support) are unavailable before iOS 13.
 flutter_application(
     name = "app_flutter",
     main = "lib/main.dart",
-    minimum_os_version = "13.0",
     package = ":pubspec-metadata",
     deps = [
         "@deps//:flutter",
@@ -167,7 +165,7 @@ ios_application(
     families = _IOS_FAMILIES,
     infoplists = ["ios/Info.plist"],
     launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
-    minimum_os_version = "13.0",
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
     # Simulator builds are debug-only; `:ios_build_test` builds it in dbg.
     tags = ["manual"],
     version = ":app_version",
@@ -192,7 +190,7 @@ ios_application(
     families = _IOS_FAMILIES,
     infoplists = ["ios/Info.plist"],
     launch_storyboard = IOS_DEFAULT_LAUNCH_STORYBOARD,
-    minimum_os_version = "13.0",
+    minimum_os_version = IOS_MINIMUM_OS_VERSION,
     provisioning_profile = ":device_profile",
     tags = ["manual"],
     version = ":app_version",
