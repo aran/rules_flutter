@@ -66,6 +66,7 @@ load(":plist_merge_test.bzl", "plist_merge_test_suite")
 load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
 load(":profile_mode_test.bzl", "profile_mode_test_suite")
 load(":pub_constraint_test.bzl", "pub_constraint_test_suite")
+load(":pub_cycle_test.bzl", "pub_cycle_test_suite")
 load(":pub_cycles_test.bzl", "pub_cycles_test_suite")
 load(":pub_lock_sdks_test.bzl", "pub_lock_sdks_test_suite")
 load(":pub_reconcile_test.bzl", "pub_reconcile_test_suite")
@@ -217,6 +218,8 @@ flutter_pubspec_test_suite(name = "flutter_pubspec_test")
 flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")
 
 plugin_registrant_test_suite(name = "plugin_registrant_test")
+
+pub_cycle_test_suite(name = "pub_cycle_test")
 
 platform_bundle_test_suite(name = "platform_bundle_test")
 

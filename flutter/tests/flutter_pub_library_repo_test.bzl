@@ -46,11 +46,15 @@ def _a_cycle_is_one_library_over_its_members_test_impl(ctx):
         members = ["@flutter_pub__dio//:dio", "@flutter_pub__dio_web_adapter//:dio_web_adapter"],
         deps = ["@flutter_pub_lib__path//:path"],
         flutter = True,
+        member_dependencies = {"dio_web_adapter": ["dio"], "dio": ["path", "dio_web_adapter"]},
     )
     asserts.true(env, 'load("@rules_flutter//flutter/private:flutter_pub_library.bzl", "flutter_pub_library")' in flutter, flutter)
     asserts.true(env, '\nflutter_pub_library(\n    name = "dio",' in flutter, flutter)
     asserts.true(env, '    members = ["@flutter_pub__dio//:dio", "@flutter_pub__dio_web_adapter//:dio_web_adapter"],' in flutter, flutter)
     asserts.true(env, '    deps = ["@flutter_pub_lib__path//:path"],' in flutter, flutter)
+
+    # Each member's own dependencies, which its plugin's are read from.
+    asserts.true(env, '    member_dependencies = {"dio": ["dio_web_adapter", "path"], "dio_web_adapter": ["dio"]},\n' in flutter, flutter)
 
     # A cycle with nothing of Flutter's is rules_dart's own library.
     dart = make_library_build_content(

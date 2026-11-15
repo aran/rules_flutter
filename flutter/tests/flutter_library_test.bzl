@@ -2,7 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("@rules_dart//dart:utils.bzl", "derive_package_name", "derive_package_root")
-load("//flutter/private:flutter_info.bzl", "dedup_plugins")
+load("//flutter/private:flutter_info.bzl", "dedup_plugins", "plugins_in_registration_order")
 load("//flutter/private:flutter_library.bzl", "ships_in")
 
 def _package_name_explicit_attr_wins_test_impl(ctx):
@@ -69,6 +69,36 @@ def _dedup_plugins_preserves_order_test_impl(ctx):
     asserts.equals(env, {}, result[0].platforms)
     return unittest.end(env)
 
+def _plugin(name, dependencies = []):
+    return struct(name = name, platforms = {}, dependencies = dependencies)
+
+def _registration_order_test_impl(ctx):
+    """flutter_tools' `sortByDependencies`: dependencies first, then by name."""
+    env = unittest.begin(ctx)
+
+    def order(plugins):
+        return [p.name for p in plugins_in_registration_order(plugins)]
+
+    # No dependencies: by name, whatever the graph order.
+    asserts.equals(env, ["a", "b", "c"], order([_plugin("c"), _plugin("a"), _plugin("b")]))
+
+    # `a` depends on `z`: `z` first, though it sorts last.
+    asserts.equals(env, ["b", "z", "a"], order([_plugin("a", ["z"]), _plugin("b"), _plugin("z")]))
+
+    # A chain, given dependents first, and a repeat.
+    asserts.equals(env, ["c", "b", "a"], order([_plugin("a", ["b"]), _plugin("b", ["c"]), _plugin("c"), _plugin("a", ["b"])]))
+
+    # A dependency that is not a plugin of the app, and one on itself, count for nothing.
+    asserts.equals(env, ["a", "b"], order([_plugin("b", ["missing"]), _plugin("a", ["a"])]))
+
+    # A cycle is broken at the fewest unplaced dependencies, then by name.
+    asserts.equals(env, ["a", "b"], order([_plugin("b", ["a"]), _plugin("a", ["b"])]))
+    asserts.equals(env, ["b", "c", "a"], order([_plugin("a", ["b", "c"]), _plugin("b", ["a"]), _plugin("c", ["b"])]))
+
+    # A struct without `dependencies` depends on none.
+    asserts.equals(env, ["a", "b"], order([struct(name = "b", platforms = {}), struct(name = "a", platforms = {})]))
+    return unittest.end(env)
+
 def _ships_in_truth_table_test_impl(ctx):
     """An entry without flavors is in every build; one with flavors only in a build of one of them."""
     env = unittest.begin(ctx)
@@ -103,6 +133,7 @@ _t3_test = unittest.make(_package_root_workspace_root_and_package_test_impl)
 _t4_test = unittest.make(_package_root_strips_trailing_lib_test_impl)
 _t5_test = unittest.make(_dedup_plugins_removes_duplicates_test_impl)
 _t6_test = unittest.make(_dedup_plugins_preserves_order_test_impl)
+_t8_test = unittest.make(_registration_order_test_impl)
 
 def flutter_library_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test, _t8_test)

@@ -45,6 +45,15 @@ alias(
 )
 """.format(name = name, actual = actual)
 
+def _member_dependencies(member_dependencies):
+    """The `member_dependencies` attribute line of a library, sorted by member."""
+    if not member_dependencies:
+        return ""
+    return "    member_dependencies = {{{}}},\n".format(", ".join([
+        '"{}": {}'.format(m, _labels(sorted(member_dependencies[m])))
+        for m in sorted(member_dependencies)
+    ]))
+
 def _android_exports(android_libs):
     """The `exports` attribute line of a library: its members' Android libraries on Android."""
     if not android_libs:
@@ -78,7 +87,7 @@ def is_flutter_library(member_kinds, reached_kinds, reaches_mapped = False):
     """
     return reaches_mapped or MEMBER_FLUTTER in member_kinds or MEMBER_FLUTTER in reached_kinds or MEMBER_OVERLAY in reached_kinds
 
-def make_library_build_content(name, members, deps, flutter, android_libs = []):
+def make_library_build_content(name, members, deps, flutter, android_libs = [], member_dependencies = {}):
     """BUILD content for the library of a dependency cycle.
 
     Args:
@@ -90,6 +99,9 @@ def make_library_build_content(name, members, deps, flutter, android_libs = []):
         (never one) also carries the runner `dart_test` uses.
       android_libs: Labels of the members' Android libraries, which a
         `flutter_pub_library` lists under `exports` on Android.
+      member_dependencies: For each member, by name, the packages its
+        pubspec depends on directly, which a `flutter_pub_library` lists so
+        each member's plugin depends on its own.
 
     Returns:
       BUILD.bazel content as a string.
@@ -110,7 +122,7 @@ def make_library_build_content(name, members, deps, flutter, android_libs = []):
     name = "{name}",
     members = {members},
     deps = {deps},
-{exports}    visibility = ["//visibility:public"],
+{member_dependencies}{exports}    visibility = ["//visibility:public"],
 )
 """.format(
         load_statement = load_statement,
@@ -118,6 +130,7 @@ def make_library_build_content(name, members, deps, flutter, android_libs = []):
         name = name,
         members = _labels(members),
         deps = _labels(deps),
+        member_dependencies = _member_dependencies(member_dependencies) if flutter else "",
         exports = _android_exports(android_libs) if flutter else "",
     )
 
@@ -233,6 +246,7 @@ def _flutter_pub_library_repo_impl(ctx):
         deps = sorted(deps),
         flutter = is_flutter_library([m["kind"] for m in members.values()], reached_kinds, reaches_mapped),
         android_libs = ["@{}//android:lib".format(source_repo(m, owner_prefix(index, m))) for m in cycle.packages if members[m].get("android_lib")],
+        member_dependencies = {m: graph.get(m, []) for m in cycle.packages},
     ))
     return ctx.repo_metadata(reproducible = True)
 

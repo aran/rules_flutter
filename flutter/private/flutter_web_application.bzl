@@ -61,7 +61,7 @@ load(
 )
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
-load("//flutter/private:flutter_info.bzl", "dedup_plugins")
+load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load(
     "//flutter/private:flutter_web_branch.bzl",
     "BRANCH_COMPILER",
@@ -578,7 +578,7 @@ def _flutter_web_bundle_impl(ctx):
     for dep in primary.deps:
         if FlutterInfo in dep:
             all_dep_plugins.extend(dep[FlutterInfo].plugins)
-    plugins = dedup_plugins(all_dep_plugins)
+    plugins = plugins_in_registration_order(all_dep_plugins)
     registrant = generate_dart_plugin_registrant(ctx, plugins, target_platform = "web")
 
     wrapper = ctx.actions.declare_file(ctx.label.name + "_wrapper_main.dart")

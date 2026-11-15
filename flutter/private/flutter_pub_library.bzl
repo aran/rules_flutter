@@ -128,7 +128,9 @@ def _flutter_pub_library_impl(ctx):
             analysis_deps = [ctx.attr._sky_engine],
         ),
         flutter_analyzable_info_of_packages(ctx, packages, srcs, resources),
-        flutter_info(deps = ctx.attr.deps, **contributions),
+        # Each member's plugin depends on the plugins of its own pubspec's
+        # dependencies, inside the cycle or out, not on its cycle-mates'.
+        flutter_info(deps = ctx.attr.deps, package_dependencies = ctx.attr.member_dependencies, **contributions),
         # Depending on the library brings each member to the app, so it is
         # used without an import when one of them is: a plugin, or a package
         # that bundles fonts, assets or shaders.
@@ -148,6 +150,9 @@ flutter_pub_library = rule(
         "deps": attr.label_list(
             providers = [DartInfo],
             doc = "The libraries of the packages the members depend on outside the cycle.",
+        ),
+        "member_dependencies": attr.string_list_dict(
+            doc = "For each member, by name, the packages its pubspec depends on directly, by name: the dependencies its plugin registers after, inside the cycle or out.",
         ),
         "exports": attr.label_list(
             providers = [JavaInfo],

@@ -14,7 +14,7 @@ load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "prog
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
-load("//flutter/private:flutter_info.bzl", "dedup_plugins")
+load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "asset_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:native_sources.bzl", "native_sources_aspect")
@@ -377,7 +377,7 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     for dep in inputs.deps:
         if FlutterInfo in dep:
             all_dep_plugins.extend(dep[FlutterInfo].plugins)
-    plugins = dedup_plugins(all_dep_plugins)
+    plugins = plugins_in_registration_order(all_dep_plugins)
     registrant = generate_dart_plugin_registrant(
         ctx,
         plugins,
