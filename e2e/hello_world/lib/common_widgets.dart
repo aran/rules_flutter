@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// A simple themed title widget, demonstrating flutter_library usage.
 class AppTitle extends StatelessWidget {

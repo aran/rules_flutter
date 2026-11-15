@@ -27,7 +27,8 @@ flutter_linux_runner_lib_gen(
     registrant = ":committed_registrant",
 )
 
-# The X11 headers GTK's `gdkx.h` includes, which the runner pulls in on X11.
+# The X11 headers GTK's `gdkx.h` includes, which the runner of Flutter
+# releases before 3.50 pulls in on X11. Projects created with them keep it.
 flutter_linux_runner_lib_gen(
     name = "probe_gdk_x11",
     srcs = ["probes/gdk_x11.cc"],
@@ -54,7 +55,7 @@ flutter_linux_runner_lib_gen(
     registrant = ":generated_registrant",
 )
 
-# `flutter create`'s runner, byte for byte: the 3.47.9 template with only the
+# `flutter create`'s runner, byte for byte: the 3.50.0 template with only the
 # project name filled in. It also reads `APPLICATION_ID`, which Flutter's
 # CMake defines from the project's GTK application id.
 flutter_linux_app(

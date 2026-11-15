@@ -15,6 +15,7 @@ load("//:ignored_package_test.bzl", "ignored_package_test")
 _DEPS = [
     "//glass_plugin",
     "@deps//:flutter",
+    "@deps//:material_ui",
 ]
 
 dart_package_metadata(

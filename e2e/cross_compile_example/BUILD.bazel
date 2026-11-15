@@ -16,6 +16,7 @@ flutter_application(
     visibility = ["//stock_runner:__pkg__"],
     deps = [
         "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -57,7 +58,7 @@ flutter_library(
     srcs = glob(["lib/**/*.dart"]),
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )

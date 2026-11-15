@@ -72,6 +72,7 @@ load(":pub_reconcile_test.bzl", "pub_reconcile_test_suite")
 load(":pub_resolve_test.bzl", "pub_resolve_test_suite")
 load(":pub_settings_test.bzl", "pub_settings_test_suite")
 load(":purls.bzl", "package_metadata_files")
+load(":recorded_uses_test.bzl", "recorded_uses_test_suite")
 load(":sdk_inputs_test.bzl", "sdk_inputs_test_suite")
 load(":shader_compile_test.bzl", "shader_compile_test_suite")
 load(":shared_code_asset_test.bzl", "shared_code_asset_test_suite")
@@ -298,6 +299,8 @@ notices_test_suite(name = "notices_test")
 flutter_test_flavor_test_suite(name = "flutter_test_flavor_test")
 
 widget_creation_flag_test_suite(name = "widget_creation_flag_test")
+
+recorded_uses_test_suite(name = "recorded_uses_test")
 
 engine_out_dirs_test_suite(name = "engine_out_dirs_test")
 

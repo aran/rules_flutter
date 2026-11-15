@@ -10,8 +10,8 @@ flutter_plugin(
     platforms = [":web"],
     visibility = ["//web_interop:__pkg__"],
     deps = [
-        "@deps//:flutter",
         "@deps//:flutter_web_plugins",
+        "@deps//:material_ui",
         "@deps//:web",
     ],
 )

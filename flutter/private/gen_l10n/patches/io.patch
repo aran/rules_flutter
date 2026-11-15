@@ -10,11 +10,10 @@
          Process,
          ProcessInfo,
          ProcessSignal,
-@@ -391,66 +388,4 @@
-   File writePidFile(String pidFile) {
+@@ -399,64 +396,3 @@
      return _fileSystem.file(pidFile)..writeAsStringSync('12345');
    }
--}
+ }
 -
 -/// The return type for [listNetworkInterfaces].
 -class NetworkInterface implements io.NetworkInterface {
@@ -33,14 +32,13 @@
 -
 -  @override
 -  String toString() => "NetworkInterface('$name', $addresses)";
- }
+-}
 -
--typedef NetworkInterfaceLister =
--    Future<List<NetworkInterface>> Function({
--      bool includeLoopback,
--      bool includeLinkLocal,
--      io.InternetAddressType type,
--    });
+-typedef NetworkInterfaceLister = Future<List<NetworkInterface>> Function({
+-  bool includeLoopback,
+-  bool includeLinkLocal,
+-  io.InternetAddressType type,
+-});
 -
 -NetworkInterfaceLister? _networkInterfaceListerOverride;
 -

@@ -9,7 +9,7 @@
 //    imports: only the generated plugin registrant reaches it.
 //
 // `Icons.ac_unit` is in none of them and must not be kept.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:web_interop/platform_icon_stub.dart'
     if (dart.library.js_interop) 'package:web_interop/platform_icon_web.dart';

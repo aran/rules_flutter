@@ -473,8 +473,8 @@ dart_binary(
 )
 
 # The tool's icon tree shaking, run as the build action runs it (a `dart`
-# process over a config file) against the stand-ins for `const_finder` and
-# `font-subset`.
+# process over a config file) over recorded uses written with
+# `package:record_use` and against a stand-in for `font-subset`.
 [dart_test(
     name = "generate_asset_manifest_tree_shaking" + suffix + "_test",
     srcs = ["test/tree_shaking_harness.dart"],
@@ -484,6 +484,7 @@ dart_binary(
     ],
     main = "test/generate_asset_manifest_tree_shaking%s_test.dart" % suffix,
     deps = [
+        "@dev_tool_deps//:record_use",
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
     ],

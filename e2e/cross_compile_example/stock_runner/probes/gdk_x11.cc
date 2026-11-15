@@ -1,4 +1,5 @@
-// The X11 branch of `flutter create`'s runner: gdkx.h and the call it makes
+// The X11 branch of the runner `flutter create` wrote before Flutter 3.50,
+// which the projects it made still carry: gdkx.h and the call it makes
 // through it. Compiled and linked, never run.
 #include <gtk/gtk.h>
 #ifdef GDK_WINDOWING_X11

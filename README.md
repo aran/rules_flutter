@@ -28,9 +28,9 @@ rules_dart side.
 
 **MODULE.bazel**
 
-1. Bazel 9.2 or newer. `flutter.toolchain(flutter_version = ...)` → 3.47.9 or
+1. Bazel 9.2 or newer. `flutter.toolchain(flutter_version = ...)` → 3.50.0 or
    later: the root's pin is used exactly, and rules_flutter itself asks for
-   3.47.9 (3.41 and 3.44 are dropped).
+   3.50.0 (3.41 and 3.44 are dropped).
 2. `flutter.pub(name, lock)` → `flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")`,
    then `flutter_pub.from_lock(name, lock)` and `use_repo(flutter_pub, ...)`.
    `flutter.plugin_overlays` → `flutter_pub.plugin_overlays`. The pub runner
@@ -313,7 +313,7 @@ me so we can collaborate.
 
 ### Requirements
 
-You need Bazel 9.2 or newer. rules_flutter downloads Flutter itself, so you don't install Flutter, and this release builds with Flutter 3.47.9.
+You need Bazel 9.2 or newer. rules_flutter downloads Flutter itself, so you don't install Flutter, and this release builds with Flutter 3.50.0.
 
 What else you need depends on what you build for:
 
@@ -332,7 +332,7 @@ What else you need depends on what you build for:
 bazel_dep(name = "rules_flutter", version = "<latest from registry.bazel.build/modules/rules_flutter>")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.47.9")
+flutter.toolchain(flutter_version = "3.50.0")
 
 flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")
 flutter_pub.from_lock(
@@ -342,7 +342,7 @@ flutter_pub.from_lock(
 use_repo(flutter_pub, "deps")
 ```
 
-`flutter.toolchain` pins the Flutter release you build with. Your pin is used exactly. rules_flutter itself asks for 3.47.9, and a module never gets an older Flutter than it asks for, so a lower pin fails and names the module that wants more. You can raise your pin, or set `allow_upgrade_by_dependencies = True` to build with the highest version any module asks for. If you leave `flutter.toolchain` out, that highest version is what you get.
+`flutter.toolchain` pins the Flutter release you build with. Your pin is used exactly. rules_flutter itself asks for 3.50.0, and a module never gets an older Flutter than it asks for, so a lower pin fails and names the module that wants more. You can raise your pin, or set `allow_upgrade_by_dependencies = True` to build with the highest version any module asks for. If you leave `flutter.toolchain` out, that highest version is what you get.
 
 `flutter_pub.from_lock` turns your `pubspec.lock` into a repository, here named `deps`, with one target per package: `@deps//:flutter`, `@deps//:flutter_test`, `@deps//:collection`. [Pub packages](#pub-packages) covers it in full. It is a separate extension from `flutter` so that if it rejects your lock, the toolchain still works, and so does `bazel run @rules_flutter//flutter/pub`, which regenerates the lock.
 
@@ -400,6 +400,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  material_ui: ^1.1.0
 
 flutter:
   uses-material-design: true
@@ -431,7 +432,7 @@ flutter_application(
     main = "lib/main.dart",
     srcs = glob(["lib/**/*.dart"]),
     deps = [
-        "@deps//:flutter",                         # dependencies: flutter
+        "@deps//:material_ui",                     # dependencies: material_ui
         "@rules_flutter//flutter:material_icons",  # uses-material-design: true
     ],
     # Optional. flutter: assets:
@@ -453,7 +454,7 @@ flutter_macos_app(
 
 `dart_package_metadata` is the Bazel stand-in for `pubspec.yaml`: one per package, and every target of the package points at it with `package`. Its `package_name` should match the pubspec's `name:`, because it is the name your `package:my_app/...` imports use and the name hot reload keys libraries by. Bazel doesn't compare the two, but Gazelle does if you use it to write BUILD files. The target's name is up to you. `pubspec-metadata` is the convention, and the name Gazelle gives it.
 
-`flutter_application` compiles the Dart and bundles the assets. Each platform then has a macro, here `flutter_macos_app`, that wraps it in an app you can run. `deps` lists the packages your code imports, by their `@deps` targets, and only those: a package none of your files imports fails the build, unless the app uses it some other way (see [Pub packages](#pub-packages)). `@rules_flutter//flutter:material_icons` is the Material icon font, which `uses-material-design: true` adds in a `flutter build`.
+`flutter_application` compiles the Dart and bundles the assets. Each platform then has a macro, here `flutter_macos_app`, that wraps it in an app you can run. `deps` lists the packages your code imports, by their `@deps` targets, and only those: a package none of your files imports fails the build, unless the app uses it some other way (see [Pub packages](#pub-packages)). Since Flutter 3.50 the Material and Cupertino widgets are the pub packages `material_ui` and `cupertino_ui`, which `flutter create` imports in place of `package:flutter/material.dart`, so a fresh project's `lib/main.dart` imports `material_ui` and no `package:flutter` library: `@deps//:flutter` is a dependency only of code that imports one. `@rules_flutter//flutter:material_icons` is the Material icon font, which `uses-material-design: true` adds in a `flutter build`.
 
 Without the optional lines, the BUILD file for a fresh `flutter create` project is:
 
@@ -472,7 +473,7 @@ flutter_application(
     main = "lib/main.dart",
     srcs = glob(["lib/**/*.dart"]),
     deps = [
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -2695,7 +2696,7 @@ The variants are separate libraries, each in a directory of its own, whose `dart
 
 The `select()` goes in a library, not in the application's `deps`. A `select()` is resolved in the configuration of the target that holds it. The application's own `deps` are read in the configuration the web app was asked for, which isn't a web platform's.
 
-What the bundle holds once comes from the primary compiler's version of the program, which is dart2wasm's for the default `compiler`: the plugin registrant, the assets and shaders, and the scan that tree-shakes icons. So a dependency that differs by compiler shouldn't differ in the plugins or assets it brings. An icon that only the other compiler's variant uses is shaken out of the font, unless `tree_shake_icons = False`.
+What the bundle holds once comes from the primary compiler's version of the program, which is dart2wasm's for the default `compiler`: the plugin registrant, the assets and shaders. So a dependency that differs by compiler shouldn't differ in the plugins or assets it brings. Icon tree shaking keeps the icons either compiler's version uses, as `flutter build web` does.
 
 Some targets are built once, however many compilers reach them:
 
@@ -2909,6 +2910,8 @@ The pieces are Tier 2 rules of their own, each building the configuration's mode
 
 By default an app builds against a Flutter release: the framework from the release's tag, and the engine from the official artifacts. You can also build against a framework and an engine of your own, such as a flutter/flutter checkout and the engine you built in it. That is what `flutter run --local-engine` does upstream. Each such pairing is a named *SDK*, declared next to the release, and each build picks one.
 
+A framework of your own must be Flutter 3.50 or later, as a release must. Its `IconData` carries `@RecordUse()`, and a release or profile build learns from the uses the compiler records which icon glyphs to keep. An older framework records none, and its icon fonts would ship cut to one glyph.
+
 ### Building against a local checkout
 
 Build the engine in the checkout as usual, with `engine/src/flutter/tools/gn` and `ninja`. Then declare an SDK over it in `MODULE.bazel`:
@@ -2917,7 +2920,7 @@ Build the engine in the checkout as usual, with `engine/src/flutter/tools/gn` an
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 
 # The release: what a build gets when it names no SDK.
-flutter.toolchain(flutter_version = "3.47.9")
+flutter.toolchain(flutter_version = "3.50.0")
 
 # The checkout's framework and engine, as the SDK named "local".
 flutter.toolchain(
@@ -3019,9 +3022,9 @@ An app built with the release carries none, so release apps are unchanged.
     "origin": "local",
     "version": "3.50.0-1.0.pre-210"
   },
-  "kernel": {"format": 138, "sdk_hash": "0000000000"},
+  "kernel": {"format": 141, "sdk_hash": "0000000000"},
   "sdk": "local",
-  "snapshot_hash": "0451907c2eaa8467e848c0067bfe8ed4"
+  "snapshot_hash": "6b959e9909a17b8e29b0663a6d99e646"
 }
 ```
 
@@ -3190,7 +3193,7 @@ flutter_application(
 | `shaders` | `[]` | `.frag` or `.glsl` fragment shaders, compiled with `impellerc`. |
 | `shader_includes` | `[]` | Files the `shaders` `#include`. A shader compiles with only its declared inputs, so an include not listed here is not found. |
 | `require_sksl_shaders` | `False` | Fail the build when a shader can't be compiled for Skia. By default such a shader is compiled for Impeller alone, with a warning, as `flutter build` does. It then fails to load only where the app renders with Skia. Web builds always need Skia shaders. |
-| `tree_shake_icons` | `True` | In a release or profile build, keep only the icon glyphs the app uses. As with `flutter build`, this needs every `IconData` to be a constant and each icon font family the app draws from to be one font file, and the build fails otherwise. Set it to `False` to ship the fonts whole. |
+| `tree_shake_icons` | `True` | In a release or profile build, keep only the icon glyphs the app uses. As with `flutter build`, this needs every `IconData` to be a constant and each icon font family the app draws from to be one font file, and the build fails otherwise. `MaterialIcons` and `CupertinoIcons` ship cut to one glyph when the app uses none of their icons. The build learns which icons the app uses from what the compiler records of `IconData`, so a [custom framework](#custom-engines-and-frameworks) must be Flutter 3.50 or later. Set it to `False` to ship the fonts whole. |
 | `track_widget_creation` | `True` | In a debug or profile build, record where each widget was created, for the DevTools inspector, as `flutter run` does. A release build never records it. |
 | `extra_gen_snapshot_options` | `[]` | Flags for `gen_snapshot`. `--no-strip` keeps the shipped binary's symbols, as in `flutter build`. It is read by the rules, not passed on. A flag that makes `gen_snapshot` write a file names it relative to the package: `--save-obfuscation-map=obfuscation.json` writes `<name>_gen_snapshot/obfuscation.json`, in the `gen_snapshot_files` output group. `--resolve-dwarf-paths` is refused. |
 | `additional_licenses` | `[]` | The files `flutter: licenses:` lists in `pubspec.yaml`. They are appended to the licence notices as they are. |
@@ -4155,7 +4158,7 @@ The fields a custom rule most often uses:
 
 | Field | Type | Description |
 |---|---|---|
-| `version` | `str` | The Flutter version, such as `"3.47.9"`. |
+| `version` | `str` | The Flutter version, such as `"3.50.0"`. |
 | `engine_revision` | `str` | The engine commit. |
 | `dart`, `dartaotruntime` | `File` | The bundled Dart SDK's `dart`, and its runtime for AOT snapshots. |
 | `gen_snapshot` | `File` or `None` | The AOT compiler. `None` in debug mode, and for a toolchain that can't compile one. |
@@ -4168,7 +4171,7 @@ The fields a custom rule most often uses:
 | `sdk_files` | `DartSdkFilesInfo` | The Dart SDK's files, grouped by the tool that reads them (`run`, `aot_run`, `kernel`, `dart2js`, `dart2wasm`, ...), as rules_dart declares them. An action takes the group of the one tool it runs. |
 | `tool_files` | `depset[File]` | Every file of the Dart SDK and the patched SDK, about 1,050 files and 650 MB, for running any SDK command such as `dart pub`. |
 | `engine_library` | `Target` or `None` | The desktop engine library of the build mode: debug under `-c dbg`, profile under `--@rules_flutter//flutter:profile` where the toolchain has one, release otherwise. `None` for mobile and the web. |
-| `const_finder`, `font_subset` | `File` or `None` | The icon tree shaker's two tools. |
+| `font_subset` | `File` or `None` | The icon tree shaker's font subsetter. |
 | `impellerc` | `File` or `None` | The shader compiler. |
 | `shader_lib` | `list[File]` | The files shaders may include. |
 | `target_os`, `target_arch` | `str` | The cross-compilation target, or empty for a native build. |

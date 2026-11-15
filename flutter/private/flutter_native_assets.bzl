@@ -35,8 +35,8 @@ framework on iOS, and every id's entry names it, so the loader opens one image
 for all of them.
 
 A `flutter_test` keeps upstream's `flutter test` route: its manifest, written
-here (`write_native_assets_manifest`), is compiled into its kernel through the
-frontend_server's `--native-assets`.
+here (`write_native_assets_manifest`), is the `NativeAssetsManifest.json` of the
+test's assets directory, which flutter_tester reads.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
@@ -123,7 +123,7 @@ def _path_list_for(asset, layout):
     For `dynamic_loading_bundle` the engine's `KernelAssetAbsolutePath` is the
     path it `dlopen`s. An app's manifest names it in its bundle
     (`code_assets.dart`, which ships it in `flutter_assets`); this one is a
-    test's, compiled into its kernel.
+    test's, in the test's assets directory.
 
     Under `layout = "runfiles"` there is no bundle — a `flutter_test` runs out
     of Bazel's runfiles tree — so the entry is the library's runfiles-relative

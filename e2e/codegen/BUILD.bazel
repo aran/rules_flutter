@@ -90,7 +90,7 @@ flutter_application(
     deps = [
         "//dep_lib",
         "//dep_part",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -457,7 +457,7 @@ flutter_library(
     deps = [
         "//dep_lib",
         "//dep_part",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -521,8 +521,8 @@ flutter_test(
     main = "test/golden_test.dart",
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
         "@deps//:flutter_test",
+        "@deps//:material_ui",
     ],
 )
 
@@ -533,8 +533,8 @@ flutter_test(
     main = "test/golden_undeclared_test.dart",
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
         "@deps//:flutter_test",
+        "@deps//:material_ui",
     ],
 )
 

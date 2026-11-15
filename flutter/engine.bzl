@@ -16,7 +16,7 @@ load("@rules_dart//dart:toolchain.bzl", "DartSdkFilesInfo")
 
 FlutterHostToolsInfo = provider(
     doc = "The tools that run on one host and whose output does not depend on the target: the Dart SDK, " +
-          "frontend_server, flutter_tester, impellerc, const_finder and font-subset.",
+          "frontend_server, flutter_tester, impellerc and font-subset.",
     fields = {
         "host_os": "str: The OS the tools run on (`macos`, `linux`, `windows`).",
         "host_arch": "str: The CPU the tools run on (`arm64`, `x64`).",
@@ -34,7 +34,6 @@ FlutterHostToolsInfo = provider(
         "impellerc": "File: The `impellerc` shader compiler.",
         "shader_lib": "list[File]: The files impellerc includes from.",
         "shader_include_dir": "str: The execution path of the directory holding `shader_lib`.",
-        "const_finder": "File: `const_finder.dart.snapshot`.",
         "font_subset": "File: The `font-subset` binary.",
         "provenance": "dict[str, str]: Where the files came from.",
     },
@@ -135,7 +134,6 @@ def _flutter_host_tools_impl(ctx):
         impellerc = ctx.file.impellerc,
         shader_lib = ctx.files.shader_lib,
         shader_include_dir = _shader_include_dir(ctx),
-        const_finder = ctx.file.const_finder,
         font_subset = ctx.file.font_subset,
         provenance = ctx.attr.provenance,
     )
@@ -173,7 +171,6 @@ flutter_host_tools = rule(
                   "the package of the `shader_lib` files.",
             mandatory = True,
         ),
-        "const_finder": _file("`const_finder.dart.snapshot`."),
         "font_subset": _file("The `font-subset` binary."),
         "provenance": attr.string_dict(doc = "Where the files came from."),
     },

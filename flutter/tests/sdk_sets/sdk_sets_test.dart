@@ -164,27 +164,6 @@ void main(List<String> args) {
       ]);
       expect(File('$bundle/AssetManifest.bin').existsSync(), isTrue);
     });
-
-    test('the VM runs const_finder', () async {
-      final kernel = await appKernel();
-      final result = await run(program('script', 'dart'), [
-        extra('script', 'const_finder.dart.snapshot'),
-        '--kernel-file',
-        kernel,
-        '--class-library-uri',
-        'package:flutter/src/widgets/icon_data.dart',
-        '--class-name',
-        'IconData',
-        '--annotation-class-name',
-        '_StaticIconProvider',
-        '--annotation-class-library-uri',
-        'package:flutter/src/widgets/icon_data.dart',
-      ]);
-      expect(jsonDecode(result.stdout as String), {
-        'constantInstances': isEmpty,
-        'nonConstantLocations': isEmpty,
-      });
-    });
   });
 
   group('web', () {

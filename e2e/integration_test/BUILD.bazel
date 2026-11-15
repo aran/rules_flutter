@@ -63,7 +63,7 @@ flutter_application(
     ),
     main = "lib/main.dart",
     package = ":pubspec-metadata",
-    deps = ["@deps//:flutter"],
+    deps = ["@deps//:material_ui"],
 )
 
 # The same app as a flavor's target.
@@ -72,12 +72,14 @@ flutter_application(
     flavor = "paid",
     main = "lib/main.dart",
     package = ":pubspec-metadata",
-    deps = ["@deps//:flutter"],
+    deps = ["@deps//:material_ui"],
 )
 
 _TEST_DEPS = [
+    "@deps//:flutter",
     "@deps//:flutter_test",
     "@deps//:integration_test",
+    "@deps//:material_ui",
 ]
 
 # The golden tests' own files. A golden is a function of the platform that

@@ -2,8 +2,8 @@
 // `packages/own_hook/motto.txt`. A debug build runs no hook and has no such
 // asset, so the app says so instead of failing.
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:material_ui/material_ui.dart';
 import 'package:own_hook/src/motto.dart';
 
 void main() {

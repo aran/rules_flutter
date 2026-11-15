@@ -56,7 +56,7 @@ flutter_application(
     package = ":pubspec-metadata",
     deps = [
         "//multiply_plugin",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -285,7 +285,7 @@ flutter_library(
     package = ":pubspec-metadata",
     deps = [
         "//multiply_plugin",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )

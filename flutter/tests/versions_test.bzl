@@ -14,7 +14,7 @@ load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_SDK_EXACT_
 
 def _latest_version_first_test_impl(ctx):
     env = unittest.begin(ctx)
-    asserts.equals(env, "3.47.2", FLUTTER_VERSIONS.keys()[0])
+    asserts.equals(env, "3.50.0", FLUTTER_VERSIONS.keys()[0])
     return unittest.end(env)
 
 def _engine_revision_format_test_impl(ctx):

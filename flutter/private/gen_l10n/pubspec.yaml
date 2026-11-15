@@ -9,7 +9,7 @@ description: >-
   the same split — flutter_tools depends on `intl` to generate, and the app
   depends on `intl` to run.
 
-  The floors are the versions flutter_tools 3.47.9 pins; the repository's tool
+  The floors are the versions flutter_tools 3.50.0 pins; the repository's tool
   workspace (the root `pubspec.yaml`) resolves them with every other tool.
 publish_to: none
 
@@ -21,11 +21,11 @@ resolution: workspace
 dependencies:
   file: ^7.0.1
   intl: ^0.20.3
-  meta: ^1.18.3
+  meta: ^1.19.0
   path: ^1.9.1
   # Through `process` and `file`. 3.0.x reads `Platform.packageRoot`, which
   # Dart 3.13 no longer has.
-  platform: ^3.1.6
-  process: ^5.0.5
-  stack_trace: ^1.12.1
-  yaml: ^3.1.3
+  platform: ^3.2.0
+  process: ^5.0.6
+  stack_trace: ^1.12.2
+  yaml: ^3.1.4

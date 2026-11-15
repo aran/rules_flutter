@@ -1,7 +1,7 @@
 import 'package:android_example/native_add.dart';
 import 'package:android_example/negate.dart';
 import 'package:android_example/shared_counter.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   // Counted once, before the first frame, so the log line and the screen agree.

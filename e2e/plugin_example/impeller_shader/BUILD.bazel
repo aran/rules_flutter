@@ -22,6 +22,7 @@ flutter_application(
     deps = [
         "//impeller_shader/pkg",
         "@deps//:flutter",
+        "@deps//:material_ui",
     ],
 )
 
@@ -58,6 +59,7 @@ flutter_application(
     deps = [
         "//impeller_shader/pkg",
         "@deps//:flutter",
+        "@deps//:material_ui",
     ],
 )
 

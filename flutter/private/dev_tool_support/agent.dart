@@ -24,7 +24,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart' show Tooltip;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -2467,7 +2466,14 @@ _Selector _selector(Map<String, String> params, {bool textIsSelector = true}) {
   if (tooltip != null) {
     return _Selector(
       'tooltip "$tooltip"',
-      (el) => el.widget is Tooltip && (el.widget as Tooltip).message == tooltip,
+      // The RawTooltip a Tooltip builds, as `flutter_test`'s `find.byTooltip`
+      // matches it: an app's Tooltip is `package:material_ui`'s or the
+      // framework's deprecated `package:flutter/material.dart` one, and this
+      // file depends on neither. A Tooltip excluded from semantics gives its
+      // RawTooltip no message, so it is not found.
+      (el) =>
+          el.widget is RawTooltip &&
+          (el.widget as RawTooltip).semanticsTooltip == tooltip,
     );
   }
   if (type != null) {

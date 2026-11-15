@@ -22,7 +22,7 @@ flutter_application(
     deps = [
         "//nested_assets/lib/widgets",
         "//nested_assets/ui_kit",
-        "@deps//:flutter",
+        "@deps//:material_ui",
     ],
 )
 

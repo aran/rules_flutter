@@ -34,9 +34,8 @@ COPIES = {
         ],
         sets = ["aot_run"],
     ),
-    # Every `dart script.dart` step, and the asset bundle's const_finder.
+    # Every `dart script.dart` step.
     "script": dict(
-        fields = ["const_finder"],
         sets = ["run"],
     ),
     "dart2js": dict(

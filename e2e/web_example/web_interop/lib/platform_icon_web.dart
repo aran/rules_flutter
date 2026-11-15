@@ -1,6 +1,6 @@
 import 'dart:js_interop';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The icon an app draws on the web.
 const IconData platformIcon = Icons.language;

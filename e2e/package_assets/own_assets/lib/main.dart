@@ -17,8 +17,8 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:material_ui/material_ui.dart';
 
 // Asset ids resolve only at `@Native` bind time. Raw
 // `DynamicLibrary.open('package:...')` does NOT consult the native-assets

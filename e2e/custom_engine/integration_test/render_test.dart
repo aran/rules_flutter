@@ -18,8 +18,8 @@ void main() {
     tester,
   ) async {
     // The stand-in checkout is not a git repository: no framework revision.
-    expect(FlutterVersion.version, '3.47.9');
+    expect(FlutterVersion.version, '3.50.0');
     expect(FlutterVersion.frameworkRevision, isEmpty);
-    expect(FlutterVersion.engineRevision, '89c39edfdf');
+    expect(FlutterVersion.engineRevision, '371f77202a');
   });
 }

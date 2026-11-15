@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 // version this repository pins: update it with the pin. A release whose
 // binaries hold a second hex constant that fits the scan fails this test
 // instead of a user's build.
-const _pinnedSnapshotHash = '0451907c2eaa8467e848c0067bfe8ed4';
+const _pinnedSnapshotHash = '6b959e9909a17b8e29b0663a6d99e646';
 
 void main() {
   // The check over every stock artifact of one platform and mode: the engine,

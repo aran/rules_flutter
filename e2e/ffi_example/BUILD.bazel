@@ -375,7 +375,7 @@ flutter_application(
         # Bazel-built library to that package, so it arrives here the way pub's
         # own hook output would.
         "@deps//:drift",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -772,7 +772,7 @@ flutter_library(
         "//prebuilt_asset",
         "//sub_asset",
         "@deps//:drift",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )

@@ -43,7 +43,7 @@ flutter_application(
     main = "lib/main.dart",
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -247,7 +247,7 @@ flutter_library(
     srcs = glob(["lib/**/*.dart"]),
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )

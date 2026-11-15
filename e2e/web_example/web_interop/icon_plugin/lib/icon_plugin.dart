@@ -4,8 +4,8 @@ library;
 
 import 'dart:js_interop';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:web/web.dart' as web;
 
 /// The plugin class `flutter.plugin.platforms.web.pluginClass` names.

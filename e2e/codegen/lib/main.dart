@@ -1,7 +1,7 @@
 import 'package:codegen_e2e/user.dart';
 import 'package:dep_lib/catalog.dart';
 import 'package:dep_part/settings.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   runApp(const CodegenApp(user: User('Ada Lovelace', 36)));

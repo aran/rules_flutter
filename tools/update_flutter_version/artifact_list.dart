@@ -54,7 +54,7 @@ const artifactSections = [
     ['darwin-arm64-profile/artifacts.zip', 'darwin-x64-profile/artifacts.zip'],
   ),
   ArtifactSection(
-    'Font-subset tools (const_finder + font-subset binary for icon tree shaking)',
+    'Font-subset tool (the font-subset binary for icon tree shaking)',
     [
       'darwin-arm64/font-subset.zip',
       'darwin-x64/font-subset.zip',

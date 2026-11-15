@@ -3,6 +3,9 @@
 @Tags(['runfiles'])
 library;
 
+import 'dart:convert';
+
+import 'package:record_use/record_use.dart';
 import 'package:test/test.dart';
 
 import 'tree_shaking_harness.dart';
@@ -16,9 +19,11 @@ void main() {
       families: [
         Family('Icons', ['fonts/Icons.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'Icons': [1, 2],
-      }),
+      recordedUses: [
+        usesIcons({
+          'Icons': [1, 2],
+        }),
+      ],
     );
 
     expect(run.exitCode, 0, reason: run.stderrText);
@@ -31,9 +36,11 @@ void main() {
         Family('Icons', ['fonts/Icons.ttf']),
         Family('Text', ['fonts/Text.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'Icons': [1],
-      }),
+      recordedUses: [
+        usesIcons({
+          'Icons': [1],
+        }),
+      ],
     );
 
     expect(run.exitCode, 0, reason: run.stderrText);
@@ -46,10 +53,12 @@ void main() {
         Family('First', ['fonts/First.ttf']),
         Family('Second', ['fonts/Second.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'First': [1],
-        'Second': [2],
-      }),
+      recordedUses: [
+        usesIcons({
+          'First': [1],
+          'Second': [2],
+        }),
+      ],
     );
 
     expect(run.exitCode, 0, reason: run.stderrText);
@@ -65,10 +74,12 @@ void main() {
     ];
     final run = await runTool(
       families: families,
-      constFinderOutput: usesIcons({
-        'Packaged': [1],
-        'Plain': [2],
-      }),
+      recordedUses: [
+        usesIcons({
+          'Packaged': [1],
+          'Plain': [2],
+        }),
+      ],
     );
 
     expect(run.exitCode, 0, reason: run.stderrText);
@@ -101,9 +112,11 @@ void main() {
         final families = entry.value;
         final run = await runTool(
           families: families,
-          constFinderOutput: usesIcons({
-            for (final (i, family) in families.indexed) family.name: [i + 1],
-          }),
+          recordedUses: [
+            usesIcons({
+              for (final (i, family) in families.indexed) family.name: [i + 1],
+            }),
+          ],
         );
 
         expect(run.exitCode, 0, reason: run.stderrText);
@@ -123,59 +136,201 @@ void main() {
       families: [
         Family('Icons', ['fonts/Icons-Regular.ttf', 'fonts/Icons-Bold.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'Icons': [1],
-      }),
+      recordedUses: [
+        usesIcons({
+          'Icons': [1],
+        }),
+      ],
     );
 
     expect(run.exitCode, isNot(0));
   });
 
-  test('a const_finder that fails fails the build', () async {
+  test('a recorded uses file that is not JSON fails the build', () async {
     final run = await runTool(
       families: [
         Family('Icons', ['fonts/Icons.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'Icons': [1],
-      }),
-      constFinderExit: 1,
+      recordedUses: ['not json'],
     );
 
-    expect(run.exitCode, isNot(0));
+    expectTreeShakingFailure(run, 'Failed to parse the recorded uses file');
   });
+
+  group('a recorded uses file of a shape the tool does not know fails the '
+      'build saying so', () {
+    // Not a crash: a cast or an index out of range would end the tool with a
+    // stack trace and no word of icon tree shaking or how to turn it off.
+    final iconData = {
+      'uri': 'package:flutter/src/widgets/icon_data.dart',
+      'path': [
+        {'name': 'IconData'},
+      ],
+    };
+    final cases = <String, Object?>{
+      'constants that are not a list': {'constants': 'x'},
+      'a use of a definition it does not list': {
+        'uses': {
+          'instances': [
+            {'definition_index': 3, 'uses': <Object?>[]},
+          ],
+        },
+      },
+      'a constant index that is not a number': {
+        'definitions': [iconData],
+        'uses': {
+          'instances': [
+            {
+              'definition_index': 0,
+              'uses': [
+                {'type': 'constant', 'constant_index': 'zero'},
+              ],
+            },
+          ],
+        },
+      },
+      'a constant index past the constants': {
+        'definitions': [iconData],
+        'constants': <Object?>[],
+        'uses': {
+          'instances': [
+            {
+              'definition_index': 0,
+              'uses': [
+                {
+                  'type': 'creation',
+                  'positional': [4],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    for (final MapEntry(key: name, value: recorded) in cases.entries) {
+      test(name, () async {
+        final run = await runTool(
+          families: [
+            Family('Icons', ['fonts/Icons.ttf']),
+          ],
+          recordedUses: [jsonEncode(recorded)],
+        );
+
+        expectTreeShakingFailure(run, 'Invalid recorded uses file');
+      });
+    }
+  });
+
+  test('the uses of every compile are the program\'s', () async {
+    // flutter_tools merges the uses dart2js and dart2wasm record.
+    final run = await runTool(
+      families: [
+        Family('Icons', ['fonts/Icons.ttf']),
+      ],
+      recordedUses: [
+        usesIcons({
+          'Icons': [1],
+        }),
+        usesIcons({
+          'Icons': [2],
+        }),
+      ],
+    );
+
+    expect(run.exitCode, 0, reason: run.stderrText);
+    expect(run.read('fonts/Icons.ttf'), 'subset(fonts/Icons.ttf): 1 2');
+  });
+
+  test('an IconData made with constant arguments is used', () async {
+    final run = await runTool(
+      families: [
+        Family('Icons', ['fonts/Icons.ttf']),
+      ],
+      recordedUses: [
+        recordings([creation(IntConstant(7), StringConstant('Icons'))]),
+      ],
+    );
+
+    expect(run.exitCode, 0, reason: run.stderrText);
+    expect(run.read('fonts/Icons.ttf'), 'subset(fonts/Icons.ttf): 7');
+  });
+
+  test(
+    'a known icon font the program uses no icon of keeps one glyph',
+    () async {
+      // flutter_tools 3.50 cuts MaterialIcons to `Icons.add` and CupertinoIcons
+      // to `chevron_left` rather than shipping them whole.
+      final run = await runTool(
+        families: [
+          Family('MaterialIcons', ['fonts/MaterialIcons-Regular.otf']),
+          Family('packages/cupertino_icons/CupertinoIcons', [
+            'packages/cupertino_icons/assets/CupertinoIcons.ttf',
+          ]),
+        ],
+        recordedUses: ['{}'],
+      );
+
+      expect(run.exitCode, 0, reason: run.stderrText);
+      expect(
+        run.read('fonts/MaterialIcons-Regular.otf'),
+        'subset(fonts/MaterialIcons-Regular.otf): ${0xe047}',
+      );
+      expect(
+        run.read('packages/cupertino_icons/assets/CupertinoIcons.ttf'),
+        'subset(packages/cupertino_icons/assets/CupertinoIcons.ttf): ${0xf3d2}',
+      );
+    },
+  );
 
   test('a font-subset that fails fails the build', () async {
     final run = await runTool(
       families: [
         Family('Icons', ['fonts/Icons.ttf']),
       ],
-      constFinderOutput: usesIcons({
-        'Icons': [1],
-      }),
+      recordedUses: [
+        usesIcons({
+          'Icons': [1],
+        }),
+      ],
       contents: {'fonts/Icons.ttf': 'unsubsettable'},
     );
 
     expect(run.exitCode, isNot(0));
   });
 
-  test('an IconData that is not constant fails the build', () async {
+  group('an IconData that is not constant fails the build', () {
     // flutter_tools: "Avoid non-constant invocations of IconData or try to
     // build again with --no-tree-shake-icons." Which icons such a program
     // uses is unknown, so no subset of the font is safe, and the full font
     // is not what the program was asked to ship.
-    final run = await runTool(
-      families: [
-        Family('Icons', ['fonts/Icons.ttf']),
-      ],
-      constFinderOutput: {
-        'constantInstances': <Object?>[],
-        'nonConstantLocations': [
-          {'file': 'lib/main.dart', 'line': 3, 'column': 5},
-        ],
-      },
-    );
+    final cases = <String, InstanceReference>{
+      'a code point not known at compile time': creation(
+        const NonConstant(),
+        StringConstant('Icons'),
+      ),
+      'a torn-off constructor': tearOff,
+    };
+    for (final MapEntry(key: name, value: reference) in cases.entries) {
+      test(name, () async {
+        final run = await runTool(
+          families: [
+            Family('Icons', ['fonts/Icons.ttf']),
+          ],
+          recordedUses: [
+            recordings([constantIcon(1, 'Icons'), reference]),
+          ],
+        );
 
-    expect(run.exitCode, isNot(0));
+        expectTreeShakingFailure(run, 'non-constant instances of IconData');
+      });
+    }
   });
+}
+
+/// That [run] ended the build through the tool's own failure, whose message
+/// has [message] and says how to build without icon tree shaking.
+void expectTreeShakingFailure(Run run, String message) {
+  expect(run.exitCode, 1, reason: run.stderrText);
+  expect(run.stderrText, contains(message));
+  expect(run.stderrText, contains('tree_shake_icons = False'));
 }

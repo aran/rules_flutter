@@ -11,9 +11,8 @@ load("//flutter/private:common.bzl", "ANDROID_ABIS")
 load("//flutter/private:flutter_aot_snapshot.bzl", "flutter_aot_snapshot")
 
 # What flutter_tools gives gen_snapshot for android-arm (`base/build.dart`):
-# softfp, because Android armv7 devices have no hard-float ABI, and no integer
-# division instruction, which not every 32-bit device has.
-_ARM_FLAGS = ["--no-sim-use-hardfp", "--no-use-integer-division"]
+# no integer division instruction, which not every 32-bit device has.
+_ARM_FLAGS = ["--no-use-integer-division"]
 
 _RELEASE = {"//command_line_option:compilation_mode": "opt"}
 
@@ -42,6 +41,9 @@ def _gen_snapshot_impl(ctx):
             flag in argv,
             "%s for android-%s: %s" % (flag, ctx.attr.cpu, argv),
         )
+
+    # Nor the simulator's float ABI, which flutter_tools leaves at its default.
+    asserts.false(env, "--no-sim-use-hardfp" in argv, "no --no-sim-use-hardfp: %s" % argv)
 
     # The release kernel is compiled for Android and drops the framework's
     # `toString` bodies, as `flutter build apk` compiles it.

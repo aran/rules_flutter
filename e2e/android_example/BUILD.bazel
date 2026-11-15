@@ -136,7 +136,7 @@ flutter_application(
         "//count_a",
         "//count_b",
         "//prebuilt_asset",
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -597,5 +597,6 @@ flutter_library(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:flutter",
+        "@deps//:material_ui",
     ],
 )

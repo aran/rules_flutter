@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The golden of the swatch on this platform. A golden is a function of the
 /// platform that rendered it, so each platform keeps its own beside the test:

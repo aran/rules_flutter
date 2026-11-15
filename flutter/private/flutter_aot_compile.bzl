@@ -175,9 +175,9 @@ def _flutter_aot_action(
     )
 
 # What flutter_tools gives gen_snapshot for a 32-bit ARM snapshot
-# (`base/build.dart`): softfp, as Android armv7 devices have no hard-float ABI,
-# and no integer division instruction, which not every 32-bit device has.
-_ARM_FLAGS = ["--no-sim-use-hardfp", "--no-use-integer-division"]
+# (`base/build.dart`): no integer division instruction, which not every 32-bit
+# device has.
+_ARM_FLAGS = ["--no-use-integer-division"]
 
 def flutter_aot_elf_action(ctx, gen_snapshot, kernel_dill, output, strip = True, extra_flags = [], file_flags = [], debug_info = None, target_arch = ""):
     """AOT compile to ELF shared library. Used for Android, Linux, Windows.

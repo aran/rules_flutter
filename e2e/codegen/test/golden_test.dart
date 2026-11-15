@@ -15,8 +15,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Text-free and fixed-size, so what it renders depends on no font and no
 /// window geometry. The point is never the pixels — only that there are some.

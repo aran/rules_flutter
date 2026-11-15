@@ -80,9 +80,8 @@ def flutter_asset_bundle_action(
         assets = [],
         fonts = [],
         output_dir = None,
-        const_finder = None,
         font_subset = None,
-        kernel_dill = None,
+        recorded_uses = [],
         optional_code_points = [],
         extra_asset_copies = [],
         unlisted_asset_copies = [],
@@ -94,8 +93,7 @@ def flutter_asset_bundle_action(
         ctx: Rule context.
         dart: The `dart` executable File from the Flutter SDK.
         dart_files: The files `dart` needs to run `generate_asset_manifest.dart`
-            from source, and to start `const_finder`'s snapshot: the `run` set
-            of the SDK (`DartSdkFilesInfo.run`).
+            from source: the `run` set of the SDK (`DartSdkFilesInfo.run`).
         assets: list of File objects of the target's package to include in the
             bundle, each under its path from that package's root
             (`assets/a.png`).
@@ -108,10 +106,11 @@ def flutter_asset_bundle_action(
             against the tree it watches and rebuilds. Declaring an output and
             registering the action that fills it are separate steps in
             Starlark, so hoisting the declaration introduces no cycle even
-            though icon tree shaking makes this action depend on the kernel.
-        const_finder: File for const_finder.dart.snapshot (enables icon tree shaking).
+            though icon tree shaking makes this action depend on the compile.
         font_subset: File for font-subset binary (enables icon tree shaking).
-        kernel_dill: File for the compiled kernel .dill (needed for icon tree shaking).
+        recorded_uses: The recorded-uses JSON Files of the program's
+            compiles, whose `IconData` instances are the icons it uses
+            (enables icon tree shaking).
         optional_code_points: Code points every subset icon font keeps if the
             font has a glyph for them, used or not (`optional:<n>` to
             font-subset).
@@ -174,15 +173,13 @@ def flutter_asset_bundle_action(
 
     # Icon tree shaking config.
     extra_inputs = []
-    if const_finder and font_subset and kernel_dill:
+    if font_subset and recorded_uses:
         config["icon_tree_shaking"] = {
-            "dart": file_ref(refs, dart),
-            "const_finder": file_ref(refs, const_finder),
             "font_subset": file_ref(refs, font_subset),
-            "kernel_dill": file_ref(refs, kernel_dill),
+            "recorded_uses": [file_ref(refs, f) for f in recorded_uses],
             "optional_code_points": optional_code_points,
         }
-        extra_inputs.extend([const_finder, font_subset, kernel_dill])
+        extra_inputs.extend([font_subset] + recorded_uses)
 
     args = ctx.actions.args()
     args.add(tool)

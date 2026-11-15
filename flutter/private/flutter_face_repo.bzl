@@ -106,7 +106,7 @@ WEB_SDK_TARGETS = {
     "web-sdk/kernel/dart2js_platform.dill": "{prefix}//web:dart2js_platform.dill",
     "web-sdk/kernel/ddc_outline.dill": "{prefix}//web:ddc_outline.dill",
     "web-sdk/libraries.json": "{prefix}//web:libraries.json",
-    "web-sdk/kernel/ddcLibraryBundle-canvaskit/dart_sdk.js": "{prefix}//web:ddc_dart_sdk.js",
+    "web-sdk/kernel/ddc/canary/dart_sdk.js": "{prefix}//web:ddc_dart_sdk.js",
     "dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js": "{prefix}//web:ddc_module_loader.js",
     "dart-sdk/lib/dev_compiler/web/dart_stack_trace_mapper.js": "{prefix}//web:dart_stack_trace_mapper.js",
 }

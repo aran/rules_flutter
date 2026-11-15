@@ -50,21 +50,21 @@ def _is_version_define(arg):
 def _sdk_defines_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.equals(env, [
-        "FLUTTER_VERSION=3.47.9",
+        "FLUTTER_VERSION=3.50.0",
         "FLUTTER_CHANNEL=stable",
         "FLUTTER_GIT_URL=https://github.com/flutter/flutter.git",
-        "FLUTTER_FRAMEWORK_REVISION=c197ca5199",
-        "FLUTTER_ENGINE_REVISION=89c39edfdf",
-        "FLUTTER_DART_VERSION=3.13.7",
-    ], sdk_dart_defines("3.47.9"))
+        "FLUTTER_FRAMEWORK_REVISION=ab2912035e",
+        "FLUTTER_ENGINE_REVISION=371f77202a",
+        "FLUTTER_DART_VERSION=3.14.0",
+    ], sdk_dart_defines("3.50.0"))
     asserts.equals(env, [
         "FLUTTER_BUILD_NAME=1.0.0",
         "FLUTTER_BUILD_NUMBER=1",
-    ], version_dart_defines("3.47.9", "", "")[:2], "unset is flutter create's 1.0.0+1")
+    ], version_dart_defines("3.50.0", "", "")[:2], "unset is flutter create's 1.0.0+1")
     asserts.equals(env, [
         "FLUTTER_BUILD_NAME=2.1",
         "FLUTTER_BUILD_NUMBER=42",
-    ], version_dart_defines("3.47.9", "2.1", "42")[:2], "as given, not padded to three numbers")
+    ], version_dart_defines("3.50.0", "2.1", "42")[:2], "as given, not padded to three numbers")
     return unittest.end(env)
 
 _sdk_defines_test = unittest.make(_sdk_defines_test_impl)

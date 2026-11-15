@@ -5,9 +5,9 @@
 
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:glyphs/glyphs.dart';
+import 'package:material_ui/material_ui.dart';
 
 const _favourite = Glyph('star');
 

@@ -27,7 +27,7 @@ WEB_TREE_FILES = {
     "dart2js_platform.dill": "web-sdk/kernel/dart2js_platform.dill",
     "ddc_outline.dill": "web-sdk/kernel/ddc_outline.dill",
     "libraries.json": "web-sdk/libraries.json",
-    "ddc_dart_sdk.js": "web-sdk/kernel/ddcLibraryBundle-canvaskit/dart_sdk.js",
+    "ddc_dart_sdk.js": "web-sdk/kernel/ddc/canary/dart_sdk.js",
     "ddc_module_loader.js": "dart-sdk/lib/dev_compiler/ddc/ddc_module_loader.js",
     "dart_stack_trace_mapper.js": "dart-sdk/lib/dev_compiler/web/dart_stack_trace_mapper.js",
 }
@@ -38,7 +38,7 @@ _REQUIRED = [
     "kernel/dart2js_platform.dill",
     "kernel/dart2wasm_platform.dill",
     "kernel/ddc_outline.dill",
-    "kernel/ddcLibraryBundle-canvaskit/dart_sdk.js",
+    "kernel/ddc/canary/dart_sdk.js",
     "flutter_js/flutter.js",
 ]
 

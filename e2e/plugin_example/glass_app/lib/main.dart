@@ -8,9 +8,9 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:glass_plugin/glass_plugin.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() => runApp(const GlassApp());
 

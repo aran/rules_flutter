@@ -7,10 +7,10 @@
 // SDK package that `flutter pub get` writes into the lock as `source: sdk` is a
 // library a test can depend on, not an entry the hub merely lists.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hello_world/main.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

@@ -162,6 +162,179 @@ Never _failTreeShaking(String message) {
   exit(1);
 }
 
+/// The glyph an icon font keeps when the program uses none of its icons, by
+/// font family: flutter_tools' `_kKnownIconFontFallbackCodePoints`.
+const _iconFontFallbackCodePoints = <String, int>{
+  'MaterialIcons': 0xe047, // Icons.add
+  'packages/cupertino_icons/CupertinoIcons': 0xf3d2, // chevron_left
+};
+
+const _iconDataLibrary = 'package:flutter/src/widgets/icon_data.dart';
+
+/// [value] as a [T], or a [FormatException] naming [what] it was meant to
+/// be: the recorded uses are another program's output, and a shape this tool
+/// does not know ends the build with a message rather than a cast error.
+T _expect<T>(Object? value, String what) {
+  if (value is T) return value;
+  throw FormatException('expected $what to be a $T, got ${jsonEncode(value)}');
+}
+
+/// The entry of [list] at [index], which [what] names.
+Map<String, dynamic> _entry(List<dynamic> list, Object? index, String what) {
+  final i = _expect<int>(index, '$what index');
+  if (i < 0 || i >= list.length) {
+    throw FormatException(
+      '$what index $i is out of range: the file lists ${list.length}',
+    );
+  }
+  return _expect<Map<String, dynamic>>(list[i], '$what $i');
+}
+
+/// The icons a recorded-uses file (`package:record_use`'s JSON, as a
+/// compile's `--recorded-uses` or dart2js's `--write-resources` writes it)
+/// says the program uses: the code points of each constant `IconData`, by
+/// font family (`packages/<package>/<family>` for a package's font), and
+/// whether any `IconData` is made from values not known at compile time.
+///
+/// An `IconData` with no `fontFamily` draws from the system font, so it
+/// names no font to subset and is left out, as flutter_tools leaves it.
+///
+/// Throws a [FormatException] for a file of a shape it does not know.
+({Map<String, Set<int>> codePoints, bool nonConstant}) iconDataUses(
+  Map<String, dynamic> recordings,
+) {
+  final constants =
+      _expect<List<dynamic>?>(recordings['constants'], '"constants"') ??
+      const [];
+  final definitions =
+      _expect<List<dynamic>?>(recordings['definitions'], '"definitions"') ??
+      const [];
+  final uses =
+      _expect<Map<String, dynamic>?>(recordings['uses'], '"uses"') ?? const {};
+  final codePoints = <String, Set<int>>{};
+  var nonConstant = false;
+
+  Map<String, dynamic> constant(Object? index) =>
+      _entry(constants, index, 'constant');
+
+  // A constant's value as a Dart value, for the kinds `IconData`'s three
+  // fields can hold; any other kind is `_other`.
+  Object? value(Object? index) {
+    if (index == null) return null;
+    final c = constant(index);
+    switch (c['type']) {
+      case 'null':
+        return null;
+      case 'int':
+        return _expect<int>(c['value'], "an int constant's value");
+      case 'string':
+        return _expect<String>(c['value'], "a string constant's value");
+      // A program compiled to JavaScript has no separate `int`: its integers
+      // may be recorded as doubles.
+      case 'double':
+        final number = _expect<Map<String, dynamic>>(
+          c['value'],
+          "a double constant's value",
+        );
+        if (number['type'] == 'number') {
+          final v = _expect<num>(number['value'], 'a number');
+          if (v == v.roundToDouble()) return v.round();
+        }
+        return _other;
+      case 'non_constant':
+        return _nonConstant;
+      default:
+        return _other;
+    }
+  }
+
+  void record(Object? codePoint, Object? fontFamily, Object? fontPackage) {
+    if (codePoint is! int || fontFamily is! String) return;
+    final family = fontPackage is String
+        ? 'packages/$fontPackage/$fontFamily'
+        : fontFamily;
+    codePoints.putIfAbsent(family, () => <int>{}).add(codePoint);
+  }
+
+  final instances =
+      _expect<List<dynamic>?>(uses['instances'], '"uses"."instances"') ??
+      const [];
+  for (final recording in instances) {
+    final r = _expect<Map<String, dynamic>>(recording, 'an instance recording');
+    final definition = _entry(
+      definitions,
+      r['definition_index'],
+      'definition',
+    );
+    final path =
+        _expect<List<dynamic>?>(definition['path'], "a definition's path") ??
+        const [];
+    if (definition['uri'] != _iconDataLibrary ||
+        path.isEmpty ||
+        _expect<Map<String, dynamic>>(
+              path.first,
+              "a definition's path element",
+            )['name'] !=
+            'IconData') {
+      continue;
+    }
+    final references =
+        _expect<List<dynamic>?>(r['uses'], "an instance recording's uses") ??
+        const [];
+    for (final use in references) {
+      final u = _expect<Map<String, dynamic>>(use, 'an instance use');
+      switch (u['type']) {
+        case 'constant':
+          final c = constant(u['constant_index']);
+          final fields =
+              _expect<Map<String, dynamic>?>(
+                c['value'],
+                "an instance constant's fields",
+              ) ??
+              const {};
+          record(
+            value(fields['codePoint']),
+            value(fields['fontFamily']),
+            value(fields['fontPackage']),
+          );
+        case 'creation':
+          final positional =
+              _expect<List<dynamic>?>(
+                u['positional'],
+                "a creation's positional arguments",
+              ) ??
+              const [];
+          final named =
+              _expect<Map<String, dynamic>?>(
+                u['named'],
+                "a creation's named arguments",
+              ) ??
+              const {};
+          final arguments = [
+            for (final index in positional) value(index),
+            for (final index in named.values) value(index),
+          ];
+          if (arguments.any((a) => identical(a, _nonConstant))) {
+            nonConstant = true;
+            continue;
+          }
+          record(
+            positional.isEmpty ? null : value(positional.first),
+            value(named['fontFamily']),
+            value(named['fontPackage']),
+          );
+        default:
+          // A tear-off of the constructor: what it is called with is unknown.
+          nonConstant = true;
+      }
+    }
+  }
+  return (codePoints: codePoints, nonConstant: nonConstant);
+}
+
+const _other = Object();
+const _nonConstant = Object();
+
 /// Run font-subset, piping code points via stdin. Returns true on success.
 Future<bool> _runFontSubset(
   String fontSubsetBin,
@@ -409,69 +582,59 @@ Future<void> main(List<String> args) async {
   var optionalCodePoints = <int>[];
 
   if (iconTreeShaking != null) {
-    final dart = iconTreeShaking['dart'] as String;
-    final constFinder = iconTreeShaking['const_finder'] as String;
-    final kernelDill = iconTreeShaking['kernel_dill'] as String;
     final optional =
         iconTreeShaking['optional_code_points'] as List<dynamic>? ?? [];
     optionalCodePoints = [for (final cp in optional) cp as int];
 
-    // Step 1: Run const_finder to discover used icon code points.
-    final constFinderResult = Process.runSync(dart, [
-      constFinder,
-      '--kernel-file',
-      kernelDill,
-      '--class-library-uri',
-      'package:flutter/src/widgets/icon_data.dart',
-      '--class-name',
-      'IconData',
-      '--annotation-class-name',
-      '_StaticIconProvider',
-      '--annotation-class-library-uri',
-      'package:flutter/src/widgets/icon_data.dart',
-    ]);
-
-    if (constFinderResult.exitCode != 0) {
-      _failTreeShaking(
-        'const_finder failed (exit ${constFinderResult.exitCode}):\n'
-        '${constFinderResult.stderr}',
-      );
-    }
-    final decoded = json.decode(constFinderResult.stdout as String);
-    if (decoded is! Map<String, dynamic>) {
-      _failTreeShaking(
-        'Invalid const_finder output: expected a JSON object, got $decoded.',
-      );
-    }
-    final output = decoded;
-
-    // Which icons a program uses is unknown where an IconData is not
-    // constant, so no subset of a font is safe.
-    final nonConst = output['nonConstantLocations'] as List<dynamic>? ?? [];
-    if (nonConst.isNotEmpty) {
-      _failTreeShaking(
-        'This application cannot tree shake icon fonts. It has non-constant '
-        'instances of IconData at the following locations:\n'
-        '${[
-          for (final location in nonConst) '- ${(location as Map)['file']}:${location['line']}:${location['column']}',
-        ].join('\n')}\n'
-        'Avoid non-constant invocations of IconData.',
-      );
-    }
-
-    // Build fontFamily → Set<codePoint> map.
+    // Step 1: the icons the program uses, from the uses of `IconData` each
+    // of its compiles recorded.
     final used = <String, Set<int>>{};
-    for (final instance
-        in output['constantInstances'] as List<dynamic>? ?? []) {
-      final m = instance as Map<String, dynamic>;
-      final family = m['fontFamily'] as String?;
-      final pkg = m['fontPackage'] as String?;
-      // A kernel built for the web (JavaScript) holds an `int` constant as
-      // a `double`, so const_finder reports its code point as a number.
-      final codePoint = (m['codePoint'] as num?)?.round();
-      if (family != null && codePoint != null) {
-        final key = pkg == null ? family : 'packages/$pkg/$family';
-        used.putIfAbsent(key, () => <int>{}).add(codePoint);
+    for (final path in iconTreeShaking['recorded_uses'] as List<dynamic>) {
+      final String text;
+      try {
+        text = File(path as String).readAsStringSync();
+      } on FileSystemException catch (e) {
+        _failTreeShaking('Cannot read the recorded uses file $path: $e');
+      }
+      // A compile that records no use writes an empty file or `{}`.
+      if (text.trim().isEmpty) continue;
+      final Object? decoded;
+      try {
+        decoded = json.decode(text);
+      } on FormatException catch (e) {
+        _failTreeShaking('Failed to parse the recorded uses file $path: $e');
+      }
+      if (decoded is! Map<String, dynamic>) {
+        _failTreeShaking(
+          'Invalid recorded uses file $path: expected a top level JSON '
+          'object.',
+        );
+      }
+      final ({Map<String, Set<int>> codePoints, bool nonConstant}) uses;
+      try {
+        uses = iconDataUses(decoded);
+      } on FormatException catch (e) {
+        _failTreeShaking('Invalid recorded uses file $path: ${e.message}.');
+      }
+      if (uses.nonConstant) {
+        _failTreeShaking(
+          'This application cannot tree shake icon fonts. It has non-constant '
+          'instances of IconData. Avoid non-constant invocations of IconData.',
+        );
+      }
+      uses.codePoints.forEach(
+        (family, codePoints) =>
+            used.putIfAbsent(family, () => <int>{}).addAll(codePoints),
+      );
+    }
+
+    // An icon font the program draws nothing from still ships, cut to one
+    // glyph, as flutter_tools 3.50 cuts it.
+    for (final entry in fonts) {
+      final family = (entry as Map<String, dynamic>)['family'] as String?;
+      final fallback = _iconFontFallbackCodePoints[family];
+      if (fallback != null && !used.containsKey(family)) {
+        used[family!] = {fallback};
       }
     }
     usedCodePoints = used;

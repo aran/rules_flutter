@@ -43,7 +43,7 @@ def sdk_dart_defines(flutter_version):
     """The defines that describe the Flutter SDK `flutter_version`, as `flutter_tools` adds them.
 
     Args:
-        flutter_version: A key of `FLUTTER_VERSIONS`, such as `3.47.9`.
+        flutter_version: A key of `FLUTTER_VERSIONS`, such as `3.50.0`.
 
     Returns:
         The `KEY=VALUE` defines, in `SDK_DEFINE_KEYS` order.

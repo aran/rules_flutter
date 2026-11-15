@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show appFlavor;
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   // The flavor of the target that was built: `paid` for `:web_example_paid`,

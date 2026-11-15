@@ -1,9 +1,9 @@
 import 'dart:ffi';
 
 import 'package:add_plugin/add_plugin.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show FlutterVersion, appBuildName, appBuildNumber, appFlavor;
+import 'package:material_ui/material_ui.dart';
 
 /// `sub` from `libsub.dylib`, which the build produces in a subdirectory of
 /// its package (`vendor/lib/`) rather than at the package root. Opened by bare

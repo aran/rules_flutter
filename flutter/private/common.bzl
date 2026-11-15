@@ -776,7 +776,24 @@ def program_package_files(inputs):
         if f.short_path.startswith(prefix)
     ]
 
-def flutter_build_assets(ctx, tools, output_dir, deps, target_platform, compiled_shaders = struct(listed = [], unlisted = []), kernel_dill = None, is_debug = False, program_assets = None, native_assets_manifest = None, optional_code_points = [], inputs = None):
+def shakes_icons(inputs, tools, is_debug):
+    """Whether a program's bundle tree-shakes its icon fonts.
+
+    A profile or release build with `tree_shake_icons` does, as `flutter
+    build` does; it reads the `IconData` uses the program's compiles record,
+    so only such a build (or one whose link hooks run) has them record any.
+
+    Args:
+        inputs: The program, from `flutter_program_inputs`.
+        tools: `FlutterExecToolsInfo` of the `PORTABLE` group.
+        is_debug: Whether this is a debug build.
+
+    Returns:
+        A bool.
+    """
+    return inputs.tree_shake_icons and not is_debug and tools.font_subset != None
+
+def flutter_build_assets(ctx, tools, output_dir, deps, target_platform, compiled_shaders = struct(listed = [], unlisted = []), recorded_uses = [], is_debug = False, program_assets = None, native_assets_manifest = None, optional_code_points = [], inputs = None):
     """Run the shared asset bundling step.
 
     Walks `FlutterInfo.pub_fonts` / `pub_assets` from deps to bundle
@@ -799,7 +816,10 @@ def flutter_build_assets(ctx, tools, output_dir, deps, target_platform, compiled
             "linux", "macos", "windows", "web", or "tester" for a test), which
             leaves out the pub assets restricted to other platforms.
         compiled_shaders: What `flutter_compile_shaders` made.
-        kernel_dill: The compiled kernel .dill File (needed for icon tree shaking).
+        recorded_uses: The recorded-uses JSON Files the program's AOT
+            compiles wrote (one per compiler), from which icon tree shaking
+            reads the `IconData` the program uses. Needed when
+            `shakes_icons`; empty otherwise.
         is_debug: Whether this is a debug build (icon tree shaking is skipped in debug).
         program_assets: Optional `DartProgramAssetsInfo` of the program. Each
             data asset it ships is placed at
@@ -850,14 +870,10 @@ def flutter_build_assets(ctx, tools, output_dir, deps, target_platform, compiled
     )
     unlisted_copies = unlisted_copies + [(notices_asset_key(web), notices)]
 
-    # Icon tree shaking: in profile and release builds with tree_shake_icons=True.
-    tree_shake_icons = (
-        inputs.tree_shake_icons and
-        not is_debug and
-        kernel_dill != None and
-        tools.const_finder != None and
-        tools.font_subset != None
-    )
+    tree_shake_icons = shakes_icons(inputs, tools, is_debug)
+    if tree_shake_icons:
+        if not recorded_uses:
+            fail("%s: icon tree shaking reads the uses the program's compiles record, and none were given" % ctx.label)
 
     return flutter_asset_bundle_action(
         ctx = ctx,
@@ -867,9 +883,8 @@ def flutter_build_assets(ctx, tools, output_dir, deps, target_platform, compiled
         owner = inputs,
         fonts = fonts,
         output_dir = output_dir,
-        const_finder = tools.const_finder if tree_shake_icons else None,
         font_subset = tools.font_subset if tree_shake_icons else None,
-        kernel_dill = kernel_dill if tree_shake_icons else None,
+        recorded_uses = recorded_uses if tree_shake_icons else [],
         optional_code_points = optional_code_points,
         extra_asset_copies = extra_asset_copies,
         unlisted_asset_copies = unlisted_copies,

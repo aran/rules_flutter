@@ -2193,7 +2193,7 @@ Two tests hold that, and neither replaces the other:
   SDK file outside the set for its tool. A new action that takes the whole SDK
   fails it.
 - `//flutter/tests/sdk_sets:sdk_sets_test` runs the kernel compile, the
-  front end, `dart script.dart`, `const_finder`, `dart compile js` and
+  front end, `dart script.dart`, `dart compile js` and
   `dart compile wasm` against real *copies* of exactly those files. A sandboxed
   build cannot show a set that is too small: the sandbox links its inputs, and
   `dart` finds the VM and its snapshots beside the link's target, which is the

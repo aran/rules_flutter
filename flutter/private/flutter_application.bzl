@@ -19,7 +19,7 @@ load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartPackageMetadat
 load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "program_assets_action_args", "program_assets_attrs")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterApplicationInputsInfo", "FlutterInfo")
 load("//flutter/private:code_asset_libraries.bzl", "code_asset_libraries", "code_asset_libraries_aspect", "describe_code_asset_libraries")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "PROGRAM_PACKAGE_DOC", "asset_roots", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "flutter_program_inputs", "host_target_arch", "launch_build_args", "shader_sources")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "PROGRAM_PACKAGE_DOC", "asset_roots", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "flutter_program_inputs", "host_target_arch", "launch_build_args", "shader_sources", "shakes_icons")
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
@@ -139,7 +139,11 @@ def flutter_application_build(ctx, inputs):
     # anything: the hook decides which of its package's declared data assets
     # ship.
     link_hooks = link_hooks_plan(inputs, inputs.deps, links = not is_debug)
-    recorded_uses = ctx.actions.declare_file(ctx.label.name + ".recorded_uses.json") if link_hooks.runs else None
+
+    # The AOT compile records the uses when something reads them: the link
+    # hooks, or icon tree shaking, which reads the `IconData` uses.
+    records_uses = link_hooks.runs or shakes_icons(inputs, portable_tools(ctx), is_debug)
+    recorded_uses = ctx.actions.declare_file(ctx.label.name + ".recorded_uses.json") if records_uses else None
 
     # What the application ships: its data assets, bundled under
     # `flutter_assets/packages/<pkg>/<name>`, and its code assets, the Dart
@@ -294,7 +298,7 @@ def flutter_application_build(ctx, inputs):
         inputs.deps,
         target_platform,
         compiled_shaders,
-        kernel_dill = kernel_dill,
+        recorded_uses = [recorded_uses] if recorded_uses else [],
         is_debug = is_debug,
         program_assets = shipped.info,
         native_assets_manifest = native_assets_manifest_file,

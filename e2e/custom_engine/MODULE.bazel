@@ -36,7 +36,7 @@ local_path_override(
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 
 # The release: what a build gets when it names no SDK.
-flutter.toolchain(flutter_version = "3.47.9")
+flutter.toolchain(flutter_version = "3.50.0")
 
 # SDKs whose checkout is the stand-in below. Chosen per build with
 # --@rules_flutter//flutter:sdk=<name>.
@@ -203,7 +203,7 @@ fake_checkout(name = "fake_checkout")
 
 fake_checkout(
     name = "fake_checkout_mismatched",
-    gen_snapshot_flutter_version = "3.47.5",
+    gen_snapshot_mismatch = True,
     web_kernel_format_mismatch = True,
 )
 

@@ -51,7 +51,7 @@ flutter_application(
     minimum_os_version = IOS_MINIMUM_OS_VERSION,
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -512,6 +512,7 @@ flutter_library(
         "@deps//:flutter_qjs_next",
         "@deps//:geolocator_apple",
         "@deps//:libremidi_flutter",
+        "@deps//:material_ui",
         "@deps//:permission_handler",
         "@deps//:resource_plugin",
         "@deps//:script_phase_plugin",

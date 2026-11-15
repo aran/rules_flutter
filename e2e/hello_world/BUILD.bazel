@@ -42,8 +42,10 @@ flutter_kernel(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -55,8 +57,10 @@ flutter_aot_snapshot(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -74,8 +78,10 @@ flutter_application(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -87,7 +93,7 @@ flutter_application(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
-        "@deps//:flutter",
+        "@deps//:material_ui",
     ],
 )
 
@@ -249,9 +255,11 @@ flutter_test(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
         "@deps//:flutter_test",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -296,10 +304,12 @@ flutter_test(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
         "@deps//:flutter_test",
         "@deps//:integration_test",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -393,9 +403,9 @@ flutter_test(
     build_name = "2.3.4",
     build_number = "7",
     env = {
-        "EXPECTED_FLUTTER_VERSION": "3.47.9",
-        "EXPECTED_FLUTTER_FRAMEWORK_REVISION": "c197ca5199",
-        "EXPECTED_FLUTTER_ENGINE_REVISION": "89c39edfdf",
+        "EXPECTED_FLUTTER_VERSION": "3.50.0",
+        "EXPECTED_FLUTTER_FRAMEWORK_REVISION": "ab2912035e",
+        "EXPECTED_FLUTTER_ENGINE_REVISION": "371f77202a",
     },
     main = "test/flutter_version_test.dart",
     package = ":pubspec-metadata",
@@ -819,8 +829,10 @@ flutter_library(
     package = ":pubspec-metadata",
     deps = [
         "@deps//:cupertino_icons",
+        "@deps//:cupertino_ui",
         "@deps//:flutter",
         "@deps//:flutter_localized_locales",
+        "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )

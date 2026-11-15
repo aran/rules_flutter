@@ -50,7 +50,7 @@ String _host(String mode) =>
 
 /// The stock Dart's snapshot hash, which the stand-in's engine and
 /// gen_snapshot carry.
-const _snapshotHash = '0451907c2eaa8467e848c0067bfe8ed4';
+const _snapshotHash = '6b959e9909a17b8e29b0663a6d99e646';
 
 String get _workspace {
   var dir = Directory.current;
@@ -211,7 +211,7 @@ void main() {
       await kernelDefines('local'),
       allOf(
         matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
-        contains('FLUTTER_ENGINE_REVISION=89c39edfdf'),
+        contains('FLUTTER_ENGINE_REVISION=371f77202a'),
       ),
     );
   });
@@ -555,7 +555,7 @@ void main() {
     expect(err, contains('does not match itself for web'));
     expect(err, contains('dart2js_platform.dill'));
     expect(err, contains('kernel format 139'));
-    expect(err, contains('kernel format 138'));
+    expect(err, contains('kernel format 141'));
   });
 
   test('a gen_snapshot of another Dart is refused', () async {

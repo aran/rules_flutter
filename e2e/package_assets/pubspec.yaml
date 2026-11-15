@@ -5,6 +5,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  material_ui: ^1.11.0
   data_assets: ^0.20.0
   hooks: ^2.2.0
   meta: ^1.19.0

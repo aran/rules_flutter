@@ -20,6 +20,7 @@ flutter_application(
         "@deps//:data_assets",
         "@deps//:flutter",
         "@deps//:hooks",
+        "@deps//:material_ui",
     ],
 )
 

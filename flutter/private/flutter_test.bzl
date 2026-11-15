@@ -540,8 +540,11 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
         deps,
         "tester",
         compiled_shaders,
-        kernel_dill = kernel_dill,
         is_debug = True,
+        # flutter_tester resolves an `@Native` binding through the
+        # `NativeAssetsManifest.json` of its assets directory, as `flutter test`
+        # gives it one; the engine reads no manifest from the kernel.
+        native_assets_manifest = native_assets_manifest,
         inputs = inputs,
     )
 

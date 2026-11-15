@@ -13,7 +13,7 @@ load(":icon_font_test.bzl", "icon_font_test")
 # the default (release) configuration.
 
 _DEPS = [
-    "@deps//:flutter",
+    "@deps//:material_ui",
     "@rules_flutter//flutter:material_icons",
 ]
 

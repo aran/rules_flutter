@@ -74,7 +74,8 @@ void main() {
   test('FontManifest.json contains bare MaterialIcons family', () {
     // material_icons target uses package_name = "" sentinel, so the family
     // is bare "MaterialIcons" (not packages/material_icons/...). Matches
-    // const_finder's expectations for IconData with no fontPackage.
+    // the family of an IconData with no fontPackage, as icon tree shaking
+    // keys it.
     final manifest = File('${bundleDir.path}/FontManifest.json')
         .readAsStringSync();
     final entries = jsonDecode(manifest) as List<dynamic>;

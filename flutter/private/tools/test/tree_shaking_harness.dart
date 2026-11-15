@@ -1,10 +1,12 @@
 /// Runs `generate_asset_manifest.dart` over icon fonts, with a stand-in for
-/// each program it calls, and returns what it did.
+/// `font-subset` and the recorded uses a program's compiles would write, and
+/// returns what it did.
 library;
 
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:record_use/record_use.dart';
 import 'package:runfiles/runfiles.dart';
 
 /// One font family in the `FontManifest.json` the tool is given.
@@ -30,15 +32,14 @@ class Run {
 }
 
 /// Runs the tool for [families], each font file of which is the text
-/// `<its path>` (or [contents]'s entry for the path), with the icons that
-/// `constFinderOutput` says the program uses. A font file whose contents say
-/// `unsubsettable` makes the stand-in `font-subset` fail; [constFinderExit] is
-/// what the stand-in `const_finder` exits with.
+/// `<its path>` (or [contents]'s entry for the path), with the uses each of
+/// [recordedUses] records, as the files a program's compiles wrote. A font
+/// file whose contents say `unsubsettable` makes the stand-in `font-subset`
+/// fail.
 Future<Run> runTool({
   required List<Family> families,
-  required Map<String, Object?> constFinderOutput,
+  required List<String> recordedUses,
   Map<String, String> contents = const {},
-  int constFinderExit = 0,
 }) async {
   final runfiles = Runfiles.create();
   String runfile(String path) => runfiles.rlocation(path);
@@ -55,17 +56,12 @@ Future<Run> runTool({
       }
     }
 
-    // `const_finder` is run as `dart <snapshot> --kernel-file ...` and prints
-    // what it found as JSON.
-    final constFinder = File('${work.path}/const_finder.dart')
-      ..writeAsStringSync('''
-import 'dart:io';
-void main() {
-  stdout.write(${jsonEncode(jsonEncode(constFinderOutput))});
-  stderr.write('const_finder says no');
-  exit($constFinderExit);
-}
-''');
+    final recorded = [
+      for (final (i, text) in recordedUses.indexed)
+        (File(
+          '${work.path}/recorded_uses_$i.json',
+        )..writeAsStringSync(text)).path,
+    ];
 
     final config = File('${work.path}/config.json')
       ..writeAsStringSync(
@@ -82,13 +78,11 @@ void main() {
           ],
           'copies': copies,
           'icon_tree_shaking': {
-            'dart': Platform.resolvedExecutable,
-            'const_finder': constFinder.path,
             'font_subset': runfile(
               '_main/flutter/private/tools/fake_font_subset'
               '${Platform.isWindows ? '.exe' : ''}',
             ),
-            'kernel_dill': '${work.path}/app.dill',
+            'recorded_uses': recorded,
           },
         }),
       );
@@ -113,12 +107,53 @@ void main() {
   }
 }
 
-/// A const_finder answer in which the program uses [codePoint] of [family].
-Map<String, Object?> usesIcons(Map<String, List<int>> codePointsByFamily) => {
-  'constantInstances': [
-    for (final entry in codePointsByFamily.entries)
-      for (final codePoint in entry.value)
-        {'fontFamily': entry.key, 'codePoint': codePoint},
-  ],
-  'nonConstantLocations': <Object?>[],
-};
+const _iconData = Class(
+  'IconData',
+  Library('package:flutter/src/widgets/icon_data.dart'),
+);
+const _root = LoadingUnit('root');
+
+/// Recorded uses of [references] of `IconData`, as a compile writes them.
+String recordings(List<InstanceReference> references) => jsonEncode(
+  Recordings(
+    calls: const {},
+    instances: {if (references.isNotEmpty) _iconData: references},
+  ).toJson(),
+);
+
+/// A constant `IconData(codePoint, fontFamily: family)`.
+InstanceReference constantIcon(int codePoint, String family) =>
+    InstanceConstantReference(
+      instanceConstant: InstanceConstant(
+        definition: _iconData,
+        fields: {
+          'codePoint': IntConstant(codePoint),
+          'fontFamily': StringConstant(family),
+        },
+      ),
+      loadingUnit: _root,
+    );
+
+/// The recorded uses of a program with a constant `IconData` for each code
+/// point of each family.
+String usesIcons(Map<String, List<int>> codePointsByFamily) => recordings([
+  for (final MapEntry(key: family, value: codePoints)
+      in codePointsByFamily.entries)
+    for (final codePoint in codePoints) constantIcon(codePoint, family),
+]);
+
+/// `IconData(<codePoint>, fontFamily: <family>)` called with arguments that
+/// are each constant or not.
+InstanceReference creation(MaybeConstant codePoint, MaybeConstant family) =>
+    InstanceCreationReference(
+      definition: _iconData,
+      loadingUnit: _root,
+      positionalArguments: [codePoint],
+      namedArguments: {'fontFamily': family},
+    );
+
+/// `IconData.new`, torn off.
+const InstanceReference tearOff = ConstructorTearoffReference(
+  definition: _iconData,
+  loadingUnit: _root,
+);

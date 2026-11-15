@@ -11,9 +11,9 @@ void main() {
   test('the program is told what the selected SDK is', () {
     // The stand-in checkout is not a git repository, so it has no framework
     // revision to report; the release SDK reports its own ten characters.
-    expect(FlutterVersion.version, '3.47.9');
+    expect(FlutterVersion.version, '3.50.0');
     expect(FlutterVersion.frameworkRevision, isEmpty);
-    expect(FlutterVersion.engineRevision, '89c39edfdf');
+    expect(FlutterVersion.engineRevision, '371f77202a');
     expect(FlutterVersion.dartVersion, matches(RegExp(r'^\d+\.\d+\.\d+')));
   });
 }

@@ -15,20 +15,17 @@ The Linux and Windows out dirs (`linux_<mode>[_arm64]`, `win_<mode>`) are laid o
 the same way, as engines built on their own OS and read here for a cross build,
 and `wasm_release` holds the web SDK as `flutter_web_sdk/`.
 
-With `gen_snapshot_flutter_version` set, the release gen_snapshot is that of
-another Flutter release (another Dart), with its VM snapshot hash changed: the mismatch the check exists to refuse.
+With `gen_snapshot_mismatch`, the release gen_snapshot is a copy with its VM
+snapshot hash changed, as another VM's build would have it: the mismatch the check exists to refuse.
 Every platform's AOT gen_snapshot is replaced by it. With
 `web_kernel_format_mismatch` the web SDK's dart2js platform dill is of another
 kernel format, the web's version of the same mismatch.
 """
 
 # buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:artifact_urls.bzl", "desktop_engine_artifact_path", "engine_artifact_url", "host_artifacts_path")
+load("@rules_flutter//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
-# buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS")
-
-_RELEASE = "3.47.9"
+_RELEASE = "3.50.0"
 _OUT = "checkout/engine/src/out/"
 
 def _args_gn(mode, revision, cpu = "arm64"):
@@ -147,7 +144,6 @@ def _windows_checkout(rctx, path, link, meta):
     for name in ["flutter_tester.exe", "icudtl.dat", "impellerc.exe", "shader_lib"]:
         link(host_tools.get_child(name), debug + name)
     link(font_tools.get_child("font-subset.exe"), debug + "font-subset.exe")
-    link(font_tools.get_child("const_finder.dart.snapshot"), debug + "gen/const_finder.dart.snapshot")
     for name in ["vm_isolate_snapshot.bin", "isolate_snapshot.bin"]:
         link(host_tools.get_child(name), debug + "gen/flutter/lib/snapshot/" + name)
     link(kernel_debug, debug + "flutter_patched_sdk")
@@ -191,26 +187,20 @@ def _fake_checkout_impl(rctx):
     rctx.file("checkout/engine/src/ENGINE_SRC", "A stand-in for a checkout's engine source directory.\n")
     _dart_source(path, link)
 
-    # The release gen_snapshot, or another release's.
+    # The release gen_snapshot, or one of another VM.
     release_gen = path("@flutter_desktop_engine_linux-x64_release//:engine/gen_snapshot") if on_linux else path("@flutter_darwin-arm64//:host-tools-release/gen_snapshot")
-    other = rctx.attr.gen_snapshot_flutter_version
+    other = rctx.attr.gen_snapshot_mismatch
     if other:
-        other_meta = FLUTTER_VERSIONS[other]
-
-        # A Linux machine's release gen_snapshot ships in the GTK engine archive.
-        archive = desktop_engine_artifact_path("linux", "x64", "release") if on_linux else host_artifacts_path(host, mode = "release")
-        rctx.download_and_extract(
-            url = engine_artifact_url(other_meta.engine_revision, archive),
-            sha256 = ARTIFACT_CHECKSUMS[other][archive],
-            output = "other_dart",
-        )
-        release_gen = rctx.path("other_dart/gen_snapshot")
-
-        # The patch releases of one Dart share a VM snapshot hash, so another
-        # release's gen_snapshot would pass the check that exists to refuse
-        # another VM: write another hash into it, as another VM's build would.
-        rctx.execute(["chmod", "u+w", release_gen])
-        rctx.execute(["perl", "-pi", "-e", "s/0451907c2eaa8467/9f3c1e0d2eaa8467/g", release_gen])
+        # Another VM's build differs in its snapshot hash, a run of 32 hex
+        # characters: change the first of each such run in a copy.
+        other_gen = rctx.path("other_dart/gen_snapshot")
+        rctx.execute(["mkdir", "-p", str(other_gen.dirname)])
+        rctx.execute(["cp", release_gen, other_gen])
+        rctx.execute(["chmod", "u+w", other_gen])
+        rewrite = rctx.execute(["perl", "-pi", "-e", 's/(?<![0-9a-f])([0-9a-f])([0-9a-f]{31})(?![0-9a-f])/($1 eq "f" ? "0" : "f") . $2/ge', other_gen])
+        if rewrite.return_code != 0:
+            fail("could not rewrite the snapshot hash of {}: {}".format(other_gen, rewrite.stderr))
+        release_gen = other_gen
     profile_gen = path("@flutter_desktop_engine_linux-x64_profile//:engine/gen_snapshot") if on_linux else path("@flutter_darwin-arm64_profile//:host-tools/gen_snapshot")
 
     # host_debug: the host tools, the debug platform kernel and the debug engine.
@@ -222,7 +212,6 @@ def _fake_checkout_impl(rctx):
         link(host_tools.get_child(name), debug + name)
     link(dev_root.get_child("bin").get_child("cache").get_child("pkg").get_child("sky_engine"), debug + "gen/dart-pkg/sky_engine")
     link(font_tools.get_child("font-subset"), debug + "font-subset")
-    link(font_tools.get_child("const_finder.dart.snapshot"), debug + "gen/const_finder.dart.snapshot")
     for name in ["vm_isolate_snapshot.bin", "isolate_snapshot.bin"]:
         link(host_tools.get_child(name), debug + "gen/flutter/lib/snapshot/" + name)
     link(kernel_debug, debug + "flutter_patched_sdk")
@@ -319,7 +308,7 @@ def _web_out_dir(rctx, path, link, revision, mismatched):
     rctx.execute(["cp", web_sdk.get_child("kernel").get_child("dart2js_platform.dill"), patched])
     rctx.execute(["chmod", "u+w", patched])
 
-    # The kernel format is the four bytes after the magic: 138 -> 139.
+    # The kernel format is the four bytes after the magic: 139, where Dart 3.14 writes 141.
     rctx.execute(["sh", "-c", "printf '\\000\\000\\000\\213' | dd of=\"$1\" bs=1 seek=4 conv=notrunc 2>/dev/null", "sh", patched])
 
 def _mobile_out_dirs(rctx, path, link, revision, other_gen):
@@ -371,8 +360,8 @@ fake_checkout = repository_rule(
     _fake_checkout_impl,
     doc = "The official artifacts laid out as a flutter/flutter checkout with engine out dirs.",
     attrs = {
-        "gen_snapshot_flutter_version": attr.string(
-            doc = "A Flutter release whose gen_snapshot replaces the release's: another Dart.",
+        "gen_snapshot_mismatch": attr.bool(
+            doc = "Replace the release's gen_snapshot with one of another snapshot hash: another VM.",
         ),
         "web_kernel_format_mismatch": attr.bool(
             doc = "Write another kernel format into the web SDK's dart2js platform dill: a web SDK of another Dart.",

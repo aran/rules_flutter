@@ -59,7 +59,6 @@ def _host_tools(host, repo, provenance):
     impellerc = "@{repo}//:host-tools/impellerc{exe}",
     shader_lib = "@{repo}//:shader_lib_files",
     shader_include_dir = "host-tools/shader_lib",
-    const_finder = "@{repo}//:font-subset-tools/const_finder.dart.snapshot",
     font_subset = "@{repo}//:font-subset-tools/font-subset{exe}",
     provenance = {provenance},
     visibility = ["//visibility:public"],

@@ -26,7 +26,7 @@ local_path_override(
 )
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(flutter_version = "3.47.9")
+flutter.toolchain(flutter_version = "3.50.0")
 
 flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")
 
@@ -179,8 +179,8 @@ maven.install(
 )
 use_repo(maven, "rules_flutter_maven")
 
-# The POMs of the engine's Maven artifacts for Flutter 3.47.9 (engine
-# 89c39edf...), in debug and release, which the POM of `flutter_android_aar`'s
+# The POMs of the engine's Maven artifacts for Flutter 3.50.0 (engine
+# 371f7720...), in debug and release, which the POM of `flutter_android_aar`'s
 # module names. `:verify_android_aar_resolves_test` resolves the repository's
 # coordinates against these, with no network at test time; bumping
 # `flutter_version` above means pinning the new engine's here too, and the test
@@ -189,50 +189,50 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 
 http_file(
     name = "flutter_maven_flutter_embedding_debug",
-    sha256 = "c23c23f58e2342076114b02d538da0f4ded875c8f18a85b99782d7686cd2e5dc",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/flutter_embedding_debug/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/flutter_embedding_debug-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "daad09aff9bbb82e3db70d4ae8216dada1656ca56472bf4c1c98a04268c69c00",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/flutter_embedding_debug/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/flutter_embedding_debug-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_armeabi_v7a_debug",
-    sha256 = "6c222cb55e31c15cf8f7256b5bc55a83a3c4746005023a2b27782231e0818762",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/armeabi_v7a_debug/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/armeabi_v7a_debug-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "85bf336ee9012f762a557f14701a6bd5efdce9a9215600021a79b5abb3ee4c0a",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/armeabi_v7a_debug/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/armeabi_v7a_debug-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_arm64_v8a_debug",
-    sha256 = "724369cda4ceff18c59519586f5c81be33b0eb56f7c8d40cf954907da063de36",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/arm64_v8a_debug/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/arm64_v8a_debug-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "8f20d2fb85f545731026ca714b858804cc038e502f790c14ccc0aa5badd96823",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/arm64_v8a_debug/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/arm64_v8a_debug-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_x86_64_debug",
-    sha256 = "21edc02e6bd8ba3c3884773720a7f049a0bd9bebfee7751b356ad5d0bc17cddf",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/x86_64_debug/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/x86_64_debug-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "e5a1cfcc949468faa84b07d2d8bc8c5ab0a4342c7e1b34b6656b01ee2e7637cd",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/x86_64_debug/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/x86_64_debug-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_flutter_embedding_release",
-    sha256 = "41872988c39554cf793f38c7108bb303c86f6790aae5dcf4f8bf4144669e47f3",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/flutter_embedding_release/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/flutter_embedding_release-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "c45e083b9f758db6b795f02d1c05bff3de3c530befa0c37dceb616df1374f7b1",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/flutter_embedding_release/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/flutter_embedding_release-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_armeabi_v7a_release",
-    sha256 = "2cf5f4d83df6ed9a1ab2ed6ac2bc19a55361b8de4d9293ce46ae5b4e1915a3f5",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/armeabi_v7a_release/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/armeabi_v7a_release-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "318ffd311ec167386ba5e3a0b7c829ebf7147b3876bb43645756f3bc2d7967ab",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/armeabi_v7a_release/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/armeabi_v7a_release-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_arm64_v8a_release",
-    sha256 = "25c4fc9d44b64390189d3cea9d3cebdfab1a4eaca879c2f94b7107396871ab55",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/arm64_v8a_release/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/arm64_v8a_release-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "4866175e9fc42481f4c55c38f955bef914a42d42d96e32594e5a353c87829daa",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/arm64_v8a_release/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/arm64_v8a_release-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 http_file(
     name = "flutter_maven_x86_64_release",
-    sha256 = "2df17ceb4cfa0b9729d8e5876b77ec5a6d08bc33d66bd08d2818127d27155eee",
-    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/x86_64_release/1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7/x86_64_release-1.0.0-89c39edfdfae2949f6806e4a315c0c08522238b7.pom",
+    sha256 = "8f0a47440889be3bf927eb4f57dce55852a043852676287b1458730bf3edd255",
+    url = "https://storage.googleapis.com/download.flutter.io/io/flutter/x86_64_release/1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee/x86_64_release-1.0.0-371f77202a73e8dff57a8b3bff75bca55c090aee.pom",
 )
 
 # The Gradle-built host app of add_to_app_host/android builds offline, from

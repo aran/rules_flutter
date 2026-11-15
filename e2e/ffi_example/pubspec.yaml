@@ -5,6 +5,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  material_ui: ^1.11.0
   # Third mechanism: a native library nothing here names. drift reaches
   # package:sqlite3, whose own native code comes from a `hook/build.dart`
   # Bazel cannot run; rules_dart's curated registry binds its Bazel-built

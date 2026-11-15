@@ -269,7 +269,6 @@ def _local_engine_impl(repository_ctx):
                 "host-tools/isolate_snapshot.bin": tools.get_child("gen").get_child("flutter").get_child("lib").get_child("snapshot").get_child("isolate_snapshot.bin"),
                 "host-tools/impellerc" + machine.exe: tools.get_child("impellerc" + machine.exe),
                 "host-tools/shader_lib": tools.get_child("shader_lib"),
-                "host-tools/const_finder.dart.snapshot": tools.get_child("gen").get_child("const_finder.dart.snapshot"),
                 "host-tools/font-subset" + machine.exe: tools.get_child("font-subset" + machine.exe),
             }
             absent = [dest for dest, source in files.items() if not source.exists]
@@ -319,7 +318,6 @@ flutter_host_tools(
     impellerc = "//:host-tools/impellerc{exe}",
     shader_lib = "//:shader_lib_files",
     shader_include_dir = "host-tools/shader_lib",
-    const_finder = "//:host-tools/const_finder.dart.snapshot",
     font_subset = "//:host-tools/font-subset{exe}",
     provenance = {prov},
     visibility = ["//visibility:public"],

@@ -242,7 +242,7 @@ def aggregate_pub_contributions(deps, target_platform = None, flavor = "", progr
     it is of the program's own package (`program_root`) or of no package (the
     Material icon font), under `packages/<package_name>/` otherwise, the font
     family included. A font naming another package's file keeps that path.
-    This matches Flutter's CLI behavior and the const finder's tree-shaking
+    This matches Flutter's CLI behavior and icon tree shaking's
     key shape (`packages/<pkg>/<family>` only when the IconData has a non-null
     `fontPackage`).
 

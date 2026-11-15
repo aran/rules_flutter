@@ -15,7 +15,7 @@ to bundle the font at bare `fonts/MaterialIcons-Regular.otf` and to write
 FontManifest family `MaterialIcons` (no `packages/<pkg>/` prefix). This
 matches Flutter's built-in MaterialIcons widget, which references the
 font via `fontFamily: "MaterialIcons"` with no `fontPackage` — so
-const_finder's tree-shaking key shape is preserved.
+icon tree shaking keys its uses by that family.
 
 A single small custom rule (rather than a `flutter_library` macro) avoids
 selecting the platform-specific toolchain repo at the call site: the rule

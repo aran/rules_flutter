@@ -76,7 +76,7 @@ def _flutter_engine_artifacts_impl(repository_ctx):
             output = "host-tools-release",
         )
 
-    # 4. Download font-subset tools (const_finder + font-subset binary).
+    # 4. Download the font-subset tool.
     font_subset_path = "{platform}/font-subset.zip".format(platform = platform)
     repository_ctx.download_and_extract(
         url = engine_artifact_url(engine_revision, font_subset_path),

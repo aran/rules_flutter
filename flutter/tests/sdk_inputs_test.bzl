@@ -47,7 +47,6 @@ _SDK_FILES = {
     "FlutterAotMacho": {},
     "FlutterDart2JS": _sets("dart2js"),
     "FlutterDart2Wasm": _sets("dart2wasm"),
-    "FlutterWebIconKernel": _sets("dart2js") | _sets("dart2wasm"),
     "DartModule": _sets("kernel"),
     "DartEntryKernel": _sets("kernel"),
     "DartLinkKernel": _sets("kernel"),
@@ -62,7 +61,6 @@ _PATCHED_SDK_FILES = ["platform_strong.dill"]
 _WEB_SDK_FILES = {
     "FlutterDart2JS": ["web-sdk/kernel/dart2js_platform.dill"],
     "FlutterDart2Wasm": ["web-sdk/kernel/dart2wasm_platform.dill"],
-    "FlutterWebIconKernel": ["web-sdk/kernel/dart2js_platform.dill", "web-sdk/kernel/dart2wasm_platform.dill"],
 }
 
 def _split(path):
@@ -223,7 +221,7 @@ def sdk_inputs_test_suite(name):
         "app_opt": (":%s_app" % name, _takes_only_what_it_reads_opt_test, ["DartKernel", "FlutterAssetBundle"] + aot),
         "kernel": (":%s_kernel" % name, _takes_only_what_it_reads_test, ["DartKernel"]),
         "aot": (":%s_aot" % name, _takes_only_what_it_reads_opt_test, ["DartKernel"] + aot),
-        "web": (":%s_web" % name, _takes_only_what_it_reads_test, ["FlutterDart2Wasm", "FlutterDart2JS", "FlutterWebIconKernel", "FlutterAssetBundle", "FlutterWebTemplate", "FlutterWebBundle"]),
+        "web": (":%s_web" % name, _takes_only_what_it_reads_test, ["FlutterDart2Wasm", "FlutterDart2JS", "FlutterAssetBundle", "FlutterWebTemplate", "FlutterWebBundle"]),
         "web_js": (":%s_web_js" % name, _takes_only_what_it_reads_opt_test, ["FlutterDart2JS", "FlutterWebTemplate", "FlutterWebBundle"]),
         "gen_l10n": ("//flutter/tests/gen_l10n_fixture:l10n", _takes_only_what_it_reads_test, ["FlutterGenL10n"]),
         "plist_merge": (":_plist_supplement_under_test", _takes_only_what_it_reads_test, ["FlutterPlistMerge"]),

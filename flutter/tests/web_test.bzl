@@ -1013,19 +1013,14 @@ _js_flags_test = analysistest.make(
 )
 
 def _experiments_test_impl(ctx):
-    """An experiment reaches every step that parses the source.
+    """An experiment reaches every step that parses the source: both compilers.
 
-    Read from `-c opt`, which is the only configuration where the icon
-    tree-shake kernel compile exists at all — and that compile is the one a
-    web-only implementation forgets, because both real compilers would have
-    accepted the code without it.
+    Read from `-c opt`, where both compile for release.
     """
     env = analysistest.begin(ctx)
     flag = "--enable-experiment=test-experiment"
     for mnemonic in ["FlutterDart2Wasm", "FlutterDart2JS"]:
         _assert_argv(env, _action(env, mnemonic), present = [flag])
-
-    _assert_argv(env, _action(env, "FlutterWebIconKernel"), present = [flag])
     return analysistest.end(env)
 
 _experiments_test = analysistest.make(
@@ -1781,8 +1776,8 @@ def _branch_inputs_test_impl(ctx):
     (`__<name>_branches`) built once for each compiler, and writing two from
     one target collides. The dart2wasm and dart2js compiles read different
     files, the dart2wasm one from the dart2wasm configuration and the dart2js
-    one from the dart2js's, and the icon tree-shaker's kernel reads the
-    primary's, dart2wasm's, as the rest of what the bundle holds once does.
+    one from the dart2js's. The icon tree shaker reads the uses both
+    compiles record.
     """
     env = analysistest.begin(ctx)
     own = [
@@ -1793,7 +1788,7 @@ def _branch_inputs_test_impl(ctx):
     asserts.equals(env, [], own, "the bundle writes a package config its branches should")
 
     by_mnemonic = {}
-    for mnemonic in ["FlutterDart2Wasm", "FlutterDart2JS", "FlutterWebIconKernel"]:
+    for mnemonic in ["FlutterDart2Wasm", "FlutterDart2JS"]:
         action = _action(env, mnemonic)
         if action == None:
             continue
@@ -1813,18 +1808,12 @@ def _branch_inputs_test_impl(ctx):
             wasm != js and wasm.root.path != js.root.path,
             "dart2wasm and dart2js read one package config: %s" % wasm.path,
         )
-    asserts.equals(
-        env,
-        wasm,
-        by_mnemonic.get("FlutterWebIconKernel"),
-        "the icon tree-shaker's kernel must compile the primary (dart2wasm) branch",
-    )
 
     bundle = action_config(env, "FlutterAssetBundle")
     if bundle != None:
         families = [f["family"] for f in bundle["fonts"]]
         asserts.equals(env, 1, len([f for f in families if f == "MaterialIcons"]), "fonts: %s" % families)
-        asserts.true(env, "icon_tree_shaking" in bundle, "the release bundle shakes icons, or this test proves nothing about its kernel")
+        asserts.true(env, "icon_tree_shaking" in bundle, "the release bundle shakes icons")
     return analysistest.end(env)
 
 _branch_inputs_test = analysistest.make(
@@ -1884,13 +1873,12 @@ def _per_compiler_test_impl(ctx):
 
     The fixture's library depends on one of two `web_variant` packages by web
     compiler. The dart2wasm compile must take the first and the dart2js the
-    second; the icon tree-shaker's kernel reads the primary's.
+    second.
     """
     env = analysistest.begin(ctx)
     for mnemonic, variant, other in [
         ("FlutterDart2Wasm", "web_variants/wasm/lib", "web_variants/js/lib"),
         ("FlutterDart2JS", "web_variants/js/lib", "web_variants/wasm/lib"),
-        ("FlutterWebIconKernel", "web_variants/wasm/lib", "web_variants/js/lib"),
     ]:
         action = _action(env, mnemonic)
         if action == None:
@@ -2105,6 +2093,28 @@ def _setup_web_fixtures():
     flutter_web_bundle(
         name = "_web_js_fixture",
         application = ":_web_js_fixture_app",
+        compiler = "dart2js",
+        renderer = "canvaskit",
+        tags = ["manual"],
+        use_local_canvaskit = True,
+    )
+
+    # Builds that shake no icons, and so read no recorded uses.
+    flutter_application(
+        name = "_web_unshaken_fixture_app",
+        main = "lib/web_fixture_main.dart",
+        package = ":pubspec-metadata",
+        tags = ["manual"],
+        tree_shake_icons = False,
+    )
+    flutter_web_bundle(
+        name = "_web_unshaken_fixture",
+        application = ":_web_unshaken_fixture_app",
+        tags = ["manual"],
+    )
+    flutter_web_bundle(
+        name = "_web_unshaken_js_fixture",
+        application = ":_web_unshaken_fixture_app",
         compiler = "dart2js",
         renderer = "canvaskit",
         tags = ["manual"],
@@ -2551,85 +2561,59 @@ _dart2js_reads_precompiled_web_platform_test = analysistest.make(
     _dart2js_reads_precompiled_web_platform_test_impl,
 )
 
-def _icon_scan_kernel_is_a_web_program_test_impl(ctx):
-    """The program the icon scan reads is the one compiled for the web.
+def _icon_uses_test_impl(ctx):
+    """Icon tree shaking reads the uses every release compile records.
 
-    A release build finds the icons an app uses by scanning a kernel of its
-    program. The scan has to see the program that ships: one compiled against
-    the Dart VM's platform cannot import `dart:js_interop`, `package:web` or
-    `dart:ui_web` (it fails the build of an app that does), and takes the VM
-    branch of every `if (dart.library.js_interop)` import, so an icon used only
-    on the web is not found and is cut from the shipped font. So every platform
-    kernel the action producing it reads is a web one, and it reads one.
+    As `flutter build web` has it: dart2wasm writes them (`--recorded-uses`),
+    dart2js writes them among its outputs (`--write-resources`), and the icon
+    tree shaker reads one file per compile, so an icon either compiler's
+    program uses keeps its glyph.
     """
     env = analysistest.begin(ctx)
-    producers = [
-        a
-        for a in analysistest.target_actions(env)
-        if [o for o in a.outputs.to_list() if o.basename.endswith("_icon_tree_shaking.dill")]
-    ]
-    asserts.equals(env, 1, len(producers), "expected one action producing the icon scan's kernel")
-    if producers:
-        # The command line, not the inputs: the toolchain's files are inputs to
-        # every compile and hold every platform kernel there is.
-        argv = " ".join(producers[0].argv)
-        asserts.true(
+    actions = analysistest.target_actions(env)
+    wasm = ([a for a in actions if a.mnemonic == "FlutterDart2Wasm"] + [None])[0]
+    js = ([a for a in actions if a.mnemonic == "FlutterDart2JS"] + [None])[0]
+    if wasm != None:
+        asserts.true(env, [a for a in wasm.argv if a.startswith("--recorded-uses=")], "dart2wasm records no uses: %s" % wasm.argv)
+    if js != None:
+        asserts.true(env, "--write-resources" in js.argv, "dart2js records no uses: %s" % js.argv)
+
+    bundle = action_config(env, "FlutterAssetBundle")
+    asserts.true(env, bundle != None and "icon_tree_shaking" in bundle, "the release bundle shakes no icons")
+    if bundle != None and "icon_tree_shaking" in bundle:
+        asserts.equals(
             env,
-            "web-sdk/kernel" in argv,
-            "the icon scan's kernel is not compiled against the web SDK's platform: %s" % argv,
+            ctx.attr.compiles,
+            len(bundle["icon_tree_shaking"]["recorded_uses"]),
+            "the icon tree shaker reads one recorded-uses file per compile: %s" % bundle["icon_tree_shaking"],
         )
-        for vm in ["flutter_patched_sdk", "platform_strong", "vm_platform"]:
-            asserts.false(
-                env,
-                vm in argv,
-                "the icon scan's kernel is compiled against the Dart VM's platform (%s): %s" % (vm, argv),
-            )
     return analysistest.end(env)
 
-_icon_scan_kernel_is_a_web_program_test = analysistest.make(
-    _icon_scan_kernel_is_a_web_program_test_impl,
+_icon_uses_test = analysistest.make(
+    _icon_uses_test_impl,
+    attrs = {"compiles": attr.int(mandatory = True)},
 )
 
-_icon_scan_kernel_is_a_web_program_opt_test = analysistest.make(
-    _icon_scan_kernel_is_a_web_program_test_impl,
-    config_settings = {"//command_line_option:compilation_mode": "opt"},
-)
+def _no_icon_uses_test_impl(ctx):
+    """A build that shakes no icons and runs no link hook records no uses.
 
-def _icon_scan_front_end_test_impl(ctx):
-    """The icon scan goes through the front end of the bundle's primary compiler.
-
-    It reads the primary branch's program, and a front end is never handed the
-    other compiler's: JavaScript cannot represent every integer literal a
-    WebAssembly program may contain (`0x7FFFFFFFFFFFFFFF`) and its front end
-    refuses them. So a `compiler = "dart2wasm"` bundle is scanned through
-    dart2wasm's front end, against dart2wasm's platform, whether or not it also
-    ships a dart2js build, and a `compiler = "dart2js"` one through
-    `dart compile js --cfe-only`, as `flutter build web` does.
+    Nothing would read them: the compilers are not asked to write them, and
+    no action lifts dart2js's out of its output.
     """
     env = analysistest.begin(ctx)
-    scan = _action(env, "FlutterWebIconKernel")
-    if scan == None:
-        return analysistest.end(env)
-    argv = scan.argv
-    expected = ["compile", ctx.attr.compiler] + ctx.attr.flags
-    asserts.equals(env, expected, argv[1:1 + len(expected)], "the icon scan runs %s" % argv)
-    other = "js" if ctx.attr.compiler == "wasm" else "wasm"
-    asserts.false(env, other in argv, "the icon scan names the %s front end: %s" % (other, argv))
-    platform = "dart2wasm_platform.dill" if ctx.attr.compiler == "wasm" else "dart2js_platform.dill"
-    asserts.true(
-        env,
-        [f for f in scan.inputs.to_list() if f.basename == platform],
-        "the icon scan does not read %s" % platform,
-    )
+    actions = analysistest.target_actions(env)
+    for wasm in [a for a in actions if a.mnemonic == "FlutterDart2Wasm"]:
+        asserts.false(env, [a for a in wasm.argv if a.startswith("--recorded-uses")], "dart2wasm records uses: %s" % wasm.argv)
+    js = [a for a in actions if a.mnemonic == "FlutterDart2JS"]
+    asserts.true(env, js, "no dart2js compile")
+    for action in js:
+        asserts.false(env, "--write-resources" in action.argv, "dart2js records uses: %s" % action.argv)
+    asserts.false(env, [a for a in actions if a.mnemonic == "FlutterWebExtract"], "uses are lifted out of dart2js's output")
+    bundle = action_config(env, "FlutterAssetBundle")
+    asserts.true(env, bundle != None and "icon_tree_shaking" not in bundle, "the bundle shakes icons: %s" % bundle)
     return analysistest.end(env)
 
-_icon_scan_front_end_test = analysistest.make(
-    _icon_scan_front_end_test_impl,
-    attrs = {
-        "compiler": attr.string(mandatory = True),
-        "flags": attr.string_list(mandatory = True),
-    },
-)
+_no_icon_uses_test = analysistest.make(_no_icon_uses_test_impl)
 
 def _flavor_defines_test_impl(ctx):
     """A web bundle's `flavor` is `FLUTTER_APP_FLAVOR` in every compile and in the dev loop's replay."""
@@ -2963,33 +2947,29 @@ def web_test_suite(name):
         target_under_test = ":_web_js_fixture",
     )
 
-    # Release is every mode but `dbg`, so fastbuild and opt are both release.
-    _icon_scan_kernel_is_a_web_program_test(
-        name = name + "_icon_scan_kernel_is_a_web_program_fastbuild",
-        target_under_test = ":_web_fixture",
-    )
-    _icon_scan_kernel_is_a_web_program_opt_test(
-        name = name + "_icon_scan_kernel_is_a_web_program_opt",
+    # Release is every mode but `dbg`, so the default is a release build.
+    _icon_uses_test(
+        name = name + "_icon_uses_js",
         target_under_test = ":_web_js_fixture",
+        compiles = 1,
     )
-
-    _icon_scan_front_end_test(
-        name = name + "_icon_scan_front_end_js",
-        target_under_test = ":_web_js_fixture",
-        compiler = "js",
-        flags = ["--cfe-only"],
-    )
-    _icon_scan_front_end_test(
-        name = name + "_icon_scan_front_end_wasm_with_fallback",
+    _icon_uses_test(
+        name = name + "_icon_uses_wasm_with_fallback",
         target_under_test = ":_web_fixture",
-        compiler = "wasm",
-        flags = ["--phases=cfe"],
+        compiles = 2,
     )
-    _icon_scan_front_end_test(
-        name = name + "_icon_scan_front_end_wasm_only",
+    _icon_uses_test(
+        name = name + "_icon_uses_wasm_only",
         target_under_test = ":_web_wasm_only_fixture",
-        compiler = "wasm",
-        flags = ["--phases=cfe"],
+        compiles = 1,
+    )
+    _no_icon_uses_test(
+        name = name + "_no_icon_uses",
+        target_under_test = ":_web_unshaken_fixture",
+    )
+    _no_icon_uses_test(
+        name = name + "_no_icon_uses_js",
+        target_under_test = ":_web_unshaken_js_fixture",
     )
 
     unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test)

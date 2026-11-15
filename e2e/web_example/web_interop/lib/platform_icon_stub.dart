@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The icon an app draws everywhere but the web.
 const IconData platformIcon = Icons.computer;
