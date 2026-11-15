@@ -102,7 +102,7 @@ class NativeCompilerConfig implements CompilerConfig {
   @override
   List<String> get extraFlags => [
     '--enable-asserts',
-    if (trackWidgetCreation) '--track-widget-creation',
+    if (trackWidgetCreation) '--track-creation-locations',
     ...experimentFlags,
     for (final define in dartDefines) '-D$define',
     if (dartPluginRegistrantUri.isNotEmpty) ...[
@@ -124,6 +124,8 @@ class NativeCompilerConfig implements CompilerConfig {
 /// Matches Flutter's exact DDC dev mode flags:
 /// - `--dartdevc-module-format=ddc` (library bundle format)
 /// - `--dartdevc-canary` (enables library bundle features)
+/// - `--no-js-strongly-connected-components` (one JS module per library: the
+///   library bundle format loads libraries in any order)
 /// - `--filesystem-root` + `--filesystem-scheme=org-dartlang-app` (for synthetic entrypoint)
 class WebCompilerConfig implements CompilerConfig {
   final WebToolchainPaths webToolchain;
@@ -157,6 +159,7 @@ class WebCompilerConfig implements CompilerConfig {
     '--platform=${webToolchain.ddcOutlineDill}',
     '--dartdevc-module-format=ddc',
     '--dartdevc-canary',
+    '--no-js-strongly-connected-components',
     '--experimental-emit-debug-metadata',
     ...experimentFlags,
     for (final define in dartDefines) '-D$define',

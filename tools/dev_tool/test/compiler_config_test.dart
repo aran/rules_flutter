@@ -57,6 +57,7 @@ void main() {
         dartDefines: const ['A=1'],
       ).extraFlags;
       expect(flags, contains('--dartdevc-canary'));
+      expect(flags, contains('--no-js-strongly-connected-components'));
       expect(flags, contains('--experimental-emit-debug-metadata'));
       expect(flags, contains('-DA=1'));
 
@@ -82,14 +83,14 @@ void main() {
           patchedSdkRoot: '/patched',
           trackWidgetCreation: true,
         ).extraFlags,
-        contains('--track-widget-creation'),
+        contains('--track-creation-locations'),
       );
     });
 
     test('is not passed otherwise', () {
       expect(
         NativeCompilerConfig(patchedSdkRoot: '/patched').extraFlags,
-        isNot(contains('--track-widget-creation')),
+        isNot(contains('--track-creation-locations')),
       );
     });
   });
