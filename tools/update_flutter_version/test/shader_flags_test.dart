@@ -45,6 +45,35 @@ const _flutterTools = '''
   }
 ''';
 
+/// The same switch as flutter_tools 3.50 writes it, over `TargetOS`.
+const _flutterTools350 = '''
+  List<String> _shaderTargetsFromTargetPlatform(TargetPlatform targetPlatform) {
+    switch (targetPlatform.os) {
+      case .android || .linux || .windows:
+        return <String>[
+          '--sksl',
+          '--runtime-stage-gles',
+          '--runtime-stage-gles3',
+          '--runtime-stage-vulkan',
+        ];
+
+      case .ios:
+        return <String>['--runtime-stage-metal'];
+      case .macos:
+        return <String>['--sksl', '--runtime-stage-metal'];
+
+      case .fuchsia || .tester:
+        return <String>['--sksl', '--runtime-stage-vulkan'];
+
+      case .web:
+        return <String>['--sksl'];
+
+      case .unsupported:
+        TargetPlatform.throwUnsupportedTarget();
+    }
+  }
+''';
+
 const _rules = '''
 SHADER_PLATFORM_FLAGS = {
     "ios": ["--runtime-stage-metal"],
@@ -80,6 +109,59 @@ void main() {
         rulesShaderFlags(_rules),
       ),
       isEmpty,
+    );
+  });
+
+  test('reads the switch over TargetOS as the one over TargetPlatform', () {
+    expect(
+      flutterToolsShaderFlags(_flutterTools350),
+      flutterToolsShaderFlags(_flutterTools),
+    );
+  });
+
+  test('a switch it cannot read is an error, not an empty table', () {
+    expect(
+      () => flutterToolsShaderFlags(
+        '_shaderTargetsFromTargetPlatform() { switch (x) { case Os.ios: } }',
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('reads qualified TargetOS cases as dot shorthand', () {
+    expect(
+      flutterToolsShaderFlags(
+        _flutterTools350.replaceFirst(
+          'case .android || .linux || .windows:',
+          'case TargetOS.android || TargetOS.linux || TargetOS.windows:',
+        ),
+      ),
+      flutterToolsShaderFlags(_flutterTools350),
+    );
+  });
+
+  test('a case it cannot read is an error, not a dropped platform', () {
+    expect(
+      () => flutterToolsShaderFlags(
+        _flutterTools350.replaceFirst('case .ios:', 'case .ios when metal:'),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('a platform it does not know is an error', () {
+    expect(
+      () => flutterToolsShaderFlags(
+        _flutterTools350.replaceFirst('case .web:', 'case .web || .ohos:'),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('reads only the switch, not the code after it', () {
+    expect(
+      flutterToolsShaderFlags(_flutterTools).values.expand((f) => f),
+      isNot(contains('--not-a-flag')),
     );
   });
 

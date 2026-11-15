@@ -7,8 +7,9 @@
 /// A version bump is when to look.
 library;
 
-/// `flutter_tools`' `TargetPlatform` names, folded into the platform names
-/// `SHADER_PLATFORM_FLAGS` uses. Fuchsia is not a rules_flutter target.
+/// `flutter_tools`' `TargetPlatform` names (to 3.47) and `TargetOS` names
+/// (from 3.50), folded into the platform names `SHADER_PLATFORM_FLAGS` uses.
+/// Fuchsia is not a rules_flutter target.
 const _platformNames = {
   'android': 'android',
   'android_arm': 'android',
@@ -23,7 +24,29 @@ const _platformNames = {
   'darwin': 'macos',
   'tester': 'tester',
   'web_javascript': 'web',
+  'linux': 'linux',
+  'windows': 'windows',
+  'macos': 'macos',
+  'web': 'web',
 };
+
+/// Platform names `_shaderTargetsFromTargetPlatform` switches over that
+/// rules_flutter builds no shaders for.
+const _notTargets = {'fuchsia', 'fuchsia_arm64', 'fuchsia_x64', 'unsupported'};
+
+/// The text between the brace that opens the body of the declaration at
+/// [start] in [source] and the brace that closes it.
+String _bracedBody(String source, int start) {
+  final open = source.indexOf('{', start);
+  var depth = 0;
+  for (var i = open; i >= 0 && i < source.length; i++) {
+    if (source[i] == '{') depth++;
+    if (source[i] == '}' && --depth == 0) return source.substring(open + 1, i);
+  }
+  throw const FormatException(
+    'unterminated _shaderTargetsFromTargetPlatform in shader_compiler.dart',
+  );
+}
 
 /// The flags `_shaderTargetsFromTargetPlatform` returns in [source], the
 /// text of `flutter_tools/lib/src/build_system/tools/shader_compiler.dart`,
@@ -35,15 +58,36 @@ Map<String, List<String>> flutterToolsShaderFlags(String source) {
       'no _shaderTargetsFromTargetPlatform in shader_compiler.dart',
     );
   }
-  final body = source.substring(start);
+  final body = _bracedBody(source, start);
   final out = <String, List<String>>{};
   var pending = <String>[];
+  // A case names `TargetPlatform` values (`case TargetPlatform.ios:`) or, in
+  // a switch over `targetPlatform.os`, `TargetOS` values, qualified or in dot
+  // shorthand (`case .android || .linux || .windows:`). A case in any other
+  // shape, a guard say, is an error: skipping it would attach its platforms'
+  // flags to the wrong case or leave them out.
   final caseOrReturn = RegExp(
-    r'case TargetPlatform\.(\w+):|return <String>\[([^\]]*)\]',
+    r'case ([^:]+):'
+    r'|return <String>\[([^\]]*)\]',
   );
+  final value = RegExp(r'^\w*\.(\w+)$');
   for (final m in caseOrReturn.allMatches(body)) {
     if (m[1] != null) {
-      pending.add(m[1]!);
+      for (final alternative in m[1]!.split('||')) {
+        final name = value.firstMatch(alternative.trim())?[1];
+        if (name == null) {
+          throw FormatException(
+            'unreadable case in _shaderTargetsFromTargetPlatform: '
+            'case ${m[1]}:',
+          );
+        }
+        if (!_platformNames.containsKey(name) && !_notTargets.contains(name)) {
+          throw FormatException(
+            'unknown platform in _shaderTargetsFromTargetPlatform: $name',
+          );
+        }
+        pending.add(name);
+      }
       continue;
     }
     final flags = RegExp(r"'([^']+)'").allMatches(m[2]!).map((f) => f[1]!);
@@ -52,8 +96,11 @@ Map<String, List<String>> flutterToolsShaderFlags(String source) {
       if (name != null) out[name] = flags.toList();
     }
     pending = [];
-    // The switch ends at its last return; the rest of the file is other code.
-    if (out.length == _platformNames.values.toSet().length) break;
+  }
+  if (out.isEmpty) {
+    throw const FormatException(
+      'no platform cases read from _shaderTargetsFromTargetPlatform',
+    );
   }
   return out;
 }
