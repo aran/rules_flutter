@@ -96,7 +96,7 @@ def build_pub_contributions(ctx, package_name, package_root):
     Args:
         ctx: The rule context of a `flutter_library`, `flutter_plugin` or
             `flutter_pub_member`. Reads `fonts`, `assets`,
-            `shaders`, `shader_includes`, and the platforms and flavors the
+            `shaders`, `shader_includes`, a `flutter_pub_member`'s `bundle_paths`, and the platforms and flavors the
             assets and shaders are restricted to.
         package_name: str — the Dart package the contributions are of.
         package_root: str — that package's root, from `derive_package_root`. A
@@ -129,44 +129,54 @@ def build_pub_contributions(ctx, package_name, package_root):
             ]),
         ))
 
+    # Only a pub package's member has `bundle_paths`: the files its pubspec
+    # lists as `packages/<the package>/<path>`, which are its `lib/<path>`,
+    # each bundled by every path it is listed by.
+    bundle_paths = getattr(ctx.attr, "bundle_paths", {})
+
     asset_platforms = ctx.attr.asset_platforms
     asset_flavors = ctx.attr.asset_flavors
+    asset_paths = []
     extra_pub_assets = []
     for f in ctx.files.assets:
-        asset_path = path_in_package(ctx.label, package_root, f)
-        extra_pub_assets.append(struct(
-            package_name = package_name,
-            package_root = package_root,
-            asset_path = asset_path,
-            file = f,
-            platforms = tuple(asset_platforms.get(asset_path, [])),
-            flavors = tuple(asset_flavors.get(asset_path, [])),
-        ))
+        path = path_in_package(ctx.label, package_root, f)
+        asset_paths.append(path)
+        for asset_path in bundle_paths.get(path, [path]):
+            extra_pub_assets.append(struct(
+                package_name = package_name,
+                package_root = package_root,
+                asset_path = asset_path,
+                file = f,
+                platforms = tuple(asset_platforms.get(path, [])),
+                flavors = tuple(asset_flavors.get(path, [])),
+            ))
 
     shader_platforms = ctx.attr.shader_platforms
     shader_flavors = ctx.attr.shader_flavors
+    shader_paths = []
     extra_pub_shaders = []
     for f in ctx.files.shaders:
-        shader_path = path_in_package(ctx.label, package_root, f)
-        extra_pub_shaders.append(struct(
-            package_name = package_name,
-            package_root = package_root,
-            shader_path = shader_path,
-            file = f,
-            includes = tuple(ctx.files.shader_includes),
-            platforms = tuple(shader_platforms.get(shader_path, [])),
-            flavors = tuple(shader_flavors.get(shader_path, [])),
-        ))
+        path = path_in_package(ctx.label, package_root, f)
+        shader_paths.append(path)
+        for shader_path in bundle_paths.get(path, [path]):
+            extra_pub_shaders.append(struct(
+                package_name = package_name,
+                package_root = package_root,
+                shader_path = shader_path,
+                file = f,
+                includes = tuple(ctx.files.shader_includes),
+                platforms = tuple(shader_platforms.get(path, [])),
+                flavors = tuple(shader_flavors.get(path, [])),
+            ))
 
     # A restriction of a path the target does not list would restrict
     # nothing: a misspelt path would ship everywhere, silently.
-    asset_paths = [entry.asset_path for entry in extra_pub_assets]
-    shader_paths = [entry.shader_path for entry in extra_pub_shaders]
     for attr_name, restricted, paths, listing in [
         ("asset_platforms", asset_platforms, asset_paths, "assets"),
         ("asset_flavors", asset_flavors, asset_paths, "assets"),
         ("shader_platforms", shader_platforms, shader_paths, "shaders"),
         ("shader_flavors", shader_flavors, shader_paths, "shaders"),
+        ("bundle_paths", bundle_paths, asset_paths + shader_paths, "assets` or `shaders"),
     ]:
         for path in restricted:
             if path not in paths:

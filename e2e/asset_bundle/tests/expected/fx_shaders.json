@@ -31,6 +31,13 @@
       ],
       "platforms": ["ios"]
     },
+    "shaders/in_lib.frag": {
+      "variants": [
+        {
+          "asset": "shaders/in_lib.frag"
+        }
+      ]
+    },
     "shaders/desktop.frag": {
       "variants": [
         {

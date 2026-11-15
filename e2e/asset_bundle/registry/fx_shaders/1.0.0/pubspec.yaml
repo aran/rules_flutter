@@ -13,3 +13,6 @@ flutter:
       platforms: [ios]
     - path: shaders/desktop.frag
       platforms: [linux, macos, windows]
+    # The file lib/shaders/in_lib.frag, as flutter_tools reads it, though the
+    # package's root has a shaders/ directory.
+    - packages/fx_shaders/shaders/in_lib.frag

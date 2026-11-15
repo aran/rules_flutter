@@ -546,11 +546,12 @@ def _spoke_with_shaders_declares_their_includes_test_impl(ctx):
     """A spoke with shaders lists its GLSL as what they may `#include`.
 
     The compile runs sandboxed with only declared inputs, so a shader that
-    includes a sibling `.glsl` fails unless the spoke declares it.
+    includes a sibling `.glsl` fails unless the spoke declares it. A shader
+    bundled by another path (`bundle_paths`) is one of them all the same.
     """
     env = unittest.begin(ctx)
 
-    def content(shaders):
+    def content(shaders, bundle_paths = {}):
         return make_flutter_member_build_content(
             name = "shader_pkg",
             language_version = "3.4",
@@ -558,12 +559,17 @@ def _spoke_with_shaders_declares_their_includes_test_impl(ctx):
             unreplaced_hook = "",
             assets = [],
             shaders = shaders,
+            bundle_paths = bundle_paths,
         )
 
     with_shaders = content([":shaders/glow.frag"])
     asserts.true(env, "shader_includes = glob(" in with_shaders, with_shaders)
     asserts.true(env, '"**/*.glsl"' in with_shaders, with_shaders)
     asserts.false(env, "shader_includes" in content([]))
+    from_lib = content([":lib/shaders/glow.frag"], {"lib/shaders/glow.frag": ["shaders/glow.frag"]})
+    asserts.true(env, "bundle_paths = {\n        \"lib/shaders/glow.frag\": [\"shaders/glow.frag\"]," in from_lib, from_lib)
+    asserts.true(env, "shader_includes = glob(" in from_lib, from_lib)
+    asserts.false(env, "bundle_paths" in with_shaders, with_shaders)
 
     return unittest.end(env)
 

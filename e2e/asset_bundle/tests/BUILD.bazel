@@ -2,6 +2,7 @@ load("@rules_dart//dart:defs.bzl", "dart_library")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata")
 load("//tools:bundle.bzl", "bundle_test", "notices_test")
 load(":font_of_other_package_test.bzl", "font_of_other_package_test")
+load(":shader_of_lib_test.bzl", "shader_of_lib_test")
 load(":two_files_one_key_test.bzl", "two_files_one_key_test")
 
 dart_package_metadata(
@@ -137,6 +138,18 @@ bundle_test(
         "pub_package_listed_directory_ships_only_its_own_files_test": "fx_dirs",
     }.items()
 ]
+
+# Property: a file a pub package lists as `packages/<the package>/<path>` is
+# its `lib/<path>`, keyed `packages/<the package>/<path>`, unless the package
+# has a file at the path as listed, as flutter_tools reads it. Such a shader
+# compiles beside what it `#include`s. A file listed both that way and as
+# itself is bundled by both paths, as flutter_tools bundles it.
+bundle_test(
+    name = "pub_package_own_package_prefix_names_its_lib_test",
+    bundle = "//:app_with_fx_self_paths_bundle",
+    expected = "//tests:expected/fx_self_paths.json",
+    prefix = "packages/fx_self_paths/",
+)
 
 # -- Platforms and flavors -------------------------------------------------------
 
@@ -274,6 +287,15 @@ two_files_one_key_test(
         "windows": "//:app_with_fx_shaders_windows_bundle",
     }.items()
 ]
+
+# Property: a pub package's shader listed as `packages/<itself>/<path>`, that
+# is no file of the package, is its file `lib/<path>`, keyed `<path>` (in the
+# bundles above, `shaders/in_lib.frag`), though the package's root has a
+# `shaders/` directory: its source repository puts no file there for it.
+shader_of_lib_test(
+    name = "pub_package_shader_named_by_its_own_package_is_its_lib_file_test",
+    target_under_test = "@fx_shaders",
+)
 
 # Property: a pub package's shader entry with `flavors:` is bundled only for a
 # build of one of those flavors, and in no build without one.

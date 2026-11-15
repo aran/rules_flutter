@@ -72,6 +72,7 @@ bundled_app(
         "fx_flavors",
         "fx_names",
         "fx_platforms",
+        "fx_self_paths",
         "fx_shader_flavors",
         "fx_variants",
     ]

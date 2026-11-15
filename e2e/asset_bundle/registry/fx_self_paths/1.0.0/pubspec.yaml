@@ -1,0 +1,9 @@
+name: fx_self_paths
+version: 1.0.0
+environment:
+  sdk: ^3.13.0
+flutter:
+  shaders:
+    - packages/fx_self_paths/shaders/ink.frag
+    # The same file as itself: flutter_tools bundles it by both paths.
+    - lib/shaders/ink.frag
