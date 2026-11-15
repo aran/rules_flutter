@@ -260,6 +260,8 @@ _RESERVED_DST_REMEDY = {
                             "substitution pass and picks up this target's build config.",
     "flutter.js": "this is the engine loader, taken from the Flutter web SDK so that it " +
                   "matches the engine the app was compiled against. It cannot be replaced.",
+    "flutter.js.map": "this is the engine loader's source map, taken from the Flutter web SDK " +
+                      "beside flutter.js. It cannot be replaced.",
     "flutter_service_worker.js": "set `pwa = False` to stop the rule shipping its own worker, " +
                                  "and yours will be the only one at this name.",
 }
@@ -664,6 +666,7 @@ def _flutter_web_bundle_impl(ctx):
     # dart2js outputs to a tree artifact (directory) to support deferred loading:
     # dart2js may produce main.dart.js + *.part.js files for deferred imports.
     compile_outputs = []  # Files (wasm, mjs, wasm.map)
+    output_support_js = None  # dart2wasm's check of the browser
     compile_copies = []  # Bundle copy entries for compile_outputs
     dart2js_dirs = []  # Tree artifacts from dart2js
 
@@ -681,6 +684,7 @@ def _flutter_web_bundle_impl(ctx):
         # shipped name must be the same for the browser to find the map.
         output_wasm = ctx.actions.declare_file(ctx.label.name + "_wasm/main.dart.wasm")
         output_mjs = ctx.actions.declare_file(ctx.label.name + "_wasm/main.dart.mjs")
+        output_support_js = ctx.actions.declare_file(ctx.label.name + "_wasm/main.dart.support.js")
         output_wasm_map = None
         if ctx.attr.source_maps:
             output_wasm_map = ctx.actions.declare_file(ctx.label.name + "_wasm/main.dart.wasm.map")
@@ -704,6 +708,7 @@ def _flutter_web_bundle_impl(ctx):
             renderer = renderer,
             optimizing_cpus = ctx.attr._wasm_opt_cpus[BuildSettingInfo].value,
             recorded_uses = recorded_uses,
+            output_support_js = output_support_js,
         )
 
         builds = [_wasm_build(renderer)]
@@ -888,11 +893,15 @@ def _flutter_web_bundle_impl(ctx):
     # Renderer WASM/JS files are under web-sdk/canvaskit/.
     web_sdk_files = ctx.attr._web_sdk[DefaultInfo].files.to_list() if ctx.attr._web_sdk else []
     flutter_js_file = None
+    flutter_js_map = None
     renderer_files = []
     for f in web_sdk_files:
-        # flutter.js is at web-sdk/flutter_js/flutter.js
+        # flutter.js is at web-sdk/flutter_js/flutter.js, and the source map
+        # its last line names beside it.
         if f.path.endswith("/flutter_js/flutter.js"):
             flutter_js_file = f
+        if f.path.endswith("/flutter_js/flutter.js.map"):
+            flutter_js_map = f
 
         # Renderer files are under web-sdk/canvaskit/.
         # Both canvaskit and skwasm WASM/JS files live in the canvaskit/ directory.
@@ -944,6 +953,19 @@ def _flutter_web_bundle_impl(ctx):
     # when it writes the config, path-mapped where the action is.
     template_refs = []
     template_inputs = [index_template, bootstrap_template]
+
+    # A WebAssembly build's config also carries dart2wasm's own check of the
+    # browser, as `_flutter.supportsDart2Wasm`, which flutter.js prefers to
+    # its built-in one, as `flutter build web --wasm` writes it.
+    if output_support_js:
+        shared_builtins["flutter_build_config"] = {
+            "value": build_config,
+            "assign": {
+                "target": "_flutter.supportsDart2Wasm",
+                "file": file_ref(template_refs, output_support_js),
+            },
+        }
+        template_inputs.append(output_support_js)
     if flutter_js_file:
         shared_builtins["flutter_js"] = {"file": file_ref(template_refs, flutter_js_file)}
         template_inputs.append(flutter_js_file)
@@ -1084,6 +1106,13 @@ def _flutter_web_bundle_impl(ctx):
     if flutter_js_file:
         _reserve(reserved, copies, refs, flutter_js_file, "flutter.js")
         engine_inputs.append(flutter_js_file)
+
+        # A browser's developer tools and error reporters ask for the source
+        # map flutter.js names, which `flutter build web` ships beside it.
+        if not flutter_js_map:
+            fail("%s: the web SDK has flutter_js/flutter.js but not the flutter_js/flutter.js.map it names." % ctx.label)
+        _reserve(reserved, copies, refs, flutter_js_map, "flutter.js.map")
+        engine_inputs.append(flutter_js_map)
 
     # Copy the renderer engine files (canvaskit/*.wasm, *.js, etc.) something
     # loads. Two things can: the default loader fetches the renderer from

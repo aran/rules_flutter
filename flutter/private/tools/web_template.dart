@@ -42,6 +42,9 @@
 ///       "builtins": {
 ///         "flutter_js": {"file": "/path/to/flutter.js"},
 ///         "flutter_build_config": {"value": "..."},
+///         // or, with a file's text assigned after the value:
+///         // {"value": "...", "assign": {"target": "_flutter.supportsDart2Wasm",
+///         //                             "file": "/path/to/main.dart.support.js"}},
 ///         "flutter_service_worker_version": {"value": "\"v1\""},
 ///         "flutter_bootstrap_js": {"from_output": 0}
 ///       }
@@ -339,6 +342,15 @@ Map<String, String> _resolveBuiltins(
     final entry = value as Map<String, dynamic>;
     if (entry.containsKey('value')) {
       resolved[name] = entry['value'] as String;
+      // `assign` appends `<target> = <a file's text>;`, unless the file is
+      // empty: dart2wasm's check of the browser is an expression to assign.
+      final assign = entry['assign'] as Map<String, dynamic>?;
+      if (assign != null) {
+        final text = File(assign['file'] as String).readAsStringSync().trim();
+        if (text.isNotEmpty) {
+          resolved[name] = '${resolved[name]}${assign['target']} = $text;\n';
+        }
+      }
     } else if (entry.containsKey('file')) {
       resolved[name] = File(entry['file'] as String).readAsStringSync();
     } else if (entry.containsKey('from_output')) {

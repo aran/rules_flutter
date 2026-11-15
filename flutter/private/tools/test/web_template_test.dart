@@ -187,6 +187,38 @@ void main() {
       expect(out, 'serviceWorkerVersion: null');
     });
 
+    test('a value assigns a file\'s expression after it', () {
+      // dart2wasm's check of the browser, as `flutter build web --wasm` puts
+      // it after the build config.
+      final support = _template('main.dart.support.js', '  ok(1)\n');
+      final (out, errors) = _runOne(
+        '{{flutter_build_config}}boot();',
+        builtins: {
+          'flutter_build_config': {
+            'value': 'CONFIG\n',
+            'assign': {'target': '_flutter.supportsDart2Wasm', 'file': support},
+          },
+        },
+      );
+      expect(errors, isEmpty);
+      expect(out, 'CONFIG\n_flutter.supportsDart2Wasm = ok(1);\nboot();');
+    });
+
+    test('an empty assigned file assigns nothing', () {
+      final support = _template('empty.support.js', '\n');
+      final (out, errors) = _runOne(
+        '{{flutter_build_config}}boot();',
+        builtins: {
+          'flutter_build_config': {
+            'value': 'CONFIG\n',
+            'assign': {'target': '_flutter.supportsDart2Wasm', 'file': support},
+          },
+        },
+      );
+      expect(errors, isEmpty);
+      expect(out, 'CONFIG\nboot();');
+    });
+
     test('a later file inlines an earlier file\'s substituted result', () {
       final errors = <String>[];
       final bootstrap = _template(

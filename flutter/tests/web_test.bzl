@@ -2567,7 +2567,8 @@ def _icon_uses_test_impl(ctx):
     As `flutter build web` has it: dart2wasm writes them (`--recorded-uses`),
     dart2js writes them among its outputs (`--write-resources`), and the icon
     tree shaker reads one file per compile, so an icon either compiler's
-    program uses keeps its glyph.
+    program uses keeps its glyph. A WebAssembly build's bootstrap also carries
+    dart2wasm's own check of the browser, `main.dart.support.js`.
     """
     env = analysistest.begin(ctx)
     actions = analysistest.target_actions(env)
@@ -2575,6 +2576,11 @@ def _icon_uses_test_impl(ctx):
     js = ([a for a in actions if a.mnemonic == "FlutterDart2JS"] + [None])[0]
     if wasm != None:
         asserts.true(env, [a for a in wasm.argv if a.startswith("--recorded-uses=")], "dart2wasm records no uses: %s" % wasm.argv)
+        support = [f for f in wasm.outputs.to_list() if f.basename == "main.dart.support.js"]
+        asserts.equals(env, 1, len(support), "dart2wasm declares no main.dart.support.js")
+        template = _action(env, "FlutterWebTemplate")
+        if support and template != None:
+            asserts.true(env, support[0] in template.inputs.to_list(), "the bootstrap does not read dart2wasm's check of the browser")
     if js != None:
         asserts.true(env, "--write-resources" in js.argv, "dart2js records no uses: %s" % js.argv)
 

@@ -212,7 +212,8 @@ def flutter_dart2wasm_action(
         enable_experiments = [],
         defines = [],
         renderer = "skwasm",
-        recorded_uses = None):
+        recorded_uses = None,
+        output_support_js = None):
     """Compiles Dart source to WebAssembly using dart2wasm.
 
     Args:
@@ -249,6 +250,10 @@ def flutter_dart2wasm_action(
         recorded_uses: Optional File the compiler writes the `@RecordUse`
             uses to (`--recorded-uses`), as `flutter build web --wasm` has it
             write them for the link hooks.
+        output_support_js: Optional File for the JavaScript expression
+            dart2wasm writes at `<output_wasm without .wasm>.support.js`:
+            whether a browser has every WebAssembly feature the module needs.
+            Must be declared exactly there.
     """
     if optimizing_cpus < 1:
         fail("--@rules_flutter//flutter:wasm_opt_cpus must be at least 1, got %d" % optimizing_cpus)
@@ -256,6 +261,11 @@ def flutter_dart2wasm_action(
         fail("output_source_map must be declared at <output_wasm>.map " +
              "(dart2wasm writes it there): got %s for %s" %
              (output_source_map.path, output_wasm.path))
+
+    if output_support_js != None and output_support_js.path != output_wasm.path.removesuffix(".wasm") + ".support.js":
+        fail("output_support_js must be declared at <output_wasm without .wasm>.support.js " +
+             "(dart2wasm writes it there): got %s for %s" %
+             (output_support_js.path, output_wasm.path))
 
     args = ctx.actions.args()
     args.add("compile")
@@ -321,7 +331,7 @@ def flutter_dart2wasm_action(
         ),
         outputs = [output_wasm, output_mjs] + [
             f
-            for f in [output_source_map, recorded_uses]
+            for f in [output_source_map, recorded_uses, output_support_js]
             if f != None
         ],
         mnemonic = "FlutterDart2Wasm",

@@ -40,6 +40,7 @@ _REQUIRED = [
     "kernel/ddc_outline.dill",
     "kernel/ddc/canary/dart_sdk.js",
     "flutter_js/flutter.js",
+    "flutter_js/flutter.js.map",
 ]
 
 # The BUILD text of the root package, which the `web` package's slices name.
