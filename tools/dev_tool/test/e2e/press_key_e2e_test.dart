@@ -214,7 +214,7 @@ void main() {
 
   group('app.pressKey in Chrome (browser route)', () {
     test(
-      'on the DDC dev loop: types, deletes, Control+K, Enter submits',
+      'on the DDC dev loop: types, deletes, kills to end of line, Enter submits',
       () async {
         final dt = await startDevTool(
           workspace: e2eWorkspace('web_example'),
@@ -257,17 +257,25 @@ void main() {
         await press(dt, appId, 'Backspace', route: 'browser');
         await press(dt, appId, 'ArrowLeft', route: 'browser');
         await press(dt, appId, 'ArrowLeft', route: 'browser');
-        final kill = await press(dt, appId, 'Control+K', route: 'browser');
         if (Platform.isMacOS) {
+          final kill = await press(dt, appId, 'Control+K', route: 'browser');
           // Without the Cocoa command a Mac browser deletes nothing.
           final keyDown = (kill['sent'] as List).firstWhere(
             (e) => (e as Map)['code'] == 'KeyK' && e['type'] != 'keyUp',
           );
           expect((keyDown as Map)['commands'], ['deleteToEndOfParagraph']);
+        } else {
+          // Only a Mac browser binds Control+K to delete-to-end-of-line; on
+          // Linux and Windows nothing does. Delete removes the two characters
+          // after the caret, which is the same edit.
+          for (var i = 0; i < 2; i++) {
+            await press(dt, appId, 'Delete', route: 'browser');
+          }
         }
-        // "abcde", Backspace -> "abcd", two lefts -> after "ab", Control+K
-        // -> "ab". A missed Backspace gives "abc"; a caret that did not move,
-        // or a Control+K that did nothing, gives "abcd".
+        // "abcde", Backspace -> "abcd", two lefts -> after "ab", then the
+        // rest of the line is deleted -> "ab". A missed Backspace gives
+        // "abc"; a caret that did not move, or a delete that did nothing,
+        // gives "abcd".
         expect(await textOf(dt, appId, 'keys_field'), 'ab');
 
         await press(dt, appId, 'Enter', route: 'browser');
@@ -324,7 +332,7 @@ void main() {
         }
         expect(probe?['focus'], endsWith('input'), reason: '$probe');
 
-        for (final key in const [
+        for (final key in [
           'a',
           'b',
           'c',
@@ -333,7 +341,8 @@ void main() {
           'Backspace',
           'ArrowLeft',
           'ArrowLeft',
-          'Control+K',
+          // Control+K deletes to the end of the line only in a Mac browser.
+          if (Platform.isMacOS) 'Control+K' else ...const ['Delete', 'Delete'],
           'Enter',
         ]) {
           final result = await press(dt, appId, key, route: 'browser');
@@ -341,8 +350,9 @@ void main() {
         }
 
         // One marker square per submitted character: "ab" is two. A missed
-        // Backspace submits "abc" (three); a Control+K or caret move that
-        // did nothing submits "abcd" (four); no submit shows none.
+        // Backspace submits "abc" (three); a delete to the end of the line or
+        // caret move that did nothing submits "abcd" (four); no submit shows
+        // none.
         var squares = 0;
         final deadline = DateTime.now().add(const Duration(seconds: 20));
         while (DateTime.now().isBefore(deadline)) {
