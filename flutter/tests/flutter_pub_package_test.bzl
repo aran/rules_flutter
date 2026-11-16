@@ -23,6 +23,7 @@ load(
     "make_android_subpackage_build_content",
     "make_dart_member_build_content",
     "make_flutter_member_build_content",
+    "overlay_version_folders",
     "parse_android_manifest_package",
     "parse_gradle_android_namespace",
     "removed_hub_placeholder_error",
@@ -1066,6 +1067,19 @@ def _removed_hub_placeholder_is_refused_test_impl(ctx):
 
 removed_hub_placeholder_is_refused_test = unittest.make(_removed_hub_placeholder_is_refused_test_impl)
 
+def _overlay_version_folders_test_impl(ctx):
+    env = unittest.begin(ctx)
+    full = ["3.1.2", "3.1", "3", ""]
+    asserts.equals(env, full, overlay_version_folders("3.1.2"))
+    asserts.equals(env, ["0.8.13", "0.8", "0", ""], overlay_version_folders("0.8.13+13"))
+    asserts.equals(env, ["2.4.0-beta.1", "2.4", "2", ""], overlay_version_folders("2.4.0-beta.1"))
+    asserts.equals(env, ["2.4.0-beta.1", "2.4", "2", ""], overlay_version_folders("2.4.0-beta.1+5"))
+    asserts.equals(env, ["1.0", "1", ""], overlay_version_folders("1.0"))
+    asserts.equals(env, ["1", ""], overlay_version_folders("1"))
+    return unittest.end(env)
+
+overlay_version_folders_test = unittest.make(_overlay_version_folders_test_impl)
+
 def flutter_pub_package_test_suite(name):
     unittest.suite(
         name,
@@ -1080,6 +1094,7 @@ def flutter_pub_package_test_suite(name):
         members_name_their_package_metadata_test,
         hardcoded_overlay_dependency_is_rejected_test,
         removed_hub_placeholder_is_refused_test,
+        overlay_version_folders_test,
         parse_gradle_android_namespace_test,
         parse_android_manifest_package_test,
         record_android_subpackage_test,

@@ -2031,6 +2031,31 @@ def apply_overlay_substitutions(content, package_name, version, language_version
         deps,
     )
 
+def overlay_version_folders(version):
+    """The overlay folders to try for a pub version, most specific first.
+
+    Args:
+      version: the pub version, e.g. `0.8.13+13` or `2.4.0-beta.1`.
+
+    Returns:
+      The version itself, `<major>.<minor>`, `<major>`, then `""` for the
+      bare folder, each present only when the version has that many parts.
+      A `+build` suffix is ignored: `0.8.13+13` tries `0.8.13/` first. A
+      pre-release is not its release, so `2.4.0-beta.1` tries
+      `2.4.0-beta.1/` and then `2.4/`, never `2.4.0/`.
+    """
+    release = version.split("+")[0]
+    parts = release.split("-")[0].split(".")
+    candidates = []
+    if len(parts) >= 3:
+        candidates.append(release)
+    if len(parts) >= 2:
+        candidates.append("{}.{}".format(parts[0], parts[1]))
+    if len(parts) >= 1:
+        candidates.append(parts[0])
+    candidates.append("")
+    return candidates
+
 def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, language_version, dep_labels, relpath, guard_hub_deps = False, license_file = ""):
     """Look up an overlay template at `<root>/<package>/<version-ladder>/<relpath>`.
 
@@ -2072,16 +2097,7 @@ def _resolve_overlay_template(ctx, overlay_root_label, package_name, version, la
     if not pkg_dir.exists:
         return ""
 
-    # Build the version ladder.
-    parts = version.split(".")
-    candidates = []
-    if len(parts) >= 3:
-        candidates.append("{}.{}.{}".format(parts[0], parts[1], parts[2]))
-    if len(parts) >= 2:
-        candidates.append("{}.{}".format(parts[0], parts[1]))
-    if len(parts) >= 1:
-        candidates.append(parts[0])
-    candidates.append("")  # bare <pkg>/<relpath>
+    candidates = overlay_version_folders(version)
 
     relpath_parts = relpath.split("/")
     for candidate in candidates:
