@@ -5,6 +5,8 @@ dart_package_metadata(
     name = "pubspec-metadata",
     package_name = "shared_a",
     code_assets = ["//flutter/tests/shared_code_asset_fixture:a_own"],
+    # Stated, as a pub hub states it, so `a_again` is this package too.
+    version = "1.0.0",
 )
 
 # A bindings package that declares a standalone library of its own, for its own

@@ -200,6 +200,9 @@ def _fake_package_impl(ctx):
         label = ctx.label,
         package_name = ctx.attr.package_name,
         package_root = "%s/%s" % (ctx.label.package, ctx.label.name),
+        # Stated, as a pub hub states it, so two records of one name at two
+        # roots are one package.
+        version = "1.0.0",
         language_version = "",
         code_assets = ctx.attr.code_assets,
     )
@@ -216,7 +219,7 @@ fake_package = rule(
         "code_assets": attr.label_list(providers = [DartCodeAssetInfo]),
         "package_name": attr.string(mandatory = True),
     },
-    doc = "A Dart package record carrying code assets, each the package's own.",
+    doc = "A pub package record (version 1.0.0) carrying code assets, each the package's own.",
 )
 
 def _fake_cycle_impl(ctx):

@@ -20,6 +20,8 @@ dart_package_metadata(
     name = "pubspec-metadata",
     package_name = "code_asset_owner",
     code_assets = ["//flutter/tests/code_asset_fixture:wrapped"],
+    # Stated, as a pub hub states it, so `owner_twin/` is this package too.
+    version = "1.0.0",
 )
 
 dart_library(

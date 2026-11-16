@@ -5,9 +5,12 @@ dart_package_metadata(
     name = "pubspec-metadata",
     package_name = "shared_a",
     code_assets = ["//flutter/tests/shared_code_asset_fixture:a_combined_asset"],
+    # Stated, as a pub hub states it, so this and `a` are one package.
+    version = "1.0.0",
 )
 
-# Package `shared_a` again, as a second pub hub supplies it, claiming the same id
+# Package `shared_a` again, as a second pub hub supplies it (so at the same
+# version), claiming the same id
 # with a different library.
 dart_library(
     name = "a_again",
