@@ -61,7 +61,7 @@ load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "PLUGIN_PLATFORMS")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
-load("//flutter/private:framework_source.bzl", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "PACKAGE_METADATA_LOAD", "make_package_metadata_content")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
 load(
@@ -88,7 +88,8 @@ _OTHER_PACKAGES_FONTS = "_fonts_of_other_packages"
 # What this repository writes at its root, besides Bazel's own files, and the
 # one directory it writes in, `android/`. None of them is linked from the
 # package's files: a write through a link would land in the files repository,
-# which every repository linking it shares.
+# which every repository linking it shares, or in the user's checkout (a
+# `path` package, a framework source).
 _WRITTEN = [
     MEMBER_FILE,
     APPLE_PLUGIN_FILE,
@@ -2247,6 +2248,11 @@ def _local_package_entries(ctx, directory):
     entries = {e: True for e in _LOCAL_PACKAGE_ENTRIES}
     for path in listed:
         top = path.replace("\\", "/").split("/")[0]
+
+        # `android/` is linked a level down, below the directory written here.
+        if top != "android" and top in NEVER_LINKED + _WRITTEN:
+            fail(("package {}: its pubspec lists {}, but rules_flutter's repository for the package " +
+                  "writes its own {} there, so it cannot link the package's in.").format(ctx.attr.package_name, repr(path), repr(top)))
         if top and top not in (".", "..", "android", "pubspec.yaml"):
             entries[top] = True
     android = ctx.path(directory).get_child("android")
@@ -2290,7 +2296,7 @@ def _flutter_pub_package_impl(ctx):
         if unset:
             write_unset_stub(ctx, [ctx.attr.package_name], unset, member = True)
             return ctx.repo_metadata(reproducible = True)
-        link_framework_package(ctx, ctx.attr.package_name)
+        link_framework_package(ctx, ctx.attr.package_name, written = _WRITTEN)
     elif ctx.attr.directory:
         fetch_local_package(ctx, ctx.attr.directory)
     else:

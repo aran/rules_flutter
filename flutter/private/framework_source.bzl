@@ -75,7 +75,13 @@ flutter_missing_slice(
         ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_OVERLAY, "material_icons": False, "android_lib": False}))
         write_pubspec_dependencies(ctx, [])
 
-def link_framework_package(ctx, package_name):
+# Root names a package's source repository owns, whatever it writes: Bazel's
+# own files, which would make the root another package or repository. A
+# package's entry of one of these names is never linked in, as rules_dart's
+# `link_pub_files` links none.
+NEVER_LINKED = ["BUILD", "BUILD.bazel", "MODULE.bazel", "REPO.bazel", "WORKSPACE", "WORKSPACE.bazel", "WORKSPACE.bzlmod"]
+
+def link_framework_package(ctx, package_name, written = []):
     """Links `packages/<package_name>` of the framework source at the repository root.
 
     The link follows the source, so an edit to a local checkout is seen; the
@@ -88,6 +94,9 @@ def link_framework_package(ctx, package_name):
     Args:
         ctx: A `repository_ctx` whose rule has a `framework_json` label attribute.
         package_name: The package under `packages/`.
+        written: Root names the repository writes, which are not linked, as
+            Bazel's files (`NEVER_LINKED`) are not: a write would land in the
+            checkout.
     """
     package_dir = framework_root(ctx).get_child("packages").get_child(package_name)
     if not package_dir.get_child("pubspec.yaml").exists:
@@ -101,7 +110,7 @@ def link_framework_package(ctx, package_name):
             for entry in child.readdir():
                 if entry.basename not in ("BUILD", "BUILD.bazel"):
                     ctx.symlink(entry, "android/" + entry.basename)
-        else:
+        elif child.basename not in NEVER_LINKED + written:
             ctx.symlink(child, child.basename)
 
 def _resolve_commands(sdk, default_sdk, verb, locks):
