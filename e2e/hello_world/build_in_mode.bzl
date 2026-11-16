@@ -21,10 +21,30 @@ _transition = transition(
     outputs = [_COMPILATION_MODE, _PROFILE],
 )
 
+_ActionOutputsInfo = provider(
+    doc = "The outputs of a target's own actions, by the action's mnemonic.",
+    fields = {"by_mnemonic": "A dict of mnemonic to a list of depsets of Files."},
+)
+
+def _action_outputs_impl(target, _ctx):
+    by_mnemonic = {}
+    for action in target.actions:
+        by_mnemonic.setdefault(action.mnemonic, []).append(action.outputs)
+    return [_ActionOutputsInfo(by_mnemonic = by_mnemonic)]
+
+# What a target's actions write, including what it does not forward: a
+# compiler's own output, which the bundle copies only parts of.
+_action_outputs = aspect(implementation = _action_outputs_impl)
+
 def _impl(ctx):
     return [DefaultInfo(files = depset(transitive = [
         t[DefaultInfo].files
         for t in ctx.attr.targets
+    ] + [
+        outputs
+        for t in ctx.attr.targets
+        for mnemonic in ctx.attr.action_outputs
+        for outputs in t[_ActionOutputsInfo].by_mnemonic.get(mnemonic, [])
     ]))]
 
 build_in_mode = rule(
@@ -35,6 +55,11 @@ A test of a built artifact lists this in its `data` to look at the artifact of
 each mode in one plain `bazel test`. The test itself stays in the default
 configuration: a `dart_test` does not build under `-c dbg`.""",
     attrs = {
+        "action_outputs": attr.string_list(
+            doc = "Mnemonics of actions of `targets` whose outputs are " +
+                  "forwarded too, all of them and not only those the target " +
+                  "forwards.",
+        ),
         "mode": attr.string(
             mandatory = True,
             values = sorted(_MODES.keys()),
@@ -42,6 +67,7 @@ configuration: a `dart_test` does not build under `-c dbg`.""",
                   "which builds a release app in Flutter terms too.",
         ),
         "targets": attr.label_list(
+            aspects = [_action_outputs],
             cfg = _transition,
             mandatory = True,
             doc = "The targets to build in `mode`.",

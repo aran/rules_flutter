@@ -913,7 +913,10 @@ flutter_library(
 # The parts of an app are built separately, so a failure names the one that
 # leaks: the kernel (`:hello_world`, which a debug app ships as its code), the
 # AOT snapshot (`:hello_world_aot`, and the app, which ships one in every mode
-# but debug), the asset bundle, and the web bundle with both compilers.
+# but debug), the asset bundle, and the web bundle with both compilers. The web
+# build also scans dart2js's whole output directory, which the bundle copies
+# only part of: it is one cached output, and what the bundle leaves out of it
+# (the `.deps` list of inputs) decides its bytes too.
 
 _REPRO_PARTS = {
     "kernel": [":hello_world"],
@@ -927,18 +930,22 @@ _REPRO_PARTS = {
 
 # A debug app is a kernel, not an AOT snapshot, so it has no `aot` build.
 _REPRO_BUILDS = [
+    ("kernel", "debug"),
     ("aot", "fastbuild"),
     ("aot", "release"),
     ("assets", "debug"),
     ("assets", "fastbuild"),
     ("assets", "release"),
     ("assets", "profile"),
+    ("web", "debug"),
     ("web", "fastbuild"),
     ("web", "release"),
+    ("web", "profile"),
 ]
 
 [build_in_mode(
     name = "repro_%s_%s" % (part, mode),
+    action_outputs = ["FlutterDart2JS"] if part == "web" else [],
     mode = mode,
     targets = _REPRO_PARTS[part] + (
         # What a debug app ships as its code: the app's own kernel.

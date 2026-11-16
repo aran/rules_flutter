@@ -28,6 +28,7 @@ exports_files(
         "code_assets.dart",
         "collect_notices.dart",
         "compile_shader.dart",
+        "dart2js.dart",
         "libraries_spec.dart",
         "linux_runtime.dart",
         "maven_repo.dart",

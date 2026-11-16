@@ -45,7 +45,8 @@ _SDK_FILES = {
     "DartKernel": _sets("kernel"),
     "FlutterAotElf": {},
     "FlutterAotMacho": {},
-    "FlutterDart2JS": _sets("dart2js"),
+    # dart2js, under a script that deletes the list of inputs it writes.
+    "FlutterDart2JS": _sets("dart2js", "run"),
     "FlutterDart2Wasm": _sets("dart2wasm"),
     "DartModule": _sets("kernel"),
     "DartEntryKernel": _sets("kernel"),

@@ -190,8 +190,14 @@ def web_renderer_defines(renderer):
 def _web_compiler_resources(_os, _inputs):
     return {"memory": 800}
 
+# The scheme a web compile names its sources by, rooted at the exec root.
+_ROOT_SCHEME = "org-dartlang-root"
+
 def _main_dart_js(output_dir):
     return output_dir.path + "/main.dart.js"
+
+def _main_dart_js_deps(output_dir):
+    return output_dir.path + "/main.dart.js.deps"
 
 def flutter_dart2wasm_action(
         ctx,
@@ -274,8 +280,15 @@ def flutter_dart2wasm_action(
     # Platform dill.
     args.add(dart2wasm_platform_dill, format = "--extra-compiler-option=--platform=%s")
 
-    # Package config.
-    args.add(package_config, format = "--packages=%s")
+    # Every source is named through a scheme rooted at the action's working
+    # directory, so what the module keeps of its sources' locations (assert
+    # messages, closure names in a debug or profile build, the source map) is
+    # `org-dartlang-root:///<exec path>`, the same in every sandbox and on
+    # every machine. The package config is read through the scheme too, so
+    # its relative roots resolve inside it.
+    args.add("--extra-compiler-option=--multi-root-scheme=" + _ROOT_SCHEME)
+    args.add("--extra-compiler-option=--multi-root=.")
+    args.add(package_config, format = "--packages=" + _ROOT_SCHEME + ":///%s")
 
     args.add_all(web_experiment_flags(enable_experiments))
 
@@ -317,7 +330,7 @@ def flutter_dart2wasm_action(
         args.add(recorded_uses, format = "--recorded-uses=%s")
 
     args.add("-o", output_wasm)
-    args.add(main_dart)
+    args.add(main_dart, format = _ROOT_SCHEME + ":///%s")
 
     home = sdk_action(**(
         {"BINARYEN_CORES": str(optimizing_cpus)} if level > 0 else {}
@@ -375,11 +388,17 @@ def flutter_dart2js_action(
     maps (`main.dart.js.map` and per-part maps) land in the same directory,
     so unlike dart2wasm they need no separate declared output.
 
+    dart2js runs under `tools/dart2js.dart`, which deletes the
+    `main.dart.js.deps` it writes into the directory: that list names each
+    input by the sandbox path it was read from, so the directory would differ
+    with every sandbox and machine, and miss every cache.
+
     Args:
-        ctx: Rule context.
+        ctx: Rule context, of a rule with `_dart2js_tool`.
         dart: The `dart` executable File.
         sdk_files: The `DartSdkFilesInfo` of the Flutter-bundled Dart SDK; the
-            action takes the set for its compiler (`dart2js`). The platform kernel of
+            action takes the set for its compiler (`dart2js`) and the one that
+            runs a script (`run`). The platform kernel of
             the Flutter web SDK is an argument below, and the rest of the web
             SDK is for the bundle, not the compile.
         dart2js_platform_dill: The dart2js_platform.dill File.
@@ -412,6 +431,13 @@ def flutter_dart2js_action(
             `main.dart.js.resources.json` in `output_dir`, with no way to name
             another path.
     """
+    tool = ctx.file._dart2js_tool
+    tool_args = ctx.actions.args()
+    tool_args.add(tool)
+    tool_args.add("--dart", dart)
+    tool_args.add_all("--deps", [output_dir], map_each = _main_dart_js_deps, expand_directories = False)
+    tool_args.add("--")
+
     args = ctx.actions.args()
     args.add("compile")
     args.add("js")
@@ -461,10 +487,10 @@ def flutter_dart2js_action(
 
     ctx.actions.run(
         executable = dart,
-        arguments = [args],
+        arguments = [tool_args, args],
         inputs = depset(
-            direct = [main_dart, package_config, dart2js_platform_dill] + srcs,
-            transitive = [sdk_files.dart2js],
+            direct = [tool, main_dart, package_config, dart2js_platform_dill] + srcs,
+            transitive = [sdk_files.dart2js, sdk_files.run],
         ),
         outputs = [output_dir],
         mnemonic = "FlutterDart2JS",

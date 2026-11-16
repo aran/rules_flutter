@@ -1859,6 +1859,10 @@ build knows which served file is a native module.
         "_bundle_tool_imports": attr.label(
             default = Label("//flutter/private/tools:bundle_app_imports"),
         ),
+        "_dart2js_tool": attr.label(
+            default = Label("//flutter/private/tools:dart2js.dart"),
+            allow_single_file = [".dart"],
+        ),
         "_web_template_tool": attr.label(
             default = Label("//flutter/private/tools:web_template.dart"),
             allow_single_file = [".dart"],
