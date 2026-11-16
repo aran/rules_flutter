@@ -7,6 +7,7 @@ import 'dev_tool_exception.dart';
 import 'launch_bundle_parts.dart';
 import 'logging.dart';
 import 'phase_log.dart';
+import 'process_group.dart';
 import 'runfiles_helper.dart';
 import 'web_bundle_facts.dart';
 
@@ -1136,48 +1137,24 @@ class Bazel {
   }
 }
 
-/// Where `process_group_exec` is, once asked for.
-String? _processGroupExec;
-
 Future<Process> _spawnInGroup(
   List<String> args, {
   required String workingDirectory,
-}) {
-  final exec = _processGroupExec ??= _resolveProcessGroupExec();
-  return Process.start(exec, [
-    'bazel',
-    ...args,
-  ], workingDirectory: workingDirectory);
-}
-
-String _resolveProcessGroupExec() {
-  const key = 'rules_flutter/tools/dev_tool/process_group_exec';
-  final path = resolveRunfile(key);
-  if (path == null) {
-    // A runfiles tree exists (see [Bazel.new]), so this is not the tool
-    // running from source: a declared `data` dependency did not make it in.
-    throw DevToolException(
-      'flutter_bazel starts every bazel command through the process_group_exec '
-      'it bundles ($key), and its runfiles do not have it. The build that '
-      'produced this flutter_bazel dropped a declared data dependency; rebuild '
-      'it with `bazel build @rules_flutter//tools/dev_tool:flutter_bazel`.',
-    );
-  }
-  return path;
-}
+}) => startInProcessGroup(
+  'bazel',
+  args,
+  binary: '@rules_flutter//tools/dev_tool:flutter_bazel',
+  workingDirectory: workingDirectory,
+);
 
 Future<Process> _spawnDirectly(
   List<String> args, {
   required String workingDirectory,
 }) => Process.start('bazel', args, workingDirectory: workingDirectory);
 
-/// Signal the command's whole process group. The pid is the group's id,
-/// because `process_group_exec` made the program the leader of its own group.
-///
-/// The result is not read: `false` means the group has already gone, which is
-/// the outcome being asked for, and the wait that follows sees the exit.
+/// Signal the command's whole process group.
 void _interruptGroup(Process process) =>
-    Process.killPid(-process.pid, ProcessSignal.sigterm);
+    signalProcessGroup(process, ProcessSignal.sigterm);
 
 /// Parse `bazel cquery --output=files` stdout into absolute paths.
 ///

@@ -71,6 +71,12 @@ dart_binary(
 dart_binary(
     name = "integration_test_runner",
     compile_mode = "exe",
+    # The golden service starts through it, off Windows, so that killing the
+    # service kills the flutter_tester it started too.
+    data = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": [":process_group_exec"],
+    }),
     defines = ["RUNFILES_SOURCE_REPO=" + SOURCE_REPO],
     main = "bin/integration_test_runner.dart",
     visibility = ["//visibility:public"],
@@ -252,7 +258,13 @@ _UNIT_TESTS = {
         "deps": ["@dev_tool_deps//:fake_async"],
     },
     "device_lock_test": {},
-    "golden_comparator_test": {},
+    "golden_comparator_test": {
+        # A started service leads a process group of its own through it.
+        "data": select({
+            "@platforms//os:windows": [],
+            "//conditions:default": [":process_group_exec"],
+        }),
+    },
     "golden_host_test": {},
     "integration_runner_config_test": {},
     "integration_test_run_test": {

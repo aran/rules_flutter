@@ -774,7 +774,11 @@ GoldenComparator _goldenComparator(
 }
 
 GoldenServiceLauncher _startProcess(String executable) =>
-    (environment) => startGoldenServiceProcess(executable, environment);
+    (environment) => startGoldenServiceProcess(
+      executable,
+      environment,
+      binary: '@rules_flutter//tools/dev_tool:integration_test_runner',
+    );
 
 /// The library annotations of [config]'s test source, read through [resolve] with
 /// [readSource] (by default, the file).

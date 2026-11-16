@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apple//apple:ios.bzl", "ios_application")
-load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_binary", "dart_test")
 load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_aot_snapshot", "flutter_application", "flutter_asset_bundle", "flutter_kernel", "flutter_library", "flutter_profile_build", "flutter_program_test", "flutter_test", "flutter_test_program", "flutter_tester_binary")
 load(
@@ -25,6 +25,7 @@ load("@rules_flutter//tools/e2e_testing:compile_fail_test.bzl", "compile_fail_te
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load(":build_in_mode.bzl", "build_in_mode")
 load(":build_variant_test.bzl", "build_variant_tests")
+load(":stray_output_test.bzl", "stray_output_test")
 
 exports_files(["pubspec.lock"])
 
@@ -275,6 +276,52 @@ flutter_test(
         "@deps//:flutter",
         "@deps//:flutter_test",
     ],
+)
+
+# The target ends once its suite is reported, though a process the test started
+# still holds flutter_tester's stdout and outlives the target's timeout. No
+# `sh` on Windows.
+flutter_test(
+    name = "leftover_child_test",
+    timeout = "short",
+    main = "test/leftover_child_test.dart",
+    package = ":pubspec-metadata",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = ["@deps//:flutter_test"],
+)
+
+# flutter_tester dies while a process the test started holds its output.
+# `manual`, since it is meant to fail: the twin below runs it, and passes only
+# while it fails, ends with that process still running, and its output holds
+# what the tester wrote last. No `sh` on Windows.
+flutter_test(
+    name = "leftover_child_crash",
+    main = "test/leftover_child_crash_test.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = ["@deps//:flutter_test"],
+)
+
+stray_output_test(
+    name = "leftover_child_crash_test",
+    timeout = "short",
+    output_contains = ["leftover_child_crash: last words before exit(3)"],
+    test = ":leftover_child_crash",
+)
+
+# Runs a test that leaves a process holding its output (`stray_output_test`).
+dart_binary(
+    name = "stray_output_checker",
+    testonly = True,
+    main = "stray_output_checker.dart",
+    deps = ["@rules_dart//dart/runfiles"],
 )
 
 # The NOTICES.Z a test bundles names the packages the test depends on, the

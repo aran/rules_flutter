@@ -161,6 +161,7 @@ def make_bootstrap_content(test_relative_import, golden_comparator_import = None
 // `flutter test` uses.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' show Service;
 import 'dart:io';
 import 'dart:isolate';
 
@@ -204,7 +205,18 @@ Future<void> main() async {{
   // flutter/private/tools/flutter_test_runner.dart before changing either —
   // the two only make sense together, and changing this one alone is how a
   // dial reaches something other than the harness.
-  final ws = await WebSocket.connect('ws://127.0.0.1:$port');
+  //
+  // The dial-back names the VM service when this run has one, for coverage:
+  // flutter_tester's output goes straight to the target's log, so the harness
+  // does not read the address from it. The VM finishes starting its service
+  // before it runs `main`, so the address is known here or there is none.
+  final vmService = (await Service.getInfo()).serverUri;
+  final ws = await WebSocket.connect(
+    vmService == null
+        ? 'ws://127.0.0.1:$port'
+        : 'ws://127.0.0.1:$port/'
+            '?vm-service=${{Uri.encodeQueryComponent('$vmService')}}',
+  );
   // Forward harness → testChannel. `pipe` completes when the WebSocket
   // closes; we don't need to await it because the harness side closes the
   // socket once the suite is done.

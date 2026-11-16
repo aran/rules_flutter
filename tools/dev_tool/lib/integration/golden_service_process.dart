@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../process_group.dart';
 import 'golden_comparator.dart';
 
 /// What Bazel hands a test about its own run, which the golden service is not:
@@ -49,21 +50,44 @@ Map<String, String> goldenServiceEnvironment(
 
 /// Starts [executable] with exactly [environment]; its output is its stdout's
 /// and its stderr's lines, as each comes.
+///
+/// Off Windows it leads a process group of its own, which
+/// [RunningGoldenService.kill] kills whole. The service is a `flutter_test`
+/// runner, and the `flutter_tester` it starts writes straight into the runner's
+/// stdout and stderr: killed alone, the runner would leave the tester running
+/// and holding the pipes, and the service's output would never end. [binary] is
+/// the label of the program starting it, whose runfiles hold the helper that
+/// makes the group (see `process_group.dart`).
 Future<RunningGoldenService> startGoldenServiceProcess(
   String executable,
-  Map<String, String> environment,
-) async {
-  final process = await Process.start(
-    executable,
-    const [],
-    environment: environment,
-    includeParentEnvironment: false,
+  Map<String, String> environment, {
+  required String binary,
+}) async {
+  if (Platform.isWindows) {
+    return _ProcessService(
+      await Process.start(
+        executable,
+        const [],
+        environment: environment,
+        includeParentEnvironment: false,
+      ),
+      inGroup: false,
+    );
+  }
+  return _ProcessService(
+    await startInProcessGroup(
+      executable,
+      const [],
+      binary: binary,
+      environment: environment,
+      includeParentEnvironment: false,
+    ),
+    inGroup: true,
   );
-  return _ProcessService(process);
 }
 
 class _ProcessService implements RunningGoldenService {
-  _ProcessService(this._process) {
+  _ProcessService(this._process, {required bool inGroup}) : _inGroup = inGroup {
     var open = 2;
     for (final stream in [_process.stdout, _process.stderr]) {
       stream
@@ -79,6 +103,9 @@ class _ProcessService implements RunningGoldenService {
   }
 
   final Process _process;
+
+  /// Whether [_process] leads a process group of its own.
+  final bool _inGroup;
   final _output = StreamController<String>();
 
   @override
@@ -88,5 +115,7 @@ class _ProcessService implements RunningGoldenService {
   Stream<String> get output => _output.stream;
 
   @override
-  void kill() => _process.kill(ProcessSignal.sigkill);
+  void kill() => _inGroup
+      ? signalProcessGroup(_process, ProcessSignal.sigkill)
+      : _process.kill(ProcessSignal.sigkill);
 }

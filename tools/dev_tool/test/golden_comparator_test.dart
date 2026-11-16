@@ -318,6 +318,50 @@ void main() {
     },
   );
 
+  // The service is a `flutter_test` runner whose `flutter_tester` writes
+  // straight into the runner's stdout and stderr. Here a shell plays the
+  // runner and a `sleep` the tester: killing the shell alone would leave the
+  // `sleep` holding the pipes, and the output would not end for minutes.
+  test(
+    'killing a started service kills what it started, so its output ends',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('golden_service_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final service = File('${dir.path}/service')
+        ..writeAsStringSync(
+          '#!/bin/sh\n'
+          '/bin/sleep 120 &\n'
+          'echo started\n'
+          'wait\n',
+        );
+      Process.runSync('/bin/chmod', ['+x', service.path]);
+
+      final running = await startGoldenServiceProcess(
+        service.path,
+        const {},
+        binary: '//tools/dev_tool:golden_comparator_test',
+      );
+      final lines = <String>[];
+      final printed = Completer<void>();
+      final ended = running.output.forEach((line) {
+        lines.add(line);
+        if (!printed.isCompleted) printed.complete();
+      });
+      // Started is what makes the `sleep` exist to be killed.
+      await Future.any([printed.future, ended]);
+      expect(lines, ['started']);
+
+      running.kill();
+
+      await ended.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => fail('the output never ended: the sleep outlived it'),
+      );
+      expect(await running.exitCode, -ProcessSignal.sigkill.signalNumber);
+    },
+    testOn: '!windows',
+  );
+
   group('the environment the service is started with', () {
     const host = {
       'PATH': '/bin',

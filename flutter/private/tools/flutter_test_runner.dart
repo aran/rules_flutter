@@ -299,8 +299,9 @@ void main(List<String> args) async {
   }
   // flutter_tester has read the program by the time it connects; the memory or
   // file is released when the run is over, however it ended.
+  final int code;
   try {
-    exitCode = await _runOnce(
+    code = await _runOnce(
       tester: tester,
       icu: icu,
       dill: program.path,
@@ -319,6 +320,11 @@ void main(List<String> args) async {
   } finally {
     program.close();
   }
+  // The run is over and reported, so the runner exits now rather than when
+  // its event loop drains: anything the run left open would otherwise keep
+  // the target alive, silent, until Bazel's timeout.
+  await Future.wait([stdout.flush(), stderr.flush()]);
+  exit(code);
 }
 
 /// The selection this run applies, from [settings].
@@ -544,11 +550,14 @@ class _Harness {
   /// delivered... Otherwise the signal could not be sent, usually meaning that
   /// the process is already dead." The `try` around it was guarding a failure
   /// that cannot happen, while the value that does report it went unread.
+  ///
+  /// The tester is killed first, so a socket close that never answers cannot
+  /// leave it running.
   Future<void> dispose() async {
+    _process?.kill(ProcessSignal.sigkill);
     try {
       await _ws?.close();
     } catch (_) {}
-    _process?.kill(ProcessSignal.sigkill);
     try {
       await _server.close(force: true);
     } catch (_) {}
@@ -600,9 +609,17 @@ class _Harness {
       dill,
     ];
 
+    // flutter_tester writes to the runner's own stdout and stderr, the
+    // target's log, so all it wrote is there once it has exited, its last
+    // lines after a crash included. Through a pipe the runner would have to
+    // read to the end, and the end may not come: a process the test starts
+    // inherits the tester's output and can hold the pipe open long after the
+    // tester is gone. Here such a process writes to the log too, and holds up
+    // nothing.
     _process = await Process.start(
       command.first,
       command.sublist(1),
+      mode: ProcessStartMode.inheritStdio,
       environment: {
         'FLUTTER_TEST': 'true',
         'FLUTTER_TEST_HARNESS_PORT': '${_server.port}',
@@ -617,50 +634,8 @@ class _Harness {
       },
     );
 
-    // Capture flutter_tester output so engine errors are visible. In coverage
-    // mode we also need to scan stdout for the VM service URI.
-    final vmServiceUriCompleter = Completer<Uri>();
-    final vmServicePattern = RegExp(
-      r'(?:Observatory|The Dart VM service is) (?:listening on|listening on) (http\S+)',
-    );
-
-    _process!.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-          stderr.writeln('[flutter_tester] $line');
-          if (enableVmService && !vmServiceUriCompleter.isCompleted) {
-            final m = vmServicePattern.firstMatch(line);
-            if (m != null) {
-              vmServiceUriCompleter.complete(Uri.parse(m.group(1)!));
-            }
-          }
-        });
-    _process!.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-          stderr.writeln('[flutter_tester] $line');
-        });
-
-    // A coverage run that cannot reach the VM service cannot produce what it
-    // exists for, so it ends here rather than running the whole suite first
-    // and failing at collection.
-    Uri? coverageVmServiceUri;
-    if (enableVmService) {
-      try {
-        coverageVmServiceUri = await vmServiceUriCompleter.future.timeout(
-          const Duration(seconds: 30),
-        );
-      } catch (e) {
-        stderr.writeln(
-          'flutter_test (coverage): failed to bring up the VM service: $e',
-        );
-        return 1;
-      }
-    }
-
     // Wait for the bootstrap to dial back.
+    Uri? coverageVmServiceUri;
     final bound = dialBackBound(
       testCeiling(Platform.environment['TEST_TIMEOUT']),
     );
@@ -677,6 +652,20 @@ class _Harness {
         stderr.writeln(dialBackFailure(dialBack, bound));
         return 1;
       case BootstrapConnected(:final request):
+        // A coverage run that cannot reach the VM service cannot produce what
+        // it exists for, so it ends here rather than running the whole suite
+        // first and failing at collection.
+        if (enableVmService) {
+          final named = request.uri.queryParameters['vm-service'];
+          if (named == null) {
+            stderr.writeln(
+              'flutter_test (coverage): flutter_tester connected without a '
+              'VM service.',
+            );
+            return 1;
+          }
+          coverageVmServiceUri = Uri.parse(named);
+        }
         _ws = await WebSocketTransformer.upgrade(request);
     }
 
