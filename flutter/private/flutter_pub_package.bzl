@@ -888,14 +888,15 @@ flutter_font_family(
         labels.append(":" + name)
     return struct(targets = targets, labels = labels)
 
-def _with_variants(ctx, package, path):
+def _with_variants(ctx, package, path, listed = None):
     """`path` if it is a file, and the files of that name in its `<number>x/` siblings.
 
     The resolution variants of an image are found beside it, in the
     directories next to it named for a scale (see `variant_scale`), as
     flutter_tools finds them. The listed file itself need not exist when a
     variant does; when neither does, the package lists something it does not
-    ship, which `flutter build` fails on and so does this.
+    ship, which `flutter build` fails on and so does this. `listed` is the
+    entry as the pubspec writes it, when that is not `path`.
     """
     slash = path.rfind("/")
     prefix = path[:slash + 1]
@@ -911,10 +912,12 @@ def _with_variants(ctx, package, path):
                 if variant.exists and not variant.is_dir:
                     found.append("{}{}/{}".format(prefix, sibling.basename, name))
     if not found:
+        if listed:
+            fail("package {}: it lists the asset {}, but neither that file nor {} nor a resolution variant of it exists.".format(package, repr(listed), path))
         fail("package {}: it lists the asset {}, but neither that file nor a resolution variant of it exists.".format(package, repr(path)))
     return sorted(found)
 
-def _build_assets(ctx, package, parsed_assets, flavors):
+def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
     """Expand the package's `flutter: assets:` entries into files.
 
     Bazel needs an explicit label per file, so each entry is expanded at
@@ -928,11 +931,17 @@ def _build_assets(ctx, package, parsed_assets, flavors):
     with `platforms:` ships in builds for those platforms only; a file that
     several entries list ships wherever any of them does.
 
+    A file entry `packages/<package>/<path>` may be the file `<path>` of the
+    package's `lib/` (see `_in_own_lib`), bundled by `<path>`; its variants
+    are the ones beside that file, bundled beside it. A directory entry is
+    never read that way, as flutter_tools reads it.
+
     Args:
         ctx: The repository context.
         package: The package name.
         parsed_assets: The package's parsed `flutter: assets:` entries.
         flavors: The package's `flavor_restrictions`, shared with its shaders.
+        bundle_paths: The package's `_bundle_paths`, shared with its shaders.
 
     Returns:
         struct(labels, platforms): `labels` is the `assets` of the package's
@@ -943,10 +952,15 @@ def _build_assets(ctx, package, parsed_assets, flavors):
     restrictions = _platform_restrictions()
     for entry in parsed_assets:
         path = entry.path
-        listed = _files_in(ctx, path.rstrip("/")) if path.endswith("/") else [path]
-        for f in listed:
-            main = _checked_file_name(package, "asset file", f)
-            for variant in _with_variants(ctx, package, main):
+        if path.endswith("/"):
+            mains = [(_checked_file_name(package, "asset file", f), None) for f in _files_in(ctx, path.rstrip("/"))]
+        else:
+            listed = _checked_file_name(package, "asset file", path)
+            rest = _in_own_lib(ctx, package, "asset", listed)
+            mains = [(listed, None) if rest == None else ("lib/" + rest, listed)]
+        for main, remapped_from in mains:
+            for variant in _with_variants(ctx, package, main, listed = remapped_from):
+                bundle_paths.add(variant, variant.removeprefix("lib/") if remapped_from else variant)
                 files[":" + variant] = True
                 restrictions.add(variant, entry.platforms)
                 conflict = flavors.add(variant, path, entry.flavors, main = variant == main)
@@ -2350,8 +2364,8 @@ def _flutter_pub_package_impl(ctx):
     # below (plugin vs library).
     font_families = _font_families(ctx, asset_block.fonts)
     flavors = flavor_restrictions(ctx.attr.package_name)
-    bundled_assets = _build_assets(ctx, ctx.attr.package_name, asset_block.assets, flavors)
     bundle_paths = _bundle_paths()
+    bundled_assets = _build_assets(ctx, ctx.attr.package_name, asset_block.assets, flavors, bundle_paths)
     bundled_shaders = _build_shaders(ctx, ctx.attr.package_name, asset_block.shaders, flavors, bundle_paths)
     flavored = flavors.flavors()
     asset_flavors = {p: f for p, f in flavored.items() if ":" + p in bundled_assets.labels}

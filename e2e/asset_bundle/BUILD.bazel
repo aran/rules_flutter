@@ -143,6 +143,13 @@ tree_of(
     ]
 ]
 
+# A package's Android-only asset that is a file of its `lib/`.
+bundled_app(
+    name = "app_with_fx_self_paths_android",
+    platform = ":android_arm64",
+    deps = ["@fx_self_paths"],
+)
+
 # The platform and the flavor are independent filters: one Android build.
 bundled_app(
     name = "app_with_fx_flavors_paid_android",

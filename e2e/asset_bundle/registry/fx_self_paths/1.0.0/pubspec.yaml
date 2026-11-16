@@ -3,6 +3,13 @@ version: 1.0.0
 environment:
   sdk: ^3.13.0
 flutter:
+  assets:
+    - packages/fx_self_paths/images/logo.png
+    - path: packages/fx_self_paths/images/android_only.txt
+      platforms: [android]
+    # A file at the path as listed wins over lib/literal.txt.
+    - packages/fx_self_paths/literal.txt
+    - assets/plain.txt
   shaders:
     - packages/fx_self_paths/shaders/ink.frag
     # The same file as itself: flutter_tools bundles it by both paths.

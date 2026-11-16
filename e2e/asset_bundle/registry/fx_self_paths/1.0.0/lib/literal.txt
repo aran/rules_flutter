@@ -1,0 +1,1 @@
+the copy in lib/, which the file as listed wins over
