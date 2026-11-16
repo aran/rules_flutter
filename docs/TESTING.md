@@ -430,9 +430,11 @@ $ echo $?
 0
 ```
 
-Zero tests ran; the shell was told everything is fine. Nine of the seventeen
-e2e files are `skip:`-gated on `Platform.isMacOS`, so on any other host each of
-them "passes" having executed nothing.
+Zero tests ran; the shell was told everything is fine. About half the e2e files
+have at least one case `skip:`-gated on `Platform.isMacOS` (or on a flag derived
+from it). On any other host, a file whose cases are all gated "passes" having
+executed nothing; a file that also has Chrome cases runs those and skips the
+rest.
 
 `tool/e2e.dart` closes that by reading `dart test`'s machine-readable result
 stream instead of its exit code, and failing when the number of tests that

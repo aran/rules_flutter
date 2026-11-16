@@ -1,6 +1,8 @@
 @Tags(['e2e', 'macos'])
 library;
 
+import 'dart:io';
+
 import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
@@ -138,6 +140,7 @@ void main() {
         'E2E_MESSAGE=defines,live',
       ], 'defines,live'),
       timeout: const Timeout(Duration(minutes: 5)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
     );
 
     // The define comes from `build:e2e_define` in the workspace's .bazelrc,
@@ -149,6 +152,7 @@ void main() {
         'e2e_define',
       ], 'from,config'),
       timeout: const Timeout(Duration(minutes: 5)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
     );
   });
 }

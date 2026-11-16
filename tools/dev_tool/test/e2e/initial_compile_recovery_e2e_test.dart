@@ -1,6 +1,8 @@
 @Tags(['e2e', 'macos'])
 library;
 
+import 'dart:io';
+
 import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
@@ -181,6 +183,7 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(minutes: 12)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
     );
   });
 }

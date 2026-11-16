@@ -1,6 +1,8 @@
 @Tags(['e2e'])
 library;
 
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
@@ -101,6 +103,7 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(minutes: 5)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
       tags: 'macos',
     );
 

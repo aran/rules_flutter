@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:vm_service/vm_service.dart' as vm;
@@ -92,6 +93,7 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(minutes: 8)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
     );
   });
 }

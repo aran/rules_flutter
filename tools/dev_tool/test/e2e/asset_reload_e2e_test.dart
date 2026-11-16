@@ -126,6 +126,7 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(minutes: 5)),
+      skip: !Platform.isMacOS ? 'macOS only' : null,
       tags: 'macos',
     );
 
