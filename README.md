@@ -1523,7 +1523,15 @@ bazel build -c dbg //:my_app_ios
 bazel run @rules_flutter//tools/dev_tool:flutter_bazel -- run -t //:my_app_ios -d ios-simulator
 ```
 
-The output is a `.app` bundle and a `my_app_ios.ipa` of it. A simulator build needs no signing. A device build does: see [Running on an iOS device](#running-on-an-ios-device).
+The output is a `.app` bundle and a `my_app_ios.ipa` of it. A simulator build needs no signing identity: rules_apple signs it ad hoc, as Xcode and `flutter run` do. A device build needs one: see [Running on an iOS device](#running-on-an-ios-device).
+
+That ad hoc signature is a step of every rebuild of the bundle. To skip it, add this line to your `.bazelrc`:
+
+```bazelrc
+build --features=apple.skip_codesign_simulator_bundles
+```
+
+The simulator runs an unsigned app, but APIs behind some entitlements, App Groups at least, stop working in it. A hot reload or restart after a Dart edit doesn't rebuild the bundle, so the line speeds up only the builds that do: a launch, or a restart that relaunches the app after a native edit.
 
 | Attribute | Description |
 |---|---|
