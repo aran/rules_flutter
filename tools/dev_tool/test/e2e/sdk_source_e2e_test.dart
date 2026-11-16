@@ -136,7 +136,11 @@ void main() {
     'a package given no files fails the fetch, naming it and what it lacks',
     () async {
       final result = await fetcher.fetch('sdk_no_files');
-      expect(result.succeeded, isFalse, reason: 'fetched a package of no files');
+      expect(
+        result.succeeded,
+        isFalse,
+        reason: 'fetched a package of no files',
+      );
       expect(
         result.output,
         allOf(contains('integration_test'), contains('`files`')),

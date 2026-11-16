@@ -466,9 +466,9 @@ _UNIT_TESTS = {
 #
 # `tool/e2e.dart` is the e2e suite's own runner: the thing that decides whether
 # a run counts. It is not under `lib/`, so neither `:lib` nor the analyze test
-# reaches it, and until this target existed the only check on its verdict was
-# reading the sentence it printed. That is how it came to answer "nothing was
-# selected to run" for a run whose one test had just failed.
+# reaches it. This target checks its verdict, which the sentence it prints
+# cannot: that a run whose one test failed is a failure, say, and not "nothing
+# was selected to run".
 dart_test(
     name = "e2e_runner_test",
     srcs = ["tool/e2e.dart"],
@@ -478,10 +478,9 @@ dart_test(
 
 # The Dart in this package that belongs to no package's `lib/` and to no test
 # target: every file under `test/e2e/`, and every script under `tool/` that is
-# not already carried by a test's `srcs`. Nothing analyzed any of it. Closing
-# the agent-surface work meant running `dart analyze` over
-# `test/e2e/agent_e2e_test.dart` by hand, because there was nothing to run
-# instead, and an analyzer error had already been found sitting in a test file.
+# not already carried by a test's `srcs`. This target is what puts them
+# through the analyzer. Without it nothing would, and an analyzer error in a
+# test file would surface only when someone ran `dart analyze` over it by hand.
 #
 # These files are not test targets because they invoke `bazel` themselves — the
 # harness shells out to `bazel info`, `bazel build` and a whole `flutter_bazel
@@ -529,8 +528,10 @@ dart_binary(
         "test/tls_fixture.dart",
     ],
     compile_mode = "kernel",
+    # Its `srcs` are here to be analyzed, not loaded by `main`, so only the
+    # strict half of rules_dart's import check applies.
+    features = ["-dart_unused_deps"],
     main = "tool/e2e.dart",
-    tags = ["manual"],
     visibility = ["//visibility:private"],
     deps = _TEST_DEPS + _PATH_DEP + [
         "//tools/e2e_testing",
