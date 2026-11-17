@@ -54,6 +54,15 @@ flutter.toolchain(
     framework = "@mismatched_framework",
 )
 
+# A checkout's framework over the release engine: its Material fonts are the
+# ones the framework names. The second stand-in's, so that no other SDK shares
+# its packages.
+flutter.toolchain(
+    name = "framework_only",
+    flutter_version = "3.50.0",
+    framework = "@mismatched_framework",
+)
+
 # A checkout whose path is given the way a developer gives it: with
 # --repo_env=FLUTTER_CHECKOUT and --repo_env=FLUTTER_ENGINE. Not set, the
 # repositories still load.

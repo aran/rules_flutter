@@ -63,7 +63,7 @@ of the same name.
 """),
     "material_fonts_sha256": attr.string(doc = """\
 The checksum of the Material fonts archive a non-release framework expects, when
-its `bin/internal/material_fonts.version` names a revision no pinned release does.
+its `bin/internal/material_fonts.version` names an archive no pinned release does.
 """),
 })
 
@@ -155,19 +155,13 @@ def _label_prefix(label):
 def _register_sdk(sdk):
     """Declares the repositories of one SDK; returns the label prefix of its engine source."""
     name = sdk.name
-    if sdk.engine == None:
-        # The release engine, with the artifact repositories it is made of.
-        flutter_register_toolchains(
-            name = name,
-            flutter_version = sdk.version,
-            framework_json = str(framework_json(sdk.framework)) if sdk.framework else "",
-            framework_json_file = framework_json(sdk.framework) if sdk.framework else None,
-        )
+    if sdk.engine == None and sdk.framework == None:
+        # The release, with the artifact repositories it is made of.
+        flutter_register_toolchains(name = name, flutter_version = sdk.version)
         return "@{}_stock_engine".format(name)
 
-    # An engine of the root module's choosing: the toolchains are written
-    # against its slices. The Material fonts come with the framework.
-    version_meta = FLUTTER_VERSIONS[sdk.version] if sdk.version else None
+    # The Material fonts come with the framework: the ones its
+    # `bin/internal/material_fonts.version` names, or the release's.
     fonts = name + "_material_fonts"
     flutter_material_fonts_repo(
         name = fonts,
@@ -175,13 +169,29 @@ def _register_sdk(sdk):
         framework_json = framework_json(sdk.framework) if sdk.framework else None,
         sha256 = sdk.material_fonts_sha256,
     )
+    fonts_label = "@{}//:material-fonts/MaterialIcons-Regular.otf".format(fonts)
+    if sdk.engine == None:
+        # A framework of the root module's choosing over the release engine,
+        # with the artifact repositories it is made of.
+        flutter_register_toolchains(
+            name = name,
+            flutter_version = sdk.version,
+            framework_json = str(framework_json(sdk.framework)),
+            framework_json_file = framework_json(sdk.framework),
+            material_fonts = fonts_label,
+        )
+        return "@{}_stock_engine".format(name)
+
+    # An engine of the root module's choosing: the toolchains are written
+    # against its slices.
+    version_meta = FLUTTER_VERSIONS[sdk.version] if sdk.version else None
     flutter_sdk_toolchains_repo(
         name = sdk_repo_name(name),
         engine = _label_prefix(sdk.engine),
         sdk = name,
         version = sdk.version or "",
         engine_revision = version_meta.engine_revision if version_meta else "",
-        material_fonts = "@{}//:material-fonts/MaterialIcons-Regular.otf".format(fonts),
+        material_fonts = fonts_label,
         sysroot_prefix = DEFAULT_SDK_NAME,
         framework_json = str(framework_json(sdk.framework)) if sdk.framework else "",
         framework_json_file = framework_json(sdk.framework) if sdk.framework else None,

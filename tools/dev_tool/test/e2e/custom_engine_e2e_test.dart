@@ -29,6 +29,8 @@
 /// 10. A `flutter_test` runs under the checkout's SDK: its modules compile
 ///     against the checkout's platform kernel and are told the checkout's
 ///     framework and engine.
+/// 11. The checkout's framework over the release engine takes the Material
+///     fonts its `bin/internal/material_fonts.version` names.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -621,4 +623,24 @@ void main() {
       expect('${build.stderr}', contains('FLUTTER_CHECKOUT is not set'));
     },
   );
+
+  test('a framework over the release engine brings its own fonts', () async {
+    final toolchain = await _bazel([
+      'query',
+      '@@rules_flutter++flutter+framework_only_sdk//:darwin-arm64_toolchain',
+      '--output=build',
+    ]);
+    expect(toolchain.exitCode, 0, reason: '${toolchain.stderr}');
+    expect(
+      '${toolchain.stdout}',
+      contains(
+        'material_icons_font = "@@rules_flutter++flutter+framework_only_material_fonts//',
+      ),
+    );
+    final fonts = await _bazel([
+      'build',
+      '@@rules_flutter++flutter+framework_only_material_fonts//:all',
+    ]);
+    expect(fonts.exitCode, 0, reason: '${fonts.stderr}');
+  });
 }

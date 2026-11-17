@@ -3018,7 +3018,7 @@ The engine source directory also needs its Dart source, `flutter/third_party/dar
 
 Programs built with a custom SDK get its own `FLUTTER_VERSION`, `FLUTTER_FRAMEWORK_REVISION`, `FLUTTER_ENGINE_REVISION` and `FLUTTER_DART_VERSION` defines, from the checkout's version and commit and the engine's `args.gn`. `flutter_test` runs under the selected SDK too: its modules compile against the checkout's platform kernel.
 
-You can also replace only one half. Give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. A framework whose `bin/internal/material_fonts.version` names a fonts revision that no pinned release uses also needs `material_fonts_sha256`.
+You can also replace only one half. Give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 
 ### Choosing the SDK per build
 

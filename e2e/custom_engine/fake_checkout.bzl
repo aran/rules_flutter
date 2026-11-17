@@ -115,7 +115,7 @@ def _windows_checkout(rctx, path, link, meta):
 
     link(dev_root.get_child("packages"), "checkout/packages")
     link(dev_root.get_child("bin").get_child("cache").get_child("flutter.version.json"), "checkout/bin/cache/flutter.version.json")
-    rctx.file("checkout/bin/internal/material_fonts.version", meta.material_fonts_url.split("/")[-2] + "\n")
+    rctx.file("checkout/bin/internal/material_fonts.version", meta.material_fonts_url + "\n")
     rctx.file("checkout/CHECKOUT", "A stand-in for a flutter/flutter checkout.\n")
     rctx.file("checkout/engine/src/ENGINE_SRC", "A stand-in for a checkout's engine source directory.\n")
     _dart_source(path, link)
@@ -182,7 +182,7 @@ def _fake_checkout_impl(rctx):
     # built checkout records. Its sky_engine is the host build's.
     link(dev_root.get_child("packages"), "checkout/packages")
     link(dev_root.get_child("bin").get_child("cache").get_child("flutter.version.json"), "checkout/bin/cache/flutter.version.json")
-    rctx.file("checkout/bin/internal/material_fonts.version", meta.material_fonts_url.split("/")[-2] + "\n")
+    rctx.file("checkout/bin/internal/material_fonts.version", meta.material_fonts_url + "\n")
     rctx.file("checkout/CHECKOUT", "A stand-in for a flutter/flutter checkout.\n")
     rctx.file("checkout/engine/src/ENGINE_SRC", "A stand-in for a checkout's engine source directory.\n")
     _dart_source(path, link)
