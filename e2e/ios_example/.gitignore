@@ -4,3 +4,5 @@
 build/
 .bazelrc.user
 device/
+# What `bazel run @swift_package//:update` (swift package) leaves behind.
+.build/

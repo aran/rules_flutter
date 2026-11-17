@@ -221,7 +221,7 @@ def _builds_apple_library(ctx, platform, info):
 def _fail_on_swiftpm_dependencies(package_name, platform, manifests):
     """Fails when a plugin's SwiftPM package depends on a directory outside the plugin.
 
-    A remote package is built from the app's `Package.resolved`
+    A remote package is the root module's to declare
     (`swift_packages.bzl`), and the Flutter framework and sibling plugins
     from the build, but nothing supplies another directory.
 

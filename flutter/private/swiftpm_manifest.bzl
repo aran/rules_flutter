@@ -16,8 +16,8 @@ needs from other packages in `dependencies:`:
         .package(path: "../shared"),
     ],
 
-A remote package's products are the targets of its repository, which the app's
-`Package.resolved` pins (`swift_packages.bzl`). The Flutter framework's package
+A remote package's products are the targets of the repository the root
+module's rules_swift_package_manager declares for it (`swift_packages.bzl`). The Flutter framework's package
 and a sibling plugin's are supplied by the build. A dependency on a directory
 inside the plugin is fine: its sources are part of the plugin. Another
 directory outside the plugin is not, and `find_unsupported_swiftpm_dependencies`

@@ -175,7 +175,7 @@ exports_files(
     [
         "pub.dart",
         "pub_runfiles.dart",
-        "swift_resolve.dart",
+        "swift_packages.dart",
     ],
     visibility = ["//flutter:__subpackages__"],
 )
@@ -188,10 +188,10 @@ dart_binary(
 )
 
 dart_binary(
-    name = "swift_resolve",
+    name = "swift_packages",
     srcs = ["pub_runfiles.dart"],
     compile_mode = "kernel",
-    main = "swift_resolve.dart",
+    main = "swift_packages.dart",
 )
 
 dart_test(
@@ -322,6 +322,13 @@ _UNIT_TESTS = {
     "sdk_check_test": ("sdk_check.dart", []),
     "strip_native_libs_test": ("strip_native_libs.dart", []),
     "swiftpm_app_settings_test": ("swiftpm_app_settings.dart", []),
+    "swift_packages_test": (
+        [
+            "pub_runfiles.dart",
+            "swift_packages.dart",
+        ],
+        [],
+    ),
     "web_template_test": ("web_template.dart", []),
     "flutter_test_runner_test": (
         "flutter_test_runner.dart",

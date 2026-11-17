@@ -100,33 +100,33 @@ alias(
 """.format(maven = ANDROID_MAVEN_REPO),
     )
 
-    # `bazel run @<hub>//swift:resolve`: the lock's Apple plugins' Swift
-    # package dependencies, resolved into the hub's `Package.resolved`.
+    # `bazel run @<hub>//swift:packages`: what the root module declares for
+    # the lock's Apple plugins' Swift package dependencies.
     resolved = ctx.attr.swift_package_resolved
     ctx.file(
         "swift/BUILD.bazel",
         """\
-load("@rules_flutter//flutter/private:flutter_swift_resolve.bzl", "flutter_swift_resolve")
+load("@rules_flutter//flutter/private:flutter_swift_packages_report.bzl", "flutter_swift_packages_report")
 
-flutter_swift_resolve(
-    name = "resolve",
+flutter_swift_packages_report(
+    name = "packages",
     hub = {hub},
-    manifests = {manifests},
-    output = {output},
+    requirements = {requirements},
+    resolved = {resolved},
     visibility = ["//visibility:public"],
 )
 """.format(
             hub = repr(ctx.attr.hub_name),
-            manifests = repr(["@{}//:swift_manifests".format(r) for r in ctx.attr.apple_repos]),
-            output = repr(_workspace_path(resolved) if resolved else ""),
+            requirements = repr(["@{}//:swift_requirements.json".format(r) for r in ctx.attr.apple_repos]),
+            resolved = repr(_workspace_path(resolved) if resolved else ""),
         ),
     )
     return ctx.repo_metadata(reproducible = True)
 
 def _workspace_path(label):
-    """`label`'s path in the main repository, or "" for a label of another."""
+    """`label`'s path in the main repository, or its label when it is another repository's."""
     if label.repo_name:
-        return ""
+        return str(label)
     return (label.package + "/" + label.name) if label.package else label.name
 
 flutter_pub_lock_hub = repository_rule(
@@ -149,11 +149,11 @@ flutter_pub_lock_hub = repository_rule(
             default = {},
         ),
         "apple_repos": attr.string_list(
-            doc = "The Apple repositories of the built packages, whose Swift package manifests `swift:resolve` resolves.",
+            doc = "The Apple repositories of the built packages, whose Swift package requirements `swift:packages` reports.",
             default = [],
         ),
         "swift_package_resolved": attr.label(
-            doc = "The `Package.resolved` `swift:resolve` writes: the tag's, or the one beside its lock.",
+            doc = "The tag's `swift_package_resolved`, whose pins `swift:packages` checks.",
         ),
         "built_packages": attr.string_list(
             doc = "The built ones among `packages` (hosted, git, and Flutter SDK packages built from the Flutter source): their alias is their library repository's, the others' their one repository's.",

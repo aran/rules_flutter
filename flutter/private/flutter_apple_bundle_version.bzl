@@ -1,6 +1,6 @@
 """An Apple bundle's version, from Flutter's build name and build number."""
 
-load("@build_bazel_rules_apple//apple:providers.bzl", "apple_provider")
+load("@rules_apple//apple:providers.bzl", "apple_provider")
 load("//flutter/private:app_version.bzl", "apple_version")
 load("//flutter/private:application_version.bzl", "APPLICATION_VERSION_ATTR", "application_version", "version_names")
 

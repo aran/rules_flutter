@@ -18,6 +18,12 @@ common --enable_platform_specific_config
 common:linux --experimental_output_paths=strip
 common:macos --experimental_output_paths=strip
 
+# Swift compiles use explicit Clang modules, each precompiled by an action of
+# its own, rather than rules_swift's shared, undeclared module cache. See
+# README.md, "Explicit Clang modules on macOS and iOS".
+common --features=swift.emit_c_module --host_features=swift.emit_c_module
+common --features=swift.use_c_modules --host_features=swift.use_c_modules
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart

@@ -27,9 +27,9 @@ The runner_lib_gen swift_library has the aggregator target in its `deps`.
 # change it. Check it on every upgrade, with `apple_resource_aspect` in
 # flutter_plugin.bzl.
 # buildifier: disable=bzl-visibility
-load("@build_bazel_rules_apple//apple/internal:resources.bzl", "resources")
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo")
+load("@rules_apple//apple/internal:resources.bzl", "resources")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "swift_package_environment_problems", "swiftpm_app_transition")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")

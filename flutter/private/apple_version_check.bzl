@@ -13,7 +13,7 @@ file as a validation action: the app's `_validation` output group carries it,
 so building the app fails with the key, the values and what to set instead.
 """
 
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleBundleVersionInfo")
+load("@rules_apple//apple:providers.bzl", "AppleBundleVersionInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInputsInfo")
 load("//flutter/private:app_version.bzl", "apple_version")

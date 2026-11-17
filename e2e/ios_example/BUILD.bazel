@@ -358,10 +358,24 @@ flutter_application(
     ],
 )
 
+# The app's own Swift code on FirebaseCore, from the repository of
+# firebase-ios-sdk that MODULE.bazel declares and hands to the firebase_core
+# plugin: the app carries one copy of the SDK. Linked whole, as nothing in the
+# runner calls it.
+swift_library(
+    name = "native_firebase",
+    srcs = ["native_firebase/NativeFirebase.swift"],
+    module_name = "NativeFirebase",
+    tags = ["manual"],
+    deps = ["@swiftpkg_firebase_ios_sdk//:FirebaseCore"],
+    alwayslink = True,
+)
+
 flutter_ios_app(
     name = "swiftpm_plugins_app",
     application = ":swiftpm_plugins_flutter",
     bundle_id = "com.rulesflutter.ios.example.swiftpm",
+    runner_deps = [":native_firebase"],
     tags = ["manual"],
 )
 

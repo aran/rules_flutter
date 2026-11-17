@@ -18,11 +18,11 @@ library:
     )
 """
 
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartUsedWithoutImportInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMPORT_CHECKER_ATTRS", "PORTABLE_EXEC_GROUPS", "RUNTIME_INDEPENDENT_ATTR", "SUMMARY_ATTRS", "dart_info", "library_import_check", "library_package", "package_identity_attrs", "runtime_reset_when_independent")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterPluginPlatformInfo")
 load("//flutter/private:common.bzl", "collect_binding_contracts", "collect_native_libs")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleModuleHeadersInfo")

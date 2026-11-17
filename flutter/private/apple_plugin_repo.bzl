@@ -16,7 +16,17 @@ evaluate a manifest.
 """
 
 load(":flutter_pub_index.bzl", "SPOKE_PREFIX", "sibling_path", "source_repo")
-load(":swift_packages.bzl", "SWIFT_PACKAGES_FILE", "SWIFT_PACKAGES_REPO", "swift_product_label")
+load(
+    ":swift_packages.bzl",
+    "SWIFT_PACKAGES_FILE",
+    "SWIFT_PACKAGES_REPO",
+    "pins_from_listing",
+    "requirement_swift",
+    "requirement_text",
+    "requirement_violation",
+    "swift_package_repo",
+    "swift_product_label",
+)
 load(":swiftpm_app_settings.bzl", "defines_header_name")
 load(
     ":swiftpm_manifest.bzl",
@@ -482,35 +492,77 @@ flutter_unbuilt_plugin_library(
 """.format(name = name, platform = platform, message = repr(message))
 
 def _swift_packages(ctx):
-    """The pinned Swift packages: `struct(packages, resolved)` (`swift_packages.bzl`)."""
+    """The root's pins: `struct(pins, resolved)` (`swift_packages.bzl`)."""
     data = json.decode(ctx.read(sibling_path(ctx, SWIFT_PACKAGES_REPO, SWIFT_PACKAGES_FILE)))
-    return struct(packages = data["packages"], resolved = data["resolved"])
+    return struct(pins = pins_from_listing(data["pins"]), resolved = data["resolved"])
 
-def _unpinned_message(package, version, platform, manifest, unpinned, resolved):
+_PLATFORM_NAMES = {"ios": "iOS", "macos": "macOS"}
+
+def _package_line(identity, remote):
+    """The root `Package.swift`'s line for a remote package, from a plugin's requirement."""
+    if identity not in remote:
+        return "a dependency on `{}`".format(identity)
+    url, requirement = remote[identity]
+    return '.package(url: "{}", {}),'.format(url, requirement_swift(requirement))
+
+def _unpinned_message(package, version, platform, manifest, unpinned, remote, resolved):
     return (
-        "package:{pkg} {version} depends for {platform} on Swift packages that no " +
-        "`Package.resolved` pins ({manifest}):\n    {unpinned}\n" +
-        "rules_flutter builds the Swift packages an Apple plugin depends on at the versions " +
-        "a `Package.resolved` records, as Xcode does for `flutter build`. Run " +
-        "`bazel run @<hub>//swift:resolve`, <hub> being the `name` of your " +
-        "`flutter_pub.from_lock`, and name the file it writes in that tag's " +
-        "`swift_package_resolved`.{read}"
+        "package:{pkg} {version} depends for {platform} on Swift packages that the root " +
+        "module's `Package.resolved` does not pin ({manifest}):\n    {unpinned}\n" +
+        "The root module declares the Swift packages plugins depend on, with " +
+        "rules_swift_package_manager's `swift_deps.from_package`. Add each to the " +
+        "`dependencies` of your root `Package.swift`:\n    {lines}\n" +
+        "then run `bazel run @swift_package//:update` and `bazel mod tidy`, and add to " +
+        "MODULE.bazel:\n    inject_repo(flutter_pub, {repos})\n" +
+        "`bazel run @<hub>//swift:packages`, <hub> being the `name` of your " +
+        "`flutter_pub.from_lock`, prints every line the plugins need.{read}"
     ).format(
         pkg = package,
         version = version,
-        platform = {"ios": "iOS", "macos": "macOS"}[platform],
+        platform = _PLATFORM_NAMES[platform],
         manifest = manifest,
-        unpinned = "\n    ".join(unpinned),
-        read = " The build reads " + ", ".join(resolved) + "." if resolved else "",
+        unpinned = "\n    ".join([
+            "{} ({})".format(identity, requirement_text(remote[identity][1])) if identity in remote else identity
+            for identity in unpinned
+        ]),
+        lines = "\n    ".join([_package_line(identity, remote) for identity in unpinned]),
+        repos = ", ".join(['"{}"'.format(swift_package_repo(identity)) for identity in unpinned]),
+        read = (
+            " The build reads " + ", ".join(resolved) + ": name the root's in " +
+            "`flutter_pub.from_lock(swift_package_resolved = ...)`."
+        ) if resolved else (
+            " No `flutter_pub.from_lock` names a `Package.resolved`: name the root's in " +
+            "its `swift_package_resolved`."
+        ),
+    )
+
+def _violation_message(package, version, platform, manifest, violations, remote, resolved):
+    return (
+        "package:{pkg} {version} requires for {platform} Swift packages at versions the " +
+        "root module's `Package.resolved` ({resolved}) does not pin ({manifest}):\n    {violations}\n" +
+        "Make the root `Package.swift` ask for what the plugin requires:\n    {lines}\n" +
+        "then run `bazel run @swift_package//:update`. `bazel run @<hub>//swift:packages` " +
+        "prints the requirements of every plugin of the hub together."
+    ).format(
+        pkg = package,
+        version = version,
+        platform = _PLATFORM_NAMES[platform],
+        manifest = manifest,
+        resolved = ", ".join(resolved),
+        violations = "\n    ".join([
+            "{} {}; {}".format(identity, requirement_text(remote[identity][1]), why)
+            for identity, why in violations
+        ]),
+        lines = "\n    ".join([_package_line(identity, remote) for identity, _ in violations]),
     )
 
 def _apple_plugin_repo_impl(ctx):
     package = ctx.attr.package_name
     info_path = sibling_path(ctx, source_repo(package, ctx.attr.prefix), APPLE_PLUGIN_FILE)
     if not info_path.exists:
-        # A package with no Apple library: nothing to build or resolve.
-        ctx.file(SWIFT_MANIFESTS_FILE, json.encode({"package": package, "platforms": {}}))
-        ctx.file("BUILD.bazel", _SWIFT_MANIFESTS_TARGET.format(manifests = "[]"))
+        # A package with no Apple library: nothing to build or report.
+        ctx.file(SWIFT_REQUIREMENTS_FILE, json.encode({"package": package, "version": ctx.attr.version, "platforms": {}}))
+        ctx.file("BUILD.bazel", _SWIFT_REQUIREMENTS_TARGET)
         return ctx.repo_metadata(reproducible = True)
     info = json.decode(ctx.read(info_path))
     plugin_root = info_path.dirname
@@ -521,15 +573,11 @@ def _apple_plugin_repo_impl(ctx):
         if plugin_root.get_child(directory).exists:
             ctx.symlink(plugin_root.get_child(directory), directory)
 
-    # What `swift:resolve` resolves: each platform's manifest.
-    manifest_dirs = {
-        platform: layout["manifest_dir"]
-        for platform, layout in info["platforms"].items()
-        if layout["manifest_dir"]
-    }
-    ctx.file(SWIFT_MANIFESTS_FILE, json.encode({"package": package, "platforms": manifest_dirs}))
-
     dumps = {}
+
+    # What `swift:packages` reports: each platform's remote packages, with
+    # the manifest's requirement of each.
+    reported = {}
     swift_packages = None
     targets = []
     for platform in sorted(info["platforms"].keys()):
@@ -565,67 +613,94 @@ def _apple_plugin_repo_impl(ctx):
                 targets.append(_APP_LIBRARY_STAND_IN.format(name = "{}_apple_{}".format(package, platform), suffix = APP_LIBRARY_SUFFIX))
             continue
 
-        # The remote packages' products, from the repositories of their pins.
+        # The remote packages' products, from the root's repositories of them.
         remote = [p for t in built.targets for p in t.remote_products]
+        requirements = _remote_requirements(dumps[manifest_dir])
+        reported[platform] = [
+            {"identity": identity, "url": requirements[identity][0], "requirement": requirements[identity][1]}
+            for identity in sorted({i: None for i, _ in remote})
+            if identity in requirements
+        ]
         if remote and swift_packages == None:
             swift_packages = _swift_packages(ctx)
         unpinned = []
+        violations = []
         for identity, _ in remote:
-            if identity not in swift_packages.packages:
-                location = [d for d in _remote_locations(dumps[manifest_dir]) if d[0] == identity]
-                entry = "{} ({})".format(identity, location[0][1]) if location else identity
-                if entry not in unpinned:
-                    unpinned.append(entry)
+            pin = swift_packages.pins.get(identity)
+            if not pin:
+                if identity not in unpinned:
+                    unpinned.append(identity)
+                continue
+            why = requirement_violation(requirements[identity][1], pin) if identity in requirements else ""
+            if why and (identity, why) not in violations:
+                violations.append((identity, why))
+        problem = None
         if unpinned:
-            targets.append(_stand_in(package, platform, _unpinned_message(
-                package,
-                ctx.attr.version,
-                platform,
-                manifest,
-                unpinned,
-                swift_packages.resolved,
-            )))
+            problem = _unpinned_message(package, ctx.attr.version, platform, manifest, unpinned, requirements, swift_packages.resolved)
+        elif violations:
+            problem = _violation_message(package, ctx.attr.version, platform, manifest, violations, requirements, swift_packages.resolved)
+        if problem:
+            targets.append(_stand_in(package, platform, problem))
             if app_settings:
                 targets.append(_APP_LIBRARY_STAND_IN.format(name = "{}_apple_{}".format(package, platform), suffix = APP_LIBRARY_SUFFIX))
             continue
+        products = {}
+        for identity, product in remote:
+            if (identity, product) in products:
+                continue
+            products[(identity, product)] = "{}_apple_{}__{}__{}".format(package, platform, swift_package_repo(identity), product)
+            targets.append(_SWIFT_PACKAGE_PRODUCT.format(
+                name = products[(identity, product)],
+                product = swift_product_label(identity, product),
+                package = package,
+                version = ctx.attr.version,
+            ))
         for target in built.targets:
-            products = [swift_product_label(identity, product) for identity, product in target.remote_products]
-            targets.append(_swift_package_library(ctx, package, platform, target, built.main, manifest_dir, products, built.dynamic, app_settings))
+            labels = [":" + products[p] for p in target.remote_products]
+            targets.append(_swift_package_library(ctx, package, platform, target, built.main, manifest_dir, labels, built.dynamic, app_settings))
         if app_settings:
             targets.append(_APP_LIBRARY.format(name = "{}_apple_{}".format(package, platform), suffix = APP_LIBRARY_SUFFIX))
 
     ctx.file("BUILD.bazel", """\
-load("@build_bazel_rules_apple//apple:resources.bzl", "apple_resource_bundle")
+load("@rules_apple//apple:resources.bzl", "apple_resource_bundle")
 load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
 load("@rules_flutter//flutter/private:flutter_apple_kept_symbols.bzl", "flutter_apple_kept_symbols")
+load("@rules_flutter//flutter/private:swift_package_product.bzl", "flutter_swift_package_product")
 load("@rules_flutter//flutter/private:swiftpm_app_settings.bzl", "flutter_swiftpm_app_library", "flutter_swiftpm_app_settings")
 load("@rules_flutter//flutter/private:unbuilt_native_code.bzl", "flutter_unbuilt_plugin_library")
-{targets}{manifests}""".format(
+{targets}{requirements}""".format(
         targets = "".join(targets),
-        manifests = _SWIFT_MANIFESTS_TARGET.format(manifests = repr(sorted([d + "/Package.swift" for d in {d: None for d in manifest_dirs.values()}]))),
+        requirements = _SWIFT_REQUIREMENTS_TARGET,
     ))
+    ctx.file(SWIFT_REQUIREMENTS_FILE, json.encode({"package": package, "version": ctx.attr.version, "platforms": reported}))
 
     # What `dump-package` evaluates depends on the host's Xcode.
     return ctx.repo_metadata(reproducible = False)
 
-# The manifests `swift:resolve` reads, and which platform each is.
-SWIFT_MANIFESTS_FILE = "swift_manifests.json"
+# What `swift:packages` reads: the remote Swift packages each platform's
+# library depends on, and what the manifest requires of each.
+SWIFT_REQUIREMENTS_FILE = "swift_requirements.json"
 
-_SWIFT_MANIFESTS_TARGET = """
-filegroup(
-    name = "swift_manifests",
-    srcs = ["swift_manifests.json"] + {manifests},
-    visibility = ["//visibility:public"],
+_SWIFT_REQUIREMENTS_TARGET = """
+exports_files(["swift_requirements.json"])
+"""
+
+_SWIFT_PACKAGE_PRODUCT = """
+flutter_swift_package_product(
+    name = "{name}",
+    product = "{product}",
+    package = "{package}",
+    version = "{version}",
 )
 """
 
-def _remote_locations(dump):
-    """`(identity, url)` of each remote package a manifest depends on."""
-    found = []
+def _remote_requirements(dump):
+    """Each remote package a manifest depends on: identity to `(url, requirement)`."""
+    found = {}
     for dep in dump.get("dependencies", []):
         for entry in dep.get("sourceControl", []):
             remote = (entry.get("location") or {}).get("remote") or [{}]
-            found.append((entry.get("identity", ""), remote[0].get("urlString", "")))
+            found[entry.get("identity", "")] = (remote[0].get("urlString", ""), entry.get("requirement") or {})
     return found
 
 flutter_apple_plugin_repo = repository_rule(

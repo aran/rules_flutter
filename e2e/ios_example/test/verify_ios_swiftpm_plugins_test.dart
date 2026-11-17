@@ -13,8 +13,10 @@
 ///
 /// `firebase_core` 5.1.0's product is its Swift target and an Objective-C
 /// target, and depends on `firebase-ios-sdk`, a remote Swift package that the
-/// workspace's `Package.resolved` pins: the app carries both targets and the
-/// Firebase SDK's code.
+/// workspace's rules_swift_package_manager declares: the app carries both
+/// targets and the Firebase SDK's code. The app's own Swift code
+/// (`native_firebase`) uses FirebaseCore from the same repository, so the app
+/// defines FirebaseCore's `FIRApp` once.
 ///
 /// `libremidi_flutter` 0.9.0 is an FFI plugin (`ffiPlugin: true`, no plugin
 /// class) whose Swift package compiles its C++: the app carries the functions
@@ -95,6 +97,22 @@ void main() {
       );
     }
     check
+      ..expect(
+        "a binary in the bundle carries the app's own NativeFirebase",
+        condition: binaries.any(
+          (f) => MachO(f.path).hasSymbolContaining('NativeFirebase'),
+        ),
+      )
+      ..expect(
+        "the bundle defines FirebaseCore's FIRApp once",
+        condition:
+            binaries.fold<int>(
+              0,
+              (n, f) =>
+                  n + MachO(f.path).definitionsOf(r'_OBJC_CLASS_$_FIRApp'),
+            ) ==
+            1,
+      )
       ..expect(
         'no binary carries the macOS-only target',
         condition: !binaries.any(

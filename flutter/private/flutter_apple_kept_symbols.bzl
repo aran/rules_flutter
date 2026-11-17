@@ -9,9 +9,9 @@ the archives of the plugin's package define, which makes each a root for that re
 other symbol of the app is left to it.
 """
 
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect")
 load(
     "//flutter/private:apple_xcode.bzl",
     "XCODE_TOOL_ATTRS",

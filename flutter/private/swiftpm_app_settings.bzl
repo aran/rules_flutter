@@ -41,16 +41,16 @@ nothing, and apps share their plugins' builds.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleResourceInfo")
+load("@rules_apple//apple:providers.bzl", "AppleResourceInfo")
 
 # rules_apple has no public aspect that collects a library's resources, so
 # this is its internal one, as in flutter_plugin.bzl.
 # buildifier: disable=bzl-visibility
-load("@build_bazel_rules_apple//apple/internal/aspects:resource_aspect.bzl", "apple_resource_aspect")
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect")
+load("@rules_apple//apple/internal/aspects:resource_aspect.bzl", "apple_resource_aspect")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect")
 load(":apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "run_xcode_tool")
 load(":exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load(":unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")

@@ -12,13 +12,13 @@ An Android plugin's Kotlin or Java is the plugin's `exports` instead, the one
 attribute rules_android's dexing follows to it.
 """
 
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleResourceInfo")
+load("@rules_apple//apple:providers.bzl", "AppleResourceInfo")
 
 # See `flutter_plugin.bzl` for why the internal aspect, and what an upgrade checks.
 # buildifier: disable=bzl-visibility
-load("@build_bazel_rules_apple//apple/internal/aspects:resource_aspect.bzl", "apple_resource_aspect")
-load("@build_bazel_rules_swift//swift:swift.bzl", "swift_clang_module_aspect")
+load("@rules_apple//apple/internal/aspects:resource_aspect.bzl", "apple_resource_aspect")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@rules_swift//swift:swift.bzl", "swift_clang_module_aspect")
 load("//flutter:providers.bzl", "FlutterPluginPlatformInfo")
 load("//flutter/private:constants.bzl", "PLUGIN_PLATFORMS")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "module_headers_aspect")

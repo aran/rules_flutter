@@ -14,7 +14,7 @@ for reports it SKIPPED, and forwards what the rules_apple target provides.
 """
 
 load(
-    "@build_bazel_rules_apple//apple:providers.bzl",
+    "@rules_apple//apple:providers.bzl",
     "AppleBundleInfo",
     "AppleDebugOutputsInfo",
     "AppleDsymBundleInfo",

@@ -21,12 +21,12 @@ Usage:
     )
 """
 
-load("@build_bazel_rules_apple//apple:apple.bzl", "apple_dynamic_framework_import", "apple_dynamic_xcframework_import")
-load("@build_bazel_rules_swift//mixed_language:mixed_language_library.bzl", "mixed_language_library")
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo", "swift_library")
+load("@rules_apple//apple:apple.bzl", "apple_dynamic_framework_import", "apple_dynamic_xcframework_import")
 load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@rules_swift//mixed_language:mixed_language_library.bzl", "mixed_language_library")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_library")
 load(":apple_engine.bzl", "IOS_ENGINE_XCFRAMEWORK", "MACOS_ENGINE_FRAMEWORK", "flutter_engine_module_maps")
 
 _CLANG_SOURCE_EXTENSIONS = ("m", "mm", "c", "cc", "cpp", "cxx", "c++", "s", "S")

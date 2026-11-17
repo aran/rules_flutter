@@ -11,8 +11,8 @@ without importing Foundation, as `permission_handler_apple`'s
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterPluginPlatformInfo")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleModuleHeadersInfo", "flutter_apple_plugin_library")
 load("//flutter/private:flutter_plugin_platform.bzl", "flutter_plugin_platform")

@@ -6,7 +6,7 @@ compilation mode that builds Flutter's release mode (`fastbuild` and `opt`), so
 it needs the bundle built in a mode it names, not the one the command line has.
 """
 
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
+load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
 
 _OBFUSCATE = str(Label("//flutter:obfuscate"))
 _SPLIT_DEBUG_INFO = str(Label("@rules_dart//dart:split_debug_info"))

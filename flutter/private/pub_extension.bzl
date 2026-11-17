@@ -163,13 +163,14 @@ error.
     ),
     "swift_package_resolved": attr.label(
         doc = """\
-The `Package.resolved` that pins the Swift packages this lock's Apple plugins
-depend on (`.package(url:)` in a plugin's `Package.swift`, as the Firebase
-plugins' `firebase-ios-sdk`), as `flutter build` records them through Xcode.
-Each pinned package is built with rules_swift_package_manager, and only by an
-iOS or macOS build of an app that links such a plugin. Write it with
-`bazel run @<name>//swift:resolve`, which resolves every Apple plugin of the
-lock, and commit it. The files of all tags must agree on each package.
+The root module's `Package.resolved`: the one its rules_swift_package_manager
+`swift_deps.from_package(resolved = ...)` reads, which pins the Swift packages
+this lock's Apple plugins depend on (`.package(url:)` in a plugin's
+`Package.swift`, as the Firebase plugins' `firebase-ios-sdk`). The root
+declares those packages and hands each to this extension with `inject_repo`;
+rules_flutter reads the file to check that each pin meets what the plugins'
+manifests require. `bazel run @<name>//swift:packages` prints the lines the
+root needs. The files of all tags must agree on each package.
 """,
         allow_single_file = True,
     ),
@@ -502,13 +503,11 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     entries = {}
     hub_packages = {}
 
-    # Where each hub's `swift:resolve` writes: the tag's
-    # `swift_package_resolved`, else `Package.resolved` beside its lock.
+    # The pins each hub's `swift:packages` checks the plugins against.
     hub_resolved = {}
     for t in tags:
-        tag = t.tag
-        resolved = tag.swift_package_resolved or tag.lock.same_package_label("Package.resolved")
-        hub_resolved.setdefault(tag.name, resolved)
+        if t.tag.swift_package_resolved:
+            hub_resolved.setdefault(t.tag.name, t.tag.swift_package_resolved)
     for t in tags:
         tag = t.tag
         hub = hub_packages.setdefault(tag.name, {})
@@ -827,5 +826,5 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             sdk_packages = [n for n in sdk_packages if n in packages],
             sdk_prefixes = prefixes,
             apple_repos = [apple_repos[n] for n in sorted(packages.keys()) if n in apple_repos],
-            swift_package_resolved = hub_resolved[hub_name],
+            swift_package_resolved = hub_resolved.get(hub_name),
         )

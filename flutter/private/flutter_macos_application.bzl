@@ -21,7 +21,7 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 # construct AppleFrameworkImportInfo (its init is banned), which is how a dSYM
 # reaches the bundle's `dsyms` output group. See `flutter_ios_application.bzl`.
 # buildifier: disable=bzl-visibility
-load("@build_bazel_rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
+load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
 load("@rules_dart//dart:utils.bzl", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "declare_dsym", "split_and_strip_aot_binary")

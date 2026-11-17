@@ -20,6 +20,19 @@ class MachO {
     final result = Process.runSync('nm', [path]);
     return result.exitCode == 0 && result.stdout.toString().contains(name);
   }
+
+  /// How many times the binary defines the symbol [name] (`nm -U`), exactly
+  /// as named: one copy of a library linked in defines each of its symbols
+  /// once.
+  int definitionsOf(String name) {
+    final result = Process.runSync('nm', ['-U', '-j', path]);
+    if (result.exitCode != 0) return 0;
+    return result.stdout
+        .toString()
+        .split('\n')
+        .where((line) => line == name)
+        .length;
+  }
 }
 
 /// What `nm -a` lists for a Mach-O binary, counted by kind.

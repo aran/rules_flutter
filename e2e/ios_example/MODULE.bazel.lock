@@ -224,8 +224,6 @@
     "https://bcr.bazel.build/modules/rules_cc/0.2.4/MODULE.bazel": "1ff1223dfd24f3ecf8f028446d4a27608aa43c3f41e346d22838a4223980b8cc",
     "https://bcr.bazel.build/modules/rules_cc/0.2.8/MODULE.bazel": "f1df20f0bf22c28192a794f29b501ee2018fa37a3862a1a2132ae2940a23a642",
     "https://bcr.bazel.build/modules/rules_cc/0.2.9/MODULE.bazel": "34263f1dca62ea664265438cef714d7db124c03e1ed55ebb4f1dc860164308d1",
-    "https://bcr.bazel.build/modules/rules_dart/0.9.1/MODULE.bazel": "f217634c3a587cfc055e311314aad71a4f0759abab2cab6078417c6063f6ba9e",
-    "https://bcr.bazel.build/modules/rules_dart/0.9.1/source.json": "77adf8baa965216c56313ade09d13ef64ac30eb1a7b3d7bab390e2f3e3fa55b9",
     "https://bcr.bazel.build/modules/rules_foreign_cc/0.9.0/MODULE.bazel": "c9e8c682bf75b0e7c704166d79b599f93b72cfca5ad7477df596947891feeef6",
     "https://bcr.bazel.build/modules/rules_fuzzing/0.5.2/MODULE.bazel": "40c97d1144356f52905566c55811f13b299453a14ac7769dfba2ac38192337a8",
     "https://bcr.bazel.build/modules/rules_go/0.41.0/MODULE.bazel": "55861d8e8bb0e62cbd2896f60ff303f62ffcb0eddb74ecb0e5c0cbe36fc292c8",
@@ -598,6 +596,303 @@
               "toolchain_target_settings": {}
             }
           }
+        }
+      }
+    },
+    "@@rules_swift_package_manager+//:extensions.bzl%swift_deps": {
+      "general": {
+        "bzlTransitiveDigest": "WqjwddNEIa8R9dLFD9cWurdqtd+HXujkNm9hZvk+lhI=",
+        "usagesDigest": "2jwgHakD/s5jkqLfcLMoTftUAkHFIZ2iU6jRdz++Jp0=",
+        "recordedInputs": [
+          "REPO_MAPPING:rules_swift_package_manager+,bazel_skylib bazel_skylib+",
+          "REPO_MAPPING:rules_swift_package_manager+,bazel_tools bazel_tools",
+          "REPO_MAPPING:rules_swift_package_manager+,cgrindel_bazel_starlib cgrindel_bazel_starlib+",
+          "FILE:@@//Package.resolved 5b232a7e3a83b7d8bceccf2ac068b4ad19ea9c24bf37c9f938b913ed136f48c9"
+        ],
+        "generatedRepoSpecs": {
+          "swift_package": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package_tool_repo.bzl%swift_package_tool_repo",
+            "attributes": {
+              "env": {},
+              "package": "/Package.swift"
+            }
+          },
+          "swift_deps_package_repos": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/bzlmod:swift_deps.bzl%_swift_deps_package_repos",
+            "attributes": {
+              "repo_names": [
+                "swiftpkg_abseil_cpp_binary",
+                "swiftpkg_app_check",
+                "swiftpkg_firebase_ios_sdk",
+                "swiftpkg_google_ads_on_device_conversion_ios_sdk",
+                "swiftpkg_googleappmeasurement",
+                "swiftpkg_googledatatransport",
+                "swiftpkg_googleutilities",
+                "swiftpkg_grpc_binary",
+                "swiftpkg_gtm_session_fetcher",
+                "swiftpkg_interop_ios_for_google_sdks",
+                "swiftpkg_leveldb",
+                "swiftpkg_nanopb",
+                "swiftpkg_promises"
+              ]
+            }
+          },
+          "swiftpkg_firebase_ios_sdk": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_firebase_ios_sdk",
+              "commit": "dc6dfd442b1f3ec215ed62b8beb2623ffab010d6",
+              "remote": "https://github.com/firebase/firebase-ios-sdk",
+              "version": "13.1.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "[{\"attr\":\"deps\",\"target\":\"FirebaseCore.rspm_objc\",\"value\":[\"@swiftpkg_firebase_ios_sdk//:FirebaseCoreInternal.rspm\",\"@swiftpkg_googleutilities//:GULEnvironment\",\"@swiftpkg_googleutilities//:GULLogger\"],\"verb\":\"set\"},{\"attr\":\"deps\",\"target\":\"Firebase.rspm_objc\",\"values\":[\":FirebaseCore.rspm_objc\"],\"verb\":\"add\"},{\"attr\":\"deps\",\"target\":\"FirebaseCore.rspm.__impl\",\"values\":[\":Firebase.rspm_objc\"],\"verb\":\"add\"}]",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_abseil_cpp_binary": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_abseil_cpp_binary",
+              "commit": "26509120768c4add61cc1a63059f15f4fb49edb4",
+              "remote": "https://github.com/google/abseil-cpp-binary.git",
+              "version": "1.2025051202.0",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_app_check": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_app_check",
+              "commit": "c7eb17e5545f36e43dc50e70da09c2e999714e16",
+              "remote": "https://github.com/google/app-check.git",
+              "version": "12.0.0",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_google_ads_on_device_conversion_ios_sdk": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_google_ads_on_device_conversion_ios_sdk",
+              "commit": "0208e2681ec81f8a9c81084696f60fcce26cb7ee",
+              "remote": "https://github.com/googleads/google-ads-on-device-conversion-ios-sdk",
+              "version": "3.7.0",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_googleappmeasurement": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_googleappmeasurement",
+              "commit": "1a3546fb9189292e9d64db9e72add7a286c0f85a",
+              "remote": "https://github.com/google/GoogleAppMeasurement.git",
+              "version": "13.0.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_googledatatransport": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_googledatatransport",
+              "commit": "ba3358d3c3dbae8ef230b58a46b97ad65e84e974",
+              "remote": "https://github.com/google/GoogleDataTransport.git",
+              "version": "10.1.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_googleutilities": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_googleutilities",
+              "commit": "5459ee5603def3db0fe14ca522185f42c48d978e",
+              "remote": "https://github.com/google/GoogleUtilities.git",
+              "version": "8.1.5",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_grpc_binary": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_grpc_binary",
+              "commit": "9d5e9f05670c9eab8d8c22731ddd5d4d9cf867a8",
+              "remote": "https://github.com/google/grpc-binary.git",
+              "version": "1.83.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_gtm_session_fetcher": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_gtm_session_fetcher",
+              "commit": "724a52eea6329b7e12d3ad8300d76ca9f3895fcc",
+              "remote": "https://github.com/google/gtm-session-fetcher.git",
+              "version": "5.3.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_interop_ios_for_google_sdks": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_interop_ios_for_google_sdks",
+              "commit": "040d087ac2267d2ddd4cca36c757d1c6a05fdbfe",
+              "remote": "https://github.com/google/interop-ios-for-google-sdks.git",
+              "version": "101.0.0",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_leveldb": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_leveldb",
+              "commit": "a0bc79961d7be727d258d33d5a6b2f1023270ba1",
+              "remote": "https://github.com/firebase/leveldb.git",
+              "version": "1.22.5",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_nanopb": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_nanopb",
+              "commit": "3851d94a41890dea16dc3db34caf60e585cb4163",
+              "remote": "https://github.com/firebase/nanopb.git",
+              "version": "2.30910.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          },
+          "swiftpkg_promises": {
+            "repoRuleId": "@@rules_swift_package_manager+//swiftpkg/internal:swift_package.bzl%swift_package",
+            "attributes": {
+              "bazel_package_name": "swiftpkg_promises",
+              "commit": "f4a19a3c313dc2616c70bb49d29a799fb16be837",
+              "remote": "https://github.com/google/promises.git",
+              "version": "2.4.1",
+              "env": {},
+              "env_inherit": [],
+              "cached_json_directory": "",
+              "make_files_read_only": false,
+              "replace_scm_with_registry": false,
+              "target_deps": {},
+              "module_aliases": {},
+              "dep_module_aliases": "",
+              "bazel_target_mods": "",
+              "package_repos": "@@rules_swift_package_manager++swift_deps+swift_deps_package_repos//:package_repos.json"
+            }
+          }
+        },
+        "moduleExtensionMetadata": {
+          "explicitRootModuleDirectDeps": [
+            "swiftpkg_firebase_ios_sdk",
+            "swift_package"
+          ],
+          "explicitRootModuleDirectDevDeps": [],
+          "useAllRepos": "NO",
+          "reproducible": false
         }
       }
     },

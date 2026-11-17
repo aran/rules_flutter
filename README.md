@@ -19,6 +19,22 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
 - **Custom engines.** Build against customized Flutter, e.g. Shorebird.
 - **Flavors.** Support for Flutter's flavors for managing e.g. dev vs. staging vs. prod app variants.
 
+### Migrating from 0.1.0
+
+1. Apple plugins that use remote Swift packages (the FlutterFire plugins'
+   `firebase-ios-sdk`, say): your root module now declares those packages,
+   and rules_flutter declares none. Run `bazel run @<hub>//swift:packages`
+   and add what it prints: a `Package.swift` at the workspace root listing
+   the packages, rules_swift_package_manager's `swift_deps.from_package` and
+   `use_repo` in `MODULE.bazel`, and `inject_repo(flutter_pub, ...)` naming
+   the packages' repositories. Keep `swift_package_resolved` on
+   `flutter_pub.from_lock`, naming the same `Package.resolved`, and re-pin it
+   with `bazel run @swift_package//:update`. `bazel run @<hub>//swift:resolve`
+   is removed. Firebase with explicit Clang modules also needs the target
+   modifications in [Explicit Clang modules on macOS and iOS](#explicit-clang-modules-on-macos-and-ios),
+   which rules_flutter used to apply. See
+   [Swift packages a plugin depends on](#swift-packages-a-plugin-depends-on).
+
 ### Migrating from 0.0.8
 
 Summary of what to do, with details below. rules_dart
@@ -66,9 +82,10 @@ rules_dart side.
    rules_android's artifacts only if your build still fails without it. `bazel run @<hub>//android:maven_artifacts`
    lists the artifacts your plugins declare. An app that needs none needs no
    install.
-10. Apple plugins that use remote Swift packages →
-    `flutter_pub.from_lock(swift_package_resolved = ...)`, written by
-    `bazel run @<hub>//swift:resolve`.
+10. Apple plugins that use remote Swift packages → your root module
+    declares the packages with rules_swift_package_manager and hands them to
+    the pub extension with `inject_repo`; `bazel run @<hub>//swift:packages`
+    prints the lines (see [Migrating from 0.1.0](#migrating-from-010)).
 11. Local engine: `flutter_engine_out_dirs` → `flutter_local_engine`,
     `flutter_checkout_framework` → `flutter_local_framework`,
     `FLUTTER_CHECKOUT` → `FLUTTER_ENGINE`. An engine source provides its
@@ -414,7 +431,33 @@ system_sdk.configure_sdks(exclude_modules = {
 
 rules_swift reads this only from the root module, and `exclude_modules` replaces its own list for each SDK named, which is why `CoreAudio_Private` is restated. A module an SDK lacks is skipped, so these lines do no harm under another Xcode.
 
-An app that links Firebase (`firebase_core` and the other FlutterFire plugins) does not build with explicit modules yet. firebase-ios-sdk's `Firebase` module imports `FirebaseCore`, which depends on it, and a module precompiled on its own cannot see a module that depends on it: the build fails with `'FirebaseCore/FirebaseCore.h' file not found`.
+Apps that link Firebase (`firebase_core` and the other FlutterFire plugins) need three lines more in `MODULE.bazel` to build with explicit modules. firebase-ios-sdk's `Package.swift` makes FirebaseCore depend on its `Firebase` umbrella target, so that `import Firebase` works for anyone who uses FirebaseCore, while the umbrella's header imports FirebaseCore. Precompiled with only its declared dependencies, the umbrella fails with `'FirebaseCore/FirebaseCore.h' file not found`. Your root module declares firebase-ios-sdk (see [Swift packages a plugin depends on](#swift-packages-a-plugin-depends-on)), and rules_swift_package_manager's target modifications, which it takes only from the root module, reverse that edge:
+
+```starlark
+# firebase-ios-sdk 13.1.1. The first restates FirebaseCore's other
+# dependencies as its Package.swift declares them; check them on an upgrade.
+swift_deps.bazel_target_set_string_list(
+    attr = "deps",
+    target = "@swiftpkg_firebase_ios_sdk//:FirebaseCore.rspm_objc",
+    value = [
+        "@swiftpkg_firebase_ios_sdk//:FirebaseCoreInternal.rspm",
+        "@swiftpkg_googleutilities//:GULEnvironment",
+        "@swiftpkg_googleutilities//:GULLogger",
+    ],
+)
+swift_deps.bazel_target_add(
+    attr = "deps",
+    target = "@swiftpkg_firebase_ios_sdk//:Firebase.rspm_objc",
+    values = [":FirebaseCore.rspm_objc"],
+)
+swift_deps.bazel_target_add(
+    attr = "deps",
+    target = "@swiftpkg_firebase_ios_sdk//:FirebaseCore.rspm.__impl",
+    values = [":Firebase.rspm_objc"],
+)
+```
+
+In Swift code of your own, import each Firebase product by name (`import FirebaseCore`, `import FirebaseAuth`), as Firebase's examples do. With explicit modules the umbrella is precompiled on its own, where it finds only FirebaseCore: `import Firebase` brings in FirebaseCore and nothing else.
 
 ### Your first app
 
@@ -650,6 +693,7 @@ Some builds hit bugs in rulesets that rules_flutter depends on. Until a release 
 | An Android build on a Windows host | A few of rules_android's JVMs at once fail with `There is insufficient memory for the Java Runtime Environment to continue` | `rules_android_no_initial_heap.patch` | Not fixed. [#496](https://github.com/bazelbuild/rules_android/pull/496) would let you lower the starting heap per action |
 | An Android build on a Windows host, of an app with about a hundred Android libraries (a few plugins bring that many) | Resource packaging fails with `CreateProcess error=206, The filename or extension is too long` | `rules_android_aapt2_command_length.patch` | Not fixed |
 | An Android build with [remote execution](#remote-execution) | rules_android's Go tools, when built for the Mac, have a Linux worker run Mac-built `protoc` | `rules_go_go_proto_exec_group.patch` | Not fixed |
+| An iOS or macOS app that links Firebase, with [explicit Clang modules](#explicit-clang-modules-on-macos-and-ios) | Precompiling firebase-ios-sdk's `Firebase` module fails with `'FirebaseCore/FirebaseCore.h' file not found` | Three `swift_deps` target modifications, as [Explicit Clang modules](#explicit-clang-modules-on-macos-and-ios) shows | Not fixed: rules_swift_package_manager builds the dependency as `Package.swift` declares it |
 
 The patches are in [`e2e/android_example/patches/`](e2e/android_example/patches/). Apply each in a `single_version_override` of its module, as [`e2e/android_example/MODULE.bazel`](e2e/android_example/MODULE.bazel) does.
 
@@ -1030,13 +1074,52 @@ A plugin's package can depend on other Swift packages, as the Firebase plugins d
 .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "13.1.1"),
 ```
 
-`flutter build` resolves those through Xcode and records the versions in a `Package.resolved`. rules_flutter builds them from such a file, with [rules_swift_package_manager](https://github.com/cgrindel/rules_swift_package_manager). Write the file and commit it:
+Your root module declares those packages, as it declares the Maven artifacts of Android plugins. Under `flutter build`, Xcode resolves the plugins' packages together with your Runner's own and pins them in one `Package.resolved`. In Bazel, [rules_swift_package_manager](https://github.com/cgrindel/rules_swift_package_manager) does that from a `Package.swift` and a `Package.resolved` at your workspace root, and rules_flutter builds the plugins against the packages it declares. Your own Swift code and the plugins then share one copy of each package, and every rules_swift_package_manager setting applies to both.
+
+To find out what to declare, run:
 
 ```sh
-bazel run @deps//swift:resolve      # `deps` being your flutter_pub.from_lock's name
+bazel run @deps//swift:packages      # `deps` being your flutter_pub.from_lock's name
 ```
 
-This resolves the packages of every Apple plugin in the lock, for iOS and macOS, as Flutter's generated plugin package does, and writes `Package.resolved` beside `pubspec.lock`. Name it in the tag:
+It prints the lines for every Apple plugin in the lock, with a requirement every plugin accepts, and marks the packages your `Package.resolved` is missing or pins at a version a plugin doesn't accept:
+
+```
+// In the `dependencies` of the root module's Package.swift:
+
+    .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "13.1.1"),  // package:firebase_core 5.1.0; missing from //:Package.resolved
+
+# In the root MODULE.bazel (`bazel mod tidy` keeps the `use_repo`):
+
+    bazel_dep(name = "rules_swift_package_manager", version = "1.25.0")
+
+    swift_deps = use_extension("@rules_swift_package_manager//:extensions.bzl", "swift_deps")
+    swift_deps.from_package(
+        resolved = "//:Package.resolved",
+        swift = "//:Package.swift",
+    )
+    use_repo(swift_deps, "swift_package", "swiftpkg_firebase_ios_sdk")
+
+    # flutter_pub being your use_extension of rules_flutter's pub extension:
+    inject_repo(flutter_pub, "swiftpkg_firebase_ios_sdk")
+```
+
+`Package.swift` needs only the dependencies, no targets:
+
+```swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "my_app",
+    dependencies: [
+        .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "13.1.1"),
+        // Your own Swift code's packages, if any.
+    ]
+)
+```
+
+Name the same `Package.resolved` in your `flutter_pub.from_lock`, so rules_flutter can check its pins against what the plugins require:
 
 ```starlark
 flutter_pub.from_lock(
@@ -1046,7 +1129,15 @@ flutter_pub.from_lock(
 )
 ```
 
-Run it again after a change to `pubspec.lock` that changes a plugin's Swift dependencies. An iOS or macOS app that links a plugin whose package depends on something the file doesn't pin fails at analysis, naming the package and the command. Each pinned package is fetched only when an iOS or macOS build needs it.
+Then write the file with `bazel run @swift_package//:update` and commit both. rules_swift_package_manager declares a repository for each package the file pins, named `swiftpkg_` and its identity with `-` as `_`. A plugin reaches a repository only through `inject_repo`, which names the packages the plugins depend on directly. The packages those depend on need no line.
+
+An iOS or macOS app that links such a plugin fails at analysis when something is missing, and the message says what to add:
+
+- a package the file doesn't pin, with its `.package(...)` line and `inject_repo` entry;
+- a pin the plugin's `Package.swift` doesn't accept (`firebase-ios-sdk exact 13.1.1; pins 13.2.0`), with the line that asks for what it requires;
+- a pinned package you didn't hand to rules_flutter, with the `inject_repo` line.
+
+After a change to `pubspec.lock` that changes a plugin's Swift dependencies, run `@deps//swift:packages` again, change `Package.swift` to match and run `bazel run @swift_package//:update`. Each package is fetched only when an iOS or macOS build needs it. rules_swift_package_manager's own settings, such as `swift_deps.configure_package` and its target modifications, go in your `MODULE.bazel` as its documentation describes. Firebase needs one under explicit Clang modules (see [Explicit Clang modules on macOS and iOS](#explicit-clang-modules-on-macos-and-ios)). [`e2e/ios_example`](e2e/ios_example/MODULE.bazel) is a worked example, with Swift code of its own on FirebaseCore beside the FlutterFire plugin.
 
 #### Plugins whose Package.swift reads the app
 

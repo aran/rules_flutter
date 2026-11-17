@@ -9,7 +9,7 @@ Instantiated from `flutter/tests/app_version/BUILD.bazel`, beside its fixtures.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleBundleVersionInfo")
+load("@rules_apple//apple:providers.bzl", "AppleBundleVersionInfo")
 load("//flutter:android.bzl", "flutter_android_manifest_merge")
 load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application")
 load("//flutter:ios.bzl", "flutter_apple_bundle_version")

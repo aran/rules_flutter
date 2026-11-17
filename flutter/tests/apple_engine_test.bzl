@@ -9,7 +9,7 @@ assemble.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("@build_bazel_rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
+load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "flutter_apple_plugin_library")
 load(":engine_mode.bzl", "MODE_FLAGS", "engine_modes")
 

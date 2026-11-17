@@ -58,9 +58,9 @@ Two tiers of API:
 """
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
-load("@build_bazel_rules_apple//apple:apple.bzl", "apple_dynamic_framework_import")
-load("@build_bazel_rules_apple//apple:macos.bzl", "macos_application")
-load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@rules_apple//apple:apple.bzl", "apple_dynamic_framework_import")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_swift//swift:swift.bzl", "swift_library")
 load("//flutter/private:app_version.bzl", "version_arg", "version_target_conflict")
 load("//flutter/private:apple_app.bzl", "flutter_apple_app")
 load("//flutter/private:apple_engine.bzl", _MACOS_ENGINE_FRAMEWORK = "MACOS_ENGINE_FRAMEWORK")

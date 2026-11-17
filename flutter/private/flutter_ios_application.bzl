@@ -20,7 +20,7 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 # native-asset frameworks that apple_dynamic_framework_import can't express
 # (it accepts a single .framework). This is the same helper that rule uses.
 # buildifier: disable=bzl-visibility
-load("@build_bazel_rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
+load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "use_cc_toolchain")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
