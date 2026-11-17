@@ -92,6 +92,36 @@ def plugins_in_registration_order(all_plugins):
             available = sorted(available + freed)
     return ordered
 
+def direct_package_names(deps):
+    """The packages `deps` themselves are, by name: what a target depends on directly.
+
+    What a `flutter_library` of the main repository gives `flutter_info()`
+    as its `app_dependencies`.
+
+    Args:
+        deps: Targets, those without `DartInfo` ignored.
+
+    Returns:
+        A list of package names.
+    """
+    return [package.package_name for dep in deps if DartInfo in dep for package in dep[DartInfo].packages]
+
+def plugins_on_platform(plugins, platform):
+    """The plugins registered on `platform`, in the order its registrant registers them.
+
+    flutter_tools orders each platform's plugins among themselves
+    (`sortByDependencies` over the plugins chosen on it), which is not always
+    the order of every plugin with the others left out.
+
+    Args:
+        plugins: Plugin structs, as `FlutterApplicationInfo.plugins` holds them.
+        platform: The platform.
+
+    Returns:
+        The plugins with an entry for `platform`, ordered.
+    """
+    return plugins_in_registration_order([p for p in plugins if platform in p.platforms])
+
 def _with_dependencies(plugin, deps, package_dependencies, plugin_names):
     """[plugin] with `dependencies`: the plugins its package depends on directly.
 
@@ -105,7 +135,7 @@ def _with_dependencies(plugin, deps, package_dependencies, plugin_names):
     """
     if plugin.name in package_dependencies:
         names = {n: True for n in package_dependencies[plugin.name] if n in plugin_names and n != plugin.name}
-        return struct(name = plugin.name, platforms = plugin.platforms, dependencies = sorted(names))
+        return struct(name = plugin.name, platforms = plugin.platforms, dependencies = sorted(names), implements = plugin.implements)
     names = {}
     for dep in deps:
         if FlutterInfo not in dep or DartInfo not in dep:
@@ -114,7 +144,7 @@ def _with_dependencies(plugin, deps, package_dependencies, plugin_names):
         for p in dep[FlutterInfo].plugins:
             if p.name in own:
                 names[p.name] = True
-    return struct(name = plugin.name, platforms = plugin.platforms, dependencies = sorted(names))
+    return struct(name = plugin.name, platforms = plugin.platforms, dependencies = sorted(names), implements = plugin.implements)
 
 def flutter_info(
         deps = [],
@@ -132,6 +162,7 @@ def flutter_info(
         pub_shaders = [],
         additional_licenses = [],
         android_libs = [],
+        app_dependencies = [],
         package_dependencies = {}):
     """Builds a `FlutterInfo`, merging its dependencies' contributions.
 
@@ -172,6 +203,9 @@ def flutter_info(
         one per plugin Android library it selects (`lib` is the
         `JavaInfo`-bearing Target; `group` the Maven group of the plugin's
         Android `flutter_plugin_platform`, or "").
+      app_dependencies: The packages, by name, this target depends on
+        directly, when it is one whose dependencies are the application's
+        (`FlutterInfo.app_dependencies`).
       package_dependencies: For a package of `plugins`, the packages its
         pubspec depends on directly, by name: what its plugin's
         `dependencies` are read from in place of `deps`, for a target that
@@ -250,5 +284,9 @@ def flutter_info(
         android_libs = depset(
             direct = android_libs,
             transitive = [info.android_libs for info in dep_infos],
+        ),
+        app_dependencies = depset(
+            direct = app_dependencies,
+            transitive = [info.app_dependencies for info in dep_infos],
         ),
     )

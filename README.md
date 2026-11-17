@@ -3455,10 +3455,13 @@ A platform needs a `plugin_class`, a `dart_plugin_class`, `ffi_plugin` or a `def
 | `deps` | `dart_library` and `flutter_library` targets. |
 | `package` | The package's `dart_package_metadata`, as on `flutter_library`. It also carries the package's code and data assets (see [Data assets](#data-assets)) and its link hook (see [Link hooks](#link-hooks)). |
 | `platforms` | A `flutter_plugin_platform` for each platform the plugin registers on. |
+| `implements` | The app-facing plugin this one implements, the pubspec's `implements:`. |
 | `exports` | The plugin's Android library, in a `select()` on `@platforms//os:android` with `[]` as the default. It is here, and not on the `android` platform, because rules_android finds a library to dex only through `exports`. |
 | `native_deps` | Shared libraries to bundle for `dart:ffi`. |
 | `apple_privacy_files` | The `PrivacyInfo.xcprivacy` files the plugin adds to an iOS or macOS app. |
 | `assets`, `fonts`, `shaders`, `shader_includes`, `asset_platforms`, `asset_flavors`, `shader_platforms`, `shader_flavors`, `resources`, `data`, `additional_licenses`, `runtime_independent` | As on [`flutter_library`](#flutter_library). |
+
+A federated plugin is an app-facing plugin (`url_launcher`) whose platforms other plugins implement (`url_launcher_android`, with `implements = "url_launcher"`); the app-facing plugin can name one of them its `default_package` on a platform. An application registers one implementation of each plugin on each platform, chosen as `flutter build` chooses it: the only one that reaches the application; else the one the application depends on directly; else the `default_package`. Two implementations depended on directly, or two with no default, fail analysis with flutter_tools' message. What the application depends on directly is the BUILD counterpart of an app pubspec's `dependencies`: the `deps` of the `flutter_application` (or `flutter_test`), and those of every `flutter_library` of the main repository it depends on. What a plugin, or a package from pub, depends on is not. To use another implementation than the default, add it to the application's `deps`.
 
 A plugin's native code is a target of its own. Swift goes in a `flutter_apple_plugin_library`. Kotlin or Java goes in a `flutter_android_plugin_library`, whose `flutter_engine` is a `flutter_android_engine(neverlink = True)`: the plugin compiles against the engine, and each app ships an engine for its own ABI. An Android app that depends on the plugin packages the library, registers its plugin class, and merges its `manifest` (receivers, services, permissions) into the app's. The library gets a `BuildConfig` in its `java_package`, with `DEBUG` and `BUILD_TYPE` as Gradle would set them for the build's mode.
 

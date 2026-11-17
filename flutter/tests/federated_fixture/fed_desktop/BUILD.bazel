@@ -1,0 +1,51 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+load("//flutter:linux.bzl", "flutter_linux_plugin_library")
+load("//flutter:windows.bzl", "flutter_windows_plugin_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed_desktop",
+)
+
+# Its default implementation on Linux and Windows.
+flutter_plugin(
+    name = "fed_desktop",
+    srcs = ["lib/fed_desktop.dart"],
+    package = ":pubspec-metadata",
+    platforms = [
+        ":linux",
+        ":windows",
+    ],
+    tags = ["manual"],
+    implements = "fed",
+)
+
+flutter_plugin_platform(
+    name = "linux",
+    dart_plugin_class = "FedDesktop",
+    lib = ":linux_lib",
+    platform = "linux",
+    plugin_class = "FedDesktopPlugin",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "windows",
+    dart_plugin_class = "FedDesktop",
+    lib = ":windows_lib",
+    platform = "windows",
+    plugin_class = "FedDesktopPlugin",
+    tags = ["manual"],
+)
+
+flutter_linux_plugin_library(
+    name = "linux_lib",
+    tags = ["manual"],
+)
+
+flutter_windows_plugin_library(
+    name = "windows_lib",
+    tags = ["manual"],
+)

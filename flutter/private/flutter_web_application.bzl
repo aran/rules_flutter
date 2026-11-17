@@ -33,7 +33,7 @@ staging target each compiler's inputs come from, over the application.
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "PROGRAM_ASSETS_TOOLCHAINS", "generate_dev_package_config", "import_check_output_groups", "program_assets_attrs")
-load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo", "FlutterSdkRecordInfo")
+load("//flutter:providers.bzl", "FlutterNativeLibraryInfo", "FlutterSdkRecordInfo")
 load(
     "//flutter/private:app_entrypoint.bzl",
     "APP_SCHEME",
@@ -61,7 +61,6 @@ load(
 )
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
-load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load(
     "//flutter/private:flutter_web_branch.bzl",
     "BRANCH_COMPILER",
@@ -79,6 +78,7 @@ load(
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "program_assets")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant")
+load("//flutter/private:plugin_resolution.bzl", "application_plugins")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info")
 load("//flutter/private:sdk_defines.bzl", "program_version_dart_defines")
 load(
@@ -574,11 +574,8 @@ def _flutter_web_bundle_impl(ctx):
     # Flutter web ALWAYS needs this wrapper to properly initialize the engine
     # (create the implicit view, set up the platform dispatcher, etc.)
     # before calling the user's main(). This matches `flutter build web`.
-    all_dep_plugins = []
-    for dep in primary.deps:
-        if FlutterInfo in dep:
-            all_dep_plugins.extend(dep[FlutterInfo].plugins)
-    plugins = plugins_in_registration_order(all_dep_plugins)
+    # One implementation of each federated plugin, the web's among them.
+    plugins = application_plugins(ctx.label, primary.deps).native
     registrant = generate_dart_plugin_registrant(ctx, plugins, target_platform = "web")
 
     wrapper = ctx.actions.declare_file(ctx.label.name + "_wrapper_main.dart")

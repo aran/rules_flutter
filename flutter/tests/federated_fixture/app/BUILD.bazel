@@ -1,0 +1,120 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_library", "flutter_test")
+load("//flutter/private:flutter_android_registrant.bzl", "flutter_android_registrant")
+load("//flutter/private:flutter_macos_registrant.bzl", "flutter_macos_registrant")
+
+# Applications over a federated plugin (`fed`: an app-facing package, its
+# default implementation and a second one on Android, one on macOS), and over a
+# package with an implementation of its own (`inline`) and another of it.
+# `federated_plugin_test.bzl` says what each is held to.
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "federated_app",
+)
+
+# Depends on neither implementation, though both reach it.
+flutter_application(
+    name = "default_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/carrier",
+        "//flutter/tests/federated_fixture/fed",
+    ],
+)
+
+# Depends on the second implementation.
+flutter_application(
+    name = "direct_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed",
+        "//flutter/tests/federated_fixture/fed_alt",
+    ],
+)
+
+flutter_android_registrant(
+    name = "direct_app_android_registrant",
+    application = ":direct_app",
+    tags = ["manual"],
+)
+
+flutter_macos_registrant(
+    name = "direct_app_macos_registrant",
+    application = ":direct_app",
+    tags = ["manual"],
+)
+
+# A library of this repository that depends on the second
+# implementation, which makes it a direct dependency of an application that
+# depends on the library.
+flutter_library(
+    name = "library",
+    srcs = ["lib/library.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed",
+        "//flutter/tests/federated_fixture/fed_alt",
+    ],
+)
+
+flutter_application(
+    name = "library_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [":library"],
+)
+
+# Depends on both Android implementations.
+flutter_application(
+    name = "conflict_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed",
+        "//flutter/tests/federated_fixture/fed_alt",
+        "//flutter/tests/federated_fixture/fed_android",
+    ],
+)
+
+# Depends on an app-facing package with an implementation of its own and on
+# another implementation of it.
+flutter_application(
+    name = "inline_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/inline",
+        "//flutter/tests/federated_fixture/inline_override",
+    ],
+)
+
+flutter_android_registrant(
+    name = "inline_app_android_registrant",
+    application = ":inline_app",
+    tags = ["manual"],
+)
+
+# A test, whose own `deps` are its direct dependencies. `manual`, and only
+# analysed: `fake_test_api` is no `package:test_api` the bootstrap compiles
+# against (see `flutter_test_analyze_fixture`).
+flutter_test(
+    name = "direct_test",
+    main = "test/direct_test.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed",
+        "//flutter/tests/federated_fixture/fed_alt",
+        "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
+    ],
+)

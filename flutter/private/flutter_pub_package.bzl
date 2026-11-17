@@ -1407,7 +1407,8 @@ def make_flutter_member_build_content(
         android_group = "",
         license_file = "",
         link_hook = "",
-        fetched_identity = ""):
+        fetched_identity = "",
+        implements = ""):
     """Generate BUILD content for the source repository of a Flutter pub package.
 
     Emits the package's `flutter_pub_member`, a plugin when
@@ -1448,6 +1449,7 @@ def make_flutter_member_build_content(
         plugin_platforms: The `flutter.plugin.platforms` dict, of platform
             to its entry's keys and values; None for a package that is not a
             plugin.
+        implements: The plugin's `flutter.plugin.implements`, or "".
         apple_libs: Dict of `ios` and `macos` to the label of the plugin's
             library for that platform, in its Apple repository.
         apple_macos_privacy_manifests: `PrivacyInfo.xcprivacy` paths (macOS).
@@ -1576,6 +1578,8 @@ flutter_unbuilt_plugin_library(
         if platform_labels:
             extra_loads.append('load("@rules_flutter//flutter/private:flutter_plugin_platform.bzl", "flutter_plugin_platform")')
     platforms_arg = "    platforms = {},\n".format(_format_label_list_literal(platform_labels)) if platform_labels else ""
+    if implements and plugin_platforms != None:
+        platforms_arg = "    implements = {},\n".format(repr(implements)) + platforms_arg
 
     font_targets = _format_font_targets(fonts)
     if fonts:
@@ -2644,6 +2648,7 @@ def _flutter_pub_package_impl(ctx):
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
             plugin_platforms = plugin_block.platforms,
+            implements = plugin_block.implements,
             apple_libs = {
                 platform: apple_library_label(ctx.attr.package_name, platform, ctx.attr.prefix)
                 for platform in apple_layouts

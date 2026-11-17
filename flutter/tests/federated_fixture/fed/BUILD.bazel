@@ -1,0 +1,57 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed",
+)
+
+# The app-facing package: `url_launcher`. It depends on its endorsed
+# implementations, as a pub package does, which makes them no direct
+# dependency of the application.
+flutter_plugin(
+    name = "fed",
+    srcs = ["lib/fed.dart"],
+    package = ":pubspec-metadata",
+    platforms = [
+        ":android",
+        ":linux",
+        ":macos",
+        ":windows",
+    ],
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed_android",
+        "//flutter/tests/federated_fixture/fed_desktop",
+        "//flutter/tests/federated_fixture/fed_macos",
+    ],
+)
+
+flutter_plugin_platform(
+    name = "android",
+    default_package = "fed_android",
+    platform = "android",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "macos",
+    default_package = "fed_macos",
+    platform = "macos",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "linux",
+    default_package = "fed_desktop",
+    platform = "linux",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "windows",
+    default_package = "fed_desktop",
+    platform = "windows",
+    tags = ["manual"],
+)

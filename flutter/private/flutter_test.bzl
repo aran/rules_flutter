@@ -65,7 +65,7 @@ cannot write there.
 load("@bazel_skylib//lib:structs.bzl", "structs")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartKernelSdkInfo")
 load("@rules_dart//dart:utils.bzl", "KERNEL_LIST_ATTR", "KERNEL_TOOL_ATTR", "MODULAR_KERNEL_ATTR", "PROGRAM_ASSETS_TOOLCHAINS", "TRACK_CREATION_LOCATIONS_ATTR", "collect_modules", "collect_packages", "collect_transitive_runfiles", "collect_transitive_srcs", "dart_entry_kernel_action", "dart_import_check_aspect", "dart_link_kernel_action", "executable_defines", "executable_defines_config", "import_check_output_groups", "kernel_list", "modular_kernel", "package_identity_attrs", "program_assets_attrs", "runfiles_path", "track_creation_locations")
-load("//flutter:providers.bzl", "FlutterApplicationInputsInfo", "FlutterInfo", "FlutterTestProgramInfo")
+load("//flutter:providers.bzl", "FlutterApplicationInputsInfo", "FlutterTestProgramInfo")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "synthesize_app_package")
 load("//flutter/private:application_libraries.bzl", "application_libraries", "application_libraries_aspect")
 load(
@@ -84,11 +84,11 @@ load(
 )
 load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
-load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "collect_bundled_code_asset_files", "resolve_native_assets", "write_native_assets_manifest")
 load("//flutter/private:flutter_program_test.bzl", "add_user_env", "program_environment", "track_widget_creation", _flutter_test_rule = "flutter_test")
 load("//flutter/private:plugin_registrant.bzl", "make_registrant_parts")
+load("//flutter/private:plugin_resolution.bzl", "application_plugins")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "app_version_dart_defines")
 
@@ -526,15 +526,14 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
     # instead, in either kernel mode: the engine calls the root library's when
     # the define names none, and the bootstrap's imports are what keeps the
     # plugins' libraries in the linked program.
-    all_plugins = []
-    for dep in deps:
-        if FlutterInfo in dep:
-            all_plugins.extend(dep[FlutterInfo].plugins)
+    # One Dart implementation of each federated plugin, as `flutter test`
+    # chooses it, with the test's `deps` the direct dependencies.
+    plugins = application_plugins(ctx.label, deps).dart
     ctx.actions.write(bootstrap, make_bootstrap_content(
         to_root + _kernel_root_path(ctx.file.main.short_path),
         golden_comparator_import = staged_comparator.basename if staged_comparator else None,
         test_config_import = to_root + _kernel_root_path(config.short_path) if config else None,
-        plugin_registrant = make_registrant_parts(plugins_in_registration_order(all_plugins), target_platform = target_os),
+        plugin_registrant = make_registrant_parts(plugins, target_platform = target_os),
     ))
 
     # The files that are the user's own and in no package: the main, and the

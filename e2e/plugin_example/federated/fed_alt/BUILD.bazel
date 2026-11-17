@@ -1,0 +1,43 @@
+load("@rules_flutter//flutter:android.bzl", "flutter_android_engine", "flutter_android_plugin_library")
+load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed_alt",
+)
+
+# A second Android implementation of `fed`, which an app chooses by depending on it.
+flutter_plugin(
+    name = "fed_alt",
+    srcs = ["lib/fed_alt.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    visibility = ["//visibility:public"],
+    exports = select({
+        "@platforms//os:android": [":android_lib"],
+        "//conditions:default": [],
+    }),
+    implements = "fed",
+)
+
+flutter_plugin_platform(
+    name = "android",
+    package = "com.example.fed_alt",
+    platform = "android",
+    plugin_class = "FedAltPlugin",
+)
+
+# Compile-only: the app packages its own engine, of its own ABI.
+flutter_android_engine(
+    name = "android_engine",
+    neverlink = True,
+    tags = ["manual"],
+)
+
+flutter_android_plugin_library(
+    name = "android_lib",
+    srcs = glob(["android/src/main/kotlin/**/*.kt"]),
+    flutter_engine = ":android_engine",
+    java_package = "com.example.fed_alt",
+    manifest = "android/src/main/AndroidManifest.xml",
+)

@@ -1,0 +1,27 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "inline_override",
+)
+
+# Another implementation of it, which an application depending on both
+# registers in its place.
+flutter_plugin(
+    name = "inline_override",
+    srcs = ["lib/inline_override.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    tags = ["manual"],
+    implements = "inline",
+)
+
+flutter_plugin_platform(
+    name = "android",
+    package = "com.example.inlineoverride",
+    platform = "android",
+    plugin_class = "InlineOverridePlugin",
+    tags = ["manual"],
+)

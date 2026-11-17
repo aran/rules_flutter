@@ -1,0 +1,1 @@
+const inline = 1;

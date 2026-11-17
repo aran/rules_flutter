@@ -1,0 +1,25 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "inline",
+)
+
+# An app-facing package with an implementation of its own on Android.
+flutter_plugin(
+    name = "inline",
+    srcs = ["lib/inline.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "android",
+    package = "com.example.inline",
+    platform = "android",
+    plugin_class = "InlinePlugin",
+    tags = ["manual"],
+)

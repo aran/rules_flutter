@@ -35,17 +35,18 @@ load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "nat
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
-def build_plugin_struct(name, plugin_platforms):
+def build_plugin_struct(name, plugin_platforms, implements = ""):
     """Build a plugin metadata struct from per-platform metadata.
 
     Args:
         name: Plugin package name.
         plugin_platforms: Dict of platform -> FlutterPluginPlatformInfo.
+        implements: The plugin this one implements, or "".
 
     Returns:
-        A struct with name and platforms dict.
+        A struct with name, platforms dict and implements.
     """
-    return struct(name = name, platforms = plugin_platforms)
+    return struct(name = name, platforms = plugin_platforms, implements = implements)
 
 def _unbuilt_native_code(lib):
     """The message of a library standing in for unbuilt native code, or ""."""
@@ -88,6 +89,7 @@ def plugin_contributions(ctx, package_name, package_root, declares_plugin):
     plugins = [build_plugin_struct(
         name = package_name,
         plugin_platforms = platforms,
+        implements = ctx.attr.implements,
     )] if declares_plugin else []
 
     # Collect native libs from native_deps.
@@ -253,6 +255,9 @@ PLUGIN_PACKAGE_ATTRS = package_identity_attrs() | {
     "platforms": attr.label_list(
         doc = "The platforms the plugin registers on: a `flutter_plugin_platform` for each, holding that platform's registration and native library, as the entries of a pubspec's `flutter: plugin: platforms:`.",
         providers = [FlutterPluginPlatformInfo],
+    ),
+    "implements": attr.string(
+        doc = "The app-facing plugin this one implements, as a pubspec's `flutter: plugin: implements:` names it: on each platform it has an implementation for (an entry of `platforms` without a `default_package`), it is a candidate implementation of that plugin rather than of itself. An application registers one implementation of a plugin per platform: the only one it reaches, else the one it depends on directly, else the app-facing plugin's `default_package` for the platform.",
     ),
     "native_deps": attr.label_list(
         doc = "Native dependencies. Use select() for platform-conditional deps.",

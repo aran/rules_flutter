@@ -3,7 +3,13 @@
 Generates the Dart source that imports and registers all dartPluginClass plugins
 at application startup, and native registrant source files for method channel
 plugins (pluginClass) on desktop platforms.
+
+Each takes the plugins an application registers, each implementation already
+chosen (`plugin_resolution.bzl`), and registers those of its platform in the
+order flutter_tools does (`plugins_on_platform`).
 """
+
+load("//flutter/private:flutter_info.bzl", "plugins_on_platform")
 
 def make_registrant_content(plugins, target_platform = None, agent_import = None, native_agent_import = None):
     """Generate Dart source content for plugin registration.
@@ -79,9 +85,9 @@ def make_registrant_parts(plugins, target_platform = None, agent_import = None, 
         agent to register.
     """
     dart_plugins = []
-    for plugin in plugins:
+    for plugin in plugins_on_platform(plugins, target_platform) if target_platform else plugins:
         if target_platform:
-            infos = [plugin.platforms[target_platform]] if target_platform in plugin.platforms else []
+            infos = [plugin.platforms[target_platform]]
         else:
             # The first platform, by name, with a Dart class.
             infos = [plugin.platforms[p] for p in sorted(plugin.platforms) if plugin.platforms[p].dart_plugin_class][:1]
@@ -138,7 +144,7 @@ def _make_web_registrant_content(plugins):
     """
     web_plugins_with_registrar = []
     web_plugins_no_registrar = []
-    for plugin in plugins:
+    for plugin in plugins_on_platform(plugins, "web"):
         info = plugin.platforms.get("web")
         if not info:
             continue
@@ -187,7 +193,7 @@ def _collect_native_plugins(plugins, target_platform):
         List of structs with name, plugin_class, and (for android) package fields.
     """
     result = []
-    for plugin in plugins:
+    for plugin in plugins_on_platform(plugins, target_platform):
         info = plugin.platforms.get(target_platform)
         if info and info.plugin_class and info.plugin_class != "none":
             result.append(struct(

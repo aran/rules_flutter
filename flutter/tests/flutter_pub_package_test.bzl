@@ -322,6 +322,31 @@ def _member_exports_android_lib_test_impl(ctx):
 
 member_exports_android_lib_test = unittest.make(_member_exports_android_lib_test_impl)
 
+def _member_implements_test_impl(ctx):
+    """A plugin member states the plugin it implements, as its pubspec's `implements:` names it."""
+    env = unittest.begin(ctx)
+    implementation = make_flutter_member_build_content(
+        name = "url_launcher_android",
+        language_version = "3.4",
+        code_assets = [],
+        unreplaced_hook = "",
+        plugin_platforms = {"android": {"pluginClass": "UrlLauncherPlugin", "package": "io.flutter.plugins.urllauncher"}},
+        implements = "url_launcher",
+    )
+    asserts.true(env, '    implements = "url_launcher",\n' in implementation, implementation)
+
+    app_facing = make_flutter_member_build_content(
+        name = "url_launcher",
+        language_version = "3.4",
+        code_assets = [],
+        unreplaced_hook = "",
+        plugin_platforms = {"android": {"default_package": "url_launcher_android"}},
+    )
+    asserts.false(env, "implements" in app_facing, app_facing)
+    return unittest.end(env)
+
+member_implements_test = unittest.make(_member_implements_test_impl)
+
 def _member_declares_fonts_and_platforms_test_impl(ctx):
     """A member's fonts and plugin platforms are targets it lists, one for each.
 
@@ -1126,6 +1151,7 @@ def flutter_pub_package_test_suite(name):
         jvm_level_test,
         no_resources_subpackage_test,
         member_exports_android_lib_test,
+        member_implements_test,
         member_declares_fonts_and_platforms_test,
         plugin_spoke_carries_resources_test,
         library_spoke_carries_resources_test,

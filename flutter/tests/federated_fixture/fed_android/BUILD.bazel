@@ -1,0 +1,35 @@
+load("@rules_java//java:java_library.bzl", "java_library")
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed_android",
+)
+
+# Its default implementation on Android.
+flutter_plugin(
+    name = "fed_android",
+    srcs = ["lib/fed_android.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    tags = ["manual"],
+    exports = [":android_lib"],
+    implements = "fed",
+)
+
+flutter_plugin_platform(
+    name = "android",
+    dart_plugin_class = "FedAndroid",
+    package = "com.example.fed",
+    platform = "android",
+    plugin_class = "FedAndroidPlugin",
+    tags = ["manual"],
+)
+
+java_library(
+    name = "android_lib",
+    srcs = ["android/FedAndroid.java"],
+    tags = ["manual"],
+)

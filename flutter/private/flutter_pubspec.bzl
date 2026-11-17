@@ -68,8 +68,69 @@ def _coerce_plugin_value(v):
         return ""
     return str(v)
 
+def _version_key(text):
+    # A semantic version's order (`2.11.0-0` before `2.11.0`), or None for
+    # text that is not one.
+    core = text.split("+")[0]
+    pre = ""
+    if "-" in core:
+        core, pre = core.split("-", 1)
+    parts = core.split(".")
+    if len(parts) != 3 or not all([p.isdigit() for p in parts]):
+        return None
+    return (int(parts[0]), int(parts[1]), int(parts[2]), 0 if pre else 1)
+
+def _constraint_min(constraint):
+    """The lower bound of a pub version constraint, as a `_version_key`; None when it has none.
+
+    What pub_semver's `VersionRange.min` is: of `^2.11.0`, `>=2.11.0 <4.0.0`,
+    `>2.11.0` or `2.11.0` it is 2.11.0. `any`, an upper bound alone and a
+    union (`||`) have none.
+    """
+    if type(constraint) != "string" or "||" in constraint:
+        return None
+    text = constraint.replace(">= ", ">=").replace("> ", ">").replace("<= ", "<=").replace("< ", "<")
+    lowest = None
+    for comparator in [c for c in text.split(" ") if c]:
+        if comparator.startswith("^"):
+            bound = comparator[1:]
+        elif comparator.startswith(">="):
+            bound = comparator[2:]
+        elif comparator.startswith(">"):
+            bound = comparator[1:]
+        elif comparator.startswith("<") or comparator == "any":
+            continue
+        else:
+            bound = comparator
+        key = _version_key(bound)
+        if key == None:
+            return None
+        if lowest == None or key > lowest:
+            lowest = key
+    return lowest
+
+# Flutter 2.11, from which flutter_tools takes an app-facing package's own
+# Dart implementation on a desktop platform as its implementation.
+_DESKTOP_DART_SELF_IMPLEMENTATION = (2, 11, 0, 1)
+
+def _drops_desktop_dart_class(fields):
+    # flutter_tools' `_isEligibleDartSelfImpl`: desktop platforms once took no
+    # package's own `dartPluginClass` as its implementation, and to keep
+    # published plugins working still do not unless the package requires
+    # Flutter 2.11 or later.
+    environment = fields.get("environment")
+    flutter = environment.get("flutter") if type(environment) == "dict" else None
+    lowest = _constraint_min(flutter)
+    return lowest == None or lowest < _DESKTOP_DART_SELF_IMPLEMENTATION
+
 def flutter_plugin_block(fields):
     """Project `flutter.plugin` out of a pubspec's fields.
+
+    The platforms are as flutter_tools reads them for registering: on Linux,
+    macOS and Windows, the `dartPluginClass` (and `dartFileName`) of a package
+    that implements no other and names no `default_package` there is left out
+    unless its `environment: flutter:` requires Flutter 2.11 or later, as
+    flutter_tools registers no Dart class of such a package.
 
     Args:
         fields: A pubspec's `fields`, as `read_pubspec` returns them.
@@ -101,6 +162,12 @@ def flutter_plugin_block(fields):
 
     implements_raw = plugin.get("implements", "")
     implements = str(implements_raw) if implements_raw != None else ""
+
+    if not implements and _drops_desktop_dart_class(fields):
+        for name in ("linux", "macos", "windows"):
+            info = platforms.get(name)
+            if info != None and "dartPluginClass" in info and not info.get("default_package"):
+                platforms[name] = {k: v for k, v in info.items() if k not in ("dartPluginClass", "dartFileName")}
 
     ffi_raw = plugin.get("ffiPlugin", False)
     ffi_plugin = ffi_raw if type(ffi_raw) == "bool" else False

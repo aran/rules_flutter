@@ -1,0 +1,37 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed_macos",
+)
+
+# Its implementation on macOS.
+flutter_plugin(
+    name = "fed_macos",
+    srcs = ["lib/fed_macos.dart"],
+    apple_privacy_files = select({
+        "@platforms//os:macos": ["PrivacyInfo.xcprivacy"],
+        "//conditions:default": [],
+    }),
+    package = ":pubspec-metadata",
+    platforms = [":macos"],
+    tags = ["manual"],
+    implements = "fed",
+)
+
+flutter_plugin_platform(
+    name = "macos",
+    dart_plugin_class = "FedMacos",
+    lib = ":macos_lib",
+    platform = "macos",
+    plugin_class = "FedMacosPlugin",
+    tags = ["manual"],
+)
+
+cc_library(
+    name = "macos_lib",
+    tags = ["manual"],
+)

@@ -20,6 +20,7 @@ load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "run_xcode_tool")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
+load("//flutter/private:flutter_info.bzl", "plugins_on_platform")
 
 _NAME = "FlutterPluginRegistrant"
 
@@ -122,7 +123,7 @@ _INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 
 def _native_plugins(plugins):
     result = []
-    for plugin in plugins:
+    for plugin in plugins_on_platform(plugins, "ios"):
         info = plugin.platforms.get("ios")
         if info and info.plugin_class and info.plugin_class != "none":
             result.append(struct(name = plugin.name, plugin_class = info.plugin_class))
@@ -313,7 +314,7 @@ public func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {{
 
 def _swift_package_registrant_impl(ctx):
     plugins = []
-    for plugin in (ctx.attr.application[FlutterApplicationInfo].plugins if ctx.attr.register_plugins else []):
+    for plugin in (plugins_on_platform(ctx.attr.application[FlutterApplicationInfo].plugins, ctx.attr.platform) if ctx.attr.register_plugins else []):
         info = plugin.platforms.get(ctx.attr.platform)
         if info and info.plugin_class and info.plugin_class != "none":
             plugins.append(struct(name = plugin.name, plugin_class = info.plugin_class))

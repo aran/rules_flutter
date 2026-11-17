@@ -14,12 +14,12 @@ load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "prog
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
-load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "asset_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:native_sources.bzl", "native_sources_aspect")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant", "generate_dev_plugin_registrants")
+load("//flutter/private:plugin_resolution.bzl", "application_plugins")
 load("//flutter/private:program_analysis.bzl", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "program_version_dart_defines")
 load("//flutter/private:validation.bzl", "validate_dart_defines")
@@ -373,11 +373,8 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     # Collect plugins from deps and generate the registrant. The registrant is
     # a side library (upstream _PluginRegistrant shape) the engine invokes
     # before main() on every root-isolate launch — including hot restart.
-    all_dep_plugins = []
-    for dep in inputs.deps:
-        if FlutterInfo in dep:
-            all_dep_plugins.extend(dep[FlutterInfo].plugins)
-    plugins = plugins_in_registration_order(all_dep_plugins)
+    # One Dart implementation of each federated plugin per platform.
+    plugins = application_plugins(ctx.label, inputs.deps).dart
     registrant = generate_dart_plugin_registrant(
         ctx,
         plugins,

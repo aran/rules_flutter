@@ -107,6 +107,19 @@ flutter_application(
     ],
 )
 
+# An app over a federated plugin that depends on its second Android
+# implementation (//federated/fed). `:verify_android_federated_test`.
+flutter_application(
+    name = "federated_app",
+    main = "lib/federated_main.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "//federated/fed",
+        "//federated/fed_alt",
+        "@deps//:flutter",
+    ],
+)
+
 # An app over `pick`, whose link hook keeps the code asset of the one `Op`
 # the app constructs and drops the other.
 flutter_application(
@@ -368,6 +381,20 @@ flutter_android_app(
     application_id = "com.example.package_info_only.r8",
     namespace = "com.example.plugin_example",
     proguard_specs = ["app_proguard.pro"],
+)
+
+flutter_android_app(
+    name = "federated_android",
+    application = ":federated_app",
+    application_id = "com.example.federated",
+    namespace = "com.example.plugin_example",
+    proguard_specs = [],
+)
+
+flutter_android_build(
+    name = "federated_arm64_build",
+    android_platforms = ["@rules_android//:arm64-v8a"],
+    targets = [":federated_android"],
 )
 
 flutter_android_app(
@@ -645,6 +672,28 @@ dart_test(
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
+# The release APK of `federated_android`, without R8, which dexes each library
+# the APK reaches: the code of the implementation of `fed` the app registers,
+# and not of the one it passes over.
+android_apk(
+    name = "federated_opt",
+    apk = ":federated_arm64_build",
+    compilation_mode = "opt",
+    tags = ["android"],
+)
+
+dart_test(
+    name = "verify_android_federated_test",
+    data = [
+        ":federated_opt",
+        "@bazel_tools//tools/zip:zipper",
+    ],
+    env = {"ZIPPER_RUNFILE": "$(rlocationpath @bazel_tools//tools/zip:zipper)"},
+    main = "test/verify_android_federated_test.dart",
+    tags = ["android"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
 # `kotlin_only_plugin` is a `path` package with no Bazel build: only Kotlin and a
 # Gradle build. MODULE.bazel names it in `build_from_pubspec`, so it is built
 # from its pubspec as a plugin from pub.dev is. The app's Android registrant
@@ -908,6 +957,8 @@ flutter_library(
     srcs = glob(["lib/**/*.dart"]),
     package = ":pubspec-metadata",
     deps = [
+        "//federated/fed",
+        "//federated/fed_alt",
         "//greeting_plugin",
         "//mixed_plugin",
         "//pick",

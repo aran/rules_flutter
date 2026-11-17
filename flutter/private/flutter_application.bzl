@@ -23,10 +23,10 @@ load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONS
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
-load("//flutter/private:flutter_info.bzl", "plugins_in_registration_order")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "native_code_config", "program_assets")
 load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
+load("//flutter/private:plugin_resolution.bzl", "application_plugins", "chosen_native_code")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info")
 
 _FLUTTER_TOOLCHAIN_TYPE = "@rules_flutter//flutter:toolchain_type"
@@ -309,7 +309,6 @@ def flutter_application_build(ctx, inputs):
     # registrant generators and desktop runners read back off this target —
     # via FlutterApplicationInfo, since an application is the end of the
     # library graph and does not contribute to another one.
-    all_dep_plugins = []
     apple_plugin_lib_depsets = []
     linux_plugin_lib_depsets = []
     windows_plugin_lib_depsets = []
@@ -317,18 +316,29 @@ def flutter_application_build(ctx, inputs):
     android_lib_depsets = []
     for dep in inputs.deps:
         if FlutterInfo in dep:
-            all_dep_plugins.extend(dep[FlutterInfo].plugins)
             apple_plugin_lib_depsets.append(dep[FlutterInfo].apple_plugin_libraries)
             linux_plugin_lib_depsets.append(dep[FlutterInfo].linux_plugin_libraries)
             windows_plugin_lib_depsets.append(dep[FlutterInfo].windows_plugin_libraries)
             apple_privacy_manifest_depsets.append(dep[FlutterInfo].apple_privacy_manifests)
             android_lib_depsets.append(dep[FlutterInfo].android_libs)
-    all_plugins = plugins_in_registration_order(all_dep_plugins)
-    apple_plugin_libraries = depset(transitive = apple_plugin_lib_depsets)
-    linux_plugin_libraries = depset(transitive = linux_plugin_lib_depsets)
-    windows_plugin_libraries = depset(transitive = windows_plugin_lib_depsets)
-    apple_privacy_manifests = depset(transitive = apple_privacy_manifest_depsets)
-    android_libs = depset(transitive = android_lib_depsets)
+
+    # One implementation of each federated plugin per platform, which every
+    # native registrant registers, and whose native code alone the app links.
+    resolution = application_plugins(ctx.label, inputs.deps)
+    all_plugins = resolution.native
+    native_code = chosen_native_code(
+        resolution,
+        android_libs = depset(transitive = android_lib_depsets),
+        apple_plugin_libraries = depset(transitive = apple_plugin_lib_depsets),
+        apple_privacy_manifests = depset(transitive = apple_privacy_manifest_depsets),
+        linux_plugin_libraries = depset(transitive = linux_plugin_lib_depsets),
+        windows_plugin_libraries = depset(transitive = windows_plugin_lib_depsets),
+    )
+    apple_plugin_libraries = native_code.apple_plugin_libraries
+    linux_plugin_libraries = native_code.linux_plugin_libraries
+    windows_plugin_libraries = native_code.windows_plugin_libraries
+    apple_privacy_manifests = native_code.apple_privacy_manifests
+    android_libs = native_code.android_libs
 
     # Every loose native library this app can carry, by both routes in: the
     # `native_deps` set above, and every code-asset candidate. No two may

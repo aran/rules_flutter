@@ -1,0 +1,91 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_java//java:java_library.bzl", "java_library")
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+load("//flutter:linux.bzl", "flutter_linux_plugin_library")
+load("//flutter:windows.bzl", "flutter_windows_plugin_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed_alt",
+)
+
+# A second implementation, on Android, macOS, Linux and Windows, which an
+# application chooses by depending on it. It has native code on each, which an
+# application that chooses another implementation leaves out.
+flutter_plugin(
+    name = "fed_alt",
+    srcs = ["lib/fed_alt.dart"],
+    apple_privacy_files = select({
+        "@platforms//os:macos": ["PrivacyInfo.xcprivacy"],
+        "//conditions:default": [],
+    }),
+    package = ":pubspec-metadata",
+    platforms = [
+        ":android",
+        ":linux",
+        ":macos",
+        ":windows",
+    ],
+    tags = ["manual"],
+    exports = [":android_lib"],
+    implements = "fed",
+)
+
+flutter_plugin_platform(
+    name = "android",
+    dart_plugin_class = "FedAlt",
+    package = "com.example.fedalt",
+    platform = "android",
+    plugin_class = "FedAltPlugin",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "macos",
+    dart_plugin_class = "FedAlt",
+    lib = ":macos_lib",
+    platform = "macos",
+    plugin_class = "FedAltPlugin",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "linux",
+    dart_plugin_class = "FedAlt",
+    lib = ":linux_lib",
+    platform = "linux",
+    plugin_class = "FedAltPlugin",
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "windows",
+    dart_plugin_class = "FedAlt",
+    lib = ":windows_lib",
+    platform = "windows",
+    plugin_class = "FedAltPlugin",
+    tags = ["manual"],
+)
+
+java_library(
+    name = "android_lib",
+    srcs = ["android/FedAlt.java"],
+    tags = ["manual"],
+)
+
+cc_library(
+    name = "macos_lib",
+    tags = ["manual"],
+)
+
+flutter_linux_plugin_library(
+    name = "linux_lib",
+    tags = ["manual"],
+)
+
+flutter_windows_plugin_library(
+    name = "windows_lib",
+    tags = ["manual"],
+)

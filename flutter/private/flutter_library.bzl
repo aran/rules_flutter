@@ -4,7 +4,7 @@ load("@rules_dart//dart:providers.bzl", "DartInfo", "DartUsedWithoutImportInfo")
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMPORT_CHECKER_ATTRS", "PORTABLE_EXEC_GROUPS", "RUNTIME_INDEPENDENT_ATTR", "SUMMARY_ATTRS", "dart_analyzable_info", "dart_info", "derive_package_root", "library_import_check", "library_package", "package_identity_attrs", "runtime_reset_when_independent")
 load("//flutter:providers.bzl", "FlutterFontFamilyInfo", "FlutterInfo")
 load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
-load("//flutter/private:flutter_info.bzl", "flutter_info")
+load("//flutter/private:flutter_info.bzl", "direct_package_names", "flutter_info")
 
 def package_root_of(owner):
     """The root of the Dart package `owner` is in: the directory above `lib/`.
@@ -432,6 +432,11 @@ def _flutter_library_impl(ctx):
             pub_assets = extra_pub_assets,
             pub_shaders = extra_pub_shaders,
             additional_licenses = own_additional_licenses(ctx, package_name),
+            # A library of the main repository is the application's own code,
+            # so what it depends on the application depends on directly, as
+            # on the `dependencies` of an app's pubspec. A library of another
+            # repository is a dependency's, whose own dependencies are not.
+            app_dependencies = [] if ctx.label.repo_name else direct_package_names(ctx.attr.deps),
         ),
         # The sources `bazel coverage` may report of this package, as
         # `dart_library`'s.

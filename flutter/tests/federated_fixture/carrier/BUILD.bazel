@@ -1,0 +1,21 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "carrier",
+)
+
+# A plugin that brings the second implementation without the
+# application depending on it: what a plugin depends on, the application does
+# not depend on directly.
+flutter_plugin(
+    name = "carrier",
+    srcs = ["lib/carrier.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed_alt",
+    ],
+)

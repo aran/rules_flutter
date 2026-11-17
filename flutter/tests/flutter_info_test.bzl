@@ -30,9 +30,10 @@ def _contributing_library_impl(ctx):
         flutter_info(
             deps = ctx.attr.deps,
             plugins = [
-                struct(name = n, platforms = {})
+                struct(name = n, platforms = {}, implements = "")
                 for n in ctx.attr.plugin_names
             ],
+            app_dependencies = ["%s_direct" % ctx.attr.pkg],
             pub_assets = [
                 struct(package_name = ctx.attr.pkg, asset_path = "a", file = None),
             ],
@@ -80,6 +81,7 @@ def _forwards_every_channel_test_impl(ctx):
     # own-contribution check and still drop every dependency.
     asserts.equals(env, ["dep_plugin", "own_plugin"], sorted([p.name for p in info.plugins]))
     asserts.equals(env, ["dep_pkg", "own_pkg"], _field(info.pub_assets, "package_name"))
+    asserts.equals(env, ["dep_pkg_direct", "own_pkg_direct"], sorted(info.app_dependencies.to_list()))
 
     # A channel neither target contributes on is still a real, empty depset —
     # consumers read it unguarded.

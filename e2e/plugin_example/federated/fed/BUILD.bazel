@@ -1,0 +1,26 @@
+load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "fed",
+)
+
+# A federated plugin written in the workspace: `fed`, the app-facing package,
+# whose default Android implementation is `fed_android` and which depends on
+# it, and `fed_alt`, a second implementation. An app that depends on `fed_alt`
+# registers it, and its APK carries `fed_alt`'s code and not `fed_android`'s
+# (//:verify_android_federated_test).
+flutter_plugin(
+    name = "fed",
+    srcs = ["lib/fed.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    visibility = ["//visibility:public"],
+    deps = ["//federated/fed_android"],
+)
+
+flutter_plugin_platform(
+    name = "android",
+    default_package = "fed_android",
+    platform = "android",
+)

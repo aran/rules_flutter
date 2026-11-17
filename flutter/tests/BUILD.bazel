@@ -30,6 +30,7 @@ load(":dev_tool_support_test.bzl", "dev_tool_support_test_suite")
 load(":download_digests_test.bzl", "download_digests_test_suite")
 load(":engine_out_dirs_test.bzl", "engine_out_dirs_test_suite")
 load(":engine_targets_test.bzl", "engine_targets_test_suite")
+load(":federated_plugin_test.bzl", "federated_plugin_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
 load(":flutter_application_variant_test.bzl", "flutter_application_variant_test_suite")
 load(":flutter_framework_package_test.bzl", "flutter_framework_package_test_suite")
@@ -65,6 +66,7 @@ load(":pinned_test.bzl", "pinned_test_suite")
 load(":platform_bundle_test.bzl", "platform_bundle_test_suite")
 load(":plist_merge_test.bzl", "plist_merge_test_suite")
 load(":plugin_registrant_test.bzl", "plugin_registrant_test_suite")
+load(":plugin_resolution_test.bzl", "plugin_resolution_test_suite")
 load(":profile_mode_test.bzl", "profile_mode_test_suite")
 load(":pub_constraint_test.bzl", "pub_constraint_test_suite")
 load(":pub_cycle_test.bzl", "pub_cycle_test_suite")
@@ -221,6 +223,10 @@ flutter_pubspec_test_suite(name = "flutter_pubspec_test")
 flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")
 
 plugin_registrant_test_suite(name = "plugin_registrant_test")
+
+plugin_resolution_test_suite(name = "plugin_resolution_test")
+
+federated_plugin_test_suite(name = "federated_plugin_test")
 
 pub_cycle_test_suite(name = "pub_cycle_test")
 
