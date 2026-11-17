@@ -3215,7 +3215,7 @@ A package's assets are keyed by their path from the package root, the directory 
 
 | Attribute | Default | Description |
 |---|---|---|
-| `srcs` | required | The package's Dart files. They must be under its `lib/`. |
+| `srcs` | `[]` | The package's Dart files. They must be under its `lib/`. A library of only fonts, assets or shaders has none. |
 | `package` | none | The package's `dart_package_metadata`, `:pubspec-metadata` in the BUILD file at the package root. Without it, the package is named after its root directory and states nothing else. |
 | `deps` | `[]` | `dart_library` and `flutter_library` targets. |
 | `assets` | `[]` | `flutter: assets:`. Files of the package, keyed as above. To bundle a file from elsewhere, such as a generated one, put it at a path of the package with a rule of the package, such as `copy_file`, and list that. |
