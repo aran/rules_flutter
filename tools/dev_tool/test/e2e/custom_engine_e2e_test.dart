@@ -29,7 +29,9 @@
 /// 10. A `flutter_test` runs under the checkout's SDK: its modules compile
 ///     against the checkout's platform kernel and are told the checkout's
 ///     framework and engine.
-/// 11. The checkout's framework over the release engine takes the Material
+/// 11. The dev tool is told the checkout's version, the one `FLUTTER_VERSION`
+///     tells the program.
+/// 12. The checkout's framework over the release engine takes the Material
 ///     fonts its `bin/internal/material_fonts.version` names.
 @Tags(['e2e', 'app_builds'])
 library;
@@ -455,6 +457,47 @@ void main() {
 
   // -c dbg.
   appRecordsTheCheckout('debug', const ['-c', 'dbg']);
+
+  test('the dev tool is told the version the program is', () async {
+    // What DevTools shows (`flutterVersion` of the dev config) and what the
+    // program's `FLUTTER_VERSION` says are both the checkout's.
+    const target = '//:app_flutter';
+    final build = await _bazel([
+      'build',
+      target,
+      '${_sdkFlag}local',
+      '-c',
+      'dbg',
+    ]);
+    expect(build.exitCode, 0, reason: '${build.stderr}');
+    final files = await _bazel([
+      'cquery',
+      target,
+      '${_sdkFlag}local',
+      '-c',
+      'dbg',
+      '--output=files',
+    ]);
+    // cquery lists the target in every configuration it was analysed in,
+    // the app's earlier builds' included: check each one that was built.
+    final configs = (files.stdout as String)
+        .split('\n')
+        .where((f) => p.basename(f) == 'app_flutter_dev_config.json')
+        .map((f) => File(p.join(_workspace, f)))
+        .where((f) => f.existsSync())
+        .toList();
+    expect(configs, isNotEmpty);
+    for (final config in configs) {
+      final json =
+          jsonDecode(config.readAsStringSync()) as Map<String, Object?>;
+      expect(json['flutterVersion'], isNotEmpty, reason: config.path);
+      expect(
+        json['dartDefines'],
+        contains('FLUTTER_VERSION=${json['flutterVersion']}'),
+        reason: config.path,
+      );
+    }
+  });
 
   test(
     'the iOS simulator app records the simulator out dir',

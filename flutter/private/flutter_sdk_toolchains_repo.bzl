@@ -177,11 +177,15 @@ def _sdk_defines(repository_ctx):
     )
 
 def _flutter_sdk_toolchains_repo_impl(repository_ctx):
+    # The version is the framework's, as `flutter --version` reports it and
+    # as `FLUTTER_VERSION` tells the program: a framework source says it in
+    # `flutter_framework.json`, and the release's is `version`.
+    framework = _read_json(repository_ctx, repository_ctx.attr.framework_json_file)
     repository_ctx.file("BUILD.bazel", sdk_toolchains_build_content(
         sdk_defines = _sdk_defines(repository_ctx),
         engine = repository_ctx.attr.engine,
         sdk = repository_ctx.attr.sdk,
-        version = repository_ctx.attr.version,
+        version = framework.get("version") or repository_ctx.attr.version,
         engine_revision = repository_ctx.attr.engine_revision,
         material_fonts = repository_ctx.attr.material_fonts,
         sysroot_prefix = repository_ctx.attr.sysroot_prefix,
@@ -194,7 +198,7 @@ flutter_sdk_toolchains_repo = repository_rule(
     attrs = {
         "engine": attr.string(doc = "The SDK's engine repository, as a label prefix: `@repo`.", mandatory = True),
         "sdk": attr.string(mandatory = True),
-        "version": attr.string(doc = "The Flutter version the SDK reports."),
+        "version": attr.string(doc = "The release the SDK takes what its sources do not give from. Its version is the framework source's, when it has one."),
         "engine_revision": attr.string(doc = "The engine revision the SDK reports."),
         "material_fonts": attr.string(doc = "Label of the Material icons font; `{host}` stands for the host platform.", mandatory = True),
         "sysroot_prefix": attr.string(doc = "Prefix of the Linux sysroot repositories.", mandatory = True),
