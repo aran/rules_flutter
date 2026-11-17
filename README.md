@@ -3018,7 +3018,7 @@ The engine source directory also needs its Dart source, `flutter/third_party/dar
 
 Programs built with a custom SDK get its own `FLUTTER_VERSION`, `FLUTTER_FRAMEWORK_REVISION`, `FLUTTER_ENGINE_REVISION` and `FLUTTER_DART_VERSION` defines, from the checkout's version and commit and the engine's `args.gn`. `flutter_test` runs under the selected SDK too: its modules compile against the checkout's platform kernel.
 
-You can also replace only one half. Give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
+You can also replace only one half. Give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, give its framework too, as above. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 
 ### Choosing the SDK per build
 
