@@ -2396,7 +2396,7 @@ Like `flutter build aar`, each run then prints the host's steps:
 
 The repository has upstream's coordinates and POMs:
 
-- The module's AAR is `<package_name>:flutter_<mode>:<build_number>`. Its POM depends on Flutter's engine artifacts from `download.flutter.io`, `io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>`.
+- The module's AAR is `<package_name>:flutter_<mode>:<build_number>`. Its POM depends on Flutter's engine artifacts from `download.flutter.io`, `io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>`. Only a released engine has them, so with an engine that is not the release's (see [Custom engines and frameworks](#custom-engines-and-frameworks)) the build fails saying so.
 - Each plugin with Android code has an AAR at `<plugin group>:<plugin>_<mode>:<build_number>`. Its POM lists the Maven artifacts its Gradle build declares.
 - Every artifact, plugins' included, has the build number as its version, as `flutter build aar` sets it. Each artifact's `maven-metadata.xml` lists the modes written so far.
 
@@ -3016,7 +3016,7 @@ If two out dirs fit the same slot (`host_debug_arm64` and `host_debug_unopt_arm6
 
 The engine source directory also needs its Dart source, `flutter/third_party/dart`, which `gclient sync` fetches. rules_dart compiles each library's dependents against an outline of it: its kernel without function bodies. That way an edit inside a function body doesn't recompile them. The tool that makes outlines reads only the kernel format of its own Dart, so for an engine built from a checkout, it is built from that checkout's `pkg/kernel`. Without the Dart source, a build fails saying so, and names the two ways out: run `gclient sync`, or build with `--@rules_dart//dart:outline_kernel=false`.
 
-Programs built with a custom SDK get its own `FLUTTER_VERSION`, `FLUTTER_FRAMEWORK_REVISION`, `FLUTTER_ENGINE_REVISION` and `FLUTTER_DART_VERSION` defines, from the checkout's version and commit and the engine's `args.gn`. `flutter_test` runs under the selected SDK too: its modules compile against the checkout's platform kernel.
+Programs built with a custom SDK get its own `FLUTTER_VERSION`, `FLUTTER_FRAMEWORK_REVISION`, `FLUTTER_ENGINE_REVISION` and `FLUTTER_DART_VERSION` defines, from the checkout's version and commit and the engine's `args.gn`. The dev tool, and DevTools through it, report the same version and the engine's full revision. `flutter_test` runs under the selected SDK too: its modules compile against the checkout's platform kernel.
 
 You can also replace only one half. Give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, give its framework too, as above. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 

@@ -377,7 +377,6 @@ exports_files(
         engine = "@{}_stock_engine".format(name),
         sdk = name,
         version = flutter_version,
-        engine_revision = meta.engine_revision,
         material_fonts = material_fonts or "@{}_{{host}}//:material-fonts/MaterialIcons-Regular.otf".format(name),
         sysroot_prefix = name,
         framework_json = framework_json,

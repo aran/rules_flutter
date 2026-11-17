@@ -30,6 +30,7 @@ load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "p
 load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "android_shared_libraries")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
+load("//flutter/private:sdk_origin.bzl", "is_release_engine")
 
 # `flutter build aar`'s default `--target-platform`: android-arm, android-arm64
 # and android-x64.
@@ -227,11 +228,12 @@ def _single(target, group, label):
 def _flutter_android_module_aar_impl(ctx):
     _check_abis(ctx.label, ctx.attr.abis)
     mode = flutter_build_mode(ctx)
-    engine_revision = ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info.engine_revision
-    if not engine_revision:
-        fail(("%s: the Flutter SDK has no engine revision, and the module's POM names the " +
-              "engine's Maven artifacts by it (`io.flutter:flutter_embedding_<mode>:1.0.0-<revision>`), " +
-              "which exist for released engines only.") % ctx.label)
+    sdk = ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info
+    if not is_release_engine(sdk.host_tools):
+        fail(("%s: the \"%s\" Flutter SDK's engine is not the release's, and the module's POM names " +
+              "the engine's Maven artifacts (`io.flutter:flutter_embedding_<mode>:1.0.0-<revision>`), " +
+              "which are published for released engines only.") % (ctx.label, sdk.sdk))
+    engine_revision = sdk.engine_revision
 
     # What the manifest of upstream's module template (`.android/Flutter/src/
     # main/AndroidManifest.xml`) declares, in every mode: the Dart VM service

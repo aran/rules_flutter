@@ -10,7 +10,7 @@ downloads: the slices an analysed toolchain names are the files fetched.
 
 load("//flutter/private:engine_helpers.bzl", "platform_to_arch", "platform_to_os")
 load("//flutter/private:engine_labels.bzl", "engine_label", "gen_snapshot_label", "host_tools_label", "kernel_label", "mode_select", "native_target")
-load("//flutter/private:sdk_defines.bzl", "custom_sdk_dart_defines", "sdk_dart_defines")
+load("//flutter/private:sdk_defines.bzl", "custom_sdk_dart_defines", "sdk_dart_defines", "sdk_engine_revision")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "HOST_PLATFORMS")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
@@ -172,9 +172,14 @@ def _sdk_defines(repository_ctx):
     return custom_sdk_dart_defines(
         framework.get("version") or version,
         framework["commit"] if framework else (meta.framework_revision if meta else ""),
-        engine["engine_revision"] if "engine_revision" in engine else (meta.engine_revision if meta else ""),
+        _engine_revision(repository_ctx),
         engine["dart_version"] if "dart_version" in engine else (meta.dart_version if meta else ""),
     )
+
+def _engine_revision(repository_ctx):
+    """The engine's commit: what its `flutter_engine.json` says, or the release's."""
+    engine = _read_json(repository_ctx, repository_ctx.attr.engine_json_file)
+    return sdk_engine_revision(engine, repository_ctx.attr.version)
 
 def _flutter_sdk_toolchains_repo_impl(repository_ctx):
     # The version is the framework's, as `flutter --version` reports it and
@@ -186,7 +191,7 @@ def _flutter_sdk_toolchains_repo_impl(repository_ctx):
         engine = repository_ctx.attr.engine,
         sdk = repository_ctx.attr.sdk,
         version = framework.get("version") or repository_ctx.attr.version,
-        engine_revision = repository_ctx.attr.engine_revision,
+        engine_revision = _engine_revision(repository_ctx),
         material_fonts = repository_ctx.attr.material_fonts,
         sysroot_prefix = repository_ctx.attr.sysroot_prefix,
         framework_json = repository_ctx.attr.framework_json,
@@ -199,7 +204,6 @@ flutter_sdk_toolchains_repo = repository_rule(
         "engine": attr.string(doc = "The SDK's engine repository, as a label prefix: `@repo`.", mandatory = True),
         "sdk": attr.string(mandatory = True),
         "version": attr.string(doc = "The release the SDK takes what its sources do not give from. Its version is the framework source's, when it has one."),
-        "engine_revision": attr.string(doc = "The engine revision the SDK reports."),
         "material_fonts": attr.string(doc = "Label of the Material icons font; `{host}` stands for the host platform.", mandatory = True),
         "sysroot_prefix": attr.string(doc = "Prefix of the Linux sysroot repositories.", mandatory = True),
         "framework_json_file": attr.label(doc = "The `flutter_framework.json` itself, which says what the framework is.", allow_single_file = True),

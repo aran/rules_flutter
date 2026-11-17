@@ -184,13 +184,11 @@ def _register_sdk(sdk):
 
     # An engine of the root module's choosing: the toolchains are written
     # against its slices.
-    version_meta = FLUTTER_VERSIONS[sdk.version] if sdk.version else None
     flutter_sdk_toolchains_repo(
         name = sdk_repo_name(name),
         engine = _label_prefix(sdk.engine),
         sdk = name,
         version = sdk.version or "",
-        engine_revision = version_meta.engine_revision if version_meta else "",
         material_fonts = fonts_label,
         sysroot_prefix = DEFAULT_SDK_NAME,
         framework_json = str(framework_json(sdk.framework)) if sdk.framework else "",
@@ -218,7 +216,7 @@ def _toolchain_extension(module_ctx):
             sky_engine = (
                 "@@{}//sky_engine:pubspec.yaml".format(sdk.engine.repo_name) if sdk.engine else "@{}_sky_engine//sky_engine:pubspec.yaml".format(name)
             ) if sdk.framework else None,
-            engine_revision = FLUTTER_VERSIONS[sdk.version].engine_revision if released else "",
+            engine_json = "@@{}//:flutter_engine.json".format(sdk.engine.repo_name) if sdk.engine else None,
             sha256 = flutter_source_sha256(sdk.version) if released else "",
         )
 

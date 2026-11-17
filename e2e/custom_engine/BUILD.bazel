@@ -1,4 +1,4 @@
-load("@rules_flutter//flutter:android.bzl", "flutter_android_app")
+load("@rules_flutter//flutter:android.bzl", "flutter_android_aar", "flutter_android_app")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_test")
 load("@rules_flutter//flutter:integration_test.bzl", "flutter_web_integration_test")
 load("@rules_flutter//flutter:ios.bzl", "IOS_MINIMUM_OS_VERSION", "flutter_ios_app", "flutter_ios_app_framework_gen", "flutter_ios_simulator_build")
@@ -7,6 +7,7 @@ load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
+load(":aar_test.bzl", "aar_of_local_engine_refused_test")
 
 exports_files(["pubspec.lock"])
 
@@ -82,6 +83,21 @@ flutter_android_app(
     name = "android_app",
     application = ":android_flutter",
     application_id = "com.example.customengine",
+)
+
+# The module as a Maven repository for a Gradle host app. Its POM names the
+# engine's Maven artifacts, which only a released engine has: under the
+# checkout's SDK it fails analysis, saying so.
+flutter_android_aar(
+    name = "module_aar",
+    package_name = "com.example.customengine.module",
+    abis = ["arm64-v8a"],
+    application = ":android_flutter",
+)
+
+aar_of_local_engine_refused_test(
+    name = "aar_of_local_engine_refused_test",
+    target_under_test = ":module_aar",
 )
 
 # A Linux bundle, cross-compiled from the Mac: build it with

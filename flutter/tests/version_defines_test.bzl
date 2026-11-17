@@ -13,7 +13,7 @@ load("@flutter_version_pin//:version.bzl", "FLUTTER_VERSION")
 load("//flutter:defs.bzl", "flutter_application")
 load("//flutter/private:flutter_kernel.bzl", "flutter_kernel")
 load("//flutter/private:flutter_test.bzl", "flutter_test")
-load("//flutter/private:sdk_defines.bzl", "VERSION_DEFINE_KEYS", "sdk_dart_defines", "version_dart_defines")
+load("//flutter/private:sdk_defines.bzl", "VERSION_DEFINE_KEYS", "sdk_dart_defines", "sdk_engine_revision", "version_dart_defines")
 load("//flutter/private:validation.bzl", "is_valid_dart_define")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 load(":action_content.bzl", "written_json")
@@ -68,6 +68,20 @@ def _sdk_defines_test_impl(ctx):
     return unittest.end(env)
 
 _sdk_defines_test = unittest.make(_sdk_defines_test_impl)
+
+def _engine_revision_test_impl(ctx):
+    # The commit the toolchain and the dev root's manifest both report: the
+    # engine's own record's, not the release's it is paired with.
+    env = unittest.begin(ctx)
+    release = FLUTTER_VERSIONS[FLUTTER_VERSION].engine_revision
+    asserts.equals(env, "0123abc", sdk_engine_revision({"engine_revision": "0123abc"}, FLUTTER_VERSION))
+    asserts.equals(env, release, sdk_engine_revision({}, FLUTTER_VERSION))
+    asserts.equals(env, release, sdk_engine_revision({"dart_version": "3.12.0"}, FLUTTER_VERSION))
+    asserts.equals(env, "", sdk_engine_revision({}, ""))
+    asserts.equals(env, "", sdk_engine_revision({"unset": "Set FLUTTER_ENGINE."}, FLUTTER_VERSION))
+    return unittest.end(env)
+
+_engine_revision_test = unittest.make(_engine_revision_test_impl)
 
 def _every_release_describes_itself_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -231,6 +245,7 @@ def version_defines_test_suite(name):
     _modular_test(name = name + "_test_modular", target_under_test = ":_version_test.program", mnemonic = "DartEntryKernel")
     _whole_program_test(name = name + "_test_whole_program", target_under_test = ":_version_test.program", mnemonic = "DartKernel")
     _sdk_defines_test(name = name + "_sdk_defines")
+    _engine_revision_test(name = name + "_engine_revision")
     _every_release_describes_itself_test(name = name + "_every_release")
     _reserved_test(name = name + "_reserved")
     native.test_suite(
@@ -246,6 +261,7 @@ def version_defines_test_suite(name):
             ":" + name + "_test_modular",
             ":" + name + "_test_whole_program",
             ":" + name + "_sdk_defines",
+            ":" + name + "_engine_revision",
             ":" + name + "_every_release",
             ":" + name + "_reserved",
         ],

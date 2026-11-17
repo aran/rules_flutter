@@ -30,8 +30,9 @@
 /// 10. A `flutter_test` runs under the checkout's SDK: its modules compile
 ///     against the checkout's platform kernel and are told the checkout's
 ///     framework and engine.
-/// 11. The dev tool is told the checkout's version, the one `FLUTTER_VERSION`
-///     tells the program.
+/// 11. The dev tool is told the checkout's version and its engine's full
+///     revision, the ones `FLUTTER_VERSION` and `FLUTTER_ENGINE_REVISION` tell
+///     the program.
 /// 12. The checkout's framework over the release engine takes the Material
 ///     fonts its `bin/internal/material_fonts.version` names.
 @Tags(['e2e', 'app_builds'])
@@ -459,9 +460,10 @@ void main() {
   // -c dbg.
   appRecordsTheCheckout('debug', const ['-c', 'dbg']);
 
-  test('the dev tool is told the version the program is', () async {
-    // What DevTools shows (`flutterVersion` of the dev config) and what the
-    // program's `FLUTTER_VERSION` says are both the checkout's.
+  test('the dev tool is told the version and engine the program is', () async {
+    // What DevTools shows (`flutterVersion` and `engineRevision` of the dev
+    // config) and what the program's `FLUTTER_*` defines say are the
+    // checkout's.
     const target = '//:app_flutter';
     final build = await _bazel([
       'build',
@@ -495,6 +497,15 @@ void main() {
       expect(
         json['dartDefines'],
         contains('FLUTTER_VERSION=${json['flutterVersion']}'),
+        reason: config.path,
+      );
+      // The full engine revision is the checkout's engine's commit, of which
+      // `FLUTTER_ENGINE_REVISION` is the short form.
+      final engineRevision = json['engineRevision'] as String;
+      expect(engineRevision, matches(RegExp(r'^[0-9a-f]{40}$')));
+      expect(
+        json['dartDefines'],
+        contains('FLUTTER_ENGINE_REVISION=${engineRevision.substring(0, 10)}'),
         reason: config.path,
       );
     }

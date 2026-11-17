@@ -81,6 +81,26 @@ def custom_sdk_dart_defines(version, framework_revision, engine_revision, dart_v
         "FLUTTER_DART_VERSION=" + dart_version,
     ]
 
+def sdk_engine_revision(engine, version):
+    """The commit of an SDK's engine, wherever the SDK reports it.
+
+    Args:
+        engine: The engine's decoded `flutter_engine.json`, or `{}` for the
+            release's engine.
+        version: The release the SDK takes what its sources do not give
+            from, or empty.
+
+    Returns:
+        What the engine's record says; nothing for an engine whose path is
+        not set; else the release's.
+    """
+    if engine.get("unset"):
+        return ""
+    if "engine_revision" in engine:
+        return engine["engine_revision"]
+    meta = FLUTTER_VERSIONS.get(version) if version else None
+    return meta.engine_revision if meta else ""
+
 def app_version_dart_defines(build_name, build_number):
     """The defines `appBuildName` and `appBuildNumber` read.
 
