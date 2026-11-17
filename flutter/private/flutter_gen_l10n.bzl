@@ -102,12 +102,15 @@ def _flutter_gen_l10n_impl(ctx):
     rel_dir = srcs[0].short_path[:-len(srcs[0].basename)]
     if rel_dir.startswith(ctx.label.package + "/"):
         rel_dir = rel_dir[len(ctx.label.package) + 1:]
-    output_dir = ctx.attr.output_dir.rstrip("/")
+    output_dir = ctx.attr.output_dir
     if output_dir:
-        if output_dir.startswith("/") or ".." in output_dir.split("/"):
+        # One spelling per directory: an empty, `.` or `..` part would name
+        # it another way (`./x`, `a//b`, `x/`) or leave the package (`/x`,
+        # `../x`).
+        if [part for part in output_dir.split("/") if part in ("", ".", "..")]:
             fail(
                 ("%s: output_dir must be a directory of the package, relative " +
-                 "to it, got %r.") % (ctx.label, ctx.attr.output_dir),
+                 "to it, got %r.") % (ctx.label, output_dir),
             )
         rel_dir = output_dir + "/"
 
@@ -185,9 +188,13 @@ flutter_gen_l10n = rule(
             default = "app_localizations.dart",
         ),
         "output_dir": attr.string(
-            doc = "Directory the generated files are written to, relative to " +
-                  "the package, as `l10n.yaml`'s `output-dir`. Empty writes " +
-                  "them beside the arb files.",
+            doc = "Directory the generated files are written to, as " +
+                  "`l10n.yaml`'s `output-dir`. It is relative to the package, " +
+                  "which plays the part of the project directory " +
+                  "`flutter gen-l10n` resolves it against, and is written " +
+                  "as a plain relative path such as `lib/gen_l10n`: no " +
+                  "leading or trailing `/`, `.` or `..`. Empty writes them " +
+                  "beside the arb files.",
         ),
         "output_class": attr.string(
             doc = "Name of the generated abstract class.",

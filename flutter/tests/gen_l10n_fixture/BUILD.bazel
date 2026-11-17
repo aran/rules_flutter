@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//flutter:defs.bzl", "flutter_gen_l10n")
-load("//flutter/tests:gen_l10n_test.bzl", "gen_l10n_outputs_test", "gen_l10n_refused_test")
+load("//flutter/tests:flutter_fonts_test.bzl", "analysis_fails_test")
+load("//flutter/tests:gen_l10n_test.bzl", "gen_l10n_outputs_test")
 
 # `es` and `es_419` deliberately both appear: gen-l10n emits one Dart file per
 # *primary language subtag*, so these two collapse into a single
@@ -66,11 +67,41 @@ flutter_gen_l10n(
     tags = ["manual"],
 )
 
-gen_l10n_refused_test(
+analysis_fails_test(
     name = "output_dir_outside_package_test",
     size = "small",
     message = "output_dir must be a directory of the package",
     target_under_test = ":l10n_outside_package",
+)
+
+# A second spelling of a directory of the package is refused too, so each
+# directory has one.
+flutter_gen_l10n(
+    name = "l10n_dot_segment",
+    arbs = ["lib/l10n/app_en.arb"],
+    output_dir = "./lib/gen_l10n",
+    tags = ["manual"],
+)
+
+analysis_fails_test(
+    name = "output_dir_dot_segment_test",
+    size = "small",
+    message = "output_dir must be a directory of the package",
+    target_under_test = ":l10n_dot_segment",
+)
+
+flutter_gen_l10n(
+    name = "l10n_trailing_slash",
+    arbs = ["lib/l10n/app_en.arb"],
+    output_dir = "lib/gen_l10n/",
+    tags = ["manual"],
+)
+
+analysis_fails_test(
+    name = "output_dir_trailing_slash_test",
+    size = "small",
+    message = "output_dir must be a directory of the package",
+    target_under_test = ":l10n_trailing_slash",
 )
 
 build_test(

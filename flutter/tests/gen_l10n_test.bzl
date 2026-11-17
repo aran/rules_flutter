@@ -12,14 +12,3 @@ gen_l10n_outputs_test = analysistest.make(
     _outputs_impl,
     attrs = {"expected": attr.string_list(doc = "The outputs' short paths.")},
 )
-
-def _refused_impl(ctx):
-    env = analysistest.begin(ctx)
-    asserts.expect_failure(env, ctx.attr.message)
-    return analysistest.end(env)
-
-gen_l10n_refused_test = analysistest.make(
-    _refused_impl,
-    attrs = {"message": attr.string(doc = "Text the analysis failure contains.")},
-    expect_failure = True,
-)

@@ -4105,7 +4105,7 @@ The generated files land beside the `.arb` files, which must all be in one direc
 | `l10n.yaml` / `flutter gen-l10n` flag | Attribute | Default |
 |---|---|---|
 | `template-arb-file` | `template_arb_file` | `app_en.arb` |
-| `output-dir` | `output_dir` | beside the `.arb` files |
+| `output-dir` | `output_dir` (relative to the package, which stands for the project directory) | beside the `.arb` files |
 | `output-localization-file` | `output_localization_file` | `app_localizations.dart` |
 | `output-class` | `output_class` | `AppLocalizations` |
 | `preferred-supported-locales` | `preferred_supported_locales` | `[]` |
