@@ -324,6 +324,7 @@ bzl_library(
     srcs = ["extensions.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:checkout_sdks",
         "//flutter/private:flutter_sdks_repo",
         "//flutter/private:pub_extension",
         "//flutter/private:repositories",

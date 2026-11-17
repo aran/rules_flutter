@@ -13,7 +13,12 @@
 ///  4. A checkout given by `--repo_env=FLUTTER_CHECKOUT` and `FLUTTER_ENGINE` works; not set, the
 ///     repositories still load (`bazel query`) and a build that selects the SDK
 ///     says what to set. `FLUTTER_LOCAL_ENGINES` chooses only for the slots its
-///     names fit, and a name that is no out dir fails.
+///     names fit, and a name that is no out dir fails. A `flutter.checkout`
+///     given by `FLUTTER_CHECKOUT` alone takes its engine from the checkout's
+///     `engine/src`, never from `FLUTTER_ENGINE`: the dev tool and the
+///     program are told the checkout's version and the revision its engine
+///     was built at. The `local` SDK of the other cases is a
+///     `flutter.checkout`.
 ///  5. The iOS simulator app (debug) and the iOS device framework (release) are
 ///     built from the checkout's `ios_debug_sim_arm64` and `ios_release` out
 ///     dirs and record them.
@@ -53,6 +58,11 @@ final String? _appleOnly = Platform.isMacOS ? null : 'builds Apple targets';
 /// x86_64 Linux machine `host_<mode>`, which also holds the Linux engine.
 String _host(String mode) =>
     Platform.isLinux ? 'host_$mode' : 'host_${mode}_arm64';
+
+/// The engine repository of the `local` SDK, the stand-in checkout's, which
+/// `flutter.checkout` declares.
+const _localEngineRepo = 'local_checkout_engine';
+const _localEngine = '@@rules_flutter++flutter+$_localEngineRepo';
 
 /// The stock Dart's snapshot hash, which the stand-in's engine and
 /// gen_snapshot carry.
@@ -114,6 +124,40 @@ Future<Map<String, Object?>?> _record(
     }
   }
   return null;
+}
+
+/// The dev configs (`app_flutter_dev_config.json`) that building
+/// `//:app_flutter` with [flags] wrote.
+Future<List<Map<String, Object?>>> _devConfigs(List<String> flags) async {
+  const target = '//:app_flutter';
+  final build = await _bazel(['build', target, ...flags]);
+  expect(build.exitCode, 0, reason: '${build.stderr}');
+  final files = await _bazel(['cquery', target, ...flags, '--output=files']);
+  // cquery lists the target in every configuration it was analysed in,
+  // the app's earlier builds' included: check each one that was built.
+  final configs = (files.stdout as String)
+      .split('\n')
+      .where((f) => p.basename(f) == 'app_flutter_dev_config.json')
+      .map((f) => File(p.join(_workspace, f)))
+      .where((f) => f.existsSync())
+      .map((f) => jsonDecode(f.readAsStringSync()) as Map<String, Object?>)
+      .toList();
+  expect(configs, isNotEmpty);
+  return configs;
+}
+
+/// The directory of the stand-in checkout's [file], such as
+/// `checkout/CHECKOUT`.
+Future<String> _fakeCheckoutDir(String file) async {
+  final location = await _bazel([
+    'query',
+    '@fake_checkout//:$file',
+    '--output=location',
+  ]);
+  expect(location.exitCode, 0, reason: '${location.stderr}');
+  return p.dirname(
+    '${location.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+  );
 }
 
 /// The names of the out dirs [record] says its engine pieces came from.
@@ -284,7 +328,7 @@ void main() {
       r'[\w+./-]*(?:dart2js|dart2wasm)_platform\.dill',
     ).allMatches('${aquery.stdout}').map((m) => m.group(0)!).toSet();
     expect(dills, isNotEmpty);
-    expect(dills, everyElement(contains('local_engine')));
+    expect(dills, everyElement(contains(_localEngineRepo)));
   });
 
   test('the web render check passes against the checkout\'s web SDK', () async {
@@ -318,7 +362,7 @@ void main() {
       r'[\w+./-]*platform_strong\.dill',
     ).allMatches('${aquery.stdout}').map((m) => m.group(0)!).toSet();
     expect(dills, isNotEmpty);
-    expect(dills, everyElement(contains('local_engine')));
+    expect(dills, everyElement(contains(_localEngineRepo)));
   });
 
   test('the checkout\'s packages are linked, never written into', () async {
@@ -376,9 +420,9 @@ void main() {
   test('the Windows and Linux arm64 engines are the checkout\'s too', () async {
     final build = await _bazel([
       'build',
-      '@local_engine//windows-x64/debug:engine',
-      '@local_engine//windows-x64/release:engine',
-      '@local_engine//linux-arm64/release:engine',
+      '$_localEngine//windows-x64/debug:engine',
+      '$_localEngine//windows-x64/release:engine',
+      '$_localEngine//linux-arm64/release:engine',
     ]);
     expect(build.exitCode, 0, reason: '${build.stderr}');
   });
@@ -389,7 +433,7 @@ void main() {
     () async {
       final build = await _bazel([
         'build',
-        '@local_engine//linux-x64/release:gen_snapshot_linux-x64',
+        '$_localEngine//linux-x64/release:gen_snapshot_linux-x64',
       ]);
       expect(build.exitCode, isNot(0));
       expect(
@@ -464,40 +508,11 @@ void main() {
     // What DevTools shows (`flutterVersion` and `engineRevision` of the dev
     // config) and what the program's `FLUTTER_*` defines say are the
     // checkout's.
-    const target = '//:app_flutter';
-    final build = await _bazel([
-      'build',
-      target,
-      '${_sdkFlag}local',
-      '-c',
-      'dbg',
-    ]);
-    expect(build.exitCode, 0, reason: '${build.stderr}');
-    final files = await _bazel([
-      'cquery',
-      target,
-      '${_sdkFlag}local',
-      '-c',
-      'dbg',
-      '--output=files',
-    ]);
-    // cquery lists the target in every configuration it was analysed in,
-    // the app's earlier builds' included: check each one that was built.
-    final configs = (files.stdout as String)
-        .split('\n')
-        .where((f) => p.basename(f) == 'app_flutter_dev_config.json')
-        .map((f) => File(p.join(_workspace, f)))
-        .where((f) => f.existsSync())
-        .toList();
-    expect(configs, isNotEmpty);
-    for (final config in configs) {
-      final json =
-          jsonDecode(config.readAsStringSync()) as Map<String, Object?>;
-      expect(json['flutterVersion'], isNotEmpty, reason: config.path);
+    for (final json in await _devConfigs(['${_sdkFlag}local', '-c', 'dbg'])) {
+      expect(json['flutterVersion'], isNotEmpty);
       expect(
         json['dartDefines'],
         contains('FLUTTER_VERSION=${json['flutterVersion']}'),
-        reason: config.path,
       );
       // The full engine revision is the checkout's engine's commit, of which
       // `FLUTTER_ENGINE_REVISION` is the short form.
@@ -506,7 +521,6 @@ void main() {
       expect(
         json['dartDefines'],
         contains('FLUTTER_ENGINE_REVISION=${engineRevision.substring(0, 10)}'),
-        reason: config.path,
       );
     }
   });
@@ -679,6 +693,84 @@ void main() {
     },
   );
 
+  test(
+    'an unset flutter.checkout loads, and a build that selects it says what to set',
+    () async {
+      final app = Platform.isMacOS ? '//:app' : '//:linux_app';
+      final query = await _bazel([
+        'query',
+        'deps($app)',
+        '${_sdkFlag}env_checkout',
+        '--output=label_kind',
+      ]);
+      expect(query.exitCode, 0, reason: '${query.stderr}');
+      final build = await _bazel([
+        'build',
+        app,
+        '${_sdkFlag}env_checkout',
+        '--keep_going',
+      ]);
+      expect(build.exitCode, isNot(0));
+      // One variable gives both halves: the engine is the checkout's own.
+      expect('${build.stderr}', contains('FLUTTER_CHECKOUT is not set'));
+      expect('${build.stderr}', isNot(contains('FLUTTER_ENGINE')));
+    },
+  );
+
+  test(
+    'flutter.checkout pairs the framework with the engine built in it',
+    () async {
+      // FLUTTER_ENGINE names no engine: the checkout's SDK never reads it.
+      final checkout = await _fakeCheckoutDir('checkout/CHECKOUT');
+      final flags = [
+        '${_sdkFlag}env_checkout',
+        '-c',
+        'dbg',
+        '--repo_env=FLUTTER_CHECKOUT=$checkout',
+        '--repo_env=FLUTTER_ENGINE=/nonexistent',
+      ];
+      final version = jsonDecode(
+        File(
+          p.join(checkout, 'bin', 'cache', 'flutter.version.json'),
+        ).readAsStringSync(),
+      ) as Map<String, Object?>;
+      final argsGn = File(
+        p.join(checkout, 'engine', 'src', 'out', _host('debug'), 'args.gn'),
+      ).readAsStringSync();
+      final engineVersion = RegExp(
+        r'engine_version = "([0-9a-f]+)"',
+      ).firstMatch(argsGn)!.group(1)!;
+      for (final json in await _devConfigs(flags)) {
+        expect(json['flutterVersion'], version['flutterVersion']);
+        expect(json['engineRevision'], engineVersion);
+        expect(
+          json['dartDefines'],
+          allOf(
+            contains('FLUTTER_VERSION=${version['flutterVersion']}'),
+            contains(
+              'FLUTTER_ENGINE_REVISION=${engineVersion.substring(0, 10)}',
+            ),
+          ),
+        );
+      }
+
+      // The program compiles against the platform kernel of that engine. Only
+      // paths: the compile also names the file alone.
+      final aquery = await _bazel([
+        'aquery',
+        'mnemonic(".*Kernel.*", //:app_flutter)',
+        ...flags,
+        '--output=text',
+      ]);
+      expect(aquery.exitCode, 0, reason: '${aquery.stderr}');
+      final dills = RegExp(
+        r'[\w+./-]*/platform_strong\.dill',
+      ).allMatches('${aquery.stdout}').map((m) => m.group(0)!).toSet();
+      expect(dills, isNotEmpty);
+      expect(dills, everyElement(contains('env_checkout_checkout_engine')));
+    },
+  );
+
   test('a framework over the release engine brings its own fonts', () async {
     final toolchain = await _bazel([
       'query',
@@ -700,14 +792,8 @@ void main() {
   });
 
   test('FLUTTER_LOCAL_ENGINES chooses only for the slots it fits', () async {
-    final location = await _bazel([
-      'query',
-      '@fake_checkout//:checkout/engine/src/ENGINE_SRC',
-      '--output=location',
-    ]);
-    expect(location.exitCode, 0, reason: '${location.stderr}');
-    final engineSrc = p.dirname(
-      '${location.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+    final engineSrc = await _fakeCheckoutDir(
+      'checkout/engine/src/ENGINE_SRC',
     );
     Future<ProcessResult> kind(String pins) => _bazel([
       'query',

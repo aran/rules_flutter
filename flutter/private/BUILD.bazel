@@ -998,6 +998,12 @@ bzl_library(
 )
 
 bzl_library(
+    name = "checkout_sdks",
+    srcs = ["checkout_sdks.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "toolchain_version",
     srcs = ["toolchain_version.bzl"],
     visibility = ["//flutter:__subpackages__"],
