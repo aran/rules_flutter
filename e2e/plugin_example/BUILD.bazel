@@ -632,6 +632,32 @@ dart_test(
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
+# `kotlin_plugin_user` has nothing of Flutter's and depends on
+# `kotlin_only_plugin`. An app that depends on it alone reaches the plugin only
+# through it, and its registrant still registers the plugin.
+flutter_application(
+    name = "kotlin_plugin_user_app",
+    main = "lib/kotlin_plugin_user_main.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:kotlin_plugin_user",
+    ],
+)
+
+flutter_android_registrant(
+    name = "kotlin_plugin_user_android_registrant",
+    application = ":kotlin_plugin_user_app",
+)
+
+dart_test(
+    name = "verify_android_registrant_through_dart_package_test",
+    data = [":kotlin_plugin_user_android_registrant"],
+    env = {"REGISTRANT": "kotlin_plugin_user_android_registrant"},
+    main = "test/verify_android_registrant_test.dart",
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
 # `pub_only_tool` is a `path` package MODULE.bazel names in `ignored`: a library
 # that depends on it fails analysis, giving the reason. `manual`, so `//...`
 # never builds it; the test analyses it.
@@ -850,6 +876,7 @@ flutter_library(
         "@deps//:audio_session",
         "@deps//:flutter",
         "@deps//:geolocator_apple",
+        "@deps//:kotlin_plugin_user",
         "@deps//:package_info_plus",
         "@deps//:path_provider",
         "@deps//:record_android",

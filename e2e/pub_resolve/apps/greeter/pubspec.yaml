@@ -7,6 +7,9 @@ dependencies:
     sdk: flutter
   greeting:
     path: ../../packages/greeting
+  # Nothing of Flutter's, depending on `greeting`: see relay_test.
+  greeting_relay:
+    path: ../../packages/greeting_relay
 dev_dependencies:
   flutter_test:
     sdk: flutter

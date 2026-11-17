@@ -84,6 +84,13 @@ packages:
       relative: true
     source: path
     version: "1.2.0"
+  greeting_relay:
+    dependency: "direct main"
+    description:
+      path: "../../packages/greeting_relay"
+      relative: true
+    source: path
+    version: "0.0.0"
   integration_test:
     dependency: "direct dev"
     description: flutter
