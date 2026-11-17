@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Not a real provisioning profile: a plain property list in the shape of
-  one, for a device build that is never signed (`--features=disable_legacy_signing`).
+  one, for a device build that is never signed (the `disable_legacy_signing` feature).
   rules_apple wants a profile for every device build, though it signs with none
   of it, and reads the entitlements and team from this.
 -->
@@ -29,6 +29,10 @@
 	<date>2099-01-01T00:00:00Z</date>
 	<key>Name</key>
 	<string>Unsigned</string>
+	<key>Platform</key>
+	<array>
+		<string>iOS</string>
+	</array>
 	<key>ProvisionedDevices</key>
 	<array/>
 	<key>TeamIdentifier</key>
