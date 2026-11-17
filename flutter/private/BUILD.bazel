@@ -1,6 +1,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@bazel_skylib//rules:common_settings.bzl", "string_list_flag")
 load("@rules_java//java:java_library.bzl", "java_library")
+load(":apple_engine.bzl", "flutter_macos_engine_dsym")
 load(":flutter_module.bzl", "flutter_kernel_sdk")
 load(":flutter_sdk_record.bzl", "flutter_sdk_record", "flutter_web_sdk_record")
 load(":unsupported_toolchain.bzl", "flutter_unsupported_toolchain")
@@ -73,6 +74,29 @@ config_setting(
     flag_values = {"//flutter:profile": "true"},
     values = {"compilation_mode": "opt"},
     visibility = ["//visibility:public"],
+)
+
+# `--apple_generate_dsym`: rules_apple makes an app's dSYMs, and the app takes
+# the engine's too.
+config_setting(
+    name = "apple_generate_dsym",
+    values = {"apple_generate_dsym": "true"},
+    visibility = ["//visibility:public"],
+)
+
+# The dSYM of the macOS engine of the build mode: the release engine's, from
+# the engine source's xcframework slice, and none in debug and profile, as
+# `flutter build macos` copies it in release only. A macOS app imports it
+# only under `--apple_generate_dsym` (`MACOS_ENGINE_DSYM`), so no other build
+# reads the xcframework.
+flutter_macos_engine_dsym(
+    name = "macos_engine_dsym",
+    visibility = ["//visibility:public"],
+    xcframework = select({
+        ":dbg": None,
+        ":profile": None,
+        "//conditions:default": "@flutter_macos_engine//:xcframework",
+    }),
 )
 
 # The Android platforms an APK can be built for, for select() in macros. An

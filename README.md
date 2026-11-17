@@ -599,6 +599,8 @@ To check a profile build in `bazel test` without those flags on the command line
 bazel build -c opt //:my_app_macos --output_groups=+dsyms
 ```
 
+With `--apple_generate_dsym`, the group also holds the runner's dSYM and the engine's: `Flutter.framework.dSYM` on iOS, and on macOS `FlutterMacOS.framework.dSYM` in a release build, the one mode Flutter ships it for. Only that flag downloads the macOS engine's dSYM, which comes in a 165 MB archive.
+
 `extra_gen_snapshot_options = ["--no-strip"]` on the `flutter_application` keeps the symbols in the binary, as it does for `flutter build`. The dSYM is still made. A `flutter_aot_snapshot` on its own isn't stripped, and its object file is in the `macho_object` output group.
 
 **Obfuscation and split debug info** work as `flutter build --obfuscate --split-debug-info=<dir>` does, through two build flags that apply to every app in the build:
@@ -3231,7 +3233,7 @@ An engine source has a `flutter_engine.json` at its root, and a target, called a
 | `//sky_engine:pubspec.yaml` | A file: the `pubspec.yaml` of the engine's `sky_engine` package, with the rest of the package beside it | Resolving `pubspec.lock` against a framework source (`@rules_flutter//flutter/pub`) |
 | `//outline_tool:outline_tool` | The outline tool, for example an `alias` to the `:outline_tool` of a rules_dart `dart_kernel_source(path = ...)` of the engine's Dart | Builds with `--@rules_dart//dart:outline_kernel`, the default |
 | `//macos/<mode>:engine` | `flutter_macos_engine_slice` (`FlutterEngineInfo`) | macOS apps |
-| `//macos/<mode>:xcframework` | `flutter_macos_engine_slice`, whose files are a whole `FlutterMacOS.xcframework` | macOS add-to-app (`flutter_macos_xcframeworks`) |
+| `//macos/<mode>:xcframework` | `flutter_macos_engine_slice`, whose files are a whole `FlutterMacOS.xcframework` | macOS add-to-app (`flutter_macos_xcframeworks`). Release macOS apps built with `--apple_generate_dsym` take the engine's dSYM from `release`'s, at `<slice>/dSYMs/FlutterMacOS.framework.dSYM` beside the framework; without one, the app's `dsyms` output group has no engine dSYM, as with `flutter build macos` |
 | `//ios/<mode>:engine` | `flutter_ios_engine_slice` | iOS apps. `debug` is the simulator engine |
 | `//android-<arch>/<mode>:engine` | `flutter_android_engine_slice` | Android apps. `<arch>` is `arm`, `arm64` or `x64` |
 | `//linux-<arch>/<mode>:engine` | `flutter_linux_engine_slice` | Linux apps. `<arch>` is `x64` or `arm64` |

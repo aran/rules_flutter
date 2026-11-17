@@ -63,7 +63,7 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_swift//swift:swift.bzl", "swift_library")
 load("//flutter/private:app_version.bzl", "version_arg", "version_target_conflict")
 load("//flutter/private:apple_app.bzl", "flutter_apple_app")
-load("//flutter/private:apple_engine.bzl", _MACOS_ENGINE_FRAMEWORK = "MACOS_ENGINE_FRAMEWORK")
+load("//flutter/private:apple_engine.bzl", _MACOS_ENGINE_DSYM = "MACOS_ENGINE_DSYM", _MACOS_ENGINE_FRAMEWORK = "MACOS_ENGINE_FRAMEWORK")
 load("//flutter/private:apple_version_check.bzl", _flutter_apple_version_check = "flutter_apple_version_check")
 load("//flutter/private:apple_xcframeworks_codesign.bzl", _flutter_apple_xcframeworks_codesign = "flutter_apple_xcframeworks_codesign")
 load("//flutter/private:apple_xcframeworks_layout.bzl", "flutter_apple_xcframeworks_layout")
@@ -185,6 +185,7 @@ def flutter_macos_engine(name, **kwargs):
     apple_dynamic_framework_import(
         name = name,
         framework_imports = _MACOS_ENGINE_FRAMEWORK,
+        dsym_imports = _MACOS_ENGINE_DSYM,
         tags = tags,
         **kwargs
     )
@@ -576,6 +577,7 @@ def flutter_macos_app(
     apple_dynamic_framework_import(
         name = "__%s_engine" % name,
         framework_imports = _MACOS_ENGINE_FRAMEWORK,
+        dsym_imports = _MACOS_ENGINE_DSYM,
         tags = tags,
         testonly = testonly,
     )

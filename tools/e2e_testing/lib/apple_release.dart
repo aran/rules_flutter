@@ -99,9 +99,10 @@ String runfilesAppBinary() {
 }
 
 /// Every `.dSYM` bundle among the test's runfiles, whatever the target that
-/// produced it.
+/// produced it or the repository it came from (an imported framework's dSYM
+/// is a file of the repository that holds the framework).
 List<String> runfilesDsyms() {
-  final root = Directory(Runfiles.create().rlocation('_main'));
+  final root = Directory(Runfiles.create().rlocation('_main')).parent;
   if (!root.existsSync()) return const [];
   return [
     for (final entity in root.listSync(recursive: true, followLinks: false))
@@ -109,7 +110,7 @@ List<String> runfilesDsyms() {
   ];
 }
 
-/// Checks that one of [dsyms] holds debug info for the `App` binary at [path]:
+/// Checks that one of [dsyms] holds debug info for the binary at [path]:
 /// its UUID is the binary's. A crash report names the UUID of the binary that
 /// crashed, and a dSYM of another UUID does not symbolicate it.
 void checkDsymMatches(BundleCheck check, String path, List<String> dsyms) {
@@ -121,7 +122,7 @@ void checkDsymMatches(BundleCheck check, String path, List<String> dsyms) {
     return;
   }
   if (binaryUuids.isEmpty) {
-    check.fail('App binary carries no LC_UUID, so no dSYM can match it');
+    check.fail('$path carries no LC_UUID, so no dSYM can match it');
     return;
   }
   final found = <String, Set<String>>{};
@@ -133,7 +134,7 @@ void checkDsymMatches(BundleCheck check, String path, List<String> dsyms) {
     }
   }
   check.expect(
-    'a dSYM matches the App binary (UUID ${binaryUuids.join(', ')})',
+    'a dSYM matches ${path.split('/').last} (UUID ${binaryUuids.join(', ')})',
     condition: found.values.any((uuids) => uuids.containsAll(binaryUuids)),
     detail: dsyms.isEmpty
         ? 'the build produced no dSYM'

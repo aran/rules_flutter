@@ -6,10 +6,16 @@ against the macOS one must agree with the application: the application bundles
 that mode's FlutterMacOS.framework, and a plugin importing another mode's copy
 puts two frameworks of one name into the bundle, which rules_apple cannot
 assemble.
+
+A macOS app's engine import carries the engine's dSYM only for a release build
+with `--apple_generate_dsym`: no other build reads the 165 MB xcframework that
+holds it. The release case itself is checked in e2e/macos_example
+(`verify_macos_release_dsym_*_test`), which downloads it.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
+load("//flutter:macos.bzl", "flutter_macos_engine")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "flutter_apple_plugin_library")
 load(":engine_mode.bzl", "MODE_FLAGS", "engine_modes")
 
@@ -25,7 +31,22 @@ def _plugin_import_modes_impl(ctx):
     asserts.equals(env, [ctx.attr.mode], engine_modes(files, "/FlutterMacOS.framework/"))
     return analysistest.end(env)
 
+def _no_engine_dsym_impl(ctx):
+    env = analysistest.begin(ctx)
+    dsyms = analysistest.target_under_test(env)[AppleFrameworkImportInfo].dsym_imports.to_list()
+    asserts.equals(env, [], [f.path for f in dsyms])
+    return analysistest.end(env)
+
 _ATTRS = {"mode": attr.string(), "marker": attr.string()}
+
+_DSYM = {"//command_line_option:apple_generate_dsym": True}
+
+# No dSYM without the flag, and none in the modes upstream gives none.
+_no_dsym_release_test = analysistest.make(_no_engine_dsym_impl, config_settings = MODE_FLAGS["release"])
+_no_dsym_debug_test = analysistest.make(_no_engine_dsym_impl, config_settings = MODE_FLAGS["debug"] | _DSYM)
+_no_dsym_profile_test = analysistest.make(_no_engine_dsym_impl, config_settings = MODE_FLAGS["profile"] | _DSYM)
+
+_NO_DSYM_TESTS = {"debug": _no_dsym_debug_test, "profile": _no_dsym_profile_test, "release": _no_dsym_release_test}
 
 # Rules must be globals to be exported, so each mode's is named.
 _target_debug_test = analysistest.make(_target_modes_impl, attrs = _ATTRS, config_settings = MODE_FLAGS["debug"])
@@ -49,6 +70,7 @@ def apple_engine_test_suite(name):
         srcs = ["apple_engine_probe.swift"],
         platform = "macos",
     )
+    flutter_macos_engine(name = name + "_engine_import")
     cases = [
         ("macos_engine", "@flutter_macos_engine//:engine_library", "/FlutterMacOS.framework/"),
         ("ios_engine", "@flutter_ios_engine//:Flutter_xcframework", "/Flutter.xcframework/"),
@@ -70,6 +92,13 @@ def apple_engine_test_suite(name):
             name = test,
             target_under_test = ":_%s_plugin__flutter_framework" % name,
             mode = mode,
+            target_compatible_with = ["@platforms//os:macos"],
+        )
+        tests.append(test)
+        test = "%s_no_engine_dsym_%s" % (name, mode)
+        _NO_DSYM_TESTS[mode](
+            name = test,
+            target_under_test = ":%s_engine_import" % name,
             target_compatible_with = ["@platforms//os:macos"],
         )
         tests.append(test)
