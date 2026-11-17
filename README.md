@@ -537,6 +537,14 @@ bazel build -c opt //:my_app_macos \
 
 The dSYM of an obfuscated app holds the original Dart names, and `gen_snapshot` warns about it. Don't ship it inside the app.
 
+**The dev tool's extensions in debug builds.** A native debug build compiles in the service extensions `flutter_bazel` drives the app through (see [Driving the app from a script](#driving-the-app-from-a-script)), registered before `main()`. A debug build that no dev tool runs, such as a CI artifact or a device test, can leave them out, so its program is the app's alone:
+
+```sh
+bazel build -c dbg --@rules_flutter//flutter:agent_extensions=false //:my_app_android
+```
+
+`flutter_bazel run` needs them, so don't set this where it builds. Release and profile builds never have them, and a web debug build keeps them.
+
 ### Lints and static analysis
 
 `bazel test` runs `dart analyze` and the `dart format` check once you turn on rules_dart's `dart_analyze` aspect. Without these lines nothing is analysed. They name `@rules_dart`, so add its `bazel_dep` too (see [MODULE.bazel](#modulebazel)).
