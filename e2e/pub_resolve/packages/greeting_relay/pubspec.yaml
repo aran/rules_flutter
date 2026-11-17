@@ -1,0 +1,14 @@
+# A `path` package with nothing of Flutter's, built from its pubspec, that
+# depends on `greeting`, which `resolve` maps to a workspace target. An app
+# that depends on it alone still bundles `greeting`'s asset.
+name: greeting_relay
+description: Passes on the greeting.
+version: 0.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  greeting:
+    path: ../greeting

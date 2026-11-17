@@ -7,8 +7,8 @@ and that an overlay cannot be part of a cycle.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:flutter_pub_index.bzl", "INDEX_REPO", "library_label", "library_repo", "source_repo")
-load("//flutter/private:flutter_pub_library_repo.bzl", "make_alias_build_content", "make_library_build_content", "overlay_in_cycle_error")
+load("//flutter/private:flutter_pub_index.bzl", "INDEX_REPO", "MEMBER_DART", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "library_repo", "source_repo")
+load("//flutter/private:flutter_pub_library_repo.bzl", "is_flutter_library", "make_alias_build_content", "make_library_build_content", "overlay_in_cycle_error")
 
 def _repositories_are_named_by_their_part_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -110,6 +110,11 @@ def _package_test_carries_the_runner_test_impl(ctx):
     asserts.true(env, '\npub_library(\n    name = "test_library",' in content, content)
     asserts.true(env, '    members = ["@flutter_pub__test//:test"],' in content, content)
 
+    # Reaching a package that makes a library Flutter's (one `resolve` maps)
+    # still leaves `package:test` its runner.
+    reaching = make_library_build_content("test", ["@flutter_pub__test//:test"], ["@flutter_pub__analyzer//:analyzer"], True)
+    asserts.true(env, '\npub_test_runner(\n    name = "test",' in reaching, reaching)
+
     # Any other package is its library alone.
     asserts.false(env, "pub_test_runner" in make_library_build_content("test_api", ["@flutter_pub__test_api//:test_api"], [], False))
 
@@ -142,6 +147,28 @@ an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test = unittest.make(
     _an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test_impl,
 )
 
+def _a_library_reaching_a_plugin_is_flutters_test_impl(ctx):
+    """A pure-Dart package that reaches a Flutter package is built as Flutter's.
+
+    rules_dart's `pub_library` forwards no `FlutterInfo`, so a plugin reached
+    only through such a package would be dropped from every app above it,
+    unregistered and unlinked, with nothing failing.
+    """
+    env = unittest.begin(ctx)
+
+    asserts.true(env, is_flutter_library([MEMBER_FLUTTER], []), "a plugin's own library")
+    asserts.true(env, is_flutter_library([MEMBER_DART], [MEMBER_DART, MEMBER_FLUTTER]), "a Dart package reaching a plugin")
+    asserts.true(env, is_flutter_library([MEMBER_DART], [MEMBER_OVERLAY]), "a Dart package reaching an overlay")
+    asserts.true(env, is_flutter_library([MEMBER_DART], [], reaches_mapped = True), "a Dart package reaching a mapped package")
+
+    # Dart all the way down stays rules_dart's.
+    asserts.false(env, is_flutter_library([MEMBER_DART], [MEMBER_DART]), "a Dart package reaching only Dart")
+    asserts.false(env, is_flutter_library([MEMBER_DART], []), "a Dart package reaching nothing")
+
+    return unittest.end(env)
+
+a_library_reaching_a_plugin_is_flutters_test = unittest.make(_a_library_reaching_a_plugin_is_flutters_test_impl)
+
 def flutter_pub_library_repo_test_suite(name):
     unittest.suite(
         name,
@@ -151,4 +178,5 @@ def flutter_pub_library_repo_test_suite(name):
         package_test_carries_the_runner_test,
         the_others_of_a_cycle_alias_its_library_test,
         an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test,
+        a_library_reaching_a_plugin_is_flutters_test,
     )

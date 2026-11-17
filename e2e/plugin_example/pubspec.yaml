@@ -18,6 +18,10 @@ dependencies:
   # `build_from_pubspec` builds from its pubspec.
   kotlin_only_plugin:
     path: path_packages/kotlin_only_plugin
+  # A Dart package with no Flutter of its own that depends on
+  # `kotlin_only_plugin`: an app reaching the plugin only through it still has it.
+  kotlin_plugin_user:
+    path: path_packages/kotlin_plugin_user
   # A `path` package whose Gradle build declares only a `platform(...)` entry,
   # which MODULE.bazel's `flutter_pub.annotation` supplies the artifact of.
   annotated_plugin:

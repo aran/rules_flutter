@@ -42,6 +42,19 @@ flutter_test(
     deps = _DEPS + ["@deps//:flutter_test"],
 )
 
+# `greeting_relay` has nothing of Flutter's and depends on `greeting`, which
+# `resolve` maps to a workspace target. A program that reaches `greeting` only
+# through it still bundles `greeting`'s asset.
+flutter_test(
+    name = "relay_test",
+    main = "test/relay_test.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:flutter_test",
+        "@deps//:greeting_relay",
+    ],
+)
+
 # The render check of docs/TESTING.md § 5: the app in headless Chrome, reading
 # the greeting back out of the widget tree. macOS and Linux run it; Windows is
 # not verified, and Bazel reports it skipped there.
