@@ -383,6 +383,39 @@ Most of rules_flutter's actions declare it. One that does still won't share in t
 - It runs without a sandbox: a `local` or `no-sandbox` action, or any action on Windows. Windows has no sandbox, and there Bazel fails a path-mapped action with `requires sandboxing due to path mapping` rather than run it, which is why the lines above leave Windows out.
 - It is a debug build's kernel. The kernel records the path of the app's `flutter_assets/`, which is how `flutter_bazel` tells an app's configurations apart.
 
+#### Explicit Clang modules on macOS and iOS
+
+For macOS and iOS apps, explicit Clang modules are recommended:
+
+```bazelrc
+common --features=swift.emit_c_module --host_features=swift.emit_c_module
+common --features=swift.use_c_modules --host_features=swift.use_c_modules
+```
+
+Without them, rules_swift's compile worker builds the Clang modules a Swift compile imports (the SDK's, the engine's `FlutterMacOS` or `Flutter`, each plugin's) into one cache per configuration, `bazel-out/<config>/bin/_swift_module_cache`. No action declares that directory, so Bazel neither tracks nor clears it. After an engine repository is fetched again, a runner that imports a plugin's Clang module can fail with `module 'FlutterMacOS' is defined in both`. Deleting that directory makes the next build build every module again. With the lines above, each Clang module is precompiled by an action of its own into a declared output that Bazel caches like any other, and no Swift compile builds modules on the side.
+
+The first build precompiles the SDK's system modules, a few hundred actions that took 15 to 20 seconds on a 16-core Mac, and later builds take them from the cache. After that, rebuilding a changed Swift module takes as long as it does without the lines.
+
+Xcode 27.2's SDKs include private modules whose Swift interfaces do not compile, `MobileGestaltPrivate` and, in the iOS simulator's SDK, `CoreAudio_Private`. Leave them out in `MODULE.bazel`, which needs a `bazel_dep` on rules_swift to name its extension:
+
+```starlark
+bazel_dep(name = "rules_swift", version = "4.2.2")
+
+system_sdk = use_extension("@rules_swift//swift:extensions.bzl", "system_sdk")
+system_sdk.configure_sdks(exclude_modules = {
+    "MacOSX": ["MobileGestaltPrivate"],
+    "iPhoneOS": ["MobileGestaltPrivate"],
+    "iPhoneSimulator": [
+        "CoreAudio_Private",
+        "MobileGestaltPrivate",
+    ],
+})
+```
+
+rules_swift reads this only from the root module, and `exclude_modules` replaces its own list for each SDK named, which is why `CoreAudio_Private` is restated. A module an SDK lacks is skipped, so these lines do no harm under another Xcode.
+
+An app that links Firebase (`firebase_core` and the other FlutterFire plugins) does not build with explicit modules yet. firebase-ios-sdk's `Firebase` module imports `FirebaseCore`, which depends on it, and a module precompiled on its own cannot see a module that depends on it: the build fails with `'FirebaseCore/FirebaseCore.h' file not found`.
+
 ### Your first app
 
 Start from a project made with `flutter create`. You keep its `lib/`, its `pubspec.yaml` and `pubspec.lock`, and its platform folders. `flutter_macos_app` reads `macos/Runner/` as `flutter create` wrote it, and pub still reads `pubspec.yaml` when you regenerate the lock.

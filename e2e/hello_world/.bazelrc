@@ -42,6 +42,12 @@ common --@rules_android//flags:android_platforms=@rules_android//:arm64-v8a
 # whole, unshrunk desugar_jdk_libs runtime into every APK.
 common --@rules_android//flags:desugar_java8_libs=false
 
+# Swift compiles use explicit Clang modules, each precompiled by an action of
+# its own, rather than rules_swift's shared, undeclared module cache. See
+# README.md, "Explicit Clang modules on macOS and iOS".
+common --features=swift.emit_c_module --host_features=swift.emit_c_module
+common --features=swift.use_c_modules --host_features=swift.use_c_modules
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart

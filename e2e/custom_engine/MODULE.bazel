@@ -234,3 +234,15 @@ local_engine(
 local_framework(name = "env_framework")
 
 local_engine(name = "env_engine")
+
+# Explicit Clang modules (.bazelrc) precompile the SDK's system modules. Xcode
+# 27.2's SDKs ship private modules whose Swift interfaces do not compile.
+system_sdk = use_extension("@rules_swift//swift:extensions.bzl", "system_sdk", dev_dependency = True)
+system_sdk.configure_sdks(exclude_modules = {
+    "MacOSX": ["MobileGestaltPrivate"],
+    "iPhoneOS": ["MobileGestaltPrivate"],
+    "iPhoneSimulator": [
+        "CoreAudio_Private",
+        "MobileGestaltPrivate",
+    ],
+})
