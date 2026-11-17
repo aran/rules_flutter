@@ -60,6 +60,27 @@ fonts_bundled_test(
     target_under_test = ":two_fonts",
 )
 
+# A library with fonts and no Dart, as an app's own fonts can be: `srcs` is
+# left out.
+flutter_library(
+    name = "fonts_only",
+    fonts = [":f"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+)
+
+fonts_bundled_test(
+    name = "fonts_only_test",
+    size = "small",
+    files = {
+        "fonts/Bold.ttf": "fonts/Bold.ttf",
+        "fonts/Regular.ttf": "fonts/Regular.ttf",
+    },
+    manifest = '[{"family":"F","fonts":[{"asset":"fonts/Regular.ttf"},{"asset":"fonts/Bold.ttf","style":"italic","weight":700}]}]',
+    own_package = True,
+    target_under_test = ":fonts_only",
+)
+
 # No `package_name`: the Dart package name derived from the BUILD file's path
 # is the one the fonts and `assets` are bundled under.
 flutter_font_family(

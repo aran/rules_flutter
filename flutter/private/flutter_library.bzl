@@ -454,9 +454,8 @@ LIBRARY_DATA_ATTR = attr.label_list(
 
 _LIBRARY_ATTRS = package_identity_attrs() | {
     "srcs": attr.label_list(
-        doc = "Dart source files for this library.",
+        doc = "Dart source files for this library. A library of only `fonts`, `assets` or `shaders` has none.",
         allow_files = [".dart"],
-        mandatory = True,
     ),
     "deps": attr.label_list(
         doc = "Other `dart_library` or `flutter_library` targets this library depends on.",
