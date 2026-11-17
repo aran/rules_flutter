@@ -101,18 +101,22 @@ string_flag(
     visibility = ["//visibility:public"],
 )
 
-# Whether a native debug build compiles in the service extensions `flutter_bazel`
-# drives the app through, which its plugin registrant registers before `main`.
-# On by default, as `flutter_bazel run` needs them. Turn them off for a debug
-# build that is not run through the dev tool, such as a CI artifact or a device
-# test, so its program is the app's alone:
+# Whether a native debug build compiles in what `flutter_bazel` needs to drive
+# the running app: the service extensions its agent commands, `buildInfo` and
+# `renderState` answer through, the uncaught-error hook, native hot patching
+# (all registered from the plugin registrant before `main`), and the
+# `rules_flutter.build_info` define. On by default, and `flutter_bazel` sets it
+# on for every build it runs. Turn it off for a debug build that no dev tool
+# runs, such as a CI artifact or a device test, so its program is the app's
+# alone:
 #
-#   bazel build -c dbg --@rules_flutter//flutter:agent_extensions=false //app
+#   bazel build -c dbg --@rules_flutter//flutter:dev_tool_support=false //app
 #
-# Release and profile builds never have them. A web debug build keeps them: the
-# dev loop it is for serves them through the page.
+# Release and profile builds never have any of it. A web debug build keeps it
+# whatever the setting: the dev loop it is for serves the extensions through the
+# page.
 bool_flag(
-    name = "agent_extensions",
+    name = "dev_tool_support",
     build_setting_default = True,
     # It describes the app, and no build tool reads it.
     scope = "target",

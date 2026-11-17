@@ -131,7 +131,7 @@ void main() {
       final calls = <List<String>>[];
       await assembleAgainst(
         buildInfo: buildInfoJson(),
-        sessionBuildArgs: userBazelFlags(
+        sessionBuildArgs: devToolBazelFlags(
           configs: ['a', 'b'],
           buildArgs: ['--jobs=4'],
         ),

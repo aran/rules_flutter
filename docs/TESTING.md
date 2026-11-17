@@ -1563,7 +1563,7 @@ is reload-observable. Verify:
   touches the stale slot.
 
   **`app.waitFor`'s `text` selector is exact equality on the widget's own
-  string** (`flutter/private/agent_extensions/agent.dart`), not a substring
+  string** (`flutter/private/dev_tool_support/agent.dart`), not a substring
   search: wait for `{name: Grace Hopper, age: 45}`, not `Grace Hopper`. A
   `waitFor` that finds nothing answers with a top-level `error` and **no**
   `result`, so any check shaped `response['result']?['error'] == null` reads a
@@ -2169,8 +2169,8 @@ runner needs both).
 | dev_tool (e2e) | `bazel run //tools/dev_tool:e2e`, see § 2 |
 | dev_tool reload paths (`run_command.dart`, `vm_service_client.dart`, `hot_reload/**`, `session.dart`, `reload_pipeline.dart`) | dev_tool unit + e2e **and** manual hot reload **and** hot restart — see "Hot reload / hot restart (manual)" |
 | dev_tool native-library checks (`native_libs_watch.dart`, `native_libs_verdict.dart`, `native_libs_fingerprint.dart`, `native_libs_relauncher.dart`, `native_sources.bzl`, `flutter/android_bundle_parts.bzl`, `flutter/macos_bundle_parts.bzl`, `flutter/ios_bundle_parts.bzl`, `flutter/linux_bundle_parts.bzl`, `flutter/windows_bundle_parts.bzl`, `flutter/private/bundle_parts.bzl`, `flutter_native_library`, the `nativeLibs` / `nativeLibContracts` / `nativeLibSources` fields of `_dev_config.json`, `code_asset_libraries.bzl`, and what a moved contract does when a `hot_patch` builder covers the library) | `native_libs_reload_e2e_test.dart` (a reload delivered and a reload withheld) **and** `relaunch_e2e_test.dart` (a restart relaunching) **and** `android_restart_e2e_test.dart` (the same on Android, where a restart must also build no APK) **and** `native_hot_patch_e2e_test.dart`'s last case (an app that runs no build of its own, where only the declared sources can see a native edit) — the halves of one contract, and no unit test can reach any of them |
-| Native hot patching (`native_hot_patcher.dart`, `native_hot_patch_tool.dart`, `native_patch_delivery.dart`, `native_image_identity.dart`, `flutter/native_hot_patch.bzl`, `flutter_native_library.hot_patch`, `agent_extensions/native_patch.dart`) | dev_tool unit **and** `native_hot_patch_e2e_test.dart` (macOS) **and** `relaunch_e2e_test.dart` **and** the manual device check — a native edit patched into the app on the iOS simulator, an iOS device and Android, see "Native hot patch on devices (manual)" |
-| Keys (`key_press.dart`, `app.pressKey` in `agent_command.dart`, `pressKeyOverCdp` in `device.dart`, `ext.rules_flutter.pressKey` in `agent_extensions/agent.dart`) | dev_tool unit **and** `press_key_e2e_test.dart` (macOS, Chrome DDC, Chrome `--wasm`). Changes to the browser channel (`browser_extension_channel.dart`) or the page bridge also need `web_e2e_test.dart`. The framework route on iOS, Android, Linux and Windows has no e2e: check it by hand on the device you changed it for |
+| Native hot patching (`native_hot_patcher.dart`, `native_hot_patch_tool.dart`, `native_patch_delivery.dart`, `native_image_identity.dart`, `flutter/native_hot_patch.bzl`, `flutter_native_library.hot_patch`, `dev_tool_support/native_patch.dart`) | dev_tool unit **and** `native_hot_patch_e2e_test.dart` (macOS) **and** `relaunch_e2e_test.dart` **and** the manual device check — a native edit patched into the app on the iOS simulator, an iOS device and Android, see "Native hot patch on devices (manual)" |
+| Keys (`key_press.dart`, `app.pressKey` in `agent_command.dart`, `pressKeyOverCdp` in `device.dart`, `ext.rules_flutter.pressKey` in `dev_tool_support/agent.dart`) | dev_tool unit **and** `press_key_e2e_test.dart` (macOS, Chrome DDC, Chrome `--wasm`). Changes to the browser channel (`browser_extension_channel.dart`) or the page bridge also need `web_e2e_test.dart`. The framework route on iOS, Android, Linux and Windows has no e2e: check it by hand on the device you changed it for |
 | dev_tool app-output forwarding (`app_log.dart`, `app_log_sink.dart`, `cdp_console.dart`, `vm_service_logs.dart`, `device.dart` launch paths) | dev_tool unit + e2e **and** the manual per-platform checks below |
 | dev_tool screens and screenshots (`screen.dart`, `devicectl_screens.dart`, `Device.screenshot`, the `screenshot/native` and `screens` endpoints) | dev_tool unit **and** `ios_simulator_e2e_test.dart` and `plugin_example_e2e_test.dart`'s iOS case on the iPhone Duo simulator **and** the manual posture check in "Multi-screen screenshots (manual)" |
 | dev_tool iOS device paths (`mdns_vm_service_discovery.dart`, `IOSDevice` in `device.dart`) | dev_tool unit **and** manual hot reload + hot restart on hardware, **wired and wireless** — see "iOS hardware (manual)" |
@@ -2350,7 +2350,7 @@ mode that only shows up under sustained logging.
 also signs the patch (iOS device), copies it through `simctl`'s shared
 filesystem, `devicectl` or `adb`, and loads it from the app's own container, and
 none of that is reachable from the host test. Check it by hand whenever
-`native_patch_delivery.dart`, `agent_extensions/native_patch.dart` or a device's
+`native_patch_delivery.dart`, `dev_tool_support/native_patch.dart` or a device's
 `nativePatchDelivery` changes.
 
 The fixture is `e2e/ffi_example`'s patchable `mul`: `native/mul.c`,

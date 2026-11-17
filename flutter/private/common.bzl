@@ -347,27 +347,28 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     if aot == None:
         aot = mode != "debug"
 
-    # AI-agent service-extension injection: in debug builds (non-AOT), if the
-    # rule carries an `_agent_extensions_src` attr and
-    # `--@rules_flutter//flutter:agent_extensions` is on, stage the agent source next
-    # to the generated registrant, which registers the extensions from the
-    # engine's pre-main plugin-registrant hook. Release/AOT/profile builds skip
-    # this entirely — profile mode is for performance investigation where added
-    # instrumentation distorts measurements, so it must look the same as
-    # release on the agent surface.
-    agent_src_attr = getattr(ctx.attr, "_agent_extensions_src", None)
-    inject_agent = (not aot) and mode == "debug" and agent_src_attr != None and ctx.attr._agent_extensions[BuildSettingInfo].value
+    # Dev-tool support: what `flutter_bazel` needs in the running app. In
+    # debug builds (non-AOT), if the rule carries a `_dev_tool_support_src`
+    # attr and `--@rules_flutter//flutter:dev_tool_support` is on, stage the
+    # agent and native-patch sources next to the generated registrant, which
+    # registers their extensions from the engine's pre-main plugin-registrant
+    # hook, and bake in `rules_flutter.build_info` below. Release/AOT/profile
+    # builds skip this entirely — profile mode is for performance
+    # investigation where added instrumentation distorts measurements, so it
+    # must look the same as release on the agent surface.
+    support_src_attr = getattr(ctx.attr, "_dev_tool_support_src", None)
+    dev_tool_support = (not aot) and mode == "debug" and support_src_attr != None and ctx.attr._dev_tool_support[BuildSettingInfo].value
     staged_agent = None
     staged_native_agent = None
-    if inject_agent:
+    if dev_tool_support:
         staged_agent = ctx.actions.declare_file(ctx.label.name + ".agent_extensions.dart")
-        ctx.actions.symlink(output = staged_agent, target_file = ctx.file._agent_extensions_src)
+        ctx.actions.symlink(output = staged_agent, target_file = ctx.file._dev_tool_support_src)
 
         # The native-only half (`dart:ffi`): loading a native hot patch. A
         # kernel compile is always native — web stages `agent.dart` alone, in
         # its own rule.
         staged_native_agent = ctx.actions.declare_file(ctx.label.name + ".native_agent_extensions.dart")
-        ctx.actions.symlink(output = staged_native_agent, target_file = ctx.file._native_agent_extensions_src)
+        ctx.actions.symlink(output = staged_native_agent, target_file = ctx.file._native_dev_tool_support_src)
 
     # Collect plugins from deps and generate the registrant. The registrant is
     # a side library (upstream _PluginRegistrant shape) the engine invokes
@@ -441,14 +442,15 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     # `flutter_bazel attach` starts from nothing but a VM service URL: it has no
     # `-d` device, no knowledge of the configuration, and no way to ask the user
     # for flags they never typed. Debug only — profile mode must look like
-    # release on the agent surface, and there is no dev loop to serve in AOT.
+    # release on the agent surface, and there is no dev loop to serve in AOT —
+    # and only with the rest of the dev-tool support.
     #
     # Deliberately NOT added to `program_defines`: that list is replayed by the dev
     # tool's own frontend_server, which runs against the host-configured dev
     # build. Replaying this one would have the app start reporting the dev
     # pipeline's configuration as its launch truth. The dev tool re-injects the
     # value it read from the running app instead.
-    if assets_dir != None and not aot and mode == "debug":
+    if assets_dir != None and dev_tool_support:
         all_defines.append("rules_flutter.build_info=" + json.encode({
             "label": str(ctx.label),
             "compilationMode": ctx.var["COMPILATION_MODE"],
@@ -1129,20 +1131,20 @@ def launch_build_args(target_platform, is_simulator, is_arm64, is_x86_64, is_arm
     # different output directory than the one the running app came from.
     return []
 
-AGENT_EXTENSIONS_ATTR = {
-    "_agent_extensions_src": attr.label(
-        doc = "AI-agent service-extension source. Registered from the generated plugin registrant in debug builds; ignored in AOT/release.",
-        default = Label("//flutter/private/agent_extensions:agent.dart"),
+DEV_TOOL_SUPPORT_ATTRS = {
+    "_dev_tool_support_src": attr.label(
+        doc = "The service extensions `flutter_bazel` drives a debug app through. Registered from the generated plugin registrant in debug builds; ignored in AOT/release.",
+        default = Label("//flutter/private/dev_tool_support:agent.dart"),
         allow_single_file = [".dart"],
     ),
-    "_native_agent_extensions_src": attr.label(
-        doc = "The native-only agent extensions (`dart:ffi`): loading a `flutter_native_library.hot_patch`. Staged beside `_agent_extensions_src` in native debug builds; never on web.",
-        default = Label("//flutter/private/agent_extensions:native_patch.dart"),
+    "_native_dev_tool_support_src": attr.label(
+        doc = "The native-only extensions (`dart:ffi`): loading a `flutter_native_library.hot_patch`. Staged beside `_dev_tool_support_src` in native debug builds; never on web.",
+        default = Label("//flutter/private/dev_tool_support:native_patch.dart"),
         allow_single_file = [".dart"],
     ),
-    "_agent_extensions": attr.label(
-        doc = "`--@rules_flutter//flutter:agent_extensions`: false leaves both out of a debug build.",
-        default = Label("//flutter:agent_extensions"),
+    "_dev_tool_support": attr.label(
+        doc = "`--@rules_flutter//flutter:dev_tool_support`: false leaves both, and `rules_flutter.build_info`, out of a debug build.",
+        default = Label("//flutter:dev_tool_support"),
     ),
 }
 
@@ -1381,7 +1383,7 @@ PROGRAM_PACKAGE_DOC = (
 # Per-rule inputs stay out. `track_widget_creation` and `assets_dir`
 # are function parameters of `flutter_compile_kernel` for the reason its
 # docstring gives — the callers genuinely disagree about whether they have one
-# — and `_agent_extensions_src` is declared by the rules that inject the agent,
+# — and `_dev_tool_support_src` is declared by the rules that inject the agent,
 # not by every kernel compile.
 KERNEL_COMPILE_ATTRS = package_identity_attrs(
     mandatory = True,
@@ -1503,7 +1505,7 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
         allow_single_file = True,
     ),
     "_sky_engine": program_sky_engine_attr(),
-} | NOTICES_ATTRS | AGENT_EXTENSIONS_ATTR | GEN_SNAPSHOT_SETTINGS_ATTRS
+} | NOTICES_ATTRS | DEV_TOOL_SUPPORT_ATTRS | GEN_SNAPSHOT_SETTINGS_ATTRS
 
 # What a `flutter_application` states about its program: the attributes
 # `flutter_program_inputs` reads, and so the ones a rule that rebuilds the

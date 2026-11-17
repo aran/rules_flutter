@@ -2,7 +2,7 @@ import 'package:flutter_bazel_dev_tool/semantics_dump.dart';
 import 'package:test/test.dart';
 
 /// A node, shaped as `_semanticsNodeJson` in
-/// `agent_extensions/agent.dart` writes it.
+/// `dev_tool_support/agent.dart` writes it.
 Map<String, Object?> node(
   int id, {
   List<num> rect = const [0, 0, 100, 40],

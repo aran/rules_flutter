@@ -4,7 +4,7 @@ This is the base compilation step shared by all Flutter platform targets.
 """
 
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
-load("//flutter/private:common.bzl", "AGENT_EXTENSIONS_ATTR", "KERNEL_COMPILE_ATTRS", "flutter_compile_kernel")
+load("//flutter/private:common.bzl", "DEV_TOOL_SUPPORT_ATTRS", "KERNEL_COMPILE_ATTRS", "flutter_compile_kernel")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 def _flutter_kernel_impl(ctx):
@@ -29,7 +29,7 @@ flutter_kernel = rule(
             doc = "If True, compile for AOT (--aot --tfa). Automatically True in opt/fastbuild mode.",
             default = False,
         ),
-    } | AGENT_EXTENSIONS_ATTR,
+    } | DEV_TOOL_SUPPORT_ATTRS,
     # A kernel is the same for every target, so nothing here needs the
     # target's toolchain.
     toolchains = COPY_TO_DIRECTORY_TOOLCHAINS,

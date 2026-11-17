@@ -47,7 +47,7 @@
 //
 // Imports only `package:flutter_test` and `dart:*`. Staged next to the
 // generated bootstrap by `flutter_test` and imported from it by basename, the
-// same way `agent_extensions/agent.dart` reaches an application's kernel. The
+// same way `dev_tool_support/agent.dart` reaches an application's kernel. The
 // integration test runner's golden service (`service.dart`) imports it by path,
 // to compare for a test that runs in an app: see `BazelGoldenFileComparator.forTest`.
 

@@ -33,17 +33,36 @@ const _remoteHotPatchBuildEvents = [
 ];
 
 void main() {
-  group('userBazelFlags', () {
+  group('devToolBazelFlags', () {
     test('passes each --config as --config=<name>, before the build args', () {
-      expect(userBazelFlags(configs: ['a', 'b'], buildArgs: ['--jobs=4']), [
-        '--config=a',
-        '--config=b',
-        '--jobs=4',
-      ]);
+      expect(
+        devToolBazelFlags(configs: ['a', 'b'], buildArgs: ['--jobs=4']),
+        containsAllInOrder(['--config=a', '--config=b', '--jobs=4']),
+      );
+    });
+
+    // The app this tool drives has to carry the support compiled in, and a
+    // `.bazelrc` may turn it off for every other debug build. Bazel takes the
+    // last value a flag is given, and a config expands where it is named, so
+    // the flag goes after everything the user passed.
+    test('turns the dev-tool support on after the user\'s own flags', () {
+      final flags = devToolBazelFlags(
+        configs: ['ci'],
+        buildArgs: ['--@rules_flutter//flutter:dev_tool_support=false'],
+      );
+      expect(flags.last, '--@rules_flutter//flutter:dev_tool_support=true');
+      expect(
+        bazelBuildArgs('//app', compilationMode: 'dbg', extraArgs: flags),
+        containsAllInOrder([
+          '--config=ci',
+          '--@rules_flutter//flutter:dev_tool_support=false',
+          '--@rules_flutter//flutter:dev_tool_support=true',
+        ]),
+      );
     });
 
     test('reaches the build argv, next to -c', () {
-      final flags = userBazelFlags(configs: ['a', 'b'], buildArgs: []);
+      final flags = devToolBazelFlags(configs: ['a', 'b'], buildArgs: []);
       expect(
         bazelBuildArgs('//app', compilationMode: 'dbg', extraArgs: flags),
         containsAllInOrder(['-c', 'dbg', '--config=a', '--config=b']),

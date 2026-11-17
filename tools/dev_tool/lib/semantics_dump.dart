@@ -2,7 +2,7 @@
 /// tree, one line per node.
 ///
 /// The input is what `ext.rules_flutter.dumpSemanticsTree` returns (see
-/// `flutter/private/agent_extensions/agent.dart`). The
+/// `flutter/private/dev_tool_support/agent.dart`). The
 /// output is meant for a reader deciding what to tap, type into or assert:
 /// one line per node that says something, and nothing for the nodes that only
 /// group others.

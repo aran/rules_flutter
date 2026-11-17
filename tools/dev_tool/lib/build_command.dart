@@ -93,7 +93,7 @@ class BuildCommand {
     final target = _results['target'] as String;
     final compilationMode = _results['compilation_mode'] as String?;
     final extraArgs = [
-      ...userBazelFlags(
+      ...devToolBazelFlags(
         configs: _results['config'] as List<String>,
         buildArgs: _results['build-arg'] as List<String>,
       ),

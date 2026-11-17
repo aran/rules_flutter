@@ -1,7 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_test")
 load("//flutter:defs.bzl", "dart_package_metadata")
-load(":agent_extensions_test.bzl", "agent_extensions_test_suite")
 load(":android_arm_test.bzl", "android_arm_test_suite")
 load(":android_build_config_test.bzl", "android_build_config_test_suite")
 load(":android_build_transition_test.bzl", "android_build_transition_test_suite")
@@ -26,6 +25,7 @@ load(":common_test.bzl", "common_test_suite")
 load(":data_asset_test.bzl", "data_asset_test_suite")
 load(":desktop_plugin_link_test.bzl", "desktop_plugin_link_test_suite")
 load(":dev_config_test.bzl", "dev_config_test_suite")
+load(":dev_tool_support_test.bzl", "dev_tool_support_test_suite")
 load(":download_digests_test.bzl", "download_digests_test_suite")
 load(":engine_out_dirs_test.bzl", "engine_out_dirs_test_suite")
 load(":engine_targets_test.bzl", "engine_targets_test_suite")
@@ -231,7 +231,7 @@ flutter_test_application_test_suite(name = "flutter_test_application_test")
 
 profile_mode_test_suite(name = "profile_mode_test")
 
-agent_extensions_test_suite(name = "agent_extensions_test")
+dev_tool_support_test_suite(name = "dev_tool_support_test")
 
 aot_options_test_suite(
     name = "aot_options_application_test",

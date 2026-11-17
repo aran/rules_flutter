@@ -388,7 +388,7 @@ void main() {
         });
 
     test('the code recognised here is the one the agent answers with', () {
-      // `_err` in `flutter/private/agent_extensions/agent.dart` builds every
+      // `_err` in `flutter/private/dev_tool_support/agent.dart` builds every
       // refusal with `ServiceExtensionResponse.invalidParams`, and
       // `build_info.dart` names that number as a literal because
       // `package:vm_service` exposes the wire codes only as literals. Asserted

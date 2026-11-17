@@ -5,7 +5,7 @@
 /// commands proxy to `ext.rules_flutter.*` service extensions the app
 /// registers before `main()` — from the engine's plugin-registrant hook on
 /// native, and from the dev tool's synthetic entrypoint on web (see
-/// `flutter/private/agent_extensions/agent.dart`). `app.dumpWidgetTree`
+/// `flutter/private/dev_tool_support/agent.dart`). `app.dumpWidgetTree`
 /// goes to the framework's inspector RPC. The calls travel over an
 /// [AppExtensionChannel]: the VM service for native and the DDC dev loop, the
 /// page's agent bridge over the DevTools protocol for a debug dart2wasm or
@@ -125,7 +125,7 @@ void setUpAgentCommands(
 ///
 /// The app enables semantics on the first agent command of any kind and keeps
 /// it on for the life of the isolate (see `_guard` in
-/// `agent_extensions/agent.dart`), so this needs no step of its own to make
+/// `dev_tool_support/agent.dart`), so this needs no step of its own to make
 /// the tree exist.
 Future<Map<String, dynamic>> _dumpSemanticsTree(
   DeviceSession? Function(String?) findSession,
@@ -439,7 +439,7 @@ const _dispatchMargin = Duration(seconds: 30);
 /// The app-side deadline assumed when the caller names no `timeoutMs`.
 ///
 /// The largest default any handler applies to itself: `_settle`'s 10s in
-/// `agent_extensions/agent.dart`. Callers that ask for longer say so, and
+/// `dev_tool_support/agent.dart`. Callers that ask for longer say so, and
 /// [_dispatchBound] adds the margin to whatever they asked for.
 const _defaultAppDeadline = Duration(seconds: 10);
 
@@ -648,7 +648,7 @@ Future<Map<String, dynamic>> _call(
     throw CommandFailure.failed(e.message);
   } on RPCError catch (e) {
     // The app refusing is an answer, not a fault. Every `_err` in
-    // `agent_extensions/agent.dart` — "no widget matching ... found", "timed
+    // `dev_tool_support/agent.dart` — "no widget matching ... found", "timed
     // out waiting for ..." — is a `ServiceExtensionResponse.error`, which
     // crosses the VM service as a JSON-RPC error and so arrives here as a
     // throw. It is a refusal like any other and travels as one.

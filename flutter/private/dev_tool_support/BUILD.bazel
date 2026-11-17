@@ -1,0 +1,20 @@
+"""What `flutter_bazel` needs compiled into a debug Flutter app to drive it.
+
+`--@rules_flutter//flutter:dev_tool_support` decides whether a native debug
+build has it. Exports `agent.dart` (the agent commands, `buildInfo`,
+`renderState`, the uncaught-error hook) and `native_patch.dart` (native hot
+patching), which `flutter_compile_kernel` stages beside the plugin registrant,
+and `web_bridge.dart`, which a debug web bundle's
+wrapper main uses to serve the extensions without a VM service. Not a `dart_library` — the source is added
+to each app's kernel-compile srcs directly so it resolves
+`package:flutter` through the user's pub-managed `@deps`.
+"""
+
+exports_files(
+    [
+        "agent.dart",
+        "native_patch.dart",
+        "web_bridge.dart",
+    ],
+    visibility = ["//flutter:__subpackages__"],
+)
