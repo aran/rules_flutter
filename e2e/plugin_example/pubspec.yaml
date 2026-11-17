@@ -23,7 +23,7 @@ dependencies:
   # `kotlin_only_plugin`: an app reaching the plugin only through it still has it.
   kotlin_plugin_user:
     path: path_packages/kotlin_plugin_user
-  # A `path` package whose Gradle build declares only a `platform(...)` entry,
+  # A `path` package whose Gradle build declares only a version catalog entry,
   # which MODULE.bazel's `flutter_pub.annotation` supplies the artifact of.
   annotated_plugin:
     path: path_packages/annotated_plugin

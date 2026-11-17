@@ -343,7 +343,7 @@ void _verifyPlugin(
   );
   final kotlin = plugin == 'annotated_plugin' || _kotlin.contains(plugin);
   final declared = plugin == 'annotated_plugin'
-      // What `flutter_pub.annotation` in MODULE.bazel says its `platform(...)`
+      // What `flutter_pub.annotation` in MODULE.bazel says its version catalog
       // declaration stands for, at the version the build resolves.
       ? ['androidx.browser:browser:1.9.0:runtime']
       : _pluginDependencies[plugin] ?? const <String>[];

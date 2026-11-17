@@ -51,7 +51,7 @@ def _report_names_only_its_plugins_impl(ctx):
     env = analysistest.begin(ctx)
     content = _report_content(env)
     asserts.equals(env, {
-        "g:needed_by_a": {"version": "2.0", "declared_by": ["package:plugin_a 1.0"], "exclusions": []},
+        "g:needed_by_a": {"version": "2.0", "declared_by": ["package:plugin_a 1.0"], "exclusions": [], "managed": False},
     }, content["requirements"])
     asserts.equals(env, "//app:a", content["app"])
     return analysistest.end(env)

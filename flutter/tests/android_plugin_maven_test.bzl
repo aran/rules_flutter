@@ -14,6 +14,7 @@ load(
     "maven_warning_message",
     "merge_plugin_requirements",
     "parse_gradle_maven_dependencies",
+    "resolve_plugin_properties",
     "unread_lines",
 )
 
@@ -108,8 +109,6 @@ def _unsupported_forms_test_impl(ctx):
     lines = [
         "implementation(libs.foo)",
         'implementation(project(":x"))',
-        'implementation(platform("a:b:1"))',
-        'implementation("a:b")',
         "implementation files('x.jar')",
         "implementation group: 'a', name: 'b', version: '1'",
         'kapt("a:b:1")',
@@ -155,6 +154,133 @@ _CLOUD_FIRESTORE_DEPENDENCIES = """\
         }
     }
 """
+
+# firebase_core 5.1.0's `android/build.gradle`, lines 31-35 and 68-73.
+_FIREBASE_CORE = """\
+def getRootProjectExtOrDefaultProperty(name) {
+    if (!rootProject.ext.has("FlutterFire")) return project.properties[name]
+    if (!rootProject.ext.get("FlutterFire")[name]) return project.properties[name]
+    return rootProject.ext.get("FlutterFire").get(name)
+}
+android {
+    dependencies {
+        implementation platform("com.google.firebase:firebase-bom:${getRootProjectExtOrDefaultProperty("FirebaseSDKVersion")}")
+        implementation "com.google.firebase:firebase-common"
+
+        implementation 'androidx.annotation:annotation:1.7.0'
+    }
+}
+"""
+
+def _boms_test_impl(ctx):
+    """A `platform(...)` is a BoM, whose versions a versionless declaration takes."""
+    env = unittest.begin(ctx)
+    r = parse_gradle_maven_dependencies(_FIREBASE_CORE, properties = {"FirebaseSDKVersion": "35.1.0"})
+    asserts.equals(env, [], r.unread)
+    asserts.equals(
+        env,
+        [("com.google.firebase:firebase-bom", "35.1.0", 8, True)],
+        [(b.group + ":" + b.artifact, b.version, b.line_number, b.checked) for b in r.boms],
+    )
+    asserts.equals(
+        env,
+        [("deps", "com.google.firebase:firebase-common", ""), ("deps", "androidx.annotation:annotation", "1.7.0")],
+        [_parsed(d) for d in r.deps],
+    )
+
+    # The Kotlin forms, and `enforcedPlatform`.
+    r = parse_gradle_maven_dependencies("""\
+dependencies {
+    implementation(platform("g:bom:1.0"))
+    api(enforcedPlatform("g:other-bom:2.0"))
+    implementation("g:a")
+}
+""")
+    asserts.equals(env, [], r.unread)
+    asserts.equals(env, [("g:bom", "1.0"), ("g:other-bom", "2.0")], [(b.group + ":" + b.artifact, b.version) for b in r.boms])
+    asserts.equals(env, [("deps", "g:a", "")], [_parsed(d) for d in r.deps])
+
+    # A BoM's version that is not known is not read, nor is a BoM with none.
+    r = parse_gradle_maven_dependencies("""\
+dependencies {
+    implementation platform("g:bom:${unknown}")
+    implementation platform("g:bom")
+}
+""")
+    asserts.equals(env, [], r.boms)
+    asserts.equals(env, [2, 3], [u.line_number for u in r.unread])
+
+    # Another plugin's property is left to the hub, which knows it.
+    r = parse_gradle_maven_dependencies("""\
+def core = findProject(':firebase_core')
+dependencies {
+    implementation platform("g:bom:${core.properties['FirebaseSDKVersion']}")
+}
+""")
+    asserts.equals(env, [(None, [{"package": "firebase_core", "property": "FirebaseSDKVersion"}])], [(b.version, b.version_parts) for b in r.boms])
+    pkgs = resolve_plugin_properties([
+        dict(_pkg("cloud_firestore", "7.2.0", []), boms = [{"coordinate": "g:bom", "version": None, "version_parts": r.boms[0].version_parts, "checked": True}]),
+        dict(_pkg("firebase_core", "5.1.0", []), properties = {"FirebaseSDKVersion": "35.1.0"}),
+    ])
+    asserts.equals(env, "35.1.0", pkgs[0]["boms"][0]["version"])
+    req = merge_plugin_requirements(pkgs, "boms")
+    asserts.equals(env, "35.1.0", req["g:bom"]["version"])
+
+    # A BoM the install lacks, or lists at a lower version, fails the check.
+    bom = {"coordinate": "g:bom", "version": "35.1.0", "checked": True}
+    data = {
+        "resolved": {"g:a": "1.0"},
+        "boms": {"g:bom": "34.0.0"},
+        "packages": [dict(_pkg("p", "1.0", [_dep("g:a", "")]), boms = [bom])],
+    }
+    message = maven_check_message(data, {"p": True})
+    for needle in [
+        "Add to `boms = [...]`:\n\n    \"g:bom:35.1.0\",  # declared by package:p 1.0; resolves 34.0.0",
+    ]:
+        asserts.true(env, needle in message, needle + " missing from:\n" + message)
+    asserts.false(env, "artifacts = [...]" in message, message)
+    data["boms"] = {"g:bom": "35.1.0"}
+    asserts.equals(env, "", maven_check_message(data, {"p": True}))
+
+    # A versionless artifact the install lacks is named without a version.
+    data["resolved"] = {}
+    message = maven_check_message(data, {"p": True})
+    asserts.true(env, '"g:a",  # declared by package:p 1.0; missing' in message, message)
+    return unittest.end(env)
+
+boms_test = unittest.make(_boms_test_impl)
+
+def _applied_scripts_test_impl(ctx):
+    """The scripts of the package a script applies are read in its place."""
+    env = unittest.begin(ctx)
+    r = parse_gradle_maven_dependencies(
+        """\
+apply from: file("local-config.gradle")
+apply from: "./deps.gradle"
+apply from: "elsewhere.gradle"
+dependencies {
+    implementation "g:a:$aVersion"
+}
+""",
+        applied = {
+            # firebase_core 5.1.0's `android/local-config.gradle`, with a version added.
+            "local-config.gradle": "ext {\n    compileSdk=34\n    aVersion = '1.2'\n}",
+            "./deps.gradle": "dependencies {\n    implementation 'g:b:2.0'\n    implementation libs.c\n}\n",
+        },
+    )
+    asserts.equals(
+        env,
+        [("g:b", "2.0", "android/deps.gradle", 2), ("g:a", "1.2", "android/build.gradle", 5)],
+        [(d.group + ":" + d.artifact, d.version, d.script, d.line_number) for d in r.deps],
+    )
+    asserts.equals(
+        env,
+        [("android/deps.gradle", 3), ("android/build.gradle", 3)],
+        [(u.script, u.line_number) for u in r.unread],
+    )
+    return unittest.end(env)
+
+applied_scripts_test = unittest.make(_applied_scripts_test_impl)
 
 def _closure_test_impl(ctx):
     """A declaration's closure is the declaration's, however many lines it spans.
@@ -377,7 +503,7 @@ def _check_names_only_what_the_linked_plugins_need_test_impl(ctx):
     warning = maven_warning_message(data, {"a": True, "b": True}, "//:app")
     asserts.true(
         env,
-        "    package:b 1.0, android/build.gradle\n        3: implementation(libs.b)" in warning,
+        "    package:b 1.0\n        android/build.gradle:3: implementation(libs.b)" in warning,
         warning,
     )
 
@@ -491,9 +617,9 @@ def _warning_message_test_impl(ctx):
     message = maven_warning_message(data, {"c": True, "d": True}, "//:app")
     for needle in [
         "//:app links Android plugins",
-        "    package:c 5.0, android/build.gradle\n        12: implementation(libs.x)\n        13: kapt(\"a:b:1\")",
-        "    package:d 1.0, android/build.gradle\n        7: api(project(\":p\"))",
-        "    package:d 1.0, android/build.gradle\n        9: implementation \"g:maybe:1.0\"",
+        "    package:c 5.0\n        android/build.gradle:12: implementation(libs.x)\n        android/build.gradle:13: kapt(\"a:b:1\")",
+        "    package:d 1.0\n        android/build.gradle:7: api(project(\":p\"))",
+        "    package:d 1.0\n        android/build.gradle:9: implementation \"g:maybe:1.0\"",
         '    flutter_pub.annotation(package = "c", android_deps = ["@rules_flutter_maven//:<artifact target>"])',
         'maven.install(name = "rules_flutter_maven"',
     ]:
@@ -547,12 +673,16 @@ def _report_test_impl(ctx):
     ))
     asserts.equals(env, {
         "app": "//:app",
+        "boms": {},
+        "listed": {},
+        "locked": True,
         "repositories": ["https://maven.google.com"],
         "requirements": {
-            "g:fine": {"version": "1.0", "declared_by": ["package:a 1.2"], "exclusions": []},
-            "g:old": {"version": "1.2", "declared_by": ["package:a 1.2"], "exclusions": []},
+            "g:fine": {"version": "1.0", "managed": False, "declared_by": ["package:a 1.2"], "exclusions": []},
+            "g:old": {"version": "1.2", "managed": False, "declared_by": ["package:a 1.2"], "exclusions": []},
         },
         "resolved": {"g:old": "1.1", "g:fine": "1.0"},
+        "resolved_boms": {},
         "unread": [],
     }, report)
 
@@ -618,6 +748,8 @@ def android_plugin_maven_test_suite(name):
         groovy_and_variables_test,
         unsupported_forms_test,
         closure_test,
+        boms_test,
+        applied_scripts_test,
         conditional_declarations_test,
         versions_test,
         escape_test,

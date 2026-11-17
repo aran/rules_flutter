@@ -63,7 +63,7 @@ load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFOR
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
-load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements")
+load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements", "parse_gradle_properties")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
 load(
@@ -664,6 +664,23 @@ def _package_relative(path):
             out.append(segment)
     return "/".join(out)
 
+def _read_applied_scripts(ctx, content):
+    """The text of each script the Gradle build `content` applies that the package has, by the path it names."""
+    applied = {}
+    for path in gradle_applied_scripts(content):
+        relative = None if path.startswith("/") else _package_relative("android/" + path)
+        if relative == None:
+            continue
+        applied_path = ctx.path(relative)
+        if applied_path.exists and not applied_path.is_dir:
+            applied[path] = ctx.read(applied_path)
+    return applied
+
+def _read_gradle_properties(ctx):
+    """The properties of the package's `android/gradle.properties`, which Gradle gives the plugin's project."""
+    path = ctx.path("android/gradle.properties")
+    return parse_gradle_properties(ctx.read(path)) if path.exists and not path.is_dir else {}
+
 def _read_plugin_jvm_level(ctx):
     """The Java/Kotlin level the plugin's Gradle build compiles its Android sources at.
 
@@ -679,14 +696,7 @@ def _read_plugin_jvm_level(ctx):
     if not script:
         return struct(level = AGP_DEFAULT_JVM_LEVEL, error = "")
     content = ctx.read(script)
-    applied = {}
-    for path in gradle_applied_scripts(content):
-        relative = None if path.startswith("/") else _package_relative("android/" + path)
-        if relative == None:
-            continue
-        applied_path = ctx.path(relative)
-        if applied_path.exists and not applied_path.is_dir:
-            applied[path] = ctx.read(applied_path)
+    applied = _read_applied_scripts(ctx, content)
     script_path = "android/" + script.basename
     parsed = parse_gradle_jvm_level(content, applied, script = script_path)
     if parsed.unread:
@@ -698,40 +708,59 @@ def _read_plugin_jvm_level(ctx):
 def _read_plugin_maven_deps(ctx):
     """Parse the spoke's `android/build.gradle*` Maven dependencies.
 
-    Reads the package's Gradle build file (`build.gradle`, else the `.kts`).
+    Reads the package's Gradle build file (`build.gradle`, else the `.kts`),
+    the scripts of the package it applies and its `gradle.properties`.
     Returns the parse result of `parse_gradle_maven_dependencies` (the
-    plugin's Maven group, the declared dependencies and the lines it did not
-    check), with `script`, the file's path in the package. All empty when the
-    package has no Gradle script.
+    plugin's Maven group, the declared dependencies and BoMs and the lines it
+    did not check), with `script`, the file's path in the package, and
+    `properties`. All empty when the package has no Gradle script.
     """
     script = _android_gradle_script(ctx)
-    parsed = parse_gradle_maven_dependencies(ctx.read(script) if script else "")
+    properties = _read_gradle_properties(ctx)
+    content = ctx.read(script) if script else ""
+    script_path = "android/" + script.basename if script else ""
+    parsed = parse_gradle_maven_dependencies(
+        content,
+        applied = _read_applied_scripts(ctx, content),
+        properties = properties,
+        script = script_path,
+    )
     return struct(
         group = parsed.group,
         deps = parsed.deps,
+        boms = parsed.boms,
         unread = parsed.unread,
-        script = "android/" + script.basename if script else "",
+        script = script_path,
+        properties = properties,
     )
+
+def _declaration_dict(d):
+    out = {
+        "configuration": d.configuration,
+        "coordinate": d.group + ":" + d.artifact,
+        "version": d.version,
+        "line": d.line,
+        "checked": d.checked,
+    }
+    if d.version_parts:
+        out["version_parts"] = d.version_parts
+    return out
 
 def _maven_dep_dicts(parsed):
     """The parsed dependencies as the dicts `maven_deps.json` records."""
     return [
-        {
-            "kind": d.kind,
-            "configuration": d.configuration,
-            "coordinate": d.group + ":" + d.artifact,
-            "version": d.version,
-            "line": d.line,
-            "checked": d.checked,
-            "exclusions": d.exclusions,
-        }
+        dict(_declaration_dict(d), kind = d.kind, exclusions = d.exclusions)
         for d in parsed.deps
     ]
+
+def _bom_dicts(parsed):
+    """The parsed BoMs as the dicts `maven_deps.json` records."""
+    return [_declaration_dict(d) for d in parsed.boms]
 
 def _unread_dicts(parsed):
     """The lines the parser did not check, as `maven_deps.json` records them."""
     return [
-        {"line": u.line, "line_number": u.line_number, "why": u.why}
+        {"line": u.line, "line_number": u.line_number, "script": u.script, "why": u.why}
         for u in parsed.unread
     ]
 
@@ -743,7 +772,7 @@ def _annotated_dicts(labels):
     """
     return [{"label": label, "name": label.rsplit("//:", 1)[1]} for label in labels]
 
-def _write_maven_deps(ctx, deps, unread, script, annotated = []):
+def _write_maven_deps(ctx, deps, unread, script, annotated = [], boms = []):
     """Record the Maven dependencies the Android check of the hub reads.
 
     Written for every spoke, so `@flutter_pub_android_maven` can read
@@ -753,13 +782,17 @@ def _write_maven_deps(ctx, deps, unread, script, annotated = []):
     root of the spoke, as a package with no Android library has no `android/`
     package. `script` is the Gradle script's path in the package, which the
     warning about `unread` lines names. `annotated` are the labels the root's
-    `flutter_pub.annotation` added to the library.
+    `flutter_pub.annotation` added to the library. `boms` are the BoMs its
+    Gradle build declares. The package's `gradle.properties` is recorded too,
+    since another plugin's build may read it.
     """
     ctx.file(MAVEN_DEPS_FILE, json.encode({
         "package": ctx.attr.package_name,
         "version": ctx.attr.version,
         "script": script,
         "deps": deps,
+        "boms": boms,
+        "properties": _read_gradle_properties(ctx),
         "unread": unread,
         "annotated": _annotated_dicts(annotated),
     }) + "\n")
@@ -2642,12 +2675,14 @@ def _flutter_pub_package_impl(ctx):
         # and its `maven_artifacts` block. Lines the parser cannot read are
         # what the overlay replaces, so they are not reported.
         overlay_maven_deps = []
+        overlay_boms = []
         overlay_script = ""
         if overlay_android_content:
             overlay_parsed = _read_plugin_maven_deps(ctx)
             overlay_maven_deps = _maven_dep_dicts(overlay_parsed)
+            overlay_boms = _bom_dicts(overlay_parsed)
             overlay_script = overlay_parsed.script
-        _write_maven_deps(ctx, overlay_maven_deps, [], overlay_script)
+        _write_maven_deps(ctx, overlay_maven_deps, [], overlay_script, boms = overlay_boms)
         if overlay_android_content:
             write_android_build(ctx, build_prelude, overlay_android_content)
         return _linked_repo_metadata(ctx)
@@ -2859,10 +2894,12 @@ def _flutter_pub_package_impl(ctx):
             why = ("has an Android library its own Gradle build makes, which rules_flutter cannot translate" if android_native_build else "is not one"),
         ))
     maven_deps = []
+    maven_boms = []
     maven_unread = []
     maven_script = ""
     if android_gradle_maven and not android_native_build:
         maven_deps = _maven_dep_dicts(android_gradle_maven)
+        maven_boms = _bom_dicts(android_gradle_maven)
         maven_unread = _unread_dicts(android_gradle_maven)
         maven_script = android_gradle_maven.script
     if android_native_build:
@@ -2884,7 +2921,7 @@ def _flutter_pub_package_impl(ctx):
                 has_resources = android_has_resources,
                 jvm_level = android_jvm.level,
             ))
-    _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps))
+    _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps), maven_boms)
     return _linked_repo_metadata(ctx)
 
 flutter_pub_package = repository_rule(

@@ -30,7 +30,7 @@ load("//flutter/private:flutter_android_application.bzl", "ANDROID_NATIVE_LIBS_A
 FlutterAndroidMavenInfo = provider(
     doc = "What a pub hub's Android plugins declare in their Gradle builds, and what `@rules_flutter_maven` resolved.",
     fields = {
-        "data": "dict: `resolved` (dict of `group:artifact` to version), `repositories` (the install's Maven repositories) and `packages` (list of dicts with `package`, `version`, `script`, `deps`, `unread` and `annotated`), as `maven_check_message` reads it.",
+        "data": "dict: `resolved` (dict of `group:artifact` to version), `boms` (the install's BoMs, likewise), `locked` (whether the install has a lock file), `listed` (the artifacts its `artifacts` list), `repositories` (the install's Maven repositories) and `packages` (list of dicts with `package`, `version`, `script`, `deps`, `boms`, `unread` and `annotated`), as `maven_check_message` reads it.",
     },
 )
 

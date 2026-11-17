@@ -16,7 +16,7 @@ android {
 }
 
 dependencies {
-    // A BOM entry: not a dependency rules_flutter reads. The root's
-    // `flutter_pub.annotation` states what it stands for.
-    implementation(platform("androidx.compose:compose-bom:2024.01.00"))
+    // A version catalog entry: not a dependency rules_flutter reads. The
+    // root's `flutter_pub.annotation` states what it stands for.
+    implementation(libs.androidx.browser)
 }

@@ -30,7 +30,7 @@ flutter.toolchain(flutter_version = "3.50.0")
 
 flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")
 
-# `annotated_plugin`'s Gradle build declares a `platform(...)` entry, which
+# `annotated_plugin`'s Gradle build declares a version catalog entry, which
 # rules_flutter does not read: the artifact it stands for is stated here.
 flutter_pub.annotation(
     android_deps = ["@rules_flutter_maven//:androidx_browser_browser"],

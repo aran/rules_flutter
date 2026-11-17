@@ -224,17 +224,17 @@ void main() {
       ws = await PubInputsFixture(
         hosted: [
           // Its only dependency is in a form the Gradle reader does not read.
-          androidPlugin('bom_plugin', {
+          androidPlugin('catalog_plugin', {
             'android/build.gradle':
-                'android {\n    namespace = "dev.example.bom_plugin"\n}\n'
+                'android {\n    namespace = "dev.example.catalog_plugin"\n}\n'
                 'dependencies {\n'
-                '    implementation platform("androidx.compose:compose-bom:2024.01.00")\n'
+                '    implementation(libs.androidx.browser)\n'
                 '}\n',
           }),
           HostedPackage('dart_only'),
         ],
         annotations: {
-          'bom_plugin': ['androidx_browser_browser'],
+          'catalog_plugin': ['androidx_browser_browser'],
           'dart_only': ['androidx_browser_browser'],
         },
       ).materialize();
@@ -243,8 +243,8 @@ void main() {
     test(
       'adds the artifact to the plugin Android library and its record',
       () async {
-        expect((await ws.loadSpoke('bom_plugin')).succeeded, isTrue);
-        final dir = await ws.spokeDirectory('bom_plugin');
+        expect((await ws.loadSpoke('catalog_plugin')).succeeded, isTrue);
+        final dir = await ws.spokeDirectory('catalog_plugin');
         final build = File(p.join(dir.path, 'android', 'BUILD.bazel'))
             .readAsStringSync();
         expect(
@@ -260,7 +260,7 @@ void main() {
           ['androidx_browser_browser'],
         );
         expect(
-          (await recordedMavenDeps(ws, 'bom_plugin')).unread,
+          (await recordedMavenDeps(ws, 'catalog_plugin')).unread,
           hasLength(1),
         );
       },

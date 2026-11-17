@@ -219,8 +219,8 @@ pub_annotation_tag = tag_class(
         "android_deps": attr.label_list(
             doc = "Artifacts of `@rules_flutter_maven` to add to the package's " +
                   "generated Android library, for a plugin whose Gradle build " +
-                  "declares dependencies rules_flutter does not read (`platform(...)`, " +
-                  "`files(...)`, a version catalog). Each is linked, checked against " +
+                  "declares dependencies rules_flutter does not read (`files(...)`, " +
+                  "a version catalog). Each is linked, checked against " +
                   "what `@rules_flutter_maven` resolves, and listed by the app's " +
                   "`<app>_maven_artifacts` as the plugin's own Gradle ones are. The " +
                   "package must be a plugin with Android sources that rules_flutter " +

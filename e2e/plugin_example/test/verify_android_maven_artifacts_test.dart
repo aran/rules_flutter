@@ -60,7 +60,7 @@ void main() {
     }
   }
 
-  // `annotated_plugin`'s Gradle build declares only a `platform(...)` entry:
+  // `annotated_plugin`'s Gradle build declares only a version catalog entry:
   // what MODULE.bazel's `flutter_pub.annotation` adds is reported as if the
   // build had declared it, for the app that links the plugin and no other.
   if (!annotated.contains('androidx.browser:browser:') ||

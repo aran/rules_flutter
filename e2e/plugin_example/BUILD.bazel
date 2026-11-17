@@ -134,7 +134,7 @@ flutter_application(
 )
 
 # An app whose only Android plugin is `annotated_plugin`, whose Gradle build
-# declares a `platform(...)` entry that rules_flutter does not read. The
+# declares a version catalog entry that rules_flutter does not read. The
 # annotation in MODULE.bazel gives its Android library `androidx.browser`, which
 # its Kotlin compiles against, and its `annotated_android_maven_artifacts`
 # lists: `:verify_android_maven_artifacts_test`.
