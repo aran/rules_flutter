@@ -348,14 +348,15 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
         aot = mode != "debug"
 
     # AI-agent service-extension injection: in debug builds (non-AOT), if the
-    # rule carries an `_agent_extensions_src` attr, stage the agent source next
+    # rule carries an `_agent_extensions_src` attr and
+    # `--@rules_flutter//flutter:agent_extensions` is on, stage the agent source next
     # to the generated registrant, which registers the extensions from the
     # engine's pre-main plugin-registrant hook. Release/AOT/profile builds skip
     # this entirely — profile mode is for performance investigation where added
     # instrumentation distorts measurements, so it must look the same as
     # release on the agent surface.
     agent_src_attr = getattr(ctx.attr, "_agent_extensions_src", None)
-    inject_agent = (not aot) and mode == "debug" and agent_src_attr != None
+    inject_agent = (not aot) and mode == "debug" and agent_src_attr != None and ctx.attr._agent_extensions[BuildSettingInfo].value
     staged_agent = None
     staged_native_agent = None
     if inject_agent:
@@ -1138,6 +1139,10 @@ AGENT_EXTENSIONS_ATTR = {
         doc = "The native-only agent extensions (`dart:ffi`): loading a `flutter_native_library.hot_patch`. Staged beside `_agent_extensions_src` in native debug builds; never on web.",
         default = Label("//flutter/private/agent_extensions:native_patch.dart"),
         allow_single_file = [".dart"],
+    ),
+    "_agent_extensions": attr.label(
+        doc = "`--@rules_flutter//flutter:agent_extensions`: false leaves both out of a debug build.",
+        default = Label("//flutter:agent_extensions"),
     ),
 }
 

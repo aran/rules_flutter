@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_test")
 load("//flutter:defs.bzl", "dart_package_metadata")
+load(":agent_extensions_test.bzl", "agent_extensions_test_suite")
 load(":android_arm_test.bzl", "android_arm_test_suite")
 load(":android_build_config_test.bzl", "android_build_config_test_suite")
 load(":android_build_transition_test.bzl", "android_build_transition_test_suite")
@@ -229,6 +230,8 @@ language_version_test_suite(name = "language_version_test")
 flutter_test_application_test_suite(name = "flutter_test_application_test")
 
 profile_mode_test_suite(name = "profile_mode_test")
+
+agent_extensions_test_suite(name = "agent_extensions_test")
 
 aot_options_test_suite(
     name = "aot_options_application_test",

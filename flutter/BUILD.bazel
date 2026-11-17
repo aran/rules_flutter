@@ -101,6 +101,24 @@ string_flag(
     visibility = ["//visibility:public"],
 )
 
+# Whether a native debug build compiles in the service extensions `flutter_bazel`
+# drives the app through, which its plugin registrant registers before `main`.
+# On by default, as `flutter_bazel run` needs them. Turn them off for a debug
+# build that is not run through the dev tool, such as a CI artifact or a device
+# test, so its program is the app's alone:
+#
+#   bazel build -c dbg --@rules_flutter//flutter:agent_extensions=false //app
+#
+# Release and profile builds never have them. A web debug build keeps them: the
+# dev loop it is for serves them through the page.
+bool_flag(
+    name = "agent_extensions",
+    build_setting_default = True,
+    # It describes the app, and no build tool reads it.
+    scope = "target",
+    visibility = ["//visibility:public"],
+)
+
 # Lets a `flutter_android_app` link jars that define one class with different
 # bytes, which otherwise fails its build. Two such jars can be harmless: two
 # copies of one interface either of which works, or a class an app shadows on
