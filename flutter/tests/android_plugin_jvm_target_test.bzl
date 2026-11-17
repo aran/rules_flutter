@@ -9,11 +9,11 @@ load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load(
     "//flutter/private:android_plugin_jvm_target.bzl",
     "AGP_DEFAULT_JVM_LEVEL",
-    "gradle_applied_scripts",
     "kotlinc_jvm_target",
     "parse_gradle_jvm_level",
     "unread_jvm_level_message",
 )
+load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts")
 
 # `flutter create --template=plugin --android-language=kotlin`, trimmed.
 _TEMPLATE_KTS = """\

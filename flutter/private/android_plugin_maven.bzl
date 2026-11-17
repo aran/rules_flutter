@@ -25,175 +25,10 @@ Only an Android build that links a plugin reads any of this, so only such a
 build fetches it.
 """
 
+load("//flutter/private:gradle_script.bzl", "dependency_kind", "gradle_tokens", "leading_identifier")
+
 # Where each spoke records what its Gradle build declares, at the spoke's root.
 MAVEN_DEPS_FILE = "flutter_android_maven_deps.json"
-
-# Gradle configurations by what they mean for a plugin's compile classpath.
-_KIND_BY_CONFIGURATION = {
-    "implementation": "deps",
-    "api": "deps",
-    "compile": "deps",
-    "compileOnly": "compile_only",
-    "provided": "compile_only",
-    "runtimeOnly": "runtime",
-}
-
-# Not part of the plugin's own classpath in an app build.
-_IGNORED_PREFIXES = ("test", "androidTest", "testFixtures", "lint")
-_IGNORED_CONFIGURATIONS = ("classpath",)
-
-# Configurations the parser cannot honour.
-_UNSUPPORTED_CONFIGURATIONS = (
-    "kapt",
-    "ksp",
-    "annotationProcessor",
-    "coreLibraryDesugaring",
-)
-_VARIANTS = ("debug", "release", "profile")
-_VARIANT_SUFFIXES = ("Implementation", "Api", "CompileOnly", "RuntimeOnly")
-
-_IDENT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-
-def _leading_identifier(line):
-    end = 0
-    for c in line.elems():
-        if c not in _IDENT_CHARS:
-            break
-        end += 1
-    return line[:end]
-
-def _strip_line_comment(line):
-    """Cuts a `//` comment that is not inside a string literal."""
-    quote = ""
-    for i in range(len(line)):
-        c = line[i]
-        if quote:
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
-        elif c == "/" and line[i + 1:i + 2] == "/":
-            return line[:i]
-    return line
-
-def _matching_brace(line, start):
-    """Index of the `}` that closes the `{` at `start`, or -1; quotes are skipped."""
-    depth = 0
-    quote = ""
-    for i in range(start, len(line)):
-        c = line[i]
-        if quote:
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
-        elif c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-    return -1
-
-def _opens_a_closure(header):
-    """Whether a `{` after `header` configures a dependency, not opens a block.
-
-    `implementation("a:b:1") { exclude(group = "x") }` is one statement: the
-    braces are the dependency's own closure. `dependencies {`, `if (flag) {`
-    and `kapt {` open blocks, whose contents are statements of their own.
-    """
-    header = header.strip()
-    identifier = _leading_identifier(header)
-    if not identifier or (identifier != "add" and not _classify(identifier)):
-        return False
-    rest = header[len(identifier):]
-    return bool(rest.strip()) and rest[0] in " \t('\"" and not rest.strip().startswith("=")
-
-def _split_statements(line, number, out):
-    """Appends the tokens of one physical line of a Gradle script to `out`.
-
-    Each token is a struct with `kind` (`"statement"`, `"open"` for a block
-    header, whose `text` is what precedes its `{`, or `"close"`), `text` and
-    `line`, the 1-based line `number`. A line holds several when a block is
-    opened and closed on it (`dependencies { implementation 'a:b:1' }`) or `;`
-    separates them. Braces, brackets and parentheses inside a string or inside
-    a call's arguments never split, and the closure of a dependency declaration
-    stays with it (see `_opens_a_closure`), so the declaration is reported
-    whole if it is not one the reader supports.
-    """
-
-    def token(kind, text):
-        out.append(struct(kind = kind, text = text.strip(), line = number))
-
-    cur = ""
-    quote = ""
-    depth = 0
-    i = 0
-    n = len(line)
-    for _ in range(n + 1):
-        if i >= n:
-            break
-        c = line[i]
-        if quote:
-            cur += c
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
-            cur += c
-        elif c == "(" or c == "[":
-            depth += 1
-            cur += c
-        elif c == ")" or c == "]":
-            depth = max(depth - 1, 0)
-            cur += c
-        elif depth == 0 and c == "{" and _opens_a_closure(cur):
-            close = _matching_brace(line, i)
-            end = n if close < 0 else close + 1
-            cur += line[i:end]
-            i = end
-            continue
-        elif depth == 0 and c == "{":
-            token("open", cur)
-            cur = ""
-        elif depth == 0 and c in ";}":
-            if cur.strip():
-                token("statement", cur)
-            if c == "}":
-                token("close", "")
-            cur = ""
-        else:
-            cur += c
-        i += 1
-    if cur.strip():
-        token("statement", cur)
-
-def gradle_tokens(content):
-    """The tokens of a Gradle build script, comments removed.
-
-    Args:
-        content: The text of `build.gradle` or `build.gradle.kts`.
-
-    Returns:
-        Structs of `kind` (`"statement"`, `"open"` for a block header, whose
-        `text` is what precedes its `{`, or `"close"`), `text` and `line`, the
-        1-based line number (see `_split_statements`).
-    """
-    out = []
-    for number, raw in enumerate(content.split("\n")):
-        _split_statements(_strip_line_comment(raw), number + 1, out)
-    return out
-
-def gradle_statements(content):
-    """The statements of a Gradle build script, comments removed.
-
-    Args:
-        content: The text of `build.gradle` or `build.gradle.kts`.
-
-    Returns:
-        A list of stripped strings, one per statement or block header.
-    """
-    return [t.text for t in gradle_tokens(content) if t.kind != "close" and t.text]
 
 def _string_literal(text):
     """The value of `text` when it is exactly one string literal, else None."""
@@ -217,11 +52,11 @@ def _variable_definition(line):
     for prefix in ("def ", "val ", "var ", "String ", "final String "):
         if line.startswith(prefix):
             rest = line[len(prefix):].strip()
-            name = _leading_identifier(rest)
+            name = leading_identifier(rest)
             rest = rest[len(name):].strip()
             if rest.startswith(":"):
                 rest = rest[1:].strip()
-                type_name = _leading_identifier(rest)
+                type_name = leading_identifier(rest)
                 if type_name != "String":
                     return None
                 rest = rest[len(type_name):].strip()
@@ -229,7 +64,7 @@ def _variable_definition(line):
     if not name:
         if line.startswith("ext."):
             rest = line[len("ext."):]
-            name = _leading_identifier(rest)
+            name = leading_identifier(rest)
             rest = rest[len(name):].strip()
         elif line.startswith("ext[") and line[4:5] in ("'", '"'):
             q = line[4]
@@ -267,7 +102,7 @@ def _substitute_version(version, variables):
             name = version[i + 2:close]
             i = close + 1
         else:
-            name = _leading_identifier(version[i + 1:])
+            name = leading_identifier(version[i + 1:])
             i += 1 + len(name)
         if not name or name not in variables:
             return None
@@ -281,24 +116,6 @@ def _is_dynamic(version):
         if c in version:
             return True
     return False
-
-def _classify(identifier):
-    """A dependency kind, `"ignore"`, `"error"`, or `""` for anything else."""
-    if identifier in _KIND_BY_CONFIGURATION:
-        return _KIND_BY_CONFIGURATION[identifier]
-    if identifier in _IGNORED_CONFIGURATIONS:
-        return "ignore"
-    for p in _IGNORED_PREFIXES:
-        if identifier.startswith(p):
-            return "ignore"
-    if identifier in _UNSUPPORTED_CONFIGURATIONS:
-        return "error"
-    for v in _VARIANTS:
-        if identifier.startswith(v):
-            for s in _VARIANT_SUFFIXES:
-                if identifier == v + s:
-                    return "error"
-    return ""
 
 def _applies_a_script(rest):
     """Whether the arguments after `apply` name a script: `from: "x"` / `from = "x"`."""
@@ -333,7 +150,7 @@ def _add_call_as_declaration(line):
     if comma < 0:
         return line
     configuration = _string_literal(inner[:comma])
-    if configuration == None or not _classify(configuration):
+    if configuration == None or not dependency_kind(configuration):
         return line
     return configuration + "(" + inner[comma + 1:].strip() + ")"
 
@@ -358,7 +175,7 @@ def _unconditional(blocks):
 
 def _group_declaration(text):
     """The group a top-level `group = "x"` (or `group "x"`) statement sets, else None."""
-    if _leading_identifier(text) != "group":
+    if leading_identifier(text) != "group":
         return None
     rest = text[len("group"):].strip()
     if rest.startswith("="):
@@ -433,7 +250,7 @@ def parse_gradle_maven_dependencies(content):
             continue
         original = t.text
         line = original
-        identifier = _leading_identifier(line)
+        identifier = leading_identifier(line)
         if not identifier:
             continue
 
@@ -446,10 +263,10 @@ def parse_gradle_maven_dependencies(content):
         # `add("implementation", "a:b:1")` is `implementation("a:b:1")`.
         if identifier == "add":
             line = _add_call_as_declaration(line)
-            identifier = _leading_identifier(line)
+            identifier = leading_identifier(line)
             if not identifier:
                 continue
-        kind = _classify(identifier)
+        kind = dependency_kind(identifier)
         if not kind or kind == "ignore":
             continue
         rest = line[len(identifier):]

@@ -19,7 +19,7 @@ level, is reported rather than skipped: the plugin's Android build fails
 naming it (`unread_jvm_level_message`).
 """
 
-load("//flutter/private:android_plugin_maven.bzl", "gradle_tokens")
+load("//flutter/private:gradle_script.bzl", "applied_scripts", "gradle_tokens")
 
 # The Android Gradle plugin's `compileOptions` default when the module names
 # no Java toolchain: Java 11 since AGP 9.0 (issuetracker 369246556), the AGP
@@ -180,48 +180,6 @@ def _definition(text, blocks):
             return (name, rest[1:])
     return None
 
-def _applied_script(text):
-    """The path `apply from: "x"` / `apply(from = "x")` / `apply from: file("x")` names, or None.
-
-    A path that is not one string literal (an interpolation, say) is returned
-    as written, which no file of the package has.
-    """
-    if _leading_identifier(text) != "apply":
-        return None
-    rest = text[len("apply"):].strip()
-    if rest.startswith("(") and rest.endswith(")"):
-        rest = rest[1:-1].strip()
-    if not rest.startswith("from"):
-        return None
-    rest = rest[len("from"):].strip()
-    if not rest or rest[0] not in ":=":
-        return None
-    rest = rest[1:].strip()
-    arg = _call_argument(rest, "file")
-    arg = arg if arg != None else rest
-    unquoted = _unquote(arg)
-    return unquoted if unquoted != None else arg
-
-def _applications(content):
-    return [
-        struct(path = path, line = t.text, line_number = t.line)
-        for t in gradle_tokens(content)
-        if t.kind == "statement"
-        for path in [_applied_script(t.text)]
-        if path
-    ]
-
-def gradle_applied_scripts(content):
-    """The paths of the scripts a Gradle build script applies.
-
-    Args:
-        content: The text of `build.gradle` or `build.gradle.kts`.
-
-    Returns:
-        The paths, relative to the script's directory, in order.
-    """
-    return [a.path for a in _applications(content)]
-
 _KEYS = {
     "targetCompatibility": "java",
     "jvmTarget": "kotlin",
@@ -261,7 +219,7 @@ def parse_gradle_jvm_level(content, applied = {}, script = "android/build.gradle
     directory = script.rpartition("/")[0]
     sources = [(content, script)]
     missing = []
-    for a in _applications(content):
+    for a in applied_scripts(content):
         if a.path in applied:
             sources.append((applied[a.path], directory + "/" + a.path if directory else a.path))
         else:

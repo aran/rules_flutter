@@ -54,8 +54,8 @@ rule asks for it.
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
-load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "gradle_applied_scripts", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
-load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "gradle_statements", "parse_gradle_maven_dependencies")
+load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
+load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "parse_gradle_maven_dependencies")
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
@@ -63,6 +63,7 @@ load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFOR
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
+load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
 load(

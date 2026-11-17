@@ -27,8 +27,8 @@ macOS in `flutter_apple_plugins_aggregator`, Linux and Windows in the runner
 builds is not checked: the overlay is how the library is supplied.
 """
 
-load("//flutter/private:android_plugin_maven.bzl", "gradle_statements")
 load("//flutter/private:cmake_link_libraries.bzl", "scan_cmake_commands")
+load("//flutter/private:gradle_script.bzl", "gradle_statements")
 
 _CARGOKIT = "which builds a Rust crate with cargo"
 
