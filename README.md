@@ -935,11 +935,22 @@ It prints the lines to paste into `artifacts = [...]` for the plugins that app d
 "androidx.core:core:1.17.0",  # declared by package:url_launcher_android 6.3.29; resolves 1.0.0
 ```
 
+A plugin that takes its versions from a BoM, as the FlutterFire plugins do, gets the BoM's line too, to paste into `boms = [...]`, and its artifacts are listed with no version:
+
+```
+"com.google.firebase:firebase-common",  # declared by package:firebase_core 5.1.0; missing
+"com.google.firebase:firebase-bom:35.1.0",  # declared by package:firebase_core 5.1.0; missing
+```
+
+An artifact whose declaration excludes some of what it brings (`exclude group: ..., module: ...`) is printed as a `maven.artifact(..., exclusions = [...])` to add to `MODULE.bazel` instead, since `artifacts = [...]` can't say what to exclude.
+
 It works while the build is failing for lack of them, which is when you need it. Add the lines, then re-pin the install's lock file:
 
 ```sh
 REPIN=1 bazel run @rules_flutter_maven//:pin
 ```
+
+Below the lines it also suggests one [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer) command that makes the same changes to `artifacts` and `boms`, adding what is missing and raising what the install lists too low, followed by the re-pin when the install has a lock file. It assumes the `maven.install` is in your root `MODULE.bazel` itself, not in a file that it `include()`s.
 
 If you skip this, the Android build fails when it links the plugin, with one message listing the same lines. Only the plugins that app links are checked. Only Android builds read any of this, and a web or desktop build never fetches it.
 

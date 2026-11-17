@@ -184,6 +184,133 @@ void main() {
       );
     });
 
+    test('prints the BoMs, and an artifact\'s exclusions as its tag', () {
+      final report = formatReport(
+        app: null,
+        requirements: {
+          'com.google.firebase:firebase-common': Requirement(null, [
+            'package:firebase_core 5.1.0',
+          ], managed: true),
+          'com.google.firebase:firebase-firestore': Requirement(
+            null,
+            ['package:cloud_firestore 7.2.0'],
+            managed: true,
+            exclusions: ['junit:junit', 'org.mockito:mockito-core'],
+          ),
+        },
+        resolved: {},
+        aligned: {},
+        boms: {
+          'com.google.firebase:firebase-bom': Requirement('35.1.0', [
+            'package:cloud_firestore 7.2.0',
+            'package:firebase_core 5.1.0',
+          ]),
+        },
+      );
+      expect(report, contains('# 3 of 3 are missing or too low'));
+      for (final text in [
+        '        "com.google.firebase:firebase-common",  '
+            '# declared by package:firebase_core 5.1.0; missing\n',
+        'boms = [...]), which gives\n',
+        '        "com.google.firebase:firebase-bom:35.1.0",  # declared by '
+            'package:cloud_firestore 7.2.0, package:firebase_core 5.1.0; '
+            'missing\n',
+        '# declared by package:cloud_firestore 7.2.0; missing\n'
+            'maven.artifact(\n'
+            '    name = "rules_flutter_maven",\n'
+            '    artifact = "firebase-firestore",\n'
+            '    exclusions = ["junit:junit", "org.mockito:mockito-core"],\n'
+            '    group = "com.google.firebase",\n'
+            ')\n',
+      ]) {
+        expect(report, contains(text));
+      }
+      expect(
+        report,
+        isNot(contains('"com.google.firebase:firebase-firestore"')),
+      );
+    });
+
+    test('suggests one buildozer command for the changes', () {
+      String commandOf(String report) => report
+          .split('\n')
+          .where((line) => line.startsWith('#   '))
+          .map((line) => line.substring(4))
+          .join('\n');
+      final report = formatReport(
+        app: null,
+        requirements: {
+          'g:fine': Requirement('1.0', ['package:a 1.0']),
+          'g:new': Requirement('2.0', ['package:a 1.0']),
+          'g:managed': Requirement(null, ['package:a 1.0'], managed: true),
+          'g:listed': Requirement('3.0', ['package:a 1.0']),
+          'g:transitive': Requirement('4.0', ['package:a 1.0']),
+        },
+        resolved: {
+          'g:fine': '1.0',
+          'g:listed': '2.5',
+          'g:transitive': '3.5',
+          'a:ktx': '1.0',
+        },
+        aligned: {'a:ktx': Alignment('1.9.0', 'a:main 1.9.0')},
+        boms: {
+          'g:bom': Requirement('35.1.0', ['package:a 1.0']),
+          'g:old-bom': Requirement('2.0', ['package:a 1.0']),
+          'g:fine-bom': Requirement('1.0', ['package:a 1.0']),
+        },
+        resolvedBoms: {'g:old-bom': '1.0', 'g:fine-bom': '1.0'},
+        listed: {
+          'g:fine': 'g:fine:1.0',
+          'g:listed': 'g:listed:2.5',
+          'a:ktx': 'a:ktx:1.0',
+        },
+      );
+      expect(
+        report,
+        contains(
+          '# Or, when that maven.install is in the root MODULE.bazel itself',
+        ),
+      );
+      expect(
+        commandOf(report),
+        "buildozer 'add artifacts g:managed g:new:2.0 g:transitive:4.0' "
+        "'add boms g:bom:35.1.0' "
+        "'replace artifacts g:listed:2.5 g:listed:3.0' "
+        "'replace artifacts a:ktx:1.0 a:ktx:1.9.0' "
+        "'replace boms g:old-bom:1.0 g:old-bom:2.0' "
+        '//MODULE.bazel:rules_flutter_maven\n'
+        'REPIN=1 bazel run @rules_flutter_maven//:pin',
+      );
+
+      // An install with no lock file has nothing to regenerate, and one
+      // that has everything needs no command.
+      expect(
+        commandOf(
+          formatReport(
+            app: null,
+            requirements: {
+              'g:new': Requirement('2.0', ['package:a 1.0']),
+            },
+            resolved: {},
+            aligned: {},
+            locked: false,
+          ),
+        ),
+        "buildozer 'add artifacts g:new:2.0' //MODULE.bazel:rules_flutter_maven",
+      );
+      expect(
+        formatReport(
+          app: null,
+          requirements: {
+            'g:fine': Requirement('1.0', ['package:a 1.0']),
+          },
+          resolved: {'g:fine': '1.0'},
+          aligned: {},
+        ),
+        isNot(contains('buildozer')),
+      );
+    });
+
     test('says when there is nothing to paste', () {
       final report = formatReport(
         app: '//:app',

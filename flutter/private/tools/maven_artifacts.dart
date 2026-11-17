@@ -1,7 +1,9 @@
 /// Prints the Maven artifacts an Android build needs, as the lines to paste
-/// into `maven.install(name = "rules_flutter_maven", artifacts = [...])`.
+/// into `maven.install(name = "rules_flutter_maven", artifacts = [...])`,
+/// and the BoMs that give the versions of those that name none, for its
+/// `boms = [...]`.
 ///
-/// Two kinds of line:
+/// Two kinds of artifact line:
 ///
 /// * The artifacts the Android plugins' Gradle builds declare, at the highest
 ///   version any of them declares, as Gradle gives a plugin.
@@ -19,9 +21,16 @@
 /// Usage: `maven_artifacts <runfiles path of the report's JSON> [options]`.
 /// `flutter_android_maven` (every plugin of the build) and
 /// `flutter_android_maven_report` (an application's) write that JSON:
-/// `app` (or null), `requirements` (coordinate to `version` and
-/// `declared_by`), `resolved` (coordinate to version), `repositories` and
-/// `unread`, the plugins' Gradle lines the reader could not read.
+/// `app` (or null), `requirements` and `boms` (coordinate to `version`,
+/// `managed`, `declared_by` and `exclusions`), `resolved` and
+/// `resolved_boms` (coordinate to version), `listed` (coordinate to the
+/// coordinate the install's `artifacts` list it as), `locked`,
+/// `repositories` and `unread`, the plugins' Gradle lines the reader could
+/// not read.
+///
+/// After the lines to paste it prints, as a suggestion, the buildozer command
+/// that makes the same changes to `artifacts` and `boms`, and the command
+/// that regenerates the install's lock file.
 ///
 /// Options, each a file path (relative to the directory `bazel run` was
 /// started in):
@@ -42,13 +51,24 @@ import 'dart:io';
 
 import 'package:runfiles/runfiles.dart';
 
-/// What the plugins declare for one artifact.
+/// What the plugins declare for one artifact or BoM.
 class Requirement {
-  Requirement(this.version, this.declaredBy);
+  Requirement(
+    this.version,
+    this.declaredBy, {
+    this.managed = false,
+    this.exclusions = const [],
+  });
 
   /// The highest version declared, or null when none names one.
   final String? version;
   final List<String> declaredBy;
+
+  /// Whether a plugin leaves the version to a BoM.
+  final bool managed;
+
+  /// The `group:artifact`s every declaration excludes from what it brings.
+  final List<String> exclusions;
 }
 
 /// A line of a plugin's Gradle build that the reader could not read, such
@@ -146,15 +166,24 @@ Future<Map<String, Alignment>> align(
 ///
 /// [requirements] are the plugins' declarations, [resolved] what the install
 /// resolves, [aligned] the result of [align] over both, and [unread] the lines
-/// of the plugins' Gradle builds the reader could not read.
+/// of the plugins' Gradle builds the reader could not read. [boms] are the
+/// plugins' BoMs and [resolvedBoms] the install's. [listed] maps each
+/// artifact the install's `artifacts` list to the coordinate it lists, and
+/// [locked] says whether the install has a lock file.
 String formatReport({
   required String? app,
   required Map<String, Requirement> requirements,
   required Map<String, String> resolved,
   required Map<String, Alignment> aligned,
   List<UnreadLine> unread = const [],
+  Map<String, Requirement> boms = const {},
+  Map<String, String> resolvedBoms = const {},
+  Map<String, String> listed = const {},
+  bool locked = true,
 }) {
   final lines = <String>[];
+  final excluding = <String>[];
+  final edits = _Edits();
   var changed = 0;
   for (final coordinate in requirements.keys.toList()..sort()) {
     final req = requirements[coordinate]!;
@@ -173,12 +202,18 @@ String formatReport({
       notes.add('resolves $have');
     }
     if (have == null || notes.isNotEmpty) changed++;
-    lines.add(
-      _line(coordinate, version, [
-        'declared by ${req.declaredBy.join(', ')}',
-        ...notes,
-      ]),
-    );
+    final allNotes = ['declared by ${req.declaredBy.join(', ')}', ...notes];
+    if (req.exclusions.isNotEmpty) {
+      // `artifacts` cannot say what an artifact excludes; `maven.artifact` can.
+      excluding.add(
+        _artifactTag(coordinate, version, req.exclusions, allNotes),
+      );
+      continue;
+    }
+    lines.add(_line(coordinate, version, allNotes, managed: req.managed));
+    if (have == null || notes.isNotEmpty) {
+      edits.change('artifacts', coordinate, version, listed[coordinate]);
+    }
   }
   final alignedOnly = [
     for (final coordinate in aligned.keys.toList()..sort())
@@ -192,6 +227,33 @@ String formatReport({
         'resolves ${resolved[coordinate]}',
       ]),
     );
+    edits.change(
+      'artifacts',
+      coordinate,
+      alignment.version,
+      listed[coordinate],
+    );
+  }
+  final bomLines = <String>[];
+  for (final coordinate in boms.keys.toList()..sort()) {
+    final req = boms[coordinate]!;
+    final have = resolvedBoms[coordinate];
+    final notes = ['declared by ${req.declaredBy.join(', ')}'];
+    if (have == null) {
+      notes.add('missing');
+    } else if (req.version != null && compareVersions(have, req.version!) < 0) {
+      notes.add('resolves $have');
+    }
+    if (notes.length > 1) {
+      changed++;
+      edits.change(
+        'boms',
+        coordinate,
+        req.version,
+        have == null ? null : '$coordinate:$have',
+      );
+    }
+    bomLines.add(_line(coordinate, req.version, notes));
   }
 
   final out = <String>[
@@ -199,17 +261,16 @@ String formatReport({
         ? '# Maven artifacts the Android plugins of the build declare.'
         : '# Maven artifacts the Android plugins that $app links declare.',
   ];
-  if (requirements.isEmpty) {
+  final declared = requirements.length + boms.length;
+  if (declared == 0) {
     out.add('# The plugins declare none.');
   } else if (changed > 0) {
     out.add(
-      '# $changed of ${requirements.length} are missing or too low in '
+      '# $changed of $declared are missing or too low in '
       '@rules_flutter_maven (marked).',
     );
   } else {
-    out.add(
-      '# All ${requirements.length} are provided by @rules_flutter_maven.',
-    );
+    out.add('# All $declared are provided by @rules_flutter_maven.');
   }
   if (alignedOnly.isNotEmpty) {
     out.add(
@@ -219,9 +280,10 @@ String formatReport({
       'raise ${alignedOnly.length == 1 ? 'it' : 'them'} (marked).',
     );
   }
-  if (lines.isEmpty) {
+  if (lines.isEmpty && bomLines.isEmpty && excluding.isEmpty) {
     out.add('# None.');
-  } else {
+  }
+  if (lines.isNotEmpty) {
     out
       ..add(
         '# Paste into maven.install(name = "rules_flutter_maven", '
@@ -229,6 +291,43 @@ String formatReport({
       )
       ..add('')
       ..addAll(lines.map((line) => '        $line'));
+  }
+  if (bomLines.isNotEmpty) {
+    if (lines.isNotEmpty) out.add('');
+    out
+      ..add(
+        '# Paste into maven.install(name = "rules_flutter_maven", '
+        'boms = [...]), which gives',
+      )
+      ..add('# the versions of the artifacts above that name none:')
+      ..add('')
+      ..addAll(bomLines.map((line) => '        $line'));
+  }
+  if (excluding.isNotEmpty) {
+    if (lines.isNotEmpty || bomLines.isNotEmpty) out.add('');
+    out
+      ..add(
+        '# Add to MODULE.bazel, in place of these artifacts\' lines in '
+        '`artifacts`: the plugins',
+      )
+      ..add('# exclude part of what they bring.')
+      ..add('')
+      ..addAll(excluding);
+  }
+  final command = edits.command(locked: locked);
+  if (command.isNotEmpty) {
+    out
+      ..add('')
+      ..add(
+        '# Or, when that maven.install is in the root MODULE.bazel itself '
+        '(not in a file it',
+      )
+      ..add(
+        '# include()s), buildozer can make the changes to `artifacts` and '
+        '`boms`:',
+      )
+      ..add('#')
+      ..addAll(command.map((line) => '#   $line'));
   }
   if (unread.isNotEmpty) {
     out
@@ -254,8 +353,83 @@ String formatReport({
   return '${out.join('\n')}\n';
 }
 
-String _line(String coordinate, String? version, List<String> notes) =>
-    '"$coordinate:${version ?? '<version>'}",  # ${notes.join('; ')}';
+String _line(
+  String coordinate,
+  String? version,
+  List<String> notes, {
+  bool managed = false,
+}) =>
+    '"${_coordinate(coordinate, version, managed: managed)}",  '
+    '# ${notes.join('; ')}';
+
+/// `group:artifact:version`, or `group:artifact` for one whose version a BoM
+/// gives.
+String _coordinate(
+  String coordinate,
+  String? version, {
+  bool managed = false,
+}) => version == null && managed
+    ? coordinate
+    : '$coordinate:${version ?? '<version>'}';
+
+String _artifactTag(
+  String coordinate,
+  String? version,
+  List<String> exclusions,
+  List<String> notes,
+) {
+  final [group, artifact] = coordinate.split(':');
+  return [
+    '# ${notes.join('; ')}',
+    'maven.artifact(',
+    '    name = "rules_flutter_maven",',
+    '    artifact = "$artifact",',
+    '    exclusions = [${exclusions.map((e) => '"$e"').join(', ')}],',
+    '    group = "$group",',
+    if (version != null) '    version = "$version",',
+    ')',
+  ].join('\n');
+}
+
+/// The changes to an install's `artifacts` and `boms`, as one buildozer
+/// command.
+class _Edits {
+  final _added = <String, List<String>>{};
+  final _replaced = <String>[];
+
+  /// Sets [coordinate] of [attribute] to [version]: replaces [listed], the
+  /// coordinate the install lists it as, or adds it when it lists none.
+  /// One with no version a BoM gives is added as `group:artifact`.
+  void change(
+    String attribute,
+    String coordinate,
+    String? version,
+    String? listed,
+  ) {
+    if (listed != null) {
+      if (version == null) return;
+      _replaced.add("'replace $attribute $listed $coordinate:$version'");
+    } else {
+      _added
+          .putIfAbsent(attribute, () => [])
+          .add(version == null ? coordinate : '$coordinate:$version');
+    }
+  }
+
+  /// The lines to run, none when there is nothing to change.
+  List<String> command({required bool locked}) {
+    final commands = [
+      for (final MapEntry(:key, :value) in _added.entries)
+        "'add $key ${value.join(' ')}'",
+      ..._replaced,
+    ];
+    if (commands.isEmpty) return const [];
+    return [
+      'buildozer ${commands.join(' ')} //MODULE.bazel:rules_flutter_maven',
+      if (locked) 'REPIN=1 bazel run @rules_flutter_maven//:pin',
+    ];
+  }
+}
 
 /// The Gradle module metadata of [coordinate] at [version], from the first of
 /// [repositories] that has it, or null when none does: the artifact was
@@ -490,14 +664,18 @@ Future<void> main(List<String> args) async {
   final data = jsonDecode(
     File(Runfiles.create().rlocation(positional.single)).readAsStringSync(),
   ) as Map<String, Object?>;
-  final requirements = {
+  Map<String, Requirement> requirementsOf(Object? json) => {
     for (final MapEntry(:key, :value)
-        in (data['requirements'] as Map<String, Object?>).entries)
+        in (json as Map<String, Object?>? ?? const {}).entries)
       key: Requirement(
         (value as Map)['version'] as String?,
         (value['declared_by'] as List).cast<String>(),
+        managed: value['managed'] as bool? ?? false,
+        exclusions: (value['exclusions'] as List? ?? const []).cast<String>(),
       ),
   };
+  final requirements = requirementsOf(data['requirements']);
+  final boms = requirementsOf(data['boms']);
   final resolved = (data['resolved'] as Map).cast<String, String>();
   final repositories = (data['repositories'] as List).cast<String>();
   final unread = <UnreadLine>[
@@ -564,6 +742,11 @@ Future<void> main(List<String> args) async {
         resolved: resolved,
         aligned: aligned,
         unread: unread,
+        boms: boms,
+        resolvedBoms: (data['resolved_boms'] as Map? ?? const {})
+            .cast<String, String>(),
+        listed: (data['listed'] as Map? ?? const {}).cast<String, String>(),
+        locked: data['locked'] as bool? ?? true,
       ),
     );
   } on NotInSnapshot catch (e) {
