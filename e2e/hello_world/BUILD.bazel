@@ -420,6 +420,24 @@ build_variant_tests(
     test = ":flutter_version_test",
 )
 
+# A Dart-only plugin's `registerWith()` for the host platform has run before
+# the test's `main`, as under `flutter test`, in all four builds. See
+# test/dart_plugin_registration_test.dart.
+flutter_test(
+    name = "dart_plugin_registration_test",
+    main = "test/dart_plugin_registration_test.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "//dart_plugin",
+        "@deps//:flutter_test",
+    ],
+)
+
+build_variant_tests(
+    name = "dart_plugin_registration_builds",
+    test = ":dart_plugin_registration_test",
+)
+
 build_variant_tests(
     name = "flavor_builds",
     test = ":flavor_test",

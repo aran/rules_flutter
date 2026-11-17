@@ -51,6 +51,33 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
     if target_platform == "web":
         return _make_web_registrant_content(plugins)
 
+    registrant = make_registrant_parts(plugins, target_platform, agent_import, native_agent_import)
+    if registrant == None:
+        return ""
+    lines = ["// GENERATED — do not edit.", "// ignore_for_file: depend_on_referenced_packages"]
+    lines.extend(registrant.imports)
+    lines.append("")
+    lines.append(registrant.declaration)
+    return "\n".join(lines)
+
+def make_registrant_parts(plugins, target_platform = None, agent_import = None, native_agent_import = None):
+    """The imports and the `_PluginRegistrant` class of a non-web registrant.
+
+    Apart, for a library that declares the class beside its own code: a
+    `flutter_test`'s bootstrap, which the engine looks the class up in as the
+    root library.
+
+    Args:
+        plugins: As `make_registrant_content`'s.
+        target_platform: As `make_registrant_content`'s; not "web".
+        agent_import: As `make_registrant_content`'s.
+        native_agent_import: As `make_registrant_content`'s.
+
+    Returns:
+        `struct(imports, declaration)`: the import lines, and the class's
+        source ending in a newline. None if there are no Dart plugins and no
+        agent to register.
+    """
     dart_plugins = []
     for plugin in plugins:
         if target_platform:
@@ -67,16 +94,16 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
                 ))
 
     if not dart_plugins and not agent_import and not native_agent_import:
-        return ""
+        return None
 
-    lines = ["// GENERATED — do not edit.", "// ignore_for_file: depend_on_referenced_packages"]
+    imports = []
     if agent_import:
-        lines.append("import '%s' as agent;" % agent_import)
+        imports.append("import '%s' as agent;" % agent_import)
     if native_agent_import:
-        lines.append("import '%s' as native_agent;" % native_agent_import)
+        imports.append("import '%s' as native_agent;" % native_agent_import)
     for p in dart_plugins:
-        lines.append("import 'package:%s/%s';" % (p.package, p.dart_file_name))
-    lines.append("")
+        imports.append("import 'package:%s/%s';" % (p.package, p.dart_file_name))
+    lines = []
     lines.append("@pragma('vm:entry-point')")
     lines.append("class _PluginRegistrant {")
     lines.append("  @pragma('vm:entry-point')")
@@ -94,7 +121,7 @@ def make_registrant_content(plugins, target_platform = None, agent_import = None
     lines.append("  }")
     lines.append("}")
     lines.append("")
-    return "\n".join(lines)
+    return struct(imports = imports, declaration = "\n".join(lines))
 
 def _make_web_registrant_content(plugins):
     """Generate the Dart registrant source for Flutter web.

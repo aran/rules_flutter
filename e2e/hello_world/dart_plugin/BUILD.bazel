@@ -1,0 +1,39 @@
+load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "dart_plugin",
+)
+
+# A Dart-only plugin: a `dart_plugin_class` on each desktop platform and no
+# native code. Each platform's class records its registration, so a test can
+# see which one was registered and when (//:dart_plugin_registration_test).
+flutter_plugin(
+    name = "dart_plugin",
+    srcs = ["lib/dart_plugin.dart"],
+    package = ":pubspec-metadata",
+    platforms = [
+        ":linux",
+        ":macos",
+        ":windows",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flutter_plugin_platform(
+    name = "linux",
+    dart_plugin_class = "DartPluginLinux",
+    platform = "linux",
+)
+
+flutter_plugin_platform(
+    name = "macos",
+    dart_plugin_class = "DartPluginMacOS",
+    platform = "macos",
+)
+
+flutter_plugin_platform(
+    name = "windows",
+    dart_plugin_class = "DartPluginWindows",
+    platform = "windows",
+)
