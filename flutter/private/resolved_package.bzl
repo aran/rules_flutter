@@ -15,6 +15,7 @@ one.
 
 load("@rules_dart//dart:providers.bzl", "DartAnalyzableInfo", "DartInfo")
 load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 
 # What a `flutter_library`, `flutter_plugin` or `dart_library` can carry beyond
 # `DefaultInfo`, which every target has. A provider the target lacks is left
@@ -44,6 +45,7 @@ resolved_package = rule(
             mandatory = True,
             providers = [DartInfo],
             doc = "The target that builds the package.",
+            aspects = [flutter_info_forwarding_aspect],
         ),
         "package_name": attr.string(mandatory = True, doc = "The pub package's name: the key it is mapped under."),
         "lock": attr.string(doc = "The lock's label, for messages."),

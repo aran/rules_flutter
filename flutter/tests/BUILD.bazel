@@ -35,6 +35,7 @@ load(":federated_plugin_test.bzl", "federated_plugin_test_suite")
 load(":flutter_application_test.bzl", "flutter_application_test_suite")
 load(":flutter_application_variant_test.bzl", "flutter_application_variant_test_suite")
 load(":flutter_framework_package_test.bzl", "flutter_framework_package_test_suite")
+load(":flutter_info_forwarding_test.bzl", "flutter_info_forwarding_test_suite")
 load(":flutter_info_test.bzl", "flutter_info_test_suite")
 load(":flutter_integration_test_test.bzl", "flutter_integration_test_test_suite")
 load(":flutter_library_test.bzl", "flutter_library_test_suite")
@@ -230,6 +231,8 @@ plugin_registrant_test_suite(name = "plugin_registrant_test")
 plugin_resolution_test_suite(name = "plugin_resolution_test")
 
 federated_plugin_test_suite(name = "federated_plugin_test")
+
+flutter_info_forwarding_test_suite(name = "flutter_info_forwarding_test")
 
 pub_cycle_test_suite(name = "pub_cycle_test")
 

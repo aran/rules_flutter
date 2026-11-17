@@ -1,3 +1,4 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
 load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_library", "flutter_test")
 load("//flutter/private:flutter_android_registrant.bzl", "flutter_android_registrant")
 load("//flutter/private:flutter_macos_registrant.bzl", "flutter_macos_registrant")
@@ -70,6 +71,27 @@ flutter_application(
     package = ":pubspec-metadata",
     tags = ["manual"],
     deps = [":library"],
+)
+
+# The same through a rules_dart library of this repository, which builds no
+# `FlutterInfo` of its own.
+dart_library(
+    name = "dart_library",
+    srcs = ["lib/dart_library.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/federated_fixture/fed",
+        "//flutter/tests/federated_fixture/fed_alt",
+    ],
+)
+
+flutter_application(
+    name = "dart_library_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [":dart_library"],
 )
 
 # Depends on both Android implementations.

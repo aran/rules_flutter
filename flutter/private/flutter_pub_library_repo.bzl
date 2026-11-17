@@ -13,9 +13,11 @@ curated ones, `pub_cycles.bzl`); an undeclared one fails, naming the
 declaration to write.
 
 The library is a `flutter_pub_library` over the members of the cycle, or
-rules_dart's `pub_library` when neither they nor any package they reach has
-anything of Flutter's (see `is_flutter_library`). Either way its dependencies
-are the libraries of whatever the cycle depends on outside itself.
+rules_dart's `pub_library` when none of them has anything of Flutter's.
+Either way its dependencies are the libraries of whatever the cycle depends on
+outside itself. What those bring of Flutter's (a plugin, assets) reaches an
+application through a `pub_library` too: Flutter's rules read it across one
+with `flutter_info_forwarding_aspect`.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_graph", "read_pubspec_dependencies")
@@ -64,29 +66,6 @@ def _android_exports(android_libs):
     }}),
 """.format(libs = _labels(android_libs))
 
-def is_flutter_library(member_kinds, reached_kinds, reaches_mapped = False):
-    """Whether a cycle's library is a `flutter_pub_library`.
-
-    It is when a member is of Flutter's kind, and also when a package the cycle
-    reaches may be. rules_dart's `pub_library` forwards no `FlutterInfo`, so a
-    plugin reached only through a pure-Dart package (`qr_code_dart_scan`'s
-    `camera`) would be in no app that depends on it: not registered, its
-    native library not linked, and nothing failing. A `flutter_pub_library`
-    over the same members forwards what its dependencies carry.
-
-    A package `resolve` maps to a workspace target is a target the hub cannot
-    see into, so reaching one counts too.
-
-    Args:
-      member_kinds: The member kind of each package of the cycle.
-      reached_kinds: The member kind of each built package the cycle reaches.
-      reaches_mapped: Whether the cycle reaches a package `resolve` maps.
-
-    Returns:
-      True for a `flutter_pub_library`.
-    """
-    return reaches_mapped or MEMBER_FLUTTER in member_kinds or MEMBER_FLUTTER in reached_kinds or MEMBER_OVERLAY in reached_kinds
-
 def make_library_build_content(name, members, deps, flutter, android_libs = [], member_dependencies = {}):
     """BUILD content for the library of a dependency cycle.
 
@@ -106,10 +85,6 @@ def make_library_build_content(name, members, deps, flutter, android_libs = [], 
     Returns:
       BUILD.bazel content as a string.
     """
-
-    # `package:test` has nothing of Flutter's, and `dart_test` needs the runner
-    # its rules_dart library carries, also when a package it reaches makes
-    # `flutter` true (a dependency `resolve` maps to a workspace target).
     if name == _TEST_PACKAGE:
         return _test_package_build_content(members, deps)
     load_statement, rule = (
@@ -225,26 +200,11 @@ def _flutter_pub_library_repo_impl(ctx):
     if [m for m in members.values() if m["material_icons"]]:
         deps.append(_MATERIAL_ICONS)
 
-    # What the cycle reaches is in `graph`: the dependency planning above read
-    # each of those packages' sources already, so this fetches nothing more.
-    # The lock's other entries are leaves of it; of those, the SDK's own are
-    # not mapped, and a stub fails whatever depends on it anyway.
-    reached_kinds = [
-        json.decode(read_sibling_file(ctx, source_repo(p, owner_prefix(index, p)), MEMBER_FILE))["kind"]
-        for p in graph
-        if p in index.built and p not in cycle.packages
-    ]
-    reaches_mapped = bool([
-        dep
-        for deps in graph.values()
-        for dep in deps
-        if dep in index.other and dep not in index.sdk_packages
-    ])
     ctx.file("BUILD.bazel", make_library_build_content(
         name = package,
         members = ["@{}//:{}".format(source_repo(m, owner_prefix(index, m)), m) for m in cycle.packages],
         deps = sorted(deps),
-        flutter = is_flutter_library([m["kind"] for m in members.values()], reached_kinds, reaches_mapped),
+        flutter = bool([m for m in members.values() if m["kind"] == MEMBER_FLUTTER]),
         android_libs = ["@{}//android:lib".format(source_repo(m, owner_prefix(index, m))) for m in cycle.packages if members[m].get("android_lib")],
         member_dependencies = {m: graph.get(m, []) for m in cycle.packages},
     ))

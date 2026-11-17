@@ -84,6 +84,7 @@ load(
 )
 load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "collect_bundled_code_asset_files", "resolve_native_assets", "write_native_assets_manifest")
 load("//flutter/private:flutter_program_test.bzl", "add_user_env", "program_environment", "track_widget_creation", _flutter_test_rule = "flutter_test")
@@ -821,13 +822,14 @@ _PROGRAM_ATTRS.update(TRACK_CREATION_LOCATIONS_ATTR)
 
 # Each library in `deps` is compiled into a kernel module by the aspect, and its
 # imports checked by another, with the test's own `defines` (the transition) so a dependency's
-# `bool.fromEnvironment` const agrees with the test's.
+# `bool.fromEnvironment` const agrees with the test's. A third forwards
+# `FlutterInfo` through libraries of other rule sets.
 _PROGRAM_ATTRS["deps"] = attr.label_list(
     doc = "`dart_library` or `flutter_library` dependencies. List " +
           "`@rules_flutter//flutter:material_icons` to bundle " +
           "`MaterialIcons-Regular.otf` for Material widgets.",
     providers = [DartInfo],
-    aspects = [flutter_module_aspect, dart_import_check_aspect],
+    aspects = [flutter_module_aspect, dart_import_check_aspect, flutter_info_forwarding_aspect],
     cfg = _ENVIRONMENT.cfg,
 )
 

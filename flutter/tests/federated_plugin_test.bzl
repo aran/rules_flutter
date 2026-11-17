@@ -150,9 +150,10 @@ def federated_plugin_test_suite(name):
     add(_registered_test, target_under_test = _FIXTURE + "default_app", android = ["fed_android"], macos = ["fed_macos"])
 
     # The application depends on `fed_alt`, directly or through a library of
-    # this repository.
+    # this repository, a Flutter one or a rules_dart one.
     add(_registered_test, target_under_test = _FIXTURE + "direct_app", android = ["fed_alt"], macos = ["fed_alt"])
     add(_registered_test, target_under_test = _FIXTURE + "library_app", android = ["fed_alt"], macos = ["fed_alt"])
+    add(_registered_test, target_under_test = _FIXTURE + "dart_library_app", android = ["fed_alt"], macos = ["fed_alt"])
 
     # The other implementation of a package with one of its own.
     add(_registered_test, target_under_test = _FIXTURE + "inline_app", android = ["inline_override"], macos = [])

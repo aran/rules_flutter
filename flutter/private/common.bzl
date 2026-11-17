@@ -14,6 +14,7 @@ load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "prog
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "bundle_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:native_sources.bzl", "native_sources_aspect")
@@ -1283,8 +1284,9 @@ def flutter_deps_attr(aspects = [], **kwargs):
               "a kernel or an AOT artifact have no bundle for it to reach.",
         providers = [DartInfo],
         # Each library's imports are checked against its own `deps`, in the
-        # `_validation` output group.
-        aspects = [dart_import_check_aspect] + aspects,
+        # `_validation` output group. `FlutterInfo` is read across libraries
+        # of other rule sets.
+        aspects = [dart_import_check_aspect, flutter_info_forwarding_aspect] + aspects,
         **kwargs
     )
 

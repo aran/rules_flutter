@@ -29,6 +29,7 @@ load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleModuleHe
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo", "FlutterWindowsPluginInfo")
 load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "ADDITIONAL_LICENSES_ATTR", "ASSET_FLAVORS_ATTR", "ASSET_PLATFORMS_ATTR", "LIBRARY_DATA_ATTR", "SHADER_FLAVORS_ATTR", "SHADER_PLATFORMS_ATTR", "SKY_ENGINE_ATTR", "build_pub_contributions", "flutter_analyzable_info", "own_additional_licenses")
 load("//flutter/private:flutter_plugin_platform.bzl", "apple_resource_info", "plugin_platforms_of")
 load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "native_sources_aspect")
@@ -300,6 +301,7 @@ flutter_plugin = rule(
         "deps": attr.label_list(
             doc = "Dart/Flutter library dependencies.",
             providers = [DartInfo],
+            aspects = [flutter_info_forwarding_aspect],
         ),
     } | RUNTIME_INDEPENDENT_ATTR | SUMMARY_ATTRS | LIBRARY_IMPORT_CHECKER_ATTRS,
     exec_groups = PORTABLE_EXEC_GROUPS,

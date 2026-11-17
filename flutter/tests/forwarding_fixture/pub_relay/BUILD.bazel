@@ -1,0 +1,39 @@
+load("@rules_dart//dart:defs.bzl", "dart_package_metadata")
+load("@rules_dart//dart/pub:pub_library.bzl", "pub_library", "pub_package_member")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "pub_relay",
+)
+
+# A pure-Dart pub package as the hub builds it, rules_dart's `pub_library`,
+# depending on the plugin and the asset package.
+pub_package_member(
+    name = "member",
+    srcs = ["lib/pub_relay.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+)
+
+pub_library(
+    name = "pub_relay",
+    members = [":member"],
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/forwarding_fixture/assets:relayed_assets",
+        "//flutter/tests/forwarding_fixture/plugin:relayed_plugin",
+    ],
+)
+
+# A cycle of a pure-Dart package and a plugin, as a `pub_library` over both:
+# the plugin is a member, not a dependency.
+pub_library(
+    name = "with_member_plugin",
+    members = [
+        ":member",
+        "//flutter/tests/forwarding_fixture/member_plugin",
+    ],
+    tags = ["manual"],
+)

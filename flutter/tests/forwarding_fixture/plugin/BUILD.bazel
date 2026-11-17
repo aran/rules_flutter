@@ -1,0 +1,26 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "relayed_plugin",
+)
+
+# A plugin that applications reach only through Dart libraries of other rule
+# sets (`//flutter/tests/forwarding_fixture/relay`).
+flutter_plugin(
+    name = "relayed_plugin",
+    srcs = ["lib/relayed_plugin.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "android",
+    package = "com.example.relayed",
+    platform = "android",
+    plugin_class = "RelayedPlugin",
+    tags = ["manual"],
+)

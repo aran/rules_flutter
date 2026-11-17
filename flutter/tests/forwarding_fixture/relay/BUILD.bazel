@@ -1,0 +1,30 @@
+load("@rules_dart//dart:defs.bzl", "dart_library", "dart_package_metadata")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "relay",
+)
+
+# rules_dart libraries, which build no `FlutterInfo`: `relay` depends on the
+# plugin and the asset package, and `outer` on `relay` alone, so what they
+# bring is two Dart libraries below the application.
+dart_library(
+    name = "relay",
+    srcs = ["lib/relay.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/forwarding_fixture/assets:relayed_assets",
+        "//flutter/tests/forwarding_fixture/plugin:relayed_plugin",
+    ],
+)
+
+dart_library(
+    name = "outer",
+    srcs = ["lib/outer.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [":relay"],
+)

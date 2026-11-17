@@ -1,0 +1,19 @@
+load("@rules_dart//dart:defs.bzl", "dart_package_metadata")
+load("//flutter/private:flutter_pub_library.bzl", "flutter_pub_member")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "member_plugin",
+)
+
+# A plugin as the hub builds a Flutter pub package: a member of a library,
+# here of `//flutter/tests/forwarding_fixture/pub_relay:with_member_plugin`.
+flutter_pub_member(
+    name = "member_plugin",
+    srcs = ["lib/member_plugin.dart"],
+    package = ":pubspec-metadata",
+    platforms = ["//flutter/tests/forwarding_fixture/plugin:android"],
+    tags = ["manual"],
+)

@@ -1,0 +1,62 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_test")
+
+# Applications and tests that reach `relayed_plugin` and `relayed_assets` only
+# through Dart libraries Flutter's rules did not build. `manual`, and only
+# analysed (`flutter_info_forwarding_test.bzl`).
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "forwarding_app",
+)
+
+# Two rules_dart `dart_library` targets down.
+flutter_application(
+    name = "through_dart_library",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/forwarding_fixture/relay:outer"],
+)
+
+# Through a pure-Dart pub package's `pub_library`.
+flutter_application(
+    name = "through_pub_library",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/forwarding_fixture/pub_relay"],
+)
+
+# Through a plugin that is a member of a `pub_library`.
+flutter_application(
+    name = "through_member_plugin",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/forwarding_fixture/pub_relay:with_member_plugin"],
+)
+
+# A test compiled in the first application, which takes its `deps` from it.
+# `fake_test_api` is no `package:test_api` the bootstrap compiles against
+# (see `flutter_test_analyze_fixture`).
+flutter_test(
+    name = "in_application_test",
+    application = ":through_dart_library",
+    main = "test/forwarding_test.dart",
+    tags = ["manual"],
+    deps = ["//flutter/tests/flutter_test_analyze_fixture/fake_test_api"],
+)
+
+# A test with the Dart library in its own `deps`.
+flutter_test(
+    name = "own_deps_test",
+    main = "test/forwarding_test.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
+        "//flutter/tests/forwarding_fixture/relay:outer",
+    ],
+)

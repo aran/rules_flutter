@@ -5,6 +5,7 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMP
 load("//flutter:providers.bzl", "FlutterFontFamilyInfo", "FlutterInfo")
 load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "flutter_info")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 
 def package_root_of(owner):
     """The root of the Dart package `owner` is in: the directory above `lib/`.
@@ -488,6 +489,7 @@ _LIBRARY_ATTRS = package_identity_attrs() | {
     "deps": attr.label_list(
         doc = "Other `dart_library` or `flutter_library` targets this library depends on.",
         providers = [DartInfo],
+        aspects = [flutter_info_forwarding_aspect],
     ),
     "resources": attr.label_list(
         doc = "Non-Dart files this package ships inside `lib/` — part of its published surface, but never compiled. Anything under `lib/` is addressable as `package:<name>/<path>` whatever its extension, so these are members of the package: they ride `DartInfo.transitive_resources` and are staged wherever the whole package is staged (the analyzer's project tree, `dart_test`/`dart_binary` runfiles), mirroring `dart_library`. Orthogonal to `assets`/`shaders`/`fonts`, which name flutter_assets bundle contributions — a `lib/` shader is legitimately both. `.dart` files belong in `srcs`.",

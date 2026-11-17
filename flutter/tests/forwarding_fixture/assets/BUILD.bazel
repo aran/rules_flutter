@@ -1,0 +1,18 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_library")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "relayed_assets",
+)
+
+# A package bundling an asset, which applications reach only through Dart
+# libraries of other rule sets.
+flutter_library(
+    name = "relayed_assets",
+    srcs = ["lib/relayed_assets.dart"],
+    assets = ["assets/relayed.txt"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+)

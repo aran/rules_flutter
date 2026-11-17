@@ -10,6 +10,7 @@ Produces a `flutter_assets/` tree artifact containing:
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "package_root_of", "path_in_package")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
@@ -248,6 +249,7 @@ flutter_asset_bundle = rule(
         ),
         "deps": attr.label_list(
             doc = "Flutter library dependencies whose assets to include.",
+            aspects = [flutter_info_forwarding_aspect],
         ),
         "flavor": attr.string(
             doc = "The flavor the bundle is for: a pub package's `flavors:` entries naming it are bundled, other `flavors:` entries are not. Empty is no flavor.",

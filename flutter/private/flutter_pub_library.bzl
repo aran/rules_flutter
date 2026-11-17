@@ -28,15 +28,10 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "PORTABLE_EX
 load("@rules_dart//dart/pub:pub_library.bzl", "DartPackageMemberInfo", "dart_package_member_info")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
+load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "SKY_ENGINE_ATTR", "bundled_without_import", "flutter_analyzable_info_of_packages")
 load("//flutter/private:flutter_plugin.bzl", "PLUGIN_PACKAGE_ATTRS", "plugin_contributions")
-
-FlutterPubMemberInfo = provider(
-    doc = "What a Flutter pub package contributes to `FlutterInfo`, beyond its Dart package.",
-    fields = {
-        "contributions": "dict: The keyword arguments of `flutter_info()` for what this package itself contributes (plugin, native libraries, assets, fonts, shaders).",
-    },
-)
+load("//flutter/private:flutter_pub_member_info.bzl", "FlutterPubMemberInfo", "member_contributions")
 
 def _flutter_pub_member_impl(ctx):
     metadata = ctx.attr.package[DartPackageMetadataInfo]
@@ -99,11 +94,7 @@ def _flutter_pub_library_impl(ctx):
 
     # What each member of Flutter's own kind adds. A member of rules_dart's has
     # nothing to add.
-    contributions = {}
-    for member in ctx.attr.members:
-        if FlutterPubMemberInfo in member:
-            for channel, values in member[FlutterPubMemberInfo].contributions.items():
-                contributions.setdefault(channel, []).extend(values)
+    contributions = member_contributions(ctx.attr.members)
 
     # The Android libraries of the members' `exports` are the ones this library
     # `exports` (see the attribute): the same labels, written once for each.
@@ -153,6 +144,7 @@ flutter_pub_library = rule(
         "deps": attr.label_list(
             providers = [DartInfo],
             doc = "The libraries of the packages the members depend on outside the cycle.",
+            aspects = [flutter_info_forwarding_aspect],
         ),
         "member_dependencies": attr.string_list_dict(
             doc = "For each member, by name, the packages its pubspec depends on directly, by name: the dependencies its plugin registers after, inside the cycle or out.",
