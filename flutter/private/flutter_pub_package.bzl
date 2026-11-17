@@ -54,6 +54,7 @@ rule asks for it.
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
+load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "parse_gradle_maven_dependencies")
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
@@ -680,6 +681,19 @@ def _read_gradle_properties(ctx):
     """The properties of the package's `android/gradle.properties`, which Gradle gives the plugin's project."""
     path = ctx.path("android/gradle.properties")
     return parse_gradle_properties(ctx.read(path)) if path.exists and not path.is_dir else {}
+
+def _read_plugin_build_config_fields(ctx):
+    """The fields the plugin's Gradle build adds to its `BuildConfig` (`parse_gradle_build_config_fields`)."""
+    script = _android_gradle_script(ctx)
+    if not script:
+        return struct(fields = [], unread = [])
+    content = ctx.read(script)
+    return parse_gradle_build_config_fields(
+        content,
+        applied = _read_applied_scripts(ctx, content),
+        properties = _read_gradle_properties(ctx),
+        script = "android/" + script.basename,
+    )
 
 def _read_plugin_jvm_level(ctx):
     """The Java/Kotlin level the plugin's Gradle build compiles its Android sources at.
@@ -1791,7 +1805,8 @@ def make_android_subpackage_build_content(
         android_manifest = "",
         consumer_proguard_specs = [],
         has_resources = False,
-        jvm_level = AGP_DEFAULT_JVM_LEVEL):
+        jvm_level = AGP_DEFAULT_JVM_LEVEL,
+        build_config_fields = []):
     """Generate `android/BUILD.bazel` content for a Flutter plugin spoke.
 
     Emits a `kt_android_library(name = "lib", ...)`, which the spoke's member
@@ -1822,7 +1837,7 @@ def make_android_subpackage_build_content(
     automatically; rules_android does not. `android_build_config` emits it
     into the library's `srcs`, as Gradle compiles it with the module, with `DEBUG` and `BUILD_TYPE` as Gradle's would be in the build's mode
     (debug: true and `debug`, profile: true and `profile`, release: false
-    and `release`).
+    and `release`), and the fields the plugin's Gradle build adds.
 
     Args:
         android_src_dir: Source dir under the package root (e.g.
@@ -1869,6 +1884,8 @@ def make_android_subpackage_build_content(
         jvm_level: The Java major version the plugin's Gradle build compiles
             its Java and Kotlin at (`parse_gradle_jvm_level`). The library's
             `kotlinc_opts` sets it as the `jvm_target` of both halves.
+        build_config_fields: The fields the plugin's Gradle build adds to its
+            `BuildConfig` (`parse_gradle_build_config_fields`).
 
     Returns:
         Generated BUILD content as a string.
@@ -2016,10 +2033,11 @@ load("@rules_kotlin//kotlin:core.bzl", "kt_kotlinc_options")
 {maven_call}
 # BuildConfig for the plugin's namespace, which Gradle generates and compiles
 # with the module's sources, and rules_android does not. DEBUG and
-# BUILD_TYPE follow the build mode.
+# BUILD_TYPE follow the build mode; the fields are the Gradle build's
+# `buildConfigField`s.
 android_build_config(
     name = "_build_config",
-    package = "{bc_package}",
+    package = "{bc_package}",{build_config_fields}
 )
 
 # The Java level the plugin's Gradle build compiles at, as Gradle does: rules_kotlin
@@ -2049,6 +2067,7 @@ kt_android_library(
         compile_only_target = compile_only_target,
         runtime_deps = runtime_deps_arg,
         bc_package = bc_package,
+        build_config_fields = "\n    fields = %s," % repr(build_config_fields) if build_config_fields else "",
         synthesized_manifest = synthesized_manifest,
         write_file_load = write_file_load,
     )
@@ -2908,8 +2927,13 @@ def _flutter_pub_package_impl(ctx):
         # A level the reader cannot read fails the plugin's Android build, as
         # an unbuilt native library does, rather than compiling at a guess.
         android_jvm = _read_plugin_jvm_level(ctx)
+        build_config = _read_plugin_build_config_fields(ctx)
         if android_jvm.error:
             write_android_build(ctx, build_prelude, make_android_failing_build_content(android_jvm.error))
+        elif build_config.unread:
+            write_android_build(ctx, build_prelude, make_android_failing_build_content(
+                unread_build_config_message(ctx.attr.package_name, build_config.unread),
+            ))
         else:
             write_android_build(ctx, build_prelude, make_android_subpackage_build_content(
                 android_src_dir = android_src_dir,
@@ -2920,6 +2944,7 @@ def _flutter_pub_package_impl(ctx):
                 consumer_proguard_specs = android_consumer_proguard_specs,
                 has_resources = android_has_resources,
                 jvm_level = android_jvm.level,
+                build_config_fields = build_config.fields,
             ))
     _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps), maven_boms)
     return _linked_repo_metadata(ctx)
