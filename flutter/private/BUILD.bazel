@@ -349,6 +349,7 @@ bzl_library(
     deps = [
         ":pub_constraint",
         ":pub_lock_sdks",
+        ":pub_resolve",
     ],
 )
 

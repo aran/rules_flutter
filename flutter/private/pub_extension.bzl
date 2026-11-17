@@ -33,7 +33,7 @@ load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEW
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
 load("//flutter/private:pub_lock_sdks.bzl", "parse_lock_sdk_constraints")
 load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "sdk_pin_errors", "unsupported_locks")
-load("//flutter/private:pub_resolve.bzl", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
+load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
 load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settings", "unknown_annotation")
 load("//flutter/private:swift_packages.bzl", "declare_swift_packages")
 load("//flutter/private:versions.bzl", "flutter_sdk_exact_pins", "flutter_sdk_packages", "flutter_source_sha256")
@@ -424,7 +424,7 @@ def _hosted_entry(tag, name, info):
     # An empty digest means "do not check" to Bazel's downloader, so a lock
     # entry without one is refused here, where the lock can be named, rather
     # than fetched on trust.
-    check_pub_archive_sha256(name, version, sha256, str(tag.lock), rewrite = pub_command("get", tag.lock.package))
+    check_pub_archive_sha256(name, version, sha256, str(tag.lock), rewrite = pub_command("get", lock_directory(tag.lock)))
     return dict(
         kind = HOSTED,
         version = version,
@@ -443,7 +443,7 @@ def _git_entry(tag, name, info):
     if not url:
         fail("The git package \"%s\" %s (in %s) has no `description.url`. Run `dart pub get` to rewrite the lock." % (name, version, tag.lock))
     resolved_ref = desc.get("resolved-ref", "")
-    check_pub_git_resolved_ref(name, version, resolved_ref, str(tag.lock), rewrite = pub_command("get", tag.lock.package))
+    check_pub_git_resolved_ref(name, version, resolved_ref, str(tag.lock), rewrite = pub_command("get", lock_directory(tag.lock)))
     return dict(
         kind = GIT,
         version = version,
@@ -539,7 +539,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             entries.setdefault(name, []).append(struct(
                 hub = tag.name,
                 lock_label = str(tag.lock),
-                lock_dir = tag.lock.package,
+                lock_dir = lock_directory(tag.lock),
                 module = t.module.name,
                 is_root = t.module.is_root,
                 **fields

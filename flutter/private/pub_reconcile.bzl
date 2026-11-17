@@ -19,7 +19,7 @@ An entry is a `struct` the extension makes of one lock entry:
 * `reason`, for an ignored `path` package;
 * `hub`, `lock_label`: the tag it came from;
 * `module`, `is_root`: the module whose tag it is, and whether that is the root;
-* `lock_dir`: the lock's directory within its repository (its Bazel package).
+* `lock_dir`: the lock's directory within its repository (`lock_directory`).
 """
 
 load("@rules_dart//dart/pub:pub_versions.bzl", "pub_version_request", "select_pub_version")

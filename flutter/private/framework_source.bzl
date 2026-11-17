@@ -17,6 +17,7 @@ load("@rules_dart//dart/pub:pub_graph.bzl", "write_pubspec_dependencies")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
 load("//flutter/private:pub_constraint.bzl", "allows")
 load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
+load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
 FRAMEWORK_JSON = "flutter_framework.json"
 
@@ -118,7 +119,7 @@ def _resolve_commands(sdk, default_sdk, verb, locks):
     flag = "" if sdk == default_sdk else "--@rules_flutter//flutter:sdk={} ".format(sdk)
     commands = []
     for lock in locks:
-        lock_dir = Label(lock).package
+        lock_dir = lock_directory(Label(lock))
         args = verb + (" --directory=" + lock_dir if lock_dir else "")
         commands.append("bazel run {}@rules_flutter//flutter/pub -- {}".format(flag, args))
     return "\n    ".join(commands)

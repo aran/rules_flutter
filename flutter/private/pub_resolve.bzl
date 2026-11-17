@@ -22,6 +22,21 @@ package and the fix. Every function returns messages and never calls `fail`:
 a unit test cannot catch `fail`.
 """
 
+def lock_directory(lock):
+    """The directory of a lock, from the root of its repository.
+
+    The lock's Bazel package, and below it whatever directory the label's
+    name reaches (`//app:lock/pubspec.lock` is in `app/lock`).
+
+    Args:
+        lock: The lock's `Label`.
+
+    Returns:
+        The directory, `/`-separated; empty for the repository root.
+    """
+    parts = [p for p in [lock.package, lock.name.rpartition("/")[0]] if p]
+    return "/".join(parts)
+
 def path_package_dir(lock_package, path):
     """Resolves a `path` lock entry's path to the Bazel package it names.
 
@@ -29,7 +44,8 @@ def path_package_dir(lock_package, path):
     package that declared the dependency. Both `/` and `\\` separate segments.
 
     Args:
-        lock_package: The Bazel package of the lock; empty for the repository root.
+        lock_package: The directory of the lock (`lock_directory`); empty
+            for the repository root.
         path: The `path` of the entry's `description`.
 
     Returns:
@@ -57,7 +73,7 @@ def _suggested_target(lock, info):
     description = info.get("description", {})
     if type(description) != "dict" or not _is_true(description.get("relative", "")):
         return "//..."
-    resolved = path_package_dir(lock.package, description.get("path", ""))
+    resolved = path_package_dir(lock_directory(lock), description.get("path", ""))
     return "//{}:<target>".format(resolved.dir) if resolved.dir != None else "//..."
 
 def _quoted(names):

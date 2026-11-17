@@ -9,7 +9,7 @@ that must fail then, naming the lock, the package and the fix.
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:flutter_unsupported_package.bzl", "ignored_package_message")
-load("//flutter/private:pub_resolve.bzl", "path_package_dir", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
+load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_dir", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
 
 _LOCK = Label("//apps/greeter:pubspec.lock")
 
@@ -48,6 +48,18 @@ def _resolves_paths_relative_to_the_lock_test_impl(ctx):
         asserts.equals(env, None, r.dir)
         asserts.true(env, r.error != None and r.error != "")
 
+    return unittest.end(env)
+
+def _a_lock_in_a_subdirectory_of_its_package_test_impl(ctx):
+    """A lock's directory is the file's, which a label's name can reach below its package."""
+    env = unittest.begin(ctx)
+    asserts.equals(env, "apps/greeter", lock_directory(Label("//apps/greeter:pubspec.lock")))
+    asserts.equals(env, "apps/greeter/lock", lock_directory(Label("//apps/greeter:lock/pubspec.lock")))
+    asserts.equals(env, "", lock_directory(Label("//:pubspec.lock")))
+    asserts.equals(env, "lock", lock_directory(Label("//:lock/pubspec.lock")))
+    _mentions(env, "\n".join(_errors([_path_entry("greeting", "../packages/greeting")], {}, lock = Label("//apps/greeter:lock/pubspec.lock"))), [
+        '"greeting": "//apps/greeter/packages/greeting:<target>"',
+    ])
     return unittest.end(env)
 
 def _an_exact_map_has_no_errors_test_impl(ctx):
@@ -342,6 +354,7 @@ def _every_mistake_is_reported_test_impl(ctx):
     return unittest.end(env)
 
 _resolves_paths_relative_to_the_lock_test = unittest.make(_resolves_paths_relative_to_the_lock_test_impl)
+_a_lock_in_a_subdirectory_of_its_package_test = unittest.make(_a_lock_in_a_subdirectory_of_its_package_test_impl)
 _an_exact_map_has_no_errors_test = unittest.make(_an_exact_map_has_no_errors_test_impl)
 _an_unmapped_path_package_is_refused_test = unittest.make(_an_unmapped_path_package_is_refused_test_impl)
 _a_lock_that_says_relative_false_is_not_relative_test = unittest.make(_a_lock_that_says_relative_false_is_not_relative_test_impl)
@@ -360,6 +373,7 @@ def pub_resolve_test_suite(name):
     unittest.suite(
         name,
         _resolves_paths_relative_to_the_lock_test,
+        _a_lock_in_a_subdirectory_of_its_package_test,
         _an_exact_map_has_no_errors_test,
         _an_unmapped_path_package_is_refused_test,
         _a_lock_that_says_relative_false_is_not_relative_test,
