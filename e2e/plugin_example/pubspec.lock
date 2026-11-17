@@ -195,6 +195,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.20.3"
+  java17_plugin:
+    dependency: "direct main"
+    description:
+      path: "path_packages/java17_plugin"
+      relative: true
+    source: path
+    version: "0.0.1"
   jni:
     dependency: transitive
     description:

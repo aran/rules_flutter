@@ -168,8 +168,17 @@ def _split_statements(line, number, out):
     if cur.strip():
         token("statement", cur)
 
-def _gradle_tokens(content):
-    """The tokens of a Gradle build script, comments removed (see `_split_statements`)."""
+def gradle_tokens(content):
+    """The tokens of a Gradle build script, comments removed.
+
+    Args:
+        content: The text of `build.gradle` or `build.gradle.kts`.
+
+    Returns:
+        Structs of `kind` (`"statement"`, `"open"` for a block header, whose
+        `text` is what precedes its `{`, or `"close"`), `text` and `line`, the
+        1-based line number (see `_split_statements`).
+    """
     out = []
     for number, raw in enumerate(content.split("\n")):
         _split_statements(_strip_line_comment(raw), number + 1, out)
@@ -184,7 +193,7 @@ def gradle_statements(content):
     Returns:
         A list of stripped strings, one per statement or block header.
     """
-    return [t.text for t in _gradle_tokens(content) if t.kind != "close" and t.text]
+    return [t.text for t in gradle_tokens(content) if t.kind != "close" and t.text]
 
 def _string_literal(text):
     """The value of `text` when it is exactly one string literal, else None."""
@@ -397,7 +406,7 @@ def parse_gradle_maven_dependencies(content):
         statement the reader cannot read, `"conditional"` for a declaration it
         reads but outside the `dependencies` block's own statements.
     """
-    tokens = _gradle_tokens(content)
+    tokens = gradle_tokens(content)
 
     variables = {}
     for t in tokens:

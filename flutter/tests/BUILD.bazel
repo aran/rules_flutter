@@ -7,6 +7,7 @@ load(":android_build_transition_test.bzl", "android_build_transition_test_suite"
 load(":android_bundle_test.bzl", "android_bundle_test_suite")
 load(":android_class_check_test.bzl", "android_class_check_test_suite")
 load(":android_listenablefuture_test.bzl", "android_listenablefuture_test_suite")
+load(":android_plugin_jvm_target_test.bzl", "android_plugin_jvm_target_test_suite")
 load(":android_plugin_libs_test.bzl", "android_plugin_libs_test_suite")
 load(":android_plugin_maven_test.bzl", "android_plugin_maven_test_suite")
 load(":aot_options_test.bzl", "aot_file_flags_test_suite", "aot_no_strip_test_suite", "aot_obfuscate_alone_test_suite", "aot_options_test_suite", "aot_resolve_dwarf_paths_test_suite", "aot_strip_test_suite")
@@ -152,6 +153,8 @@ android_plugin_libs_test_suite(name = "android_plugin_libs_test")
 android_class_check_test_suite(name = "android_class_check_test")
 
 android_listenablefuture_test_suite(name = "android_listenablefuture_test")
+
+android_plugin_jvm_target_test_suite(name = "android_plugin_jvm_target_test")
 
 android_plugin_maven_test_suite(name = "android_plugin_maven_test")
 

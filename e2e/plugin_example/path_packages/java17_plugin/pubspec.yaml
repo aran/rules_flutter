@@ -1,0 +1,23 @@
+# A `path` package with no Bazel build: an Android plugin in Java that uses
+# language features newer than Java 8, which its Gradle build compiles at the
+# level it declares (17). `flutter_pub.from_lock(build_from_pubspec = ...)`
+# builds it from this pubspec and its Gradle build.
+name: java17_plugin
+description: A Java Android plugin whose Gradle build declares Java 17.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.example.java17_plugin
+        pluginClass: Java17Plugin

@@ -1,0 +1,345 @@
+"""The Java and Kotlin level a pub plugin's Android sources compile at.
+
+Gradle compiles each Android library at the level its own
+`android/build.gradle(.kts)` declares: the Java half at
+`android.compileOptions.targetCompatibility`, the Kotlin half at
+`kotlin.compilerOptions.jvmTarget` (or `kotlinOptions.jvmTarget`). Flutter's
+Gradle plugin leaves a plugin's level to the plugin. Where the script declares
+none, the Android Gradle plugin takes the version of the module's Java
+toolchain (`java.toolchain.languageVersion`, which Kotlin's `jvmToolchain(n)`
+also sets), else its own default.
+
+rules_kotlin compiles both halves of a `kt_android_library` at one level, its
+`kotlinc_opts`'s `jvm_target` (the Java half gets `-source`/`-target` of it),
+so a plugin gets one level: its Java target, else its Kotlin target, else its
+toolchain's, else the Android Gradle plugin's default.
+
+A declaration whose value the reader cannot read, where it could decide that
+level, is reported rather than skipped: the plugin's Android build fails
+naming it (`unread_jvm_level_message`).
+"""
+
+load("//flutter/private:android_plugin_maven.bzl", "gradle_tokens")
+
+# The Android Gradle plugin's `compileOptions` default when the module names
+# no Java toolchain: Java 11 since AGP 9.0 (issuetracker 369246556), the AGP
+# that `flutter create`'s Android templates use in the pinned Flutter (9.1).
+AGP_DEFAULT_JVM_LEVEL = 11
+
+# The newest `jvm_target` rules_kotlin's `kt_kotlinc_options` accepts (its
+# `values`, "1.6", "1.8" and "9" to "25" in rules_kotlin 2.4.21).
+_KT_MAX_JVM_TARGET = 25
+
+def kotlinc_jvm_target(level):
+    """The `kt_kotlinc_options.jvm_target` for a Java major version, or None.
+
+    Java 8 and below are `1.8`: javac and kotlinc no longer target older
+    bytecode, and source written for an older level compiles at 8. A level
+    newer than rules_kotlin accepts is None.
+
+    Args:
+        level: A Java major version.
+
+    Returns:
+        The `jvm_target` string, or None.
+    """
+    if level <= 8:
+        return "1.8"
+    if level > _KT_MAX_JVM_TARGET:
+        return None
+    return str(level)
+
+_IDENT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+
+def _leading_identifier(text):
+    end = 0
+    for c in text.elems():
+        if c not in _IDENT_CHARS:
+            break
+        end += 1
+    return text[:end]
+
+def _unquote(text):
+    if len(text) >= 2 and text[0] in "'\"" and text[-1] == text[0]:
+        return text[1:-1]
+    return None
+
+def _major(text):
+    """`17`, `1.8`, `8` as a Java major version, or None."""
+    text = text.strip()
+    if text.startswith("1.") or text.startswith("1_"):
+        text = text[2:]
+    return int(text) if text.isdigit() else None
+
+def _call_argument(text, prefix):
+    """The argument of `prefix(arg)` when `text` is exactly that call, else None."""
+    if not text.startswith(prefix + "(") or not text.endswith(")"):
+        return None
+    return text[len(prefix) + 1:-1].strip()
+
+# What a value may be read through: a qualified name of a constant, and the
+# conversions between Java's and Kotlin's version types.
+_CONSTANT_PREFIXES = (
+    "JavaVersion.VERSION_",
+    "org.gradle.api.JavaVersion.VERSION_",
+    "JvmTarget.JVM_",
+    "org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_",
+)
+_CONVERSIONS = (
+    "JavaVersion.toVersion",
+    "org.gradle.api.JavaVersion.toVersion",
+    "JvmTarget.fromTarget",
+    "org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget",
+    "JavaLanguageVersion.of",
+    "org.gradle.jvm.toolchain.JavaLanguageVersion.of",
+)
+_SUFFIXES = (".toString()", ".majorVersion", ".target", ".asInt()")
+_VARIABLE_PREFIXES = ("project.ext.", "project.extra.", "project.", "ext.", "extra.")
+
+def _value(text, variables):
+    """The Java major version `text` evaluates to, or None when it is not readable."""
+    text = text.strip()
+
+    # Each round unwraps one conversion or variable.
+    for _ in range(8):
+        if not text:
+            return None
+        for _ in range(4):
+            stripped = False
+            for suffix in _SUFFIXES:
+                if text.endswith(suffix):
+                    text = text[:-len(suffix)].strip()
+                    stripped = True
+            if not stripped:
+                break
+        quoted = _unquote(text)
+        if quoted != None:
+            return _major(quoted)
+        if _major(text) != None:
+            return _major(text)
+        for prefix in _CONSTANT_PREFIXES:
+            if text.startswith(prefix):
+                return _major(text[len(prefix):])
+        inner = None
+        for call in _CONVERSIONS:
+            arg = _call_argument(text, call)
+            if arg != None:
+                inner = arg
+                break
+        if inner == None:
+            name = text
+            for prefix in _VARIABLE_PREFIXES:
+                if name.startswith(prefix):
+                    name = name[len(prefix):]
+                    break
+            if not name or _leading_identifier(name) != name or name not in variables:
+                return None
+            inner = variables[name]
+        text = inner.strip()
+    return None
+
+def _assigned(text, key):
+    """The value `text` gives `key` (`key = v`, `key v`, `key(v)`, `key.set(v)`), or None."""
+    if _leading_identifier(text) != key:
+        return None
+    rest = text[len(key):]
+    if not rest:
+        return None
+    if rest.startswith(".set(") and rest.endswith(")"):
+        return rest[len(".set("):-1]
+    if rest[0] == "(" and rest.endswith(")"):
+        return rest[1:-1]
+    rest = rest.strip()
+    if rest.startswith("="):
+        return rest[1:]
+    if rest != text[len(key):] and rest and rest[0] not in "{.":
+        return rest
+    return None
+
+def _definition(text, blocks):
+    """`(name, expression)` when `text` defines a variable a value may name, else None."""
+    for prefix in ("def ", "val ", "var ", "final def "):
+        if text.startswith(prefix):
+            rest = text[len(prefix):].strip()
+            name = _leading_identifier(rest)
+            rest = rest[len(name):].strip()
+            if rest.startswith(":"):
+                rest = rest[1:].strip()
+                rest = rest[len(_leading_identifier(rest)):].strip()
+            return (name, rest[1:]) if name and rest.startswith("=") else None
+    for prefix in ("ext.", "project.ext."):
+        if text.startswith(prefix):
+            rest = text[len(prefix):]
+            name = _leading_identifier(rest)
+            rest = rest[len(name):].strip()
+            return (name, rest[1:]) if name and rest.startswith("=") else None
+    if blocks and blocks[-1] == "ext":
+        name = _leading_identifier(text)
+        rest = text[len(name):].strip()
+        if name and rest.startswith("=") and not rest.startswith("=="):
+            return (name, rest[1:])
+    return None
+
+def _applied_script(text):
+    """The path `apply from: "x"` / `apply(from = "x")` / `apply from: file("x")` names, or None.
+
+    A path that is not one string literal (an interpolation, say) is returned
+    as written, which no file of the package has.
+    """
+    if _leading_identifier(text) != "apply":
+        return None
+    rest = text[len("apply"):].strip()
+    if rest.startswith("(") and rest.endswith(")"):
+        rest = rest[1:-1].strip()
+    if not rest.startswith("from"):
+        return None
+    rest = rest[len("from"):].strip()
+    if not rest or rest[0] not in ":=":
+        return None
+    rest = rest[1:].strip()
+    arg = _call_argument(rest, "file")
+    arg = arg if arg != None else rest
+    unquoted = _unquote(arg)
+    return unquoted if unquoted != None else arg
+
+def _applications(content):
+    return [
+        struct(path = path, line = t.text, line_number = t.line)
+        for t in gradle_tokens(content)
+        if t.kind == "statement"
+        for path in [_applied_script(t.text)]
+        if path
+    ]
+
+def gradle_applied_scripts(content):
+    """The paths of the scripts a Gradle build script applies.
+
+    Args:
+        content: The text of `build.gradle` or `build.gradle.kts`.
+
+    Returns:
+        The paths, relative to the script's directory, in order.
+    """
+    return [a.path for a in _applications(content)]
+
+_KEYS = {
+    "targetCompatibility": "java",
+    "jvmTarget": "kotlin",
+    "jvmToolchain": "toolchain",
+    "languageVersion": "toolchain",
+}
+
+# What decides the level, first to last.
+_PRECEDENCE = (("java", "targetCompatibility"), ("kotlin", "jvmTarget"), ("toolchain", "toolchain"))
+
+def parse_gradle_jvm_level(content, applied = {}, script = "android/build.gradle"):
+    """The level a plugin's Android sources compile at, read from its Gradle script.
+
+    Statement based, like the Maven reader (`gradle_tokens`). Reads
+    `targetCompatibility`, `jvmTarget`, `jvmToolchain(n)` and a toolchain's
+    `languageVersion = JavaLanguageVersion.of(n)`, written as a version
+    (`JavaVersion.VERSION_17`, `JvmTarget.JVM_17`, `"17"`, `'1.8'`, `17`, the
+    conversions between them) or as a variable the script, or a script it
+    applies, defines (`def`, `val`, `ext.x =`, an `ext { }` block).
+
+    Args:
+        content: The text of `build.gradle` or `build.gradle.kts`.
+        applied: The text of each script `content` applies that the package
+            has, by the path `gradle_applied_scripts` gives.
+        script: The path of `content` in the package, for `unread`.
+
+    Returns:
+        A struct: `level`, the Java major version to compile at; `declared`,
+        what it comes from (`"targetCompatibility"`, `"jvmTarget"`,
+        `"toolchain"` or `""` for the Android Gradle plugin's default); and
+        `unread`, structs of `script`, `line` and `line_number`, each a
+        declaration whose value the reader cannot read and which could decide
+        the level: one of the kind `level` comes from or of a kind before it,
+        and, where nothing declared is read, each script applied that is not
+        in `applied`. The level is not known when `unread` is not empty.
+    """
+    directory = script.rpartition("/")[0]
+    sources = [(content, script)]
+    missing = []
+    for a in _applications(content):
+        if a.path in applied:
+            sources.append((applied[a.path], directory + "/" + a.path if directory else a.path))
+        else:
+            missing.append(struct(script = script, line = a.line, line_number = a.line_number))
+
+    # The statements of the script and of each script it applies, whose
+    # variables it may name. A script an applied one applies is not read.
+    statements = []
+    for text, path in sources:
+        blocks = []
+        for t in gradle_tokens(text):
+            if t.kind == "open":
+                blocks.append(_leading_identifier(t.text) or t.text)
+            elif t.kind == "close":
+                if blocks:
+                    blocks.pop()
+            else:
+                statements.append(struct(text = t.text, line = t.line, blocks = list(blocks), script = path))
+
+    variables = {}
+    for s in statements:
+        d = _definition(s.text, s.blocks)
+        if d:
+            variables[d[0]] = d[1]
+
+    found = {}
+    unread = {}
+    for s in statements:
+        key = _leading_identifier(s.text)
+        kind = _KEYS.get(key)
+        if not kind:
+            continue
+        value = _assigned(s.text, key)
+        if value == None:
+            continue
+        value = value.strip()
+
+        # Kotlin's own `languageVersion` is a Kotlin version, not a toolchain's.
+        if key == "languageVersion" and "JavaLanguageVersion" not in value:
+            continue
+        level = _value(value, variables)
+        if level == None:
+            unread.setdefault(kind, []).append(struct(script = s.script, line = s.text, line_number = s.line))
+            continue
+        found[kind] = level
+
+    deciding = []
+    for kind, declared in _PRECEDENCE:
+        deciding.extend(unread.get(kind, []))
+        if kind in found:
+            return struct(level = found[kind], declared = declared, unread = deciding)
+    return struct(level = AGP_DEFAULT_JVM_LEVEL, declared = "", unread = deciding + missing)
+
+def unread_jvm_level_message(package, unread):
+    """What an Android build of a plugin whose level is not read fails with.
+
+    Args:
+        package: The pub package.
+        unread: `parse_gradle_jvm_level`'s `unread`.
+
+    Returns:
+        The message, naming each file and line.
+    """
+    return (
+        "package {pkg}: its Gradle build declares the Java level of its Android sources " +
+        "in a form rules_flutter cannot read, so the level they compile at is not known:\n" +
+        "{lines}\n" +
+        "To build it, supply a plugin overlay (`flutter_pub.plugin_overlays`) whose " +
+        "android/BUILD.bazel.tpl sets the level as `kt_kotlinc_options.jvm_target` " +
+        "(README, \"Plugins' Java and Kotlin level\")."
+    ).format(
+        pkg = package,
+        lines = "\n".join(["    {}:{}: {}".format(u.script, u.line_number, u.line) for u in unread]),
+    )
+
+def unsupported_jvm_level_message(package, script, level):
+    """What an Android build of a plugin at a level rules_kotlin lacks fails with."""
+    return (
+        "package {pkg}: {script} declares Java {level}, newer than the Java {max} " +
+        "rules_kotlin compiles at."
+    ).format(pkg = package, script = script, level = level, max = _KT_MAX_JVM_TARGET)

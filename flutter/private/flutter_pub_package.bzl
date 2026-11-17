@@ -54,6 +54,7 @@ rule asks for it.
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
+load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "gradle_applied_scripts", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "gradle_statements", "parse_gradle_maven_dependencies")
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
 load("//flutter/private:asset_variants.bzl", "variant_scale")
@@ -573,11 +574,12 @@ def _detect_unbuilt_native_code(ctx, plugin_block):
             _fail_on_swiftpm_dependencies(ctx.attr.package_name, platform, manifests)
     return out
 
-def make_android_native_build_content(message):
+def make_android_failing_build_content(message):
     """An `android/BUILD.bazel` that fails at load time with `message`.
 
     Written for a plugin whose Android native code rules_flutter does not
-    build (see `unbuilt_native_code.bzl`) when no overlay builds the package.
+    build (see `unbuilt_native_code.bzl`), or whose Java level it cannot read
+    (`android_plugin_jvm_target.bzl`), when no overlay builds the package.
     An Android build that links the plugin loads this file through its
     member's `exports` and fails; other platforms never load it.
     """
@@ -642,6 +644,51 @@ def _detect_consumer_proguard_specs(ctx):
                     relpath,
                 ))
     return paths
+
+def _package_relative(path):
+    """`path` with its `.` and `..` segments resolved, or None when it leaves the package."""
+    out = []
+    for segment in path.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not out:
+                return None
+            out.pop()
+        else:
+            out.append(segment)
+    return "/".join(out)
+
+def _read_plugin_jvm_level(ctx):
+    """The Java/Kotlin level the plugin's Gradle build compiles its Android sources at.
+
+    Reads `android/build.gradle` (else the `.kts`) and the scripts of the
+    package it applies (see `parse_gradle_jvm_level`).
+
+    Returns:
+        `struct(level, error)`: the Java major version, or the message an
+        Android build of the plugin fails with when the level is not known or
+        rules_kotlin cannot compile at it.
+    """
+    script = _android_gradle_script(ctx)
+    if not script:
+        return struct(level = AGP_DEFAULT_JVM_LEVEL, error = "")
+    content = ctx.read(script)
+    applied = {}
+    for path in gradle_applied_scripts(content):
+        relative = None if path.startswith("/") else _package_relative("android/" + path)
+        if relative == None:
+            continue
+        applied_path = ctx.path(relative)
+        if applied_path.exists and not applied_path.is_dir:
+            applied[path] = ctx.read(applied_path)
+    script_path = "android/" + script.basename
+    parsed = parse_gradle_jvm_level(content, applied, script = script_path)
+    if parsed.unread:
+        return struct(level = None, error = unread_jvm_level_message(ctx.attr.package_name, parsed.unread))
+    if kotlinc_jvm_target(parsed.level) == None:
+        return struct(level = None, error = unsupported_jvm_level_message(ctx.attr.package_name, script_path, parsed.level))
+    return struct(level = parsed.level, error = "")
 
 def _read_plugin_maven_deps(ctx):
     """Parse the spoke's `android/build.gradle*` Maven dependencies.
@@ -1600,7 +1647,8 @@ def make_android_subpackage_build_content(
         annotated_deps = [],
         android_manifest = "",
         consumer_proguard_specs = [],
-        has_resources = False):
+        has_resources = False,
+        jvm_level = AGP_DEFAULT_JVM_LEVEL):
     """Generate `android/BUILD.bazel` content for a Flutter plugin spoke.
 
     Emits a `kt_android_library(name = "lib", ...)`, which the spoke's member
@@ -1675,6 +1723,9 @@ def make_android_subpackage_build_content(
             `android/src/main/res/`. Compiled via `resource_files` so the
             plugin's `R` class is generated against `java_package` and
             the resources merge into the consuming APK.
+        jvm_level: The Java major version the plugin's Gradle build compiles
+            its Java and Kotlin at (`parse_gradle_jvm_level`). The library's
+            `kotlinc_opts` sets it as the `jvm_target` of both halves.
 
     Returns:
         Generated BUILD content as a string.
@@ -1818,6 +1869,7 @@ android_library(
     return """\
 {maven_loads}{write_file_load}load("@rules_flutter//flutter/private:android_build_config.bzl", "android_build_config")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("@rules_kotlin//kotlin:core.bzl", "kt_kotlinc_options")
 {maven_call}
 # BuildConfig for the plugin's namespace, which Gradle generates and compiles
 # with the module's sources, and rules_android does not. DEBUG and
@@ -1826,14 +1878,23 @@ android_build_config(
     name = "_build_config",
     package = "{bc_package}",
 )
+
+# The Java level the plugin's Gradle build compiles at, as Gradle does: rules_kotlin
+# compiles the Kotlin, and the Java with -source/-target, at this jvm_target.
+kt_kotlinc_options(
+    name = "_kotlinc_options",
+    jvm_target = "{jvm_target}",
+)
 {synthesized_manifest}{compile_only_target}
 kt_android_library(
     name = "lib",
     srcs = {srcs} + [":_build_config"],
-{custom_package}{manifest}{resource_files}{proguard_specs}{runtime_deps}    visibility = ["//visibility:public"],
+{custom_package}    kotlinc_opts = ":_kotlinc_options",
+{manifest}{resource_files}{proguard_specs}{runtime_deps}    visibility = ["//visibility:public"],
     deps = {deps},
 )
 """.format(
+        jvm_target = kotlinc_jvm_target(jvm_level),
         srcs = srcs_attr,
         custom_package = custom_package_arg,
         manifest = manifest_arg,
@@ -2677,17 +2738,24 @@ def _flutter_pub_package_impl(ctx):
         maven_unread = _unread_dicts(android_gradle_maven)
         maven_script = android_gradle_maven.script
     if android_native_build:
-        write_android_build(ctx, build_prelude, make_android_native_build_content(android_native_build))
+        write_android_build(ctx, build_prelude, make_android_failing_build_content(android_native_build))
     elif android_src_dir or android_has_resources:
-        write_android_build(ctx, build_prelude, make_android_subpackage_build_content(
-            android_src_dir = android_src_dir,
-            java_package = android_java_package,
-            maven_deps = maven_deps,
-            annotated_deps = list(ctx.attr.android_deps),
-            android_manifest = android_manifest,
-            consumer_proguard_specs = android_consumer_proguard_specs,
-            has_resources = android_has_resources,
-        ))
+        # A level the reader cannot read fails the plugin's Android build, as
+        # an unbuilt native library does, rather than compiling at a guess.
+        android_jvm = _read_plugin_jvm_level(ctx)
+        if android_jvm.error:
+            write_android_build(ctx, build_prelude, make_android_failing_build_content(android_jvm.error))
+        else:
+            write_android_build(ctx, build_prelude, make_android_subpackage_build_content(
+                android_src_dir = android_src_dir,
+                java_package = android_java_package,
+                maven_deps = maven_deps,
+                annotated_deps = list(ctx.attr.android_deps),
+                android_manifest = android_manifest,
+                consumer_proguard_specs = android_consumer_proguard_specs,
+                has_resources = android_has_resources,
+                jvm_level = android_jvm.level,
+            ))
     _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps))
     return _linked_repo_metadata(ctx)
 

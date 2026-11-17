@@ -12,7 +12,7 @@ load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "plugin_link_flags")
 load(
     "//flutter/private:flutter_pub_package.bzl",
-    "make_android_native_build_content",
+    "make_android_failing_build_content",
     "make_flutter_member_build_content",
 )
 load(
@@ -230,7 +230,7 @@ def _android_content_test_impl(ctx):
     """The Android package fails with the message as written, quotes and all."""
     env = unittest.begin(ctx)
     message = 'package:x 1.0 builds native code for Android with cargokit (`apply from: "../cargokit/gradle/plugin.gradle"`)'
-    asserts.equals(env, "fail(%s)\n" % repr(message), make_android_native_build_content(message))
+    asserts.equals(env, "fail(%s)\n" % repr(message), make_android_failing_build_content(message))
     return unittest.end(env)
 
 _android_content_test = unittest.make(_android_content_test_impl)

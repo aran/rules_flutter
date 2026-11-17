@@ -19,7 +19,7 @@ load(
     "find_hardcoded_language_version",
     "flavor_restrictions",
     "has_removed_hub_placeholder",
-    "make_android_native_build_content",
+    "make_android_failing_build_content",
     "make_android_subpackage_build_content",
     "make_dart_member_build_content",
     "make_flutter_member_build_content",
@@ -192,6 +192,29 @@ def _annotated_deps_test_impl(ctx):
     return unittest.end(env)
 
 annotated_deps_test = unittest.make(_annotated_deps_test_impl)
+
+def _jvm_level_test_impl(ctx):
+    """The library compiles at the level the plugin's Gradle build declares."""
+    env = unittest.begin(ctx)
+
+    content = make_android_subpackage_build_content(
+        android_src_dir = "android/src/main",
+        java_package = "dev.example.java17",
+        jvm_level = 17,
+    )
+    asserts.true(env, 'kt_kotlinc_options(\n    name = "_kotlinc_options",\n    jvm_target = "17",\n)' in content, content)
+    asserts.true(env, '    kotlinc_opts = ":_kotlinc_options",\n' in content, content)
+
+    # Java 8 is Kotlin's `1.8`.
+    content = make_android_subpackage_build_content(
+        android_src_dir = "android/src/main",
+        java_package = "dev.example.java8",
+        jvm_level = 8,
+    )
+    asserts.true(env, 'jvm_target = "1.8",' in content, content)
+    return unittest.end(env)
+
+jvm_level_test = unittest.make(_jvm_level_test_impl)
 
 def _resources_without_manifest_test_impl(ctx):
     """Resources force a manifest: synthesize one when the plugin ships none."""
@@ -586,7 +609,7 @@ def _android_build_file_begins_with_the_files_repository_load_test_impl(ctx):
     written = {}
     fake = struct(file = lambda path, content: written.update({path: content}))
     load_line = 'load("@@files//:pub_files.bzl", "FILES")\n'
-    write_android_build(fake, load_line, make_android_native_build_content("broken"))
+    write_android_build(fake, load_line, make_android_failing_build_content("broken"))
     asserts.true(env, written["android/BUILD.bazel"].startswith(load_line), written)
     return unittest.end(env)
 
@@ -1100,6 +1123,7 @@ def flutter_pub_package_test_suite(name):
         record_android_subpackage_test,
         resources_without_manifest_test,
         annotated_deps_test,
+        jvm_level_test,
         no_resources_subpackage_test,
         member_exports_android_lib_test,
         member_declares_fonts_and_platforms_test,

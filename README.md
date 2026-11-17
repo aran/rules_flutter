@@ -944,6 +944,12 @@ A plugin's C++ sources are compiled into your Linux or Windows app, so the app m
 
 If a plugin has something of the last kind, its Windows or Linux app fails to build, listing each line and its package. Other platforms are unaffected. To build it, supply a plugin overlay with `flutter_pub.plugin_overlays` (see [Packages with build hooks](#packages-with-build-hooks)): a `BUILD.bazel.tpl` for the package that declares its `flutter_windows_plugin_library` or `flutter_linux_plugin_library`, with the flags its sources need in `linkopts`.
 
+### Plugins' Java and Kotlin level
+
+A plugin's Android sources compile at the Java level its `android/build.gradle(.kts)` declares, as under Gradle: `compileOptions { targetCompatibility = JavaVersion.VERSION_17 }`, else Kotlin's `jvmTarget`, else the version of a Java toolchain (`kotlin { jvmToolchain(17) }`), else Java 11, the default of the Android Gradle plugin 9 that Flutter's templates use. `flutter create`'s plugin template declares 17. One level covers the plugin's Java and its Kotlin, and a level below 8 compiles at 8.
+
+The level may be written as a variable the script, or a script of the package it applies (`apply from: "config.gradle"`), sets. When rules_flutter can't read a value that could decide the level (one held in `rootProject.ext`, say, which the app's Gradle build sets), an Android app that links the plugin fails to build, naming the package, the file and the line. So does one whose script declares no level it can read and applies a script it can't read, which could. Other platforms are unaffected. To build it, supply a plugin overlay with `flutter_pub.plugin_overlays` (see [Packages with build hooks](#packages-with-build-hooks)) whose `android/BUILD.bazel.tpl` sets the level as the `jvm_target` of a `kt_kotlinc_options` its `kt_android_library` takes as `kotlinc_opts`, as rules_flutter's bundled overlay for `package:jni` does.
+
 ### Plugins whose own build makes a native library
 
 Some plugins make a library with their platform's build system, rather than from sources rules_flutter compiles. rules_flutter doesn't run Gradle, CocoaPods or CMake, so it can't make that library. It recognises these cases from the plugin's own files:

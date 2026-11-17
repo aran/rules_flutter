@@ -9,6 +9,7 @@
 
 load("@rules_flutter//flutter/private:android_build_config.bzl", "android_build_config")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("@rules_kotlin//kotlin:core.bzl", "kt_kotlinc_options")
 
 # BuildConfig for the plugin's namespace, which Gradle generates and compiles
 # with the module's sources, and rules_android does not. DEBUG and
@@ -16,6 +17,12 @@ load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 android_build_config(
     name = "_build_config",
     package = "com.ryanheise.audio_session",
+)
+
+# The Java level audio_session 0.1.x's Gradle build compiles at (its targetCompatibility).
+kt_kotlinc_options(
+    name = "_kotlinc_options",
+    jvm_target = "1.8",
 )
 
 kt_android_library(
@@ -28,6 +35,7 @@ kt_android_library(
         allow_empty = True,
     ) + [":_build_config"],
     custom_package = "com.ryanheise.audio_session",
+    kotlinc_opts = ":_kotlinc_options",
     visibility = ["//visibility:public"],
     deps = [
         "@rules_flutter//flutter/private/android:plugin_engine",

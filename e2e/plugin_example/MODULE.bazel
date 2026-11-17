@@ -42,6 +42,7 @@ flutter_pub.from_lock(
     # as a plugin from pub.dev is.
     build_from_pubspec = [
         "annotated_plugin",
+        "java17_plugin",
         "kotlin_only_plugin",
         "kotlin_plugin_user",
     ],

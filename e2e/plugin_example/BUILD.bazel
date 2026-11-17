@@ -134,6 +134,19 @@ flutter_application(
     ],
 )
 
+# An app whose only Android plugin is `java17_plugin`, a Java plugin whose
+# Gradle build declares Java 17, which its sources need:
+# `:java17_android_build_test`.
+flutter_application(
+    name = "java17_app",
+    main = "lib/java17_only.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:java17_plugin",
+    ],
+)
+
 # =============================================================================
 # macOS build
 # =============================================================================
@@ -369,6 +382,20 @@ flutter_android_build(
     name = "annotated_arm64_build",
     android_platforms = ["@rules_android//:arm64-v8a"],
     targets = [":annotated_android"],
+)
+
+flutter_android_app(
+    name = "java17_android",
+    application = ":java17_app",
+    application_id = "com.example.java17",
+    namespace = "com.example.plugin_example",
+    proguard_specs = [],
+)
+
+flutter_android_build(
+    name = "java17_arm64_build",
+    android_platforms = ["@rules_android//:arm64-v8a"],
+    targets = [":java17_android"],
 )
 
 flutter_android_app(
@@ -696,6 +723,15 @@ build_test(
     name = "annotated_android_build_test",
     tags = ["android"],
     targets = [":annotated_arm64_build"],
+)
+
+# The Java of `java17_plugin` uses pattern matching for `instanceof` and a
+# switch expression, which compile at the Java 17 its Gradle build declares
+# and not at Java 8, so an APK of `java17_app` builds only at the former.
+build_test(
+    name = "java17_android_build_test",
+    tags = ["android"],
+    targets = [":java17_arm64_build"],
 )
 
 dart_test(

@@ -1,0 +1,18 @@
+group 'com.example.java17_plugin'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.example.java17_plugin'
+    compileSdk 35
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        minSdk 24
+    }
+}

@@ -27,6 +27,10 @@ dependencies:
   # which MODULE.bazel's `flutter_pub.annotation` supplies the artifact of.
   annotated_plugin:
     path: path_packages/annotated_plugin
+  # A `path` package in Java whose Gradle build declares Java 17, the level
+  # its sources need.
+  java17_plugin:
+    path: path_packages/java17_plugin
   geolocator_apple: 2.4.3
 dev_dependencies:
   # A `path` package only a tool run outside Bazel uses, which the lock's
