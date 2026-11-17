@@ -842,6 +842,7 @@ A package's `flutter: assets:` are bundled at `packages/<package>/<path>`, as `f
 - A listed directory (a trailing slash) ships the files directly in it, and nothing from the directories below it.
 - An entry with `platforms:` ships only in builds for those platforms.
 - An entry with `flavors:` ships only in a build of one of those flavors (an application's `flavor`), and in no build without a flavor. Two entries that give one file different flavors fail the build.
+- An entry `packages/<other>/<path>` that is no file at that path is the file `<path>` of the `lib/` of the package `<other>` (this package or any other the lock builds, as in flutter_tools' package config), bundled at that key as listed. A listed directory is never read that way.
 - A package's `flutter: shaders:` entries follow the same rules.
 - A name with a space or a non-ASCII character is stored percent-encoded, the form the engine asks for, and listed in the manifest as written.
 

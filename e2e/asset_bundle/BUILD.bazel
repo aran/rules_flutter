@@ -67,6 +67,7 @@ bundled_app(
         deps = ["@%s" % package],
     )
     for package in [
+        "fx_asset_borrower",
         "fx_dirs",
         "fx_extra",
         "fx_flavors",
@@ -148,6 +149,13 @@ bundled_app(
     name = "app_with_fx_self_paths_android",
     platform = ":android_arm64",
     deps = ["@fx_self_paths"],
+)
+
+# A package's Android-only asset that is a file of another package's `lib/`.
+bundled_app(
+    name = "app_with_fx_asset_borrower_android",
+    platform = ":android_arm64",
+    deps = ["@fx_asset_borrower"],
 )
 
 # The platform and the flavor are independent filters: one Android build.

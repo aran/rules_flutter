@@ -59,7 +59,7 @@ load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "gradle_st
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
-load("//flutter/private:constants.bzl", "PLUGIN_PLATFORMS")
+load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFORMS")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
@@ -86,6 +86,9 @@ _ANDROID_SRC_EXTENSIONS = ("kt", "java")
 # Where the font files of other packages a package's pubspec names are linked.
 _OTHER_PACKAGES_FONTS = "_fonts_of_other_packages"
 
+# The extensions of the files a shader may `#include`, and of shaders.
+_SHADER_SOURCE_EXTENSIONS = (".glsl", ".frag", ".vert")
+
 # What this repository writes at its root, besides Bazel's own files, and the
 # one directory it writes in, `android/`. None of them is linked from the
 # package's files: a write through a link would land in the files repository,
@@ -97,6 +100,7 @@ _WRITTEN = [
     MAVEN_DEPS_FILE,
     PUBSPEC_DEPENDENCIES,
     _OTHER_PACKAGES_FONTS,
+    OTHER_PACKAGES_ASSETS,
     "android",
 ]
 
@@ -846,38 +850,49 @@ def _checked_file_name(package, what, path):
         ))
     return path
 
+def _lib_file_of(ctx, what, path, other, rest):
+    """The path of `lib/<rest>` in the package `other`, which the lock builds; the file may not exist.
+
+    `what` and `path` name the entry in the failure for a package the lock does not build.
+    """
+    index = read_index(ctx, ctx.attr.prefix)
+    if other not in index.built:
+        fail("package {}: the {} {} names the package {}, which the lock does not build.".format(ctx.attr.package_name, what, repr(path), other))
+    return sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child("lib/" + rest)
+
 def _font_source(ctx, path):
     """The file of the font a package lists at `path`, and its `asset` if it is another package's.
 
     As in flutter_tools, `packages/<other>/<rest>` that is no file of this
     package is the file `<rest>` of the `lib/` of the package `<other>`, this
-    one or another, which need not list it. A file of another package is linked
-    into this repository rather than named across repositories: a package's
-    files are private to it, and any of them can be named this way. Its
-    `flutter_font` keeps `path` as its `asset`.
+    one or another, which need not list it (see `_packages_entry`). A file of
+    another package is linked into this repository rather than named across
+    repositories (see `_link_lib_file`). Its `flutter_font` keeps `path` as its
+    `asset`.
 
     Returns:
         `struct(src, asset)`: the label of the file, and `path` or None.
     """
-    parts = path.split("/", 2)
-    listed = ctx.path(path)
-    if parts[0] != "packages" or len(parts) < 3 or (listed.exists and not listed.is_dir):
+    named = _packages_entry(ctx, path)
+    if named == None:
         return struct(src = ":" + path, asset = None)
-    other, rest = parts[1], parts[2]
-    if other == ctx.attr.package_name:
-        source = ctx.path("lib/" + rest)
+    package = ctx.attr.package_name
+    if named.package == package:
+        source = ctx.path("lib/" + named.rest)
         if not source.exists or source.is_dir:
-            fail("package {}: it lists the font file {}, but neither that file nor lib/{} exists.".format(other, repr(path), rest))
-        return struct(src = ":lib/" + rest, asset = path)
-    index = read_index(ctx, ctx.attr.prefix)
-    if other not in index.built:
-        fail("package {}: the font file {} names the package {}, which the lock does not build.".format(ctx.attr.package_name, repr(path), other))
-    file = sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child("lib/" + rest)
-    if not file.exists or file.is_dir:
-        fail("package {}: the font file {} names lib/{} of the package {}, which has no such file.".format(ctx.attr.package_name, repr(path), rest, other))
-    link = "{}/{}/{}".format(_OTHER_PACKAGES_FONTS, other, rest)
-    ctx.symlink(file, link)
-    return struct(src = ":" + link, asset = path)
+            fail("package {}: it lists the font file {}, but neither that file nor lib/{} exists.".format(package, repr(path), named.rest))
+        return struct(src = ":lib/" + named.rest, asset = path)
+    link = _link_lib_file(
+        ctx,
+        package,
+        "font file",
+        path,
+        named,
+        variants = False,
+        root = _OTHER_PACKAGES_FONTS,
+        missing = "package {package}: the font file {listed} names lib/{rest} of the package {other}, which has no such file.",
+    )
+    return struct(src = ":" + link.path, asset = path)
 
 def _font_families(ctx, parsed_fonts):
     """The font families a package declares, for `make_flutter_member_build_content`.
@@ -980,8 +995,9 @@ def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
     several entries list ships wherever any of them does.
 
     A file entry `packages/<package>/<path>` may be the file `<path>` of the
-    package's `lib/` (see `_in_own_lib`), bundled by `<path>`; its variants
-    are the ones beside that file, bundled beside it. A directory entry is
+    `lib/` of this package or another (see `_packages_entry`), bundled as
+    `packages/<package>/<path>`; its variants are the ones beside that file,
+    bundled beside it. A directory entry is
     never read that way, as flutter_tools reads it.
 
     Args:
@@ -1001,14 +1017,20 @@ def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
     for entry in parsed_assets:
         path = entry.path
         if path.endswith("/"):
-            mains = [(_checked_file_name(package, "asset file", f), None) for f in _files_in(ctx, path.rstrip("/"))]
+            mains = [(_checked_file_name(package, "asset file", f), None, "", "", False) for f in _files_in(ctx, path.rstrip("/"))]
         else:
             listed = _checked_file_name(package, "asset file", path)
-            rest = _in_own_lib(ctx, package, "asset", listed)
-            mains = [(listed, None) if rest == None else ("lib/" + rest, listed)]
-        for main, remapped_from in mains:
+            named = _packages_entry(ctx, listed)
+            if named == None:
+                mains = [(listed, None, "", "", False)]
+            elif named.package == package:
+                mains = [("lib/" + named.rest, listed, "lib/", "", False)]
+            else:
+                link = _link_lib_file(ctx, package, "asset", listed, named, variants = True)
+                mains = [(link.path, listed, link.dir, "packages/{}/".format(named.package), True)]
+        for main, remapped_from, strip, add, borrowed in mains:
             for variant in _with_variants(ctx, package, main, listed = remapped_from):
-                bundle_paths.add(variant, variant.removeprefix("lib/") if remapped_from else variant)
+                bundle_paths.add(variant, add + variant.removeprefix(strip), borrowed = borrowed)
                 files[":" + variant] = True
                 restrictions.add(variant, entry.platforms)
                 conflict = flavors.add(variant, path, entry.flavors, main = variant == main)
@@ -1035,20 +1057,21 @@ def _build_additional_licenses(ctx, package, paths):
         labels.append(":" + path)
     return labels
 
-def _in_own_lib(ctx, package, what, path):
-    """`<rest>` when a file entry `path` is `packages/<package>/<rest>` naming the package's `lib/<rest>`, else None.
+def _packages_entry(ctx, path):
+    """`struct(package, rest)` when a file entry `path` is `packages/<package>/<rest>`, else None.
 
     As flutter_tools reads an asset or shader entry, `packages/<package>/<rest>`
-    that is no file at that path is the file `<rest>` of the package's `lib/`,
-    keyed `packages/<package>/<rest>` (`material_ui` lists
-    `packages/material_ui/shaders/ink_sparkle.frag`, the file
-    `lib/shaders/ink_sparkle.frag`). A file at the path as listed wins. The
-    file stays where it is, so a shader finds what it `#include`s beside it,
-    and the repository writes nothing for it: `<rest>` may be below a directory
-    linked from the package's files, which a write would land in. It is
-    bundled by `<rest>` (`bundle_paths`), which a program keys
-    `packages/<package>/<rest>`. A file of another package named this way
-    fails the fetch, naming it: its key would be the other package's.
+    that is no file at that path is the file `<rest>` of the `lib/` of the
+    package `<package>`, keyed `packages/<package>/<rest>` as listed
+    (`material_ui` lists `packages/material_ui/shaders/ink_sparkle.frag`, the
+    file `lib/shaders/ink_sparkle.frag`). A file at the path as listed wins.
+
+    For the package itself the file stays where it is, so a shader finds what
+    it `#include`s beside it, and the repository writes nothing for it:
+    `<rest>` may be below a directory linked from the package's files, which a
+    write would land in. It is bundled by `<rest>` (`bundle_paths`), which a
+    program keys `packages/<package>/<rest>`. A file of another package is
+    linked (see `_link_lib_file`).
     """
     parts = path.split("/", 2)
     if parts[0] != "packages" or len(parts) < 3:
@@ -1056,10 +1079,67 @@ def _in_own_lib(ctx, package, what, path):
     as_listed = ctx.path(path)
     if as_listed.exists and not as_listed.is_dir:
         return None
-    other, rest = parts[1], parts[2]
-    if other != package:
-        fail("package {}: the {} {} is a file of the package {}, which rules_flutter cannot bundle under that package's key.".format(package, what, repr(path), other))
-    return rest
+    return struct(package = parts[1], rest = parts[2])
+
+def _link_lib_file(ctx, package, what, listed, named, variants, root = OTHER_PACKAGES_ASSETS, missing = None, includes = False):
+    """Link the file `lib/<named.rest>` of the package `named.package` into this repository.
+
+    A package's files are private to its repository and any of them can be
+    named this way, so the file is linked here rather than named across
+    repositories, as a font of another package is (see `_font_source`). It
+    lands under `root`, by default `OTHER_PACKAGES_ASSETS`, where a
+    contribution is bundled at the key as listed, not under this package's.
+
+    With `variants` the resolution variants beside the file are linked too,
+    and the file itself need not exist when one does (see `_with_variants`).
+
+    With `includes` the GLSL files beside the file are linked too, as
+    flutter_tools compiles a shader from the folder of the file itself, so the
+    shader finds what it `#include`s there. The compiler is pointed at the
+    folder of the link.
+
+    `missing` is the failure for a file that is not there, a format string over
+    `package`, `listed`, `rest` and `other`; by default one that names `what`.
+
+    Returns:
+        `struct(path, dir)`: where the file is linked, and the directory above
+        `<package>/` in the link, to strip to get the path from its package.
+    """
+    other, rest = named.package, named.rest
+    dir = "{}/{}/".format(root, other)
+    file = _lib_file_of(ctx, what, listed, other, rest)
+    exists = file.exists and not file.is_dir
+    if exists:
+        _link_once(ctx, file, dir + rest)
+    elif not variants:
+        fail((missing or "package {package}: it lists the {what} {listed}, but the package {other} has no file lib/{rest}.").format(
+            package = package,
+            what = what,
+            listed = repr(listed),
+            other = other,
+            rest = rest,
+        ))
+    if includes and file.dirname.exists:
+        prefix = rest[:rest.rfind("/") + 1]
+        for sibling in file.dirname.readdir():
+            if not sibling.is_dir and sibling.basename.endswith(_SHADER_SOURCE_EXTENSIONS):
+                _link_once(ctx, sibling, dir + prefix + sibling.basename)
+    if variants:
+        slash = rest.rfind("/")
+        prefix = rest[:slash + 1]
+        beside = file.dirname
+        if beside.exists:
+            for sibling in beside.readdir():
+                if sibling.is_dir and variant_scale(sibling.basename) != None:
+                    variant = sibling.get_child(rest[slash + 1:])
+                    if variant.exists and not variant.is_dir:
+                        _link_once(ctx, variant, "{}{}{}/{}".format(dir, prefix, sibling.basename, rest[slash + 1:]))
+    return struct(path = dir + rest, dir = dir)
+
+def _link_once(ctx, file, link):
+    """Link `file` at `link`, unless it is already: several entries and a shader's includes can name one file."""
+    if not ctx.path(link).exists:
+        ctx.symlink(file, link)
 
 def _bundle_paths():
     """The paths each file of a package is bundled by, from the entries that list it.
@@ -1067,19 +1147,27 @@ def _bundle_paths():
     A file is bundled by its own path, and by `<rest>` for an entry
     `packages/<package>/<rest>` that names it as `lib/<rest>`; listed both
     ways, it is bundled by both, as flutter_tools bundles it. `paths()` holds
-    the files bundled by any path but their own alone.
+    the files bundled by any path but their own alone. `borrowed()` holds the files linked from
+    another package, which a program keys as listed.
     """
     keys = {}
 
-    def add(path, bundled_as):
+    borrowed_files = {}
+
+    def add(path, bundled_as, borrowed = False):
         listed = keys.setdefault(path, [])
         if bundled_as not in listed:
             listed.append(bundled_as)
+        if borrowed:
+            borrowed_files[path] = True
+
+    def borrowed():
+        return sorted(borrowed_files.keys())
 
     def paths():
         return {path: sorted(listed) for path, listed in keys.items() if listed != [path]}
 
-    return struct(add = add, paths = paths)
+    return struct(add = add, paths = paths, borrowed = borrowed)
 
 def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
     """Expand the package's `flutter: shaders:` entries into files.
@@ -1088,7 +1176,7 @@ def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
     `flavors:` ships in builds of those flavors, one with `platforms:` only in
     builds for those platforms. There are no directories and no resolution
     variants. A shader listed as `packages/<package>/<path>` may be a file of
-    the package's `lib/` (see `_in_own_lib`).
+    the package's `lib/` or another package's (see `_packages_entry`).
 
     Args:
         ctx: The repository context.
@@ -1106,13 +1194,19 @@ def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
     restrictions = _platform_restrictions()
     for entry in parsed_shaders:
         listed = _checked_file_name(package, "shader file", entry.path)
-        rest = _in_own_lib(ctx, package, "shader", listed)
-        path = listed if rest == None else "lib/" + rest
-        if rest != None:
+        named = _packages_entry(ctx, listed)
+        path = listed
+        bundled_as = listed
+        if named != None and named.package == package:
+            path = "lib/" + named.rest
+            bundled_as = named.rest
             source = ctx.path(path)
             if not source.exists or source.is_dir:
                 fail("package {}: it lists the shader {}, but neither that file nor {} exists.".format(package, repr(listed), path))
-        bundle_paths.add(path, rest or path)
+        elif named != None:
+            path = _link_lib_file(ctx, package, "shader", listed, named, variants = False, includes = True).path
+            bundled_as = listed
+        bundle_paths.add(path, bundled_as, borrowed = named != None and named.package != package)
         files[":" + path] = True
         restrictions.add(path, entry.platforms)
         conflict = flavors.add(path, entry.path, entry.flavors)
@@ -1213,7 +1307,7 @@ _SHADER_INCLUDES_GLOB = """    shader_includes = glob(
         allow_empty = True,
     ),"""
 
-def _format_pub_asset_attrs(font_families, assets, shaders, asset_platforms = {}, shader_platforms = {}, asset_flavors = {}, shader_flavors = {}, additional_licenses = [], bundle_paths = {}):
+def _format_pub_asset_attrs(font_families, assets, shaders, asset_platforms = {}, shader_platforms = {}, asset_flavors = {}, shader_flavors = {}, additional_licenses = [], bundle_paths = {}, other_package_files = []):
     """Render the pub-asset attrs as BUILD source, omitting empty ones."""
     parts = []
     if font_families:
@@ -1234,6 +1328,8 @@ def _format_pub_asset_attrs(font_families, assets, shaders, asset_platforms = {}
         parts.append("    shader_flavors = {},".format(_format_list_dict_literal(shader_flavors)))
     if bundle_paths:
         parts.append("    bundle_paths = {},".format(_format_list_dict_literal(bundle_paths)))
+    if other_package_files:
+        parts.append("    other_package_files = {},".format(repr(other_package_files)))
     if shaders:
         # What the shaders may `#include`: a package's GLSL anywhere in it,
         # since an include can reach `../`.
@@ -1402,6 +1498,7 @@ def make_flutter_member_build_content(
         asset_flavors = {},
         shader_flavors = {},
         bundle_paths = {},
+        other_package_files = [],
         has_android_lib = False,
         unbuilt_native_code = {},
         android_group = "",
@@ -1470,6 +1567,8 @@ def make_flutter_member_build_content(
         bundle_paths: Dict of package-relative path -> every path it is
             bundled by, for the files of `lib/` listed as
             `packages/<name>/<path>`.
+        other_package_files: The package-relative paths of the files of
+            `assets` and `shaders` linked from another package.
         version: The resolved package version this spoke was fetched at, or
             empty. Stated only when known, as rules_dart's pub spokes state
             it: its sole use is agreement
@@ -1621,7 +1720,7 @@ flutter_unbuilt_plugin_library(
             ios_lines = ios_lines,
         )
 
-    pub_attrs = _format_pub_asset_attrs(font_targets.labels, assets, shaders, asset_platforms, shader_platforms, additional_licenses = additional_licenses, asset_flavors = asset_flavors, shader_flavors = shader_flavors, bundle_paths = bundle_paths)
+    pub_attrs = _format_pub_asset_attrs(font_targets.labels, assets, shaders, asset_platforms, shader_platforms, additional_licenses = additional_licenses, asset_flavors = asset_flavors, shader_flavors = shader_flavors, bundle_paths = bundle_paths, other_package_files = other_package_files)
 
     # The `lib/` glob is `allow_empty`: a pub package can be only assets or native
     # code, with no Dart.
@@ -2662,6 +2761,7 @@ def _flutter_pub_package_impl(ctx):
             asset_platforms = bundled_assets.platforms,
             shaders = bundled_shaders.labels,
             bundle_paths = bundle_paths.paths(),
+            other_package_files = bundle_paths.borrowed(),
             shader_platforms = bundled_shaders.platforms,
             additional_licenses = additional_licenses,
             asset_flavors = asset_flavors,
@@ -2696,6 +2796,7 @@ def _flutter_pub_package_impl(ctx):
             asset_platforms = bundled_assets.platforms,
             shaders = bundled_shaders.labels,
             bundle_paths = bundle_paths.paths(),
+            other_package_files = bundle_paths.borrowed(),
             shader_platforms = bundled_shaders.platforms,
             additional_licenses = additional_licenses,
             asset_flavors = asset_flavors,

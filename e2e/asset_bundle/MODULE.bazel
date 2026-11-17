@@ -55,6 +55,7 @@ pub_registry(
 fixture_pubs = use_extension("//tools:pubs.bzl", "fixture_pubs")
 use_repo(
     fixture_pubs,
+    fx_asset_borrower = "flutter_pub_lib__fx_asset_borrower",
     fx_dev_only = "flutter_pub_lib__fx_dev_only",
     fx_dirs = "flutter_pub_lib__fx_dirs",
     fx_extra = "flutter_pub_lib__fx_extra",

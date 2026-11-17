@@ -14,7 +14,7 @@ load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "prog
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
-load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "asset_key", "package_root_of", "path_in_package", "ships_in")
+load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "bundle_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:native_sources.bzl", "native_sources_aspect")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
@@ -573,7 +573,7 @@ def _shader_jobs(ctx, deps, target_platform, inputs):
                 if not ships_in(entry, target_platform, inputs.flavor):
                     continue
                 jobs.append(struct(
-                    bundle_path = asset_key(entry, entry.shader_path, program_root),
+                    bundle_path = bundle_key(entry, entry.shader_path, program_root),
                     file = entry.file,
                     includes = entry.includes,
                     listed = True,

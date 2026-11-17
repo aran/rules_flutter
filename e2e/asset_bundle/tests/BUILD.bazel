@@ -161,6 +161,24 @@ bundle_test(
     prefix = "packages/fx_self_paths/",
 )
 
+# Property: an asset or shader a pub package lists as `packages/<other>/<path>`,
+# that is no file at that path, is the file `<path>` of the `lib/` of the
+# package `<other>`, which need not list it, keyed `packages/<other>/<path>`
+# as listed. The variants of such an image are the ones beside the file in
+# that `lib/`, and the entry's `platforms:` restrict it.
+bundle_test(
+    name = "pub_package_other_package_prefix_names_its_lib_test",
+    bundle = "//:app_with_fx_asset_borrower_bundle",
+    expected = "//tests:expected/fx_asset_borrower.json",
+)
+
+bundle_test(
+    name = "pub_package_other_package_prefix_names_its_lib_on_android_test",
+    bundle = "//:app_with_fx_asset_borrower_android_bundle",
+    expected = "//tests:expected/fx_asset_borrower.json",
+    platform = "android",
+)
+
 # -- Platforms and flavors -------------------------------------------------------
 
 # Property: a pub package's asset entry with `platforms:` is bundled only for

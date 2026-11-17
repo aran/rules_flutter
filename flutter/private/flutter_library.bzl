@@ -67,6 +67,14 @@ def asset_key(entry, path, program_root):
         return path
     return "packages/{}/{}".format(entry.package_name, path)
 
+def bundle_key(entry, path, program_root):
+    """The key of an asset or shader contribution `path`: `asset_key`, or `path` itself for a file of another package.
+
+    A `pub_assets` or `pub_shaders` struct with `of_other_package` is a file
+    its package lists as `packages/<other>/<path>`; `path` is that, and the key.
+    """
+    return path if getattr(entry, "of_other_package", False) else asset_key(entry, path, program_root)
+
 ADDITIONAL_LICENSES_ATTR = attr.label_list(
     doc = "Licence files beyond the package's `LICENSE`: what its pubspec's `flutter: licenses:` lists. " +
           "An application that depends on the package appends them to its `NOTICES` as they are.",
@@ -96,7 +104,7 @@ def build_pub_contributions(ctx, package_name, package_root):
     Args:
         ctx: The rule context of a `flutter_library`, `flutter_plugin` or
             `flutter_pub_member`. Reads `fonts`, `assets`,
-            `shaders`, `shader_includes`, a `flutter_pub_member`'s `bundle_paths`, and the platforms and flavors the
+            `shaders`, `shader_includes`, a `flutter_pub_member`'s `bundle_paths` and `other_package_files`, and the platforms and flavors the
             assets and shaders are restricted to.
         package_name: str — the Dart package the contributions are of.
         package_root: str — that package's root, from `derive_package_root`. A
@@ -134,6 +142,10 @@ def build_pub_contributions(ctx, package_name, package_root):
     # each bundled by every path it is listed by.
     bundle_paths = getattr(ctx.attr, "bundle_paths", {})
 
+    # Likewise `other_package_files`: the files of another package it links,
+    # which are bundled at the key as listed.
+    other_package_files = getattr(ctx.attr, "other_package_files", [])
+
     asset_platforms = ctx.attr.asset_platforms
     asset_flavors = ctx.attr.asset_flavors
     asset_paths = []
@@ -146,6 +158,7 @@ def build_pub_contributions(ctx, package_name, package_root):
                 package_name = package_name,
                 package_root = package_root,
                 asset_path = asset_path,
+                of_other_package = path in other_package_files,
                 file = f,
                 platforms = tuple(asset_platforms.get(path, [])),
                 flavors = tuple(asset_flavors.get(path, [])),
@@ -163,6 +176,7 @@ def build_pub_contributions(ctx, package_name, package_root):
                 package_name = package_name,
                 package_root = package_root,
                 shader_path = shader_path,
+                of_other_package = path in other_package_files,
                 file = f,
                 includes = tuple(ctx.files.shader_includes),
                 platforms = tuple(shader_platforms.get(path, [])),
@@ -177,6 +191,7 @@ def build_pub_contributions(ctx, package_name, package_root):
         ("shader_platforms", shader_platforms, shader_paths, "shaders"),
         ("shader_flavors", shader_flavors, shader_paths, "shaders"),
         ("bundle_paths", bundle_paths, asset_paths + shader_paths, "assets` or `shaders"),
+        ("other_package_files", {p: True for p in other_package_files}, asset_paths + shader_paths, "assets` or `shaders"),
     ]:
         for path in restricted:
             if path not in paths:
@@ -297,7 +312,7 @@ def aggregate_pub_contributions(deps, target_platform = None, flavor = "", progr
     for entry in pub_assets:
         if not ships_in(entry, target_platform, flavor):
             continue
-        copies.append((asset_key(entry, entry.asset_path, program_root), entry.file))
+        copies.append((bundle_key(entry, entry.asset_path, program_root), entry.file))
 
     return (fonts, copies, unlisted_copies)
 

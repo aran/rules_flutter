@@ -1,0 +1,30 @@
+{
+  "assets": {
+    "packages/fx_asset_owner/images/logo.png": {
+      "variants": [
+        {
+          "asset": "packages/fx_asset_owner/images/logo.png"
+        },
+        {
+          "asset": "packages/fx_asset_owner/images/2.0x/logo.png",
+          "dpr": 2.0
+        }
+      ]
+    },
+    "packages/fx_asset_owner/shaders/glow.frag": {
+      "variants": [
+        {
+          "asset": "packages/fx_asset_owner/shaders/glow.frag"
+        }
+      ]
+    },
+    "packages/fx_asset_owner/images/android_only.txt": {
+      "variants": [
+        {
+          "asset": "packages/fx_asset_owner/images/android_only.txt"
+        }
+      ],
+      "platforms": ["android"]
+    }
+  }
+}

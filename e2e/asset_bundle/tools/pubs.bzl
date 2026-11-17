@@ -22,6 +22,8 @@ load("@rules_flutter//flutter/private:flutter_pub_package.bzl", "flutter_pub_pac
 
 # The packages under `//registry`, with the version of each.
 PACKAGES = {
+    "fx_asset_borrower": "1.0.0",
+    "fx_asset_owner": "1.0.0",
     "fx_dev_only": "1.0.0",
     "fx_dirs": "1.0.0",
     "fx_extra": "1.0.0",

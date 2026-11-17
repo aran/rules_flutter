@@ -640,6 +640,29 @@ def _android_build_file_begins_with_the_files_repository_load_test_impl(ctx):
 
 android_build_file_begins_with_the_files_repository_load_test = unittest.make(_android_build_file_begins_with_the_files_repository_load_test_impl)
 
+def _spoke_states_the_files_it_links_from_other_packages_test_impl(ctx):
+    """A member states which of its files are another package's, rather than leaving the rule to guess by folder name."""
+    env = unittest.begin(ctx)
+    content = make_flutter_member_build_content(
+        name = "borrower",
+        language_version = "3.4",
+        code_assets = [],
+        unreplaced_hook = "",
+        assets = [":_assets_of_other_packages/o/a.png"],
+        other_package_files = ["_assets_of_other_packages/o/a.png"],
+    )
+    asserts.true(env, '    other_package_files = ["_assets_of_other_packages/o/a.png"],' in content, content)
+    asserts.false(env, "other_package_files" in make_flutter_member_build_content(
+        name = "own",
+        language_version = "3.4",
+        code_assets = [],
+        unreplaced_hook = "",
+        assets = [":a.png"],
+    ))
+    return unittest.end(env)
+
+spoke_states_the_files_it_links_from_other_packages_test = unittest.make(_spoke_states_the_files_it_links_from_other_packages_test_impl)
+
 def _overlay_substitutes_the_language_version_test_impl(ctx):
     """An overlay declares the language version by placeholder, never by value.
 
@@ -1158,6 +1181,7 @@ def flutter_pub_package_test_suite(name):
         file_names_are_written_as_string_literals_test,
         spoke_with_shaders_declares_their_includes_test,
         android_build_file_begins_with_the_files_repository_load_test,
+        spoke_states_the_files_it_links_from_other_packages_test,
         desktop_plugin_libraries_carry_their_link_libraries_test,
         platform_restricted_assets_are_stated_in_the_spoke_test,
         platform_restricted_shaders_are_stated_in_the_spoke_test,

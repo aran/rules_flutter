@@ -1,0 +1,14 @@
+name: fx_asset_borrower
+version: 1.0.0
+environment:
+  sdk: ^3.13.0
+dependencies:
+  fx_asset_owner: 1.0.0
+flutter:
+  assets:
+    # Files of another package's lib/, which that package does not list.
+    - packages/fx_asset_owner/images/logo.png
+    - path: packages/fx_asset_owner/images/android_only.txt
+      platforms: [android]
+  shaders:
+    - packages/fx_asset_owner/shaders/glow.frag

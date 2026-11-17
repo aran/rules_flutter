@@ -33,6 +33,12 @@ ANDROID_ABI_FOR_ARCH = {
     "x64": "x86_64",
 }
 
+# Where a pub package's repository links the `lib/` files of other packages that
+# its assets and shaders name as `packages/<other>/<path>`: under
+# `<this>/<other>/<path>`. A contribution from a path there is bundled at the
+# key as listed, not under the contributing package's own `packages/<name>/`.
+OTHER_PACKAGES_ASSETS = "_assets_of_other_packages"
+
 # The platforms of a pubspec's `flutter: plugin: platforms:`, each a
 # `flutter_plugin_platform`.
 PLUGIN_PLATFORMS = ["android", "ios", "linux", "macos", "web", "windows"]
