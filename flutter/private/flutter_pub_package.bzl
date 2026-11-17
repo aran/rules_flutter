@@ -723,6 +723,7 @@ def _maven_dep_dicts(parsed):
             "version": d.version,
             "line": d.line,
             "checked": d.checked,
+            "exclusions": d.exclusions,
         }
         for d in parsed.deps
     ]

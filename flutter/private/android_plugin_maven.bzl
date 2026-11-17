@@ -25,7 +25,7 @@ Only an Android build that links a plugin reads any of this, so only such a
 build fetches it.
 """
 
-load("//flutter/private:gradle_script.bzl", "dependency_kind", "gradle_tokens", "leading_identifier")
+load("//flutter/private:gradle_script.bzl", "code_mask", "dependency_kind", "gradle_tokens", "leading_identifier")
 
 # Where each spoke records what its Gradle build declares, at the spoke's root.
 MAVEN_DEPS_FILE = "flutter_android_maven_deps.json"
@@ -184,6 +184,77 @@ def _group_declaration(text):
         return None
     return _string_literal(rest)
 
+def _closure(text):
+    """`(declaration, body, offset)` when `text` ends with a closure `{ ... }`, else None.
+
+    `offset` is the number of lines of `text` before the one the closure opens on.
+    """
+    mask = code_mask(text)
+    depth = 0
+    for i in range(len(text)):
+        if not mask[i]:
+            continue
+        c = text[i]
+        if c == "(" or c == "[":
+            depth += 1
+        elif c == ")" or c == "]":
+            depth -= 1
+        elif c == "{" and depth == 0:
+            body = text[i + 1:].rstrip()
+            if not body.endswith("}"):
+                return None
+            return (text[:i].strip(), body[:-1], text[:i].count("\n"))
+    return None
+
+def _named_arguments(text):
+    """The named arguments of `group: 'g', module: 'm'` or `(group = "g", module = "m")`, else None."""
+    text = text.strip()
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1]
+    args = {}
+    for part in text.split(","):
+        part = part.strip()
+        name = leading_identifier(part)
+        rest = part[len(name):].strip()
+        if not name or not rest or rest[0] not in ":=":
+            return None
+        value = _string_literal(rest[1:])
+        if value == None:
+            return None
+        args[name] = value
+    return args
+
+def _closure_exclusions(body, first_line):
+    """What a dependency's closure excludes, and the statements of it the reader does not read.
+
+    Gradle's `exclude group: "g", module: "m"` leaves `g:m` out of what the
+    dependency brings, as rules_jvm_external's `exclusions` do; an exclusion
+    of a whole group, or of a module of any group, has no such counterpart.
+    `because "..."` explains and changes nothing.
+
+    Returns:
+        `struct(exclusions, unread)`: the `group:module` strings, and
+        `struct(line, line_number)` of each statement not read.
+    """
+    exclusions = []
+    unread = []
+    for offset, raw in enumerate(body.split("\n")):
+        for statement in raw.split(";"):
+            statement = statement.strip()
+            if not statement:
+                continue
+            identifier = leading_identifier(statement)
+            if identifier == "because":
+                continue
+            args = _named_arguments(statement[len(identifier):]) if identifier == "exclude" else None
+            if args != None and sorted(args.keys()) == ["group", "module"]:
+                exclusion = args["group"] + ":" + args["module"]
+                if exclusion not in exclusions:
+                    exclusions.append(exclusion)
+                continue
+            unread.append(struct(line = statement, line_number = first_line + offset))
+    return struct(exclusions = exclusions, unread = unread)
+
 def parse_gradle_maven_dependencies(content):
     """Reads the Maven dependencies out of a Gradle build script.
 
@@ -278,24 +349,38 @@ def parse_gradle_maven_dependencies(content):
         rest = rest.strip()
         if not rest or rest[0] == "=" or rest[0] == "{":
             continue
+
+        # A declaration whose closure spans lines is named by its first.
+        reported = original.split("\n")[0].strip()
         if kind == "error":
-            unread.append(struct(line = original, line_number = t.line, why = "form"))
+            unread.append(struct(line = reported, line_number = t.line, why = "form"))
             continue
+
+        # `implementation("g:a:1") { exclude ... }`: the dependency, configured
+        # by its closure.
+        exclusions = []
+        closure = _closure(rest)
+        if closure:
+            rest = closure[0]
+            configured = _closure_exclusions(closure[1], t.line + closure[2])
+            exclusions = configured.exclusions
+            for u in configured.unread:
+                unread.append(struct(line = u.line, line_number = u.line_number, why = "form"))
 
         arg = rest
         if arg.startswith("("):
             if not arg.endswith(")"):
-                unread.append(struct(line = original, line_number = t.line, why = "form"))
+                unread.append(struct(line = reported, line_number = t.line, why = "form"))
                 continue
             arg = arg[1:-1]
         coordinate = _string_literal(arg)
         if coordinate == None:
-            unread.append(struct(line = original, line_number = t.line, why = "form"))
+            unread.append(struct(line = reported, line_number = t.line, why = "form"))
             continue
         coordinate = coordinate.split("@")[0]
         parts = coordinate.split(":")
         if len(parts) < 3 or len(parts) > 4 or not parts[0] or not parts[1] or not parts[2]:
-            unread.append(struct(line = original, line_number = t.line, why = "form"))
+            unread.append(struct(line = reported, line_number = t.line, why = "form"))
             continue
         group = parts[0]
         artifact = parts[1]
@@ -308,16 +393,17 @@ def parse_gradle_maven_dependencies(content):
             version = None
         checked = _unconditional(blocks)
         if not checked:
-            unread.append(struct(line = original, line_number = t.line, why = "conditional"))
+            unread.append(struct(line = reported, line_number = t.line, why = "conditional"))
         deps.append(struct(
             kind = kind,
             configuration = identifier,
             group = group,
             artifact = artifact,
             version = version,
-            line = original,
+            line = reported,
             line_number = t.line,
             checked = checked,
+            exclusions = exclusions,
         ))
     return struct(group = plugin_group, deps = deps, unread = unread)
 
@@ -533,8 +619,11 @@ def merge_plugin_requirements(packages):
 
     Returns:
         A dict of coordinate to a dict with `version` (the highest declared,
-        or None when no plugin names one) and `declared_by`, the list of
-        `package:<name> <version>` strings of the plugins that declare it.
+        or None when no plugin names one), `declared_by`, the list of
+        `package:<name> <version>` strings of the plugins that declare it, and
+        `exclusions`, the `group:artifact`s every declaration of it excludes
+        from what it brings (one that excludes nothing brings them all, as in
+        Gradle, where any path to an artifact keeps it).
     """
     requirements = {}
     for pkg in packages:
@@ -542,10 +631,13 @@ def merge_plugin_requirements(packages):
         for d in pkg["deps"]:
             if not d["checked"]:
                 continue
-            req = requirements.setdefault(
-                d["coordinate"],
-                {"version": None, "declared_by": []},
-            )
+            exclusions = d.get("exclusions", [])
+            req = requirements.get(d["coordinate"])
+            if req == None:
+                req = {"version": None, "declared_by": [], "exclusions": sorted(exclusions)}
+                requirements[d["coordinate"]] = req
+            else:
+                req["exclusions"] = [e for e in req["exclusions"] if e in exclusions]
             if label not in req["declared_by"]:
                 req["declared_by"].append(label)
             v = d["version"]

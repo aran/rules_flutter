@@ -112,7 +112,6 @@ def _unsupported_forms_test_impl(ctx):
         'implementation("a:b")',
         "implementation files('x.jar')",
         "implementation group: 'a', name: 'b', version: '1'",
-        'implementation("a:b:1") { exclude(group = "x") }',
         'kapt("a:b:1")',
         'ksp "a:b:1"',
         'annotationProcessor "a:b:1"',
@@ -140,6 +139,79 @@ compileOptions { sourceCompatibility = 1 }
     return unittest.end(env)
 
 unsupported_forms_test = unittest.make(_unsupported_forms_test_impl)
+
+# cloud_firestore 7.2.0's `android/build.gradle`, lines 61-72, with a version on firebase-firestore.
+_CLOUD_FIRESTORE_DEPENDENCIES = """\
+    dependencies {
+        api firebaseCoreProject
+        implementation platform("com.google.firebase:firebase-bom:${getRootProjectExtOrCoreProperty("FirebaseSDKVersion", firebaseCoreProject)}")
+        // Firestore 27 publishes test libraries as runtime dependencies. Mockito
+        // pulls byte-buddy 1.17.7, which Jetifier cannot transform.
+        implementation('com.google.firebase:firebase-firestore:27.1.0') {
+            exclude group: 'org.mockito', module: 'mockito-core'
+            exclude group: 'junit', module: 'junit'
+            exclude group: 'com.google.truth', module: 'truth'
+            exclude group: 'com.fasterxml.jackson.core', module: 'jackson-databind'
+        }
+    }
+"""
+
+def _closure_test_impl(ctx):
+    """A declaration's closure is the declaration's, however many lines it spans.
+
+    Its `exclude group:, module:` statements are what it leaves out; any other
+    statement in it is reported. The braces of the closure open and close no
+    block, so what follows is still in `dependencies { }`.
+    """
+    env = unittest.begin(ctx)
+
+    # The fixture's version is a literal, so that only the closure is at test.
+    r = parse_gradle_maven_dependencies(_CLOUD_FIRESTORE_DEPENDENCIES + "implementation 'a:after:1.0'\n")
+    firestore = [d for d in r.deps if d.artifact == "firebase-firestore"]
+    asserts.equals(env, 1, len(firestore))
+    asserts.equals(env, "27.1.0", firestore[0].version)
+    asserts.true(env, firestore[0].checked)
+    asserts.equals(env, 6, firestore[0].line_number)
+    asserts.equals(env, "implementation('com.google.firebase:firebase-firestore:27.1.0') {", firestore[0].line)
+    asserts.equals(env, [
+        "org.mockito:mockito-core",
+        "junit:junit",
+        "com.google.truth:truth",
+        "com.fasterxml.jackson.core:jackson-databind",
+    ], firestore[0].exclusions)
+    asserts.equals(env, [], [u for u in r.unread if u.line_number > 3 and u.why == "form"])
+
+    # The closure's `}` closes no block: a declaration after the
+    # `dependencies` block is at the top level, not in it.
+    after = [d for d in r.deps if d.artifact == "after"]
+    asserts.equals(env, [False], [d.checked for d in after])
+
+    r = parse_gradle_maven_dependencies("""\
+dependencies {
+    implementation("a:b:1") {
+        exclude(group = "x")
+        because("why")
+    }
+    implementation("c:d:2") { exclude(group = "g", module = "m"); isTransitive = false }
+    implementation 'e:f:3'
+}
+""")
+    asserts.equals(
+        env,
+        [("a:b", [], True), ("c:d", ["g:m"], True), ("e:f", [], True)],
+        [(d.group + ":" + d.artifact, d.exclusions, d.checked) for d in r.deps],
+    )
+
+    # An exclusion of a whole group, and a statement that is no exclusion,
+    # change what the dependency brings in a way the reader does not follow.
+    asserts.equals(
+        env,
+        [(3, 'exclude(group = "x")'), (6, "isTransitive = false")],
+        [(u.line_number, u.line) for u in r.unread],
+    )
+    return unittest.end(env)
+
+closure_test = unittest.make(_closure_test_impl)
 
 def _conditional_declarations_test_impl(ctx):
     """A declaration inside a condition is read, linked if present, and not checked.
@@ -333,6 +405,17 @@ def _merge_test_impl(ctx):
     asserts.equals(env, None, req["g:presence"]["version"])
     asserts.equals(env, ["package:b 3.4", "package:c 5.0"], req["g:presence"]["declared_by"])
     asserts.equals(env, "2.0", req["g:only_a"]["version"])
+
+    # What a dependency excludes is left out only when every declaration of
+    # it excludes it, as Gradle keeps what any path to it brings.
+    excluding = dict(_dep("g:e", "1.0"), exclusions = ["x:one", "x:two"])
+    req = merge_plugin_requirements([
+        _pkg("a", "1.0", [excluding]),
+        _pkg("b", "1.0", [dict(excluding, exclusions = ["x:two"])]),
+    ])
+    asserts.equals(env, ["x:two"], req["g:e"]["exclusions"])
+    req = merge_plugin_requirements([_pkg("a", "1.0", [excluding]), _pkg("b", "1.0", [_dep("g:e", "1.0")])])
+    asserts.equals(env, [], req["g:e"]["exclusions"])
     return unittest.end(env)
 
 merge_test = unittest.make(_merge_test_impl)
@@ -466,8 +549,8 @@ def _report_test_impl(ctx):
         "app": "//:app",
         "repositories": ["https://maven.google.com"],
         "requirements": {
-            "g:fine": {"version": "1.0", "declared_by": ["package:a 1.2"]},
-            "g:old": {"version": "1.2", "declared_by": ["package:a 1.2"]},
+            "g:fine": {"version": "1.0", "declared_by": ["package:a 1.2"], "exclusions": []},
+            "g:old": {"version": "1.2", "declared_by": ["package:a 1.2"], "exclusions": []},
         },
         "resolved": {"g:old": "1.1", "g:fine": "1.0"},
         "unread": [],
@@ -534,6 +617,7 @@ def android_plugin_maven_test_suite(name):
         group_and_configuration_test,
         groovy_and_variables_test,
         unsupported_forms_test,
+        closure_test,
         conditional_declarations_test,
         versions_test,
         escape_test,

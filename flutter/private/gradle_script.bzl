@@ -48,38 +48,62 @@ def leading_identifier(line):
         end += 1
     return line[:end]
 
+def code_mask(text):
+    """Which characters of `text` are code, outside every string literal.
+
+    A string is `'...'` or `"..."`; a backslash escapes the character after it,
+    and the `${...}` of a double-quoted string, strings of its own included, is
+    part of the string, so `"\\"${v}\\""` and `"${f("x")}"` are each one.
+
+    Args:
+        text: Text of a script, a line or a statement.
+
+    Returns:
+        A list of booleans, one per character: True for one of code.
+    """
+    mask = []
+    stack = []
+    n = len(text)
+    i = 0
+    for _ in range(n + 1):
+        if i >= n:
+            break
+        c = text[i]
+        top = stack[-1] if stack else ""
+        if top == "'" or top == '"':
+            if c == "\\" and i + 1 < n:
+                mask.extend([False, False])
+                i += 2
+                continue
+            if c == top:
+                stack.pop()
+            elif top == '"' and c == "$" and text[i + 1:i + 2] == "{":
+                stack.append("{")
+                mask.extend([False, False])
+                i += 2
+                continue
+            mask.append(False)
+        elif top == "{":
+            if c == "'" or c == '"' or c == "{":
+                stack.append(c)
+            elif c == "}":
+                stack.pop()
+            mask.append(False)
+        elif c == "'" or c == '"':
+            stack.append(c)
+            mask.append(False)
+        else:
+            mask.append(True)
+        i += 1
+    return mask
+
 def _strip_line_comment(line):
     """Cuts a `//` comment that is not inside a string literal."""
-    quote = ""
-    for i in range(len(line)):
-        c = line[i]
-        if quote:
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
-        elif c == "/" and line[i + 1:i + 2] == "/":
+    mask = code_mask(line)
+    for i in range(len(line) - 1):
+        if mask[i] and mask[i + 1] and line[i] == "/" and line[i + 1] == "/":
             return line[:i]
     return line
-
-def _matching_brace(line, start):
-    """Index of the `}` that closes the `{` at `start`, or -1; quotes are skipped."""
-    depth = 0
-    quote = ""
-    for i in range(start, len(line)):
-        c = line[i]
-        if quote:
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
-        elif c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-    return -1
 
 def _opens_a_closure(header):
     """Whether a `{` after `header` configures a dependency, not opens a block.
@@ -95,7 +119,7 @@ def _opens_a_closure(header):
     rest = header[len(identifier):]
     return bool(rest.strip()) and rest[0] in " \t('\"" and not rest.strip().startswith("=")
 
-def _split_statements(line, number, out):
+def _split_statements(line, number, out, carry):
     """Appends the tokens of one physical line of a Gradle script to `out`.
 
     Each token is a struct with `kind` (`"statement"`, `"open"` for a block
@@ -104,29 +128,40 @@ def _split_statements(line, number, out):
     opened and closed on it (`dependencies { implementation 'a:b:1' }`) or `;`
     separates them. Braces, brackets and parentheses inside a string or inside
     a call's arguments never split, and the closure of a dependency declaration
-    stays with it (see `_opens_a_closure`), so the declaration is reported
-    whole if it is not one the reader supports.
+    stays with it (see `_opens_a_closure`), so the declaration is one
+    statement, whose text holds the lines of the closure, `\\n` between them,
+    when it spans several.
+
+    Args:
+        line: The line, its comment removed.
+        number: Its 1-based number.
+        out: The tokens so far.
+        carry: What the line before left open: None, or a dependency
+            declaration whose closure it did not close, as this returns it.
+
+    Returns:
+        The declaration this line leaves open, `struct(text, line, depth)`
+        with its `{` depth, or None.
     """
 
-    def token(kind, text):
-        out.append(struct(kind = kind, text = text.strip(), line = number))
+    def token(kind, text, at):
+        out.append(struct(kind = kind, text = text.strip(), line = at))
 
-    cur = ""
-    quote = ""
+    mask = code_mask(line)
+    cur = carry.text + "\n" if carry else ""
+    start = carry.line if carry else number
+    closure = carry.depth if carry else 0
     depth = 0
-    i = 0
-    n = len(line)
-    for _ in range(n + 1):
-        if i >= n:
-            break
+    for i in range(len(line)):
         c = line[i]
-        if quote:
+        if not mask[i]:
             cur += c
-            if c == quote:
-                quote = ""
-        elif c == "'" or c == '"':
-            quote = c
+        elif closure > 0:
             cur += c
+            if c == "{":
+                closure += 1
+            elif c == "}":
+                closure -= 1
         elif c == "(" or c == "[":
             depth += 1
             cur += c
@@ -134,25 +169,26 @@ def _split_statements(line, number, out):
             depth = max(depth - 1, 0)
             cur += c
         elif depth == 0 and c == "{" and _opens_a_closure(cur):
-            close = _matching_brace(line, i)
-            end = n if close < 0 else close + 1
-            cur += line[i:end]
-            i = end
-            continue
+            closure = 1
+            cur += c
         elif depth == 0 and c == "{":
-            token("open", cur)
+            token("open", cur, start)
             cur = ""
+            start = number
         elif depth == 0 and c in ";}":
             if cur.strip():
-                token("statement", cur)
+                token("statement", cur, start)
             if c == "}":
-                token("close", "")
+                token("close", "", number)
             cur = ""
+            start = number
         else:
             cur += c
-        i += 1
+    if closure > 0:
+        return struct(text = cur, line = start, depth = closure)
     if cur.strip():
-        token("statement", cur)
+        token("statement", cur, start)
+    return None
 
 def gradle_tokens(content):
     """The tokens of a Gradle build script, comments removed.
@@ -163,11 +199,14 @@ def gradle_tokens(content):
     Returns:
         Structs of `kind` (`"statement"`, `"open"` for a block header, whose
         `text` is what precedes its `{`, or `"close"`), `text` and `line`, the
-        1-based line number (see `_split_statements`).
+        1-based line number where it starts (see `_split_statements`).
     """
     out = []
+    carry = None
     for number, raw in enumerate(content.split("\n")):
-        _split_statements(_strip_line_comment(raw), number + 1, out)
+        carry = _split_statements(_strip_line_comment(raw), number + 1, out, carry)
+    if carry and carry.text.strip():
+        out.append(struct(kind = "statement", text = carry.text.strip(), line = carry.line))
     return out
 
 def gradle_statements(content):
