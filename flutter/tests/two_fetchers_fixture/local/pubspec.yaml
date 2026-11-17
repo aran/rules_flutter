@@ -1,0 +1,7 @@
+name: two_fetchers_local
+description: A path package both fetchers build from this directory.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.13.0

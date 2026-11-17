@@ -344,3 +344,22 @@ dart_pub.from_lock(
     lock = "//flutter/ext/go_router:pubspec.lock",
 )
 use_repo(dart_pub, "rules_flutter_go_router_builder")
+
+# One lock with a `path` package, read by both fetchers, for
+# `//flutter/tests:package_identity_test`: each builds the package from the
+# same directory, and a program reaching both copies takes them for one.
+two_fetchers_flutter_pub = use_extension("//flutter/pub:extensions.bzl", "pub", dev_dependency = True)
+two_fetchers_flutter_pub.from_lock(
+    name = "two_fetchers_flutter",
+    build_from_pubspec = ["two_fetchers_local"],
+    lock = "//flutter/tests/two_fetchers_fixture/lock:pubspec.lock",
+)
+use_repo(two_fetchers_flutter_pub, "two_fetchers_flutter")
+
+two_fetchers_dart_pub = use_extension("@rules_dart//dart/pub:extensions.bzl", "pub", dev_dependency = True)
+two_fetchers_dart_pub.from_lock(
+    name = "rules_flutter_two_fetchers",
+    build_from_pubspec = ["two_fetchers_local"],
+    lock = "//flutter/tests/two_fetchers_fixture/lock:pubspec.lock",
+)
+use_repo(two_fetchers_dart_pub, "rules_flutter_two_fetchers")

@@ -8,8 +8,12 @@ own static state. Over `//flutter/tests/shared_code_asset_fixture`.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartPackageInfo")
-load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "program_assets_attrs")
+load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartPackageInfo", "DartPackageMetadataInfo")
+load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "package_info_from_metadata", "program_assets_attrs")
+
+# A fetcher's declaration, as a pub hub's generated BUILD file loads it.
+# buildifier: disable=bzl-visibility
+load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
 load("//flutter:native_hot_patch.bzl", "HOT_PATCH_OUTPUT_GROUP", "flutter_native_hot_patch_aspect")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
@@ -196,15 +200,12 @@ _test_layout_test = analysistest.make(_test_layout_impl)
 # -- Resolution itself ---------------------------------------------------------
 
 def _fake_package_impl(ctx):
-    pkg = DartPackageInfo(
-        label = ctx.label,
-        package_name = ctx.attr.package_name,
-        package_root = "%s/%s" % (ctx.label.package, ctx.label.name),
-        # Stated, as a pub hub states it, so two records of one name at two
-        # roots are one package.
-        version = "1.0.0",
-        language_version = "",
-        code_assets = ctx.attr.code_assets,
+    # Rooted apart from the declaration, as each pub hub roots its copy of a
+    # package in a repository of its own.
+    pkg = package_info_from_metadata(
+        ctx.label,
+        ctx.attr.package[DartPackageMetadataInfo],
+        "%s/%s" % (ctx.label.package, ctx.label.name),
     )
     return [DartInfo(
         packages = (pkg,),
@@ -216,10 +217,9 @@ def _fake_package_impl(ctx):
 fake_package = rule(
     implementation = _fake_package_impl,
     attrs = {
-        "code_assets": attr.label_list(providers = [DartCodeAssetInfo]),
-        "package_name": attr.string(mandatory = True),
+        "package": attr.label(providers = [DartPackageMetadataInfo], mandatory = True),
     },
-    doc = "A pub package record (version 1.0.0) carrying code assets, each the package's own.",
+    doc = "A pub package record, rooted at the target, stating what its `package` declares.",
 )
 
 def _fake_cycle_impl(ctx):
@@ -430,18 +430,21 @@ def shared_code_asset_test_suite(name):
 
     # Two packages claiming one id with different libraries is refused, as in
     # rules_dart, unless the target names the one to use.
-    fake_package(
-        name = name + "_claims_a_own",
-        package_name = "shared_a",
-        code_assets = [_FIXTURE + "a_own"],
-        tags = ["manual"],
-    )
-    fake_package(
-        name = name + "_claims_a_combined",
-        package_name = "shared_a",
-        code_assets = [_FIXTURE + "a_combined_asset"],
-        tags = ["manual"],
-    )
+    # Two pub hubs' copies of one package, fetched alike.
+    for claim, asset in [("own", "a_own"), ("combined", "a_combined_asset")]:
+        fetched_package_metadata(
+            name = "%s_claims_a_%s_metadata" % (name, claim),
+            package_name = "shared_a",
+            code_assets = [_FIXTURE + asset],
+            fetched_identity = "pkg:pub/shared_a@1.0.0",
+            version = "1.0.0",
+            tags = ["manual"],
+        )
+        fake_package(
+            name = "%s_claims_a_%s" % (name, claim),
+            package = "%s_claims_a_%s_metadata" % (name, claim),
+            tags = ["manual"],
+        )
     claims = [name + "_claims_a_own", name + "_claims_a_combined"]
     resolve_probe(
         name = name + "_conflict",

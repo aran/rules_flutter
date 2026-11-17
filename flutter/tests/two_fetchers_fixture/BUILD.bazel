@@ -1,0 +1,48 @@
+"""A program reaching pub packages through both fetchers.
+
+Hosted: `path` 1.9.1 is in the root lock rules_flutter's `flutter_pub` reads
+(`@dev_tool_deps`) and in the lock rules_dart's `pub` reads for
+go_router_builder's shim (`@rules_flutter_go_router_builder`), down to the
+same sha256. Path: `lock/pubspec.lock`, which both fetchers read
+(`@two_fetchers_flutter`, `@rules_flutter_two_fetchers`), builds
+`two_fetchers_local` from `local/`. Each fetcher builds each package in a
+repository of its own and states what it was fetched as, the archive's purl or
+the directory, so the program takes the two copies for one package.
+`//flutter/tests:package_identity_test` analyses it.
+"""
+
+load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library")
+load("//flutter:defs.bzl", "dart_package_metadata")
+
+# Which records reach the program is what is tested, through deps nothing
+# imports, so the unused-dependency check is off.
+package(features = ["-dart_unused_deps"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "two_fetchers",
+)
+
+dart_library(
+    name = "two_fetchers",
+    srcs = ["lib/two_fetchers.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [
+        "@dev_tool_deps//:path",
+        "@rules_flutter_go_router_builder//:path",
+        "@rules_flutter_two_fetchers//:two_fetchers_local",
+        "@two_fetchers_flutter//:two_fetchers_local",
+    ],
+)
+
+# A binary, because a program is where records of one name are checked to be
+# one package.
+dart_binary(
+    name = "two_fetchers_bin",
+    main = "bin/main.dart",
+    tags = ["manual"],
+    visibility = ["//flutter/tests:__pkg__"],
+    deps = [":two_fetchers"],
+)

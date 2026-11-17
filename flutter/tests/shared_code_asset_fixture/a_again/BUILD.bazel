@@ -1,11 +1,16 @@
 load("@rules_dart//dart:defs.bzl", "dart_library")
-load("//flutter:defs.bzl", "dart_package_metadata")
 
-dart_package_metadata(
+# A fetcher's declaration, as a pub hub's generated BUILD file loads it.
+# buildifier: disable=bzl-visibility
+load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
+
+fetched_package_metadata(
     name = "pubspec-metadata",
     package_name = "shared_a",
     code_assets = ["//flutter/tests/shared_code_asset_fixture:a_combined_asset"],
-    # Stated, as a pub hub states it, so this and `a` are one package.
+    # Fetched alike, as two pub hubs each fetch one package, so this and `a`
+    # are one package.
+    fetched_identity = "pkg:pub/shared_a@1.0.0",
     version = "1.0.0",
 )
 

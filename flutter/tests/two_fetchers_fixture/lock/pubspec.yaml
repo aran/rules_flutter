@@ -1,0 +1,10 @@
+name: two_fetchers_lock
+description: The lock both fetchers read in //flutter/tests/two_fetchers_fixture.
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  two_fetchers_local:
+    path: ../local

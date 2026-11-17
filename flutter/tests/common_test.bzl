@@ -264,6 +264,7 @@ def _synthesize_app_package_carries_language_version_test_impl(ctx):
         link_hook_assets = (),
         linked_code_assets = (),
         license_file = None,
+        fetched_identity = "",
     )
     stated = synthesize_app_package("//:app", [], "my_app", "", declared)
     asserts.equals(env, "3.12", stated[0].language_version)
