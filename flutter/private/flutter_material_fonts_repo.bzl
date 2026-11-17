@@ -7,7 +7,7 @@ flutter_tools' `MaterialFonts` appends to the storage URL. The pinned releases
 each name one. For a framework that is not a release, the path is looked up in
 the ones the pinned releases name, and downloaded with the digest recorded for
 it; a path no release names fails, naming it and the attribute that pins it
-(`flutter.toolchain(material_fonts_sha256 = ...)`).
+(`material_fonts_sha256` of the tag that declares the SDK).
 """
 
 load("//flutter/private:framework_source.bzl", "framework_root", "unset_message", "write_unset_stub")
@@ -37,7 +37,8 @@ def _flutter_material_fonts_repo_impl(repository_ctx):
             fail((
                 "The framework expects the Material fonts archive {archive} " +
                 "(bin/internal/material_fonts.version), which no pinned Flutter release names. " +
-                "Pin its digest with flutter.toolchain(material_fonts_sha256 = \"<sha256 of {url}>\")."
+                "Pin its digest with material_fonts_sha256 = \"<sha256 of {url}>\" on the " +
+                "flutter.custom_framework, flutter.custom_sdk or flutter.checkout that declares the SDK."
             ).format(archive = archive, url = _STORAGE + archive))
     else:
         archive = FLUTTER_VERSIONS[repository_ctx.attr.flutter_version].material_fonts_url

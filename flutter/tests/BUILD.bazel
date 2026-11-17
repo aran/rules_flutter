@@ -20,10 +20,10 @@ load(":apple_plugin_settings_test.bzl", "apple_plugin_settings_test_suite")
 load(":apple_version_check_test.bzl", "apple_version_check_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
-load(":checkout_sdks_test.bzl", "checkout_sdks_test_suite")
 load(":cmake_link_libraries_test.bzl", "cmake_link_libraries_test_suite")
 load(":code_asset_native_library_test.bzl", "code_asset_native_library_test_suite")
 load(":common_test.bzl", "common_test_suite")
+load(":custom_sdks_test.bzl", "custom_sdks_test_suite")
 load(":data_asset_test.bzl", "data_asset_test_suite")
 load(":desktop_plugin_link_test.bzl", "desktop_plugin_link_test_suite")
 load(":dev_config_test.bzl", "dev_config_test_suite")
@@ -191,7 +191,7 @@ pub_settings_test_suite(name = "pub_settings_test")
 
 toolchain_version_test_suite(name = "toolchain_version_test")
 
-checkout_sdks_test_suite(name = "checkout_sdks_test")
+custom_sdks_test_suite(name = "custom_sdks_test")
 
 flutter_pub_package_test_suite(name = "flutter_pub_package_test")
 

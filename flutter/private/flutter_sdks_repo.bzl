@@ -31,7 +31,7 @@ flutter_sdks_repo = repository_rule(
             doc = "The `flutter_framework.json` of each SDK whose framework is not the release's.",
         ),
     },
-    doc = "Writes `sdks.json`, the SDKs `flutter.toolchain()` and `flutter.checkout()` declared.",
+    doc = "Writes `sdks.json`, the SDKs the `flutter` extension's tags declared.",
 )
 
 SDKS_FILE = "sdks.json"

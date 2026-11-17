@@ -86,12 +86,13 @@ string_flag(
     visibility = ["//visibility:public"],
 )
 
-# The Flutter SDK a build uses: the name of one `flutter.toolchain()` the root
-# module declares. The default is the stock release, `flutter`.
+# The Flutter SDK a build uses: the name of one SDK the root module declares,
+# with `flutter.toolchain()` or a tag for an SDK that is not a release. The
+# default is the stock release, `flutter`.
 #
 #   bazel build --@rules_flutter//flutter:sdk=local //app
 #
-# A name that no `flutter.toolchain()` declares resolves no toolchain, and the
+# A name that no tag declares resolves no toolchain, and the
 # build fails saying so.
 string_flag(
     name = "sdk",
@@ -324,7 +325,7 @@ bzl_library(
     srcs = ["extensions.bzl"],
     visibility = ["//visibility:public"],
     deps = [
-        "//flutter/private:checkout_sdks",
+        "//flutter/private:custom_sdks",
         "//flutter/private:flutter_sdks_repo",
         "//flutter/private:pub_extension",
         "//flutter/private:repositories",

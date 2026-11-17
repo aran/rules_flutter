@@ -3099,10 +3099,10 @@ Programs built with a custom SDK get its own `FLUTTER_VERSION`, `FLUTTER_FRAMEWO
 
 ### Replacing one half
 
-`flutter.toolchain` takes the halves of an SDK apart, for pairings other than a checkout with itself: an engine you built in one place with a framework from another, or one half of your own with the other half from a release. `flutter_local_framework` is a checkout's framework, and `flutter_local_engine` the out dirs of an engine source directory:
+`flutter.custom_sdk` takes the halves of an SDK apart, for pairings other than a checkout with itself: an engine you built in one place with a framework from another. `flutter_local_framework` is a checkout's framework, and `flutter_local_engine` the out dirs of an engine source directory:
 
 ```starlark
-flutter.toolchain(
+flutter.custom_sdk(
     name = "mixed",
     engine = "@flutter_local_engine",
     framework = "@flutter_local_framework",
@@ -3123,7 +3123,7 @@ common --repo_env=FLUTTER_CHECKOUT=/Users/me/src/flutter
 common --repo_env=FLUTTER_ENGINE=/Users/me/src/engine/src
 ```
 
-To replace only one half, give `flutter.toolchain` just `engine` or just `framework`, with `flutter_version` naming the release that supplies the other half. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, use `flutter.checkout`, which gives its framework too. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
+To replace only one half, keep the other a release's: `flutter.custom_engine(name, engine, flutter_version)` puts the release's framework over your engine, and `flutter.custom_framework(name, framework, flutter_version)` your framework over the release's engine. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, use `flutter.checkout`, which gives its framework too. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 
 ### Choosing the SDK per build
 
@@ -3133,7 +3133,7 @@ To replace only one half, give `flutter.toolchain` just `engine` or just `framew
 bazel build //:app --@rules_flutter//flutter:sdk=local
 ```
 
-An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` works. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` lines to add. A name no `flutter.toolchain()` or `flutter.checkout()` declares fails, listing the names that are declared. Only the root module can declare an SDK other than `flutter`, and only the root module can declare a `flutter.checkout`.
+An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` works. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` lines to add. A name no tag declares fails, listing the names that are declared. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of. To build with one by default, set the flag in `.bazelrc`.
 
 All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package, and gives the command that resolves the lock again against that SDK:
 
@@ -3218,7 +3218,7 @@ A web SDK has no engine binary or `gen_snapshot`, so a web build checks only the
 
 ### Writing an engine source
 
-`flutter_local_engine` is one *engine source*. Any repository that follows the same contract can be one, and `flutter.toolchain(engine = "@my_engine")` uses it the same way. The release's engine is written to this contract too.
+`flutter_local_engine` is one *engine source*. Any repository that follows the same contract can be one, and `flutter.custom_engine` or `flutter.custom_sdk` uses it the same way. The release's engine is written to this contract too.
 
 An engine source has a `flutter_engine.json` at its root, and a target, called a *slice*, at each of these labels. `<host>` is the machine the tools run on (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64` or `windows-x64`). `<mode>` is `debug`, `profile` or `release`.
 

@@ -33,7 +33,8 @@ The latest tag is the current stable release.
   `FLUTTER_SDK_PACKAGES` and `ARTIFACT_CHECKSUMS`
 - `MODULE.bazel` — `flutter_version` in the `flutter.toolchain()` call, and the
   `flutter_outline.toolchain()` calls below it (see step 5)
-- Every `e2e/*/MODULE.bazel` — their own `flutter.toolchain()` calls
+- Every `e2e/*/MODULE.bazel` — their own `flutter.toolchain()` calls, and the
+  `flutter_version` of `flutter.custom_framework()` in `e2e/custom_engine`
 - `README.md` — the Requirements table, the `MODULE.bazel` snippets under
   Getting started and further down, and the `FlutterSdkInfo.version` example
   under Providers

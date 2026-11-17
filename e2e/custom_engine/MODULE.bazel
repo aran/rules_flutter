@@ -52,7 +52,7 @@ flutter.checkout(name = "env_checkout")
 
 # A checkout's halves, declared apart: the same checkout, but with a
 # gen_snapshot of another Dart. The build must refuse it, naming both.
-flutter.toolchain(
+flutter.custom_sdk(
     name = "mismatched",
     engine = "@mismatched_engine",
     framework = "@mismatched_framework",
@@ -61,7 +61,7 @@ flutter.toolchain(
 # A checkout's framework over the release engine: its Material fonts are the
 # ones the framework names. The second stand-in's, so that no other SDK shares
 # its packages.
-flutter.toolchain(
+flutter.custom_framework(
     name = "framework_only",
     flutter_version = "3.50.0",
     framework = "@mismatched_framework",
@@ -70,7 +70,7 @@ flutter.toolchain(
 # A checkout's halves whose paths are given the way a developer gives them:
 # with --repo_env=FLUTTER_CHECKOUT and --repo_env=FLUTTER_ENGINE. Not set, the
 # repositories still load.
-flutter.toolchain(
+flutter.custom_sdk(
     name = "env",
     engine = "@env_engine",
     framework = "@env_framework",

@@ -35,7 +35,7 @@ local_framework(name = "flutter_local_framework")
 local_engine(name = "flutter_local_engine")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.toolchain(name = "local", framework = "@flutter_local_framework", engine = "@flutter_local_engine")
+flutter.custom_sdk(name = "local", framework = "@flutter_local_framework", engine = "@flutter_local_engine")
 ```
 
 Nothing is read until a build selects the SDK. Where a variable is not set the
