@@ -148,6 +148,42 @@ void main() {
       expect(report, isNot(contains(' more resolve')));
     });
 
+    test('lists the Gradle lines it could not read', () {
+      final report = formatReport(
+        app: null,
+        requirements: {
+          'g:a': Requirement('1.0', ['package:a 1.0']),
+        },
+        resolved: {'g:a': '1.0'},
+        aligned: {},
+        unread: [
+          (
+            package: 'package:b 2.0',
+            script: 'android/build.gradle',
+            lineNumber: 69,
+            line: 'implementation platform("g:bom:\${bomVersion}")',
+          ),
+        ],
+      );
+      expect(report, contains('flutter_pub.annotation(package = ...'));
+      expect(
+        report,
+        contains(
+          '#   package:b 2.0, android/build.gradle:69: '
+          'implementation platform("g:bom:\${bomVersion}")\n',
+        ),
+      );
+      expect(
+        formatReport(
+          app: null,
+          requirements: {},
+          resolved: {},
+          aligned: {},
+        ),
+        isNot(contains('does not read')),
+      );
+    });
+
     test('says when there is nothing to paste', () {
       final report = formatReport(
         app: '//:app',

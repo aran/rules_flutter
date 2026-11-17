@@ -870,6 +870,7 @@ def maven_app_report(data, linked, app):
         data["resolved"],
         data["repositories"],
         app,
+        unread_lines(packages),
     )
 
 def _artifact_line(coordinate, version, declared_by, note):
@@ -915,7 +916,34 @@ def format_maven_failure(problems, report = None):
         scope = "the plugins this app links" if report else "every plugin of the build",
     )
 
-def artifacts_report(requirements, resolved, repositories, app = None):
+def unread_lines(packages):
+    """The Gradle lines of `packages` the reader cannot read, for a report.
+
+    A plugin the root annotated has had its dependencies stated, so its lines
+    are left out, as `maven_warning_message` leaves them out.
+
+    Args:
+        packages: Dicts as `maven_check_message`'s `data` holds them.
+
+    Returns:
+        A list of dicts with `package` (`package:<name> <version>`), `script`,
+        `line_number` and `line`, by package and line.
+    """
+    lines = []
+    for p in sorted(packages, key = lambda p: p["package"]):
+        if p.get("annotated"):
+            continue
+        for u in p["unread"]:
+            if u["why"] == "form":
+                lines.append({
+                    "package": "package:%s %s" % (p["package"], p["version"]),
+                    "script": p["script"],
+                    "line_number": u["line_number"],
+                    "line": u["line"],
+                })
+    return lines
+
+def artifacts_report(requirements, resolved, repositories, app = None, unread = []):
     """The JSON a `maven_artifacts` program reads (tools/maven_artifacts.dart).
 
     The program prints the lines to paste into `maven.install`, after reading
@@ -929,6 +957,8 @@ def artifacts_report(requirements, resolved, repositories, app = None):
         repositories: The install's Maven repositories, in its order.
         app: The label of the application whose plugins `requirements` cover.
             None means every plugin of the build.
+        unread: The result of `unread_lines` for the same plugins: what they
+            may declare that `requirements` does not have.
 
     Returns:
         The JSON string.
@@ -938,6 +968,7 @@ def artifacts_report(requirements, resolved, repositories, app = None):
         "repositories": repositories,
         "requirements": requirements,
         "resolved": resolved,
+        "unread": unread,
     })
 
 def _resolved_versions(build):
@@ -988,6 +1019,7 @@ def _flutter_android_maven_impl(rctx):
         merge_plugin_requirements(packages),
         resolved,
         repositories,
+        unread = unread_lines(packages),
     ))
     rctx.file("maven_artifacts.dart", rctx.read(Label("//flutter/private/tools:maven_artifacts.dart")))
     rctx.file("BUILD.bazel", """\
