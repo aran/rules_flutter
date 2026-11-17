@@ -81,6 +81,7 @@ load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = 
 load("//flutter/private:ios_entitlements.bzl", "resolve_ios_entitlements")
 load("//flutter/private:ios_signing_check.bzl", "flutter_ios_signing_check")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
+load("//flutter/private:swiftpm_app_settings.bzl", _flutter_apple_app_runner = "flutter_apple_app_runner")
 load("//flutter/private:validation.bzl", "validate_minimum_os_version")
 
 # Re-export constants for user BUILD files.
@@ -317,7 +318,9 @@ def flutter_ios_runner_lib_gen(name, registrant, engine, application = None, mod
     When `application` is set, an internal flutter_apple_plugins_aggregator
     target is created and added to the runner's `swift_library.deps` so the
     generated registrant's `import <PluginModule>` lines resolve and the
-    linker pulls in each transitive plugin's static archive.
+    linker pulls in each transitive plugin's static archive. `name` is then
+    that library built in the app's configuration, with its plugins
+    (`flutter_apple_app_runner`).
 
     Args:
         name: Target name. Add to ios_application deps.
@@ -337,6 +340,7 @@ def flutter_ios_runner_lib_gen(name, registrant, engine, application = None, mod
     tags = kwargs.pop("tags", ["manual"])
 
     deps = [engine]
+    library = name
     if application:
         aggregator_name = "_%s__apple_plugins_aggregator" % name
         _flutter_apple_plugins_aggregator(
@@ -350,8 +354,21 @@ def flutter_ios_runner_lib_gen(name, registrant, engine, application = None, mod
         )
         deps.append(":" + aggregator_name)
 
+        # `name` is the library in the app's configuration, with its plugins
+        # (`flutter_apple_app_runner`).
+        library = "_%s__library" % name
+        _flutter_apple_app_runner(
+            name = name,
+            deps = [":" + library],
+            info_plist = info_plist,
+            swift_package_environment = swift_package_environment,
+            tags = tags,
+            testonly = kwargs.get("testonly"),
+            visibility = kwargs.get("visibility"),
+        )
+
     swift_library(
-        name = name,
+        name = library,
         srcs = [
             registrant,
             "@rules_flutter//flutter/private/runners/ios:AppDelegate.swift",
@@ -748,6 +765,17 @@ def flutter_ios_app(
         ] + runner_deps,
     )
 
+    # The runner in the app's configuration, with its plugins
+    # (`flutter_apple_app_runner`).
+    _flutter_apple_app_runner(
+        name = "__%s_app_runner" % name,
+        deps = ["__%s_runner" % name],
+        info_plist = actual_info_plist,
+        swift_package_environment = swift_package_environment,
+        tags = tags,
+        testonly = testonly,
+    )
+
     # 8. Info.plist — preprocess to resolve Xcode variables that rules_apple
     #    doesn't handle, in the conventional plist or the one the app names.
     #    A merge rather than a text template: the app's plist may be saved in
@@ -868,7 +896,7 @@ def flutter_ios_app(
             "//conditions:default": "@rules_flutter//flutter:ios_code_asset_post_processor",
         }),
         deps = [
-            "__%s_runner" % name,
+            "__%s_app_runner" % name,
             "__%s_app_bundle" % name,
             "__%s_native_frameworks" % name,
             "__%s_signing_check" % name,

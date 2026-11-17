@@ -26,7 +26,17 @@ def _flutter_apple_app_settings_impl(ctx):
             if layouts[platform].get("app_settings"):
                 libraries[platform].append("@{}//:{}_apple_{}{}".format(apple_repo(package), package, platform, APP_LIBRARY_SUFFIX))
     ctx.file("BUILD.bazel", """\
+load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
 load("@rules_flutter//flutter/private:swiftpm_app_settings.bzl", "flutter_swiftpm_app_libraries")
+
+# Whether the build has any such library, for `swiftpm_app_transition`: without
+# one, an app's settings change nothing, and its native code is built in the
+# configuration it is in.
+bool_setting(
+    name = "any",
+    build_setting_default = {any},
+    visibility = ["//visibility:public"],
+)
 
 flutter_swiftpm_app_libraries(
     name = "libraries",
@@ -37,7 +47,11 @@ flutter_swiftpm_app_libraries(
     }}),
     visibility = ["//visibility:public"],
 )
-""".format(ios = repr(libraries["ios"]), macos = repr(libraries["macos"])))
+""".format(
+        any = repr(bool(libraries["ios"] or libraries["macos"])),
+        ios = repr(libraries["ios"]),
+        macos = repr(libraries["macos"]),
+    ))
     return ctx.repo_metadata(reproducible = True)
 
 flutter_apple_app_settings = repository_rule(

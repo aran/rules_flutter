@@ -6,11 +6,14 @@ the same pair share one configuration of the plugins, so one build of each;
 any other pair is a configuration of its own. A probe in place of a plugin
 library shows which configuration it is in (the path of a file it writes) and
 what the evaluation would see (the Info.plist and the environment).
+
+In a build with no such plugin the transition changes nothing: every app's
+probe is in one configuration, the one it was in.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
-load("//flutter/private:swiftpm_app_settings.bzl", "swift_package_environment_problems", "swiftpm_app_transition")
+load("//flutter/private:swiftpm_app_settings.bzl", "SWIFTPM_APP_LIBRARIES_ANY", "swift_package_environment_problems", "swiftpm_app_transition")
 
 _SeenInfo = provider(doc = "What a probe saw.", fields = ["output", "plist", "environment"])
 
@@ -49,11 +52,22 @@ def _apps_impl(_ctx):
 
 _apps = rule(implementation = _apps_impl, attrs = {"apps": attr.label_list(providers = [_SeenInfo])})
 
+def _build_with(any_library):
+    def _impl(_settings, _attr):
+        return {str(SWIFTPM_APP_LIBRARIES_ANY): any_library}
+
+    return transition(implementation = _impl, inputs = [], outputs = [str(SWIFTPM_APP_LIBRARIES_ANY)])
+
+# A build with a plugin whose Package.swift reads the app, and one without.
+_with_libraries = _build_with(True)
+_without_libraries = _build_with(False)
+
+def _seen(apps):
+    return {app.label.name.rsplit("__", 1)[-1]: app[_SeenInfo] for app in apps}
+
 def _configurations_test_impl(ctx):
     env = analysistest.begin(ctx)
-    seen = {}
-    for app in ctx.attr.apps:
-        seen[app.label.name.rsplit("__", 1)[-1]] = app[_SeenInfo]
+    seen = _seen(ctx.attr.apps)
 
     asserts.equals(env, "flutter/tests/swiftpm_app_settings_fixture/camera.plist", seen["camera"].plist)
     asserts.equals(env, [], seen["camera"].environment)
@@ -66,11 +80,21 @@ def _configurations_test_impl(ctx):
     # Another for any other.
     outputs = [seen[n].output for n in ("camera", "other_plist", "environment", "no_plist")]
     asserts.equals(env, len(outputs), len({o: None for o in outputs}), outputs)
+
+    # Without such a plugin, one configuration for all, with nothing set.
+    unset = _seen(ctx.attr.apps_without_libraries)
+    outputs = {info.output: None for info in unset.values()}
+    asserts.equals(env, 1, len(outputs), outputs.keys())
+    asserts.equals(env, "flutter/private/swiftpm_no_app_Info.plist", unset["camera"].plist)
+    asserts.equals(env, [], unset["environment"].environment)
     return analysistest.end(env)
 
 _configurations_test = analysistest.make(
     _configurations_test_impl,
-    attrs = {"apps": attr.label_list(providers = [_SeenInfo])},
+    attrs = {
+        "apps": attr.label_list(providers = [_SeenInfo], cfg = _with_libraries),
+        "apps_without_libraries": attr.label_list(providers = [_SeenInfo], cfg = _without_libraries),
+    },
 )
 
 def _environment_problems_test_impl(ctx):
@@ -109,6 +133,7 @@ def swiftpm_app_settings_test_suite(name):
         name = name + "_configurations",
         target_under_test = ":" + name + "__apps",
         apps = [":{}__{}".format(name, app) for app in apps],
+        apps_without_libraries = [":{}__{}".format(name, app) for app in apps],
     )
     _environment_problems_test(name = name + "_environment_problems")
     native.test_suite(

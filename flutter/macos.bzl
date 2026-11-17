@@ -78,6 +78,7 @@ load("//flutter/private:flutter_macos_application.bzl", _flutter_macos_app_frame
 load("//flutter/private:flutter_macos_registrant.bzl", _flutter_macos_registrant_rule = "flutter_macos_registrant")
 load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
+load("//flutter/private:swiftpm_app_settings.bzl", _flutter_apple_app_runner = "flutter_apple_app_runner")
 load("//flutter/private:validation.bzl", "validate_minimum_os_version")
 
 # Re-export for user BUILD files.
@@ -242,7 +243,9 @@ def flutter_macos_runner_lib_gen(name, registrant, engine, application = None, m
     When `application` is set, an internal flutter_apple_plugins_aggregator
     target is created and added to the runner's `swift_library.deps` so the
     generated registrant's `import <PluginModule>` lines resolve and the
-    linker pulls in each transitive plugin's static archive.
+    linker pulls in each transitive plugin's static archive. `name` is then
+    that library built in the app's configuration, with its plugins
+    (`flutter_apple_app_runner`).
 
     Args:
         name: Target name. Add to macos_application deps.
@@ -262,6 +265,7 @@ def flutter_macos_runner_lib_gen(name, registrant, engine, application = None, m
     tags = kwargs.pop("tags", ["manual"])
 
     deps = [engine]
+    library = name
     if application:
         aggregator_name = "_%s__apple_plugins_aggregator" % name
         _flutter_apple_plugins_aggregator(
@@ -275,8 +279,21 @@ def flutter_macos_runner_lib_gen(name, registrant, engine, application = None, m
         )
         deps.append(":" + aggregator_name)
 
+        # `name` is the library in the app's configuration, with its plugins
+        # (`flutter_apple_app_runner`).
+        library = "_%s__library" % name
+        _flutter_apple_app_runner(
+            name = name,
+            deps = [":" + library],
+            info_plist = info_plist,
+            swift_package_environment = swift_package_environment,
+            tags = tags,
+            testonly = kwargs.get("testonly"),
+            visibility = kwargs.get("visibility"),
+        )
+
     swift_library(
-        name = name,
+        name = library,
         srcs = [
             registrant,
             "@rules_flutter//flutter/private/runners/macos:AppDelegate.swift",
@@ -633,6 +650,17 @@ def flutter_macos_app(
         ] + runner_deps,
     )
 
+    # The runner in the app's configuration, with its plugins
+    # (`flutter_apple_app_runner`).
+    _flutter_apple_app_runner(
+        name = "__%s_app_runner" % name,
+        deps = ["__%s_runner" % name],
+        info_plist = info_plist or "__%s_info_plist" % name,
+        swift_package_environment = swift_package_environment,
+        tags = tags,
+        testonly = testonly,
+    )
+
     # 6b. App icon — the conventional catalog `flutter create` writes, unless
     #     the caller named something else. Discovered for the same reason the
     #     entitlements and the launch storyboard are: the scaffold is the app's
@@ -748,7 +776,7 @@ def flutter_macos_app(
         resources = resources,
         additional_contents = flutter_contents,
         entitlements = entitlements,
-        deps = ["__%s_runner" % name],
+        deps = ["__%s_app_runner" % name],
         tags = tags,
         testonly = testonly,
         **kwargs

@@ -1045,7 +1045,7 @@ The defines are the only part of such a manifest that may depend on the app. Its
 
 The stand-in folder leaves out the rest of your app's tree, so a manifest that reads other files of the app doesn't find them. permission_handler's `permission_handler.yaml` flavors are one such file. In Bazel, a flavor is an app target of its own with its own Info.plist, which is what that file emulates.
 
-Each such plugin is compiled once per distinct pair of Info.plist and environment. Two apps with the same plist target and the same environment share one compile, and a third with a different one gets its own. Each distinct compile also gets its own copy of the C and Swift tools it is compiled with, built once and then cached. A workspace with several apps can avoid those copies with `--incompatible_exclude_starlark_flags_from_exec_config` in its `.bazelrc`. Bazel 9.3 accepts the flag, though `bazel help` doesn't list it yet.
+Each such plugin is compiled once per distinct pair of Info.plist and environment. Two apps with the same plist target and the same environment share one compile, and a third with a different one gets its own. The app's runner and its other plugins are compiled with it, since a Swift compile cannot import one module built two ways, so in a workspace whose lock has such a plugin, apps with different pairs don't share their plugins' compiles. Without one, every app shares them. Each distinct compile also gets its own copy of the C and Swift tools it is compiled with, built once and then cached. A workspace with several apps can avoid those copies with `--incompatible_exclude_starlark_flags_from_exec_config` in its `.bazelrc`. Bazel 9.3 accepts the flag, though `bazel help` doesn't list it yet.
 
 ### Packages with build hooks
 

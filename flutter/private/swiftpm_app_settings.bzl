@@ -32,6 +32,12 @@ An Apple app's `flutter_apple_plugins_aggregator` depends on that list through
 Info.plist and its `swift_package_environment`, and links the library of each
 marker in the app's graph from there. Apps with the same Info.plist target and
 environment share one build of each such plugin; another app gets its own.
+
+The app's runner is built in that configuration too (`flutter_apple_app_runner`),
+and with it every plugin the app links: a Swift compile that imports the
+engine's module, or under explicit Clang modules an SDK module, from two
+configurations fails. In a build with no such plugin the transition changes
+nothing, and apps share their plugins' builds.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
@@ -77,7 +83,17 @@ def swift_package_environment_problems(environment):
             problems.append("`{}` is not an environment variable's name".format(name))
     return problems
 
-def _swiftpm_app_transition_impl(_settings, attr):
+# Whether the build has any such library (`flutter_apple_app_settings_repo`).
+SWIFTPM_APP_LIBRARIES_ANY = Label("@flutter_pub_apple_app_settings//:any")
+
+def _swiftpm_app_transition_impl(settings, attr):
+    # With no plugin that reads them, the settings change nothing: the app's
+    # native code stays in the configuration it is in, shared with other apps.
+    if not settings[str(SWIFTPM_APP_LIBRARIES_ANY)]:
+        return {
+            str(_INFO_PLIST): settings[str(_INFO_PLIST)],
+            str(_ENVIRONMENT): settings[str(_ENVIRONMENT)],
+        }
     return {
         str(_INFO_PLIST): str(attr.info_plist or _NO_APP_INFO_PLIST),
         str(_ENVIRONMENT): sorted(["%s=%s" % (k, v) for k, v in attr.swift_package_environment.items()]),
@@ -85,8 +101,57 @@ def _swiftpm_app_transition_impl(_settings, attr):
 
 swiftpm_app_transition = transition(
     implementation = _swiftpm_app_transition_impl,
-    inputs = [],
+    inputs = [str(SWIFTPM_APP_LIBRARIES_ANY), str(_INFO_PLIST), str(_ENVIRONMENT)],
     outputs = [str(_INFO_PLIST), str(_ENVIRONMENT)],
+)
+
+def _flutter_apple_app_runner_impl(ctx):
+    problems = swift_package_environment_problems(ctx.attr.swift_package_environment)
+    if problems:
+        fail("{}: `swift_package_environment` is the environment of the plugins' Package.swift:\n    {}".format(
+            ctx.label,
+            "\n    ".join(problems),
+        ))
+    runner = ctx.attr.deps[0]
+    providers = [DefaultInfo(
+        files = runner[DefaultInfo].files,
+        runfiles = runner[DefaultInfo].default_runfiles,
+    )]
+    for provider in (CcInfo, SwiftInfo, OutputGroupInfo, InstrumentedFilesInfo):
+        if provider in runner:
+            providers.append(runner[provider])
+    return providers
+
+flutter_apple_app_runner = rule(
+    implementation = _flutter_apple_app_runner_impl,
+    attrs = {
+        "deps": attr.label_list(
+            # Named `deps`, as the app's own attribute is, so that rules_apple's
+            # aspects (resources, Swift usage) walk through to the runner.
+            cfg = swiftpm_app_transition,
+            mandatory = True,
+            providers = [CcInfo],
+            doc = "The runner: one `swift_library`, built in the app's configuration.",
+        ),
+        "info_plist": attr.label(
+            allow_single_file = [".plist"],
+            doc = "As the app's `flutter_apple_plugins_aggregator`'s.",
+        ),
+        "swift_package_environment": attr.string_dict(
+            doc = "As the app's `flutter_apple_plugins_aggregator`'s.",
+        ),
+    },
+    doc = """The app's runner, built in the configuration that `swiftpm_app_transition` gives the app.
+
+The plugins whose defines come from the app are built in that
+configuration, and so is everything they import: the engine's module and,
+under explicit Clang modules, the SDK's. The runner imports the same modules,
+and a compile that sees one module from two configurations fails ("signature
+mismatch"). So the runner, and with it the aggregator and every plugin the
+app links, is built there too, and the app's `deps` name this target in its
+place. The aggregator's own transition, with the same settings, is then the
+configuration it is already in.
+""",
 )
 
 FlutterSwiftPMAppLibraryInfo = provider(
