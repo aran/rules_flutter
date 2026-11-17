@@ -1,0 +1,16 @@
+# A `path` package with nothing of Flutter's (no `flutter:` section) that
+# depends on a plugin, as `qr_code_dart_scan` depends on `camera`. An app that
+# depends on it alone still registers and links that plugin.
+name: kotlin_plugin_user
+description: A Dart package that depends on a plugin.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  kotlin_only_plugin:
+    path: ../kotlin_only_plugin

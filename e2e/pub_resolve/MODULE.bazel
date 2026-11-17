@@ -22,6 +22,8 @@ flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")
 # name is free.
 flutter_pub.from_lock(
     name = "deps",
+    # A package with nothing of Flutter's that depends on mapped `greeting`.
+    build_from_pubspec = ["greeting_relay"],
     lock = "//apps/greeter:pubspec.lock",
     resolve = {
         "greeting": "//packages/greeting",

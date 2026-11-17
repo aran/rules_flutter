@@ -34,6 +34,7 @@ flutter_pub.from_lock(
     build_from_pubspec = [
         "annotated_plugin",
         "kotlin_only_plugin",
+        "kotlin_plugin_user",
     ],
     # A tool's package: anything that depends on it fails, giving this reason.
     ignored = {"pub_only_tool": "it is a tool run with `dart run` outside Bazel"},

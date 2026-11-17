@@ -205,6 +205,13 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  kotlin_plugin_user:
+    dependency: "direct main"
+    description:
+      path: "path_packages/kotlin_plugin_user"
+      relative: true
+    source: path
+    version: "0.0.1"
   leak_tracker:
     dependency: transitive
     description:
