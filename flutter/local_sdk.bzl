@@ -37,7 +37,8 @@ repositories still load, with targets that fail when something uses them, so
 `bazel query` works on a machine without a checkout.
 
 When the out dirs of a slot are ambiguous (both `host_debug_arm64` and
-`host_debug_unopt_arm64`), pin one with `--repo_env=FLUTTER_LOCAL_ENGINES=host_debug_unopt_arm64,host_release_arm64`.
+`host_debug_unopt_arm64`), pin one with `--repo_env=FLUTTER_LOCAL_ENGINES=host_debug_unopt_arm64`.
+A pin chooses only for the slots it fits.
 """
 
 load("@rules_dart//dart:repositories.bzl", "fetch_dart_kernel_source")
@@ -214,6 +215,16 @@ def _local_engine_impl(repository_ctx):
                 cpu = effective_cpu(parsed, args),
             ))
         found = ", ".join([c.name for c in candidates] + ignored) or "nothing"
+        unknown = [p for p in pins if p not in args_of]
+        if unknown:
+            fail("{}={} names {}, which {} no out dir under {}. Found: {}.".format(
+                repository_ctx.attr.engines_env,
+                ",".join(pins),
+                ", ".join(unknown),
+                "is" if len(unknown) == 1 else "are",
+                out_root,
+                found,
+            ))
 
         def advice(mode):
             return (

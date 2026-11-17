@@ -3012,7 +3012,7 @@ Which out dir serves what, by the names `tools/gn` gives them. The CPU appears i
 
 Build only the out dirs your builds need. A `-c dbg` macOS app needs `host_debug_<cpu>`. A release one needs `host_release_<cpu>` too.
 
-If two out dirs fit the same slot (`host_debug_arm64` and `host_debug_unopt_arm64`, say), the build fails and lists them. Choose with `--repo_env=FLUTTER_LOCAL_ENGINES=host_debug_unopt_arm64,host_release_arm64`.
+If two out dirs fit the same slot (`host_debug_arm64` and `host_debug_unopt_arm64`, say), the build fails and lists them. Choose with `--repo_env=FLUTTER_LOCAL_ENGINES=host_debug_unopt_arm64`, a comma-separated list of out dir names, as upstream's `--local-engine` names one. A name chooses only for the slots it fits; the other slots are chosen as without it. A name that is no out dir fails the build.
 
 The engine source directory also needs its Dart source, `flutter/third_party/dart`, which `gclient sync` fetches. rules_dart compiles each library's dependents against an outline of it: its kernel without function bodies. That way an edit inside a function body doesn't recompile them. The tool that makes outlines reads only the kernel format of its own Dart, so for an engine built from a checkout, it is built from that checkout's `pkg/kernel`. Without the Dart source, a build fails saying so, and names the two ways out: run `gclient sync`, or build with `--@rules_dart//dart:outline_kernel=false`.
 

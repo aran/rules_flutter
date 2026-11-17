@@ -112,15 +112,20 @@ def select_out_dir(candidates, os_names, mode, cpu, pins, sim = False):
         os_names: The target OS prefixes that can hold the slot.
         mode: The runtime mode.
         cpu: The CPU wanted.
-        pins: Out dir names the user chose (`FLUTTER_LOCAL_ENGINES`); empty for none.
+        pins: Out dir names the user chose (`FLUTTER_LOCAL_ENGINES`); empty for none. Only
+            those that fit the slot count.
         sim: Whether the slot is the iOS simulator's, which only `--simulator` out dirs serve.
 
     Returns:
         `struct(name, error)`: the chosen directory's name, or None and why not.
     """
     matches = [c.name for c in candidates if c.os in os_names and c.mode == mode and c.cpu == cpu and c.sim == sim]
-    if pins:
-        matches = [n for n in matches if n in pins]
+
+    # A pin chooses among the out dirs of the slots it fits; a slot it does
+    # not fit is chosen as without it.
+    pinned = [n for n in matches if n in pins]
+    if pinned:
+        matches = pinned
     if len(matches) == 1:
         return struct(name = matches[0], error = None)
     if not matches:

@@ -93,6 +93,12 @@ def _slots_test_impl(ctx):
     pinned = select_out_dir(_candidates("host_debug_arm64", "host_debug_unopt_arm64"), host_mac, "debug", "arm64", ["host_debug_unopt_arm64"])
     asserts.equals(env, "host_debug_unopt_arm64", pinned.name)
 
+    # A pin of another slot leaves this one as it is.
+    unpinned = select_out_dir(_candidates("host_debug_unopt_arm64", "host_release_arm64"), host_mac, "release", "arm64", ["host_debug_unopt_arm64"])
+    asserts.equals(env, "host_release_arm64", unpinned.name)
+    still_both = select_out_dir(_candidates("host_debug_arm64", "host_debug_unopt_arm64"), host_mac, "debug", "arm64", ["wasm_release"])
+    asserts.equals(env, None, still_both.name)
+
     # A simulator build is not a host build, whatever its mode.
     sim = select_out_dir(_candidates("ios_debug_sim_arm64"), host_mac, "debug", "arm64", [])
     asserts.equals(env, None, sim.name)

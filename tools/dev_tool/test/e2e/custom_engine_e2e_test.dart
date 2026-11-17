@@ -12,7 +12,8 @@
 ///     both and their hashes.
 ///  4. A checkout given by `--repo_env=FLUTTER_CHECKOUT` and `FLUTTER_ENGINE` works; not set, the
 ///     repositories still load (`bazel query`) and a build that selects the SDK
-///     says what to set.
+///     says what to set. `FLUTTER_LOCAL_ENGINES` chooses only for the slots its
+///     names fit, and a name that is no out dir fails.
 ///  5. The iOS simulator app (debug) and the iOS device framework (release) are
 ///     built from the checkout's `ios_debug_sim_arm64` and `ios_release` out
 ///     dirs and record them.
@@ -685,5 +686,39 @@ void main() {
       '@@rules_flutter++flutter+framework_only_material_fonts//:all',
     ]);
     expect(fonts.exitCode, 0, reason: '${fonts.stderr}');
+  });
+
+  test('FLUTTER_LOCAL_ENGINES chooses only for the slots it fits', () async {
+    final location = await _bazel([
+      'query',
+      '@fake_checkout//:checkout/engine/src/ENGINE_SRC',
+      '--output=location',
+    ]);
+    expect(location.exitCode, 0, reason: '${location.stderr}');
+    final engineSrc = p.dirname(
+      '${location.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+    );
+    Future<ProcessResult> kind(String pins) => _bazel([
+      'query',
+      '@env_engine//kernel/release:platform',
+      '--output=label_kind',
+      '--repo_env=FLUTTER_ENGINE=$engineSrc',
+      '--repo_env=FLUTTER_LOCAL_ENGINES=$pins',
+    ]);
+
+    // A pin of the debug slot leaves the release slot its one out dir.
+    final pinned = await kind(_host('debug'));
+    expect(pinned.exitCode, 0, reason: '${pinned.stderr}');
+    expect('${pinned.stdout}', startsWith('flutter_platform_kernel rule'));
+
+    final unknown = await kind('host_debug_nonesuch');
+    expect(unknown.exitCode, isNot(0));
+    expect(
+      '${unknown.stderr}',
+      contains(
+        'FLUTTER_LOCAL_ENGINES=host_debug_nonesuch names host_debug_nonesuch, '
+        'which is no out dir',
+      ),
+    );
   });
 }
