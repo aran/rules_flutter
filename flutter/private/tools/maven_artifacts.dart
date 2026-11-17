@@ -20,7 +20,8 @@
 /// `flutter_android_maven` (every plugin of the build) and
 /// `flutter_android_maven_report` (an application's) write that JSON:
 /// `app` (or null), `requirements` (coordinate to `version` and
-/// `declared_by`), `resolved` (coordinate to version) and `repositories`.
+/// `declared_by`), `resolved` (coordinate to version), `repositories` and
+/// `unread`, the plugins' Gradle lines the reader could not read.
 ///
 /// Options, each a file path (relative to the directory `bazel run` was
 /// started in):
@@ -49,6 +50,16 @@ class Requirement {
   final String? version;
   final List<String> declaredBy;
 }
+
+/// A line of a plugin's Gradle build that the reader could not read, such
+/// as a `platform(...)` BoM or an artifact with no version. It may declare
+/// a dependency the requirements lack.
+typedef UnreadLine = ({
+  String package,
+  String script,
+  int lineNumber,
+  String line,
+});
 
 /// An artifact raised by another's Gradle module metadata.
 class Alignment {
@@ -134,12 +145,14 @@ Future<Map<String, Alignment>> align(
 /// The text the program prints.
 ///
 /// [requirements] are the plugins' declarations, [resolved] what the install
-/// resolves, [aligned] the result of [align] over both.
+/// resolves, [aligned] the result of [align] over both, and [unread] the lines
+/// of the plugins' Gradle builds the reader could not read.
 String formatReport({
   required String? app,
   required Map<String, Requirement> requirements,
   required Map<String, String> resolved,
   required Map<String, Alignment> aligned,
+  List<UnreadLine> unread = const [],
 }) {
   final lines = <String>[];
   var changed = 0;
@@ -216,6 +229,27 @@ String formatReport({
       )
       ..add('')
       ..addAll(lines.map((line) => '        $line'));
+  }
+  if (unread.isNotEmpty) {
+    out
+      ..add('')
+      ..add(
+        '# These lines of the plugins\' Gradle builds are in a form '
+        'rules_flutter does not read,',
+      )
+      ..add(
+        '# so what they declare is not above. Add the artifacts a plugin '
+        'needs, and state them',
+      )
+      ..add(
+        '# for it with flutter_pub.annotation(package = ..., '
+        'android_deps = [...]):',
+      )
+      ..add('')
+      ..addAll([
+        for (final u in unread)
+          '#   ${u.package}, ${u.script}:${u.lineNumber}: ${u.line}',
+      ]);
   }
   return '${out.join('\n')}\n';
 }
@@ -466,6 +500,15 @@ Future<void> main(List<String> args) async {
   };
   final resolved = (data['resolved'] as Map).cast<String, String>();
   final repositories = (data['repositories'] as List).cast<String>();
+  final unread = <UnreadLine>[
+    for (final u in (data['unread'] as List? ?? const []))
+      (
+        package: (u as Map)['package'] as String,
+        script: u['script'] as String,
+        lineNumber: u['line_number'] as int,
+        line: u['line'] as String,
+      ),
+  ];
 
   // What the install would resolve once the plugins' lines are pasted in.
   final start = Map.of(resolved);
@@ -520,6 +563,7 @@ Future<void> main(List<String> args) async {
         requirements: requirements,
         resolved: resolved,
         aligned: aligned,
+        unread: unread,
       ),
     );
   } on NotInSnapshot catch (e) {
