@@ -14,6 +14,7 @@ load(
     "maven_warning_message",
     "merge_plugin_requirements",
     "parse_gradle_maven_dependencies",
+    "unread_lines",
 )
 
 # shared_preferences_android's dependencies block (trimmed).
@@ -469,7 +470,27 @@ def _report_test_impl(ctx):
             "g:old": {"version": "1.2", "declared_by": ["package:a 1.2"]},
         },
         "resolved": {"g:old": "1.1", "g:fine": "1.0"},
+        "unread": [],
     }, report)
+
+    # The lines the reader cannot read go into the report, so that its reader
+    # is told the plugins may need more than its paste block. A plugin the
+    # root annotated, and a declaration inside a condition, are left out, as
+    # the link-time warning leaves them out.
+    unread = unread_lines([
+        _pkg("b", "2.0", [], [
+            _unread(69, 'implementation platform("g:bom:${v}")'),
+            _unread(70, "implementation 'g:versionless'"),
+            _unread(80, "implementation 'g:c:1.0'", why = "conditional"),
+        ]),
+        dict(_pkg("c", "1.0", [], [_unread(3, "implementation(libs.c)")]), annotated = ["@x//:c"]),
+    ])
+    asserts.equals(env, [
+        {"package": "package:b 2.0", "script": "android/build.gradle", "line_number": 69, "line": 'implementation platform("g:bom:${v}")'},
+        {"package": "package:b 2.0", "script": "android/build.gradle", "line_number": 70, "line": "implementation 'g:versionless'"},
+    ], unread)
+    report = json.decode(artifacts_report({}, {}, [], unread = unread))
+    asserts.equals(env, unread, report["unread"])
     return unittest.end(env)
 
 report_test = unittest.make(_report_test_impl)
