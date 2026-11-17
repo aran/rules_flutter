@@ -458,7 +458,7 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
 
     # The golden comparator, staged next to the generated bootstrap so the
     # bootstrap can import it by basename — the same arrangement
-    # `flutter_application` uses for `agent_extensions/agent.dart`. A symlink
+    # `flutter_application` uses for `dev_tool_support/agent.dart`. A symlink
     # rather than a copy: the file is a plain source, and staging it into this
     # rule's own output namespace is what makes the import a sibling lookup
     # instead of arithmetic over the exec root.

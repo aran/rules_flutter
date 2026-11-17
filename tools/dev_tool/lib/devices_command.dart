@@ -111,7 +111,7 @@ class DevicesCommand {
           buildFlags: [
             '-c',
             'dbg',
-            ...userBazelFlags(
+            ...devToolBazelFlags(
               configs: configs,
               buildArgs: _results['build-arg'] as List<String>,
             ),

@@ -124,7 +124,7 @@ const int _rpcMethodNotFound = -32601;
 
 /// The extension event the rules_flutter agent posts for an error nothing in
 /// the app caught (`_reportUncaughtErrors` in
-/// `flutter/private/agent_extensions/agent.dart`), shaped like a
+/// `flutter/private/dev_tool_support/agent.dart`), shaped like a
 /// `Flutter.Error` payload.
 const String _uncaughtErrorEvent = 'rules_flutter.UncaughtError';
 

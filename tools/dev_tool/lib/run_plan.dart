@@ -346,7 +346,7 @@ class RunPlan {
     // redundant `bazel info` spawns and gives every consumer the same answer.
     // Under `bazel run` it spawns nothing.
     final workspace = await bazel.findWorkspaceRoot();
-    final userBuildArgs = userBazelFlags(
+    final bazelFlags = devToolBazelFlags(
       configs: results['config'] as List<String>,
       buildArgs: results['build-arg'] as List<String>,
     );
@@ -354,7 +354,7 @@ class RunPlan {
     // Every option the build takes but the device's own, which only the
     // device can say.
     final runFlags = [
-      ...userBuildArgs,
+      ...bazelFlags,
       ...defineFlags,
       ...modeBuildFlags(profileMode: profileMode),
     ];

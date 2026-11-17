@@ -376,7 +376,7 @@ class DevConfig {
   /// synthetic entrypoint it generates and reaches it through DWDS. The native
   /// rules compile the same source into the app's kernel; a debug web bundle
   /// compiles it in too, behind the bridge that serves it without a VM service
-  /// (`agent_extensions/web_bridge.dart`), and needs nothing from this field.
+  /// (`dev_tool_support/web_bridge.dart`), and needs nothing from this field.
   final String agentExtensions;
 
   /// Absolute path to the bootstrap the dev server answers

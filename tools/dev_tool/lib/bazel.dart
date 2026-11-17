@@ -301,13 +301,26 @@ List<String> bazelConfigFlags(List<String> configs) => [
   for (final config in configs) '--config=$config',
 ];
 
-/// Every bazel flag the user typed for the build: their `--config`s, then
-/// their `--build-arg`s. The configs come first so an explicit `--build-arg`
-/// overrides what a config sets, as it would on a bazel command line.
-List<String> userBazelFlags({
+/// Compiles into a debug app what this tool needs to drive it: the service
+/// extensions, native hot patching and `rules_flutter.build_info`.
+///
+/// On by default, but a `.bazelrc` can turn it off for builds no dev tool runs,
+/// and an app built without it cannot be driven, reloaded or attached to.
+const devToolSupportFlag = '--@rules_flutter//flutter:dev_tool_support=true';
+
+/// The flags every bazel command this tool runs for the app carries: the
+/// user's `--config`s, then their `--build-arg`s, then [devToolSupportFlag].
+///
+/// The configs come first so an explicit `--build-arg` overrides what a config
+/// sets, as it would on a bazel command line. [devToolSupportFlag] comes last
+/// so that nothing the user passes, and no `.bazelrc`, turns it off. It is on
+/// every command, not only the builds: a query of the build's outputs has to
+/// ask about the configuration the build made, and a setting at its default
+/// leaves that configuration as it was.
+List<String> devToolBazelFlags({
   required List<String> configs,
   required List<String> buildArgs,
-}) => [...bazelConfigFlags(configs), ...buildArgs];
+}) => [...bazelConfigFlags(configs), ...buildArgs, devToolSupportFlag];
 
 /// Requests the build outputs this tool reads off disk.
 ///

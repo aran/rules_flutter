@@ -120,7 +120,7 @@ class AttachCommand {
   Future<void> execute() async {
     final debugUrls = _results['debug-url'] as List<String>;
     final target = _results['target'] as String;
-    final userBuildArgs = userBazelFlags(
+    final sessionBuildArgs = devToolBazelFlags(
       configs: _results['config'] as List<String>,
       buildArgs: _results['build-arg'] as List<String>,
     );
@@ -359,7 +359,7 @@ class AttachCommand {
         workspace: workspace,
         runBazel: host.bazel.run,
         // The configuration the pipeline below builds in.
-        buildFlags: ['-c', 'dbg', ...userBuildArgs],
+        buildFlags: ['-c', 'dbg', ...sessionBuildArgs],
       );
 
       // Registered once the toolchain's `dart` is known, which is after the
@@ -402,7 +402,7 @@ class AttachCommand {
         workspace: workspace,
         target: target,
         configDevice: sessions.first.device,
-        sessionBuildArgs: userBuildArgs,
+        sessionBuildArgs: sessionBuildArgs,
         host: host,
         pipeline: pipeline,
         logger: logger,

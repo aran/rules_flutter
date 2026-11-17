@@ -537,13 +537,13 @@ bazel build -c opt //:my_app_macos \
 
 The dSYM of an obfuscated app holds the original Dart names, and `gen_snapshot` warns about it. Don't ship it inside the app.
 
-**The dev tool's extensions in debug builds.** A native debug build compiles in the service extensions `flutter_bazel` drives the app through (see [Driving the app from a script](#driving-the-app-from-a-script)), registered before `main()`. A debug build that no dev tool runs, such as a CI artifact or a device test, can leave them out, so its program is the app's alone:
+**What the dev tool needs in a debug build.** A native debug build compiles in what `flutter_bazel` needs to drive the running app: the service extensions behind its agent commands (see [Driving the app from a script](#driving-the-app-from-a-script)), its build and render-state queries and its uncaught-error reports, native hot patching, all registered before `main()`, and a `rules_flutter.build_info` define that describes the build to the tool. A debug build that no dev tool runs, such as a CI artifact or a device test, can leave all of it out, so its program is the app's alone:
 
 ```sh
-bazel build -c dbg --@rules_flutter//flutter:agent_extensions=false //:my_app_android
+bazel build -c dbg --@rules_flutter//flutter:dev_tool_support=false //:my_app_android
 ```
 
-`flutter_bazel run` needs them, so don't set this where it builds. Release and profile builds never have them, and a web debug build keeps them.
+`flutter_bazel` turns it back on for every build it runs, so setting it in a `.bazelrc` doesn't break `flutter_bazel run`. Release and profile builds never have any of it. A web debug build keeps it whatever the setting, as the dev loop it is for serves the extensions through the page.
 
 ### Lints and static analysis
 

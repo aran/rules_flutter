@@ -578,9 +578,11 @@ def _flutter_web_bundle_impl(ctx):
     wrapper = ctx.actions.declare_file(ctx.label.name + "_wrapper_main.dart")
     wrapper_depth = len(wrapper.dirname.split("/"))
 
-    # AI-agent service extensions. In debug they are compiled into the bundle,
-    # as the native rules compile them into their kernel, and served by the
-    # bridge: dart2wasm and dart2js leave `registerExtension` with no VM
+    # The dev-tool support's service extensions. In debug they are compiled
+    # into the bundle, as the native rules compile them into their kernel,
+    # whatever `--@rules_flutter//flutter:dev_tool_support` says: the dev loop
+    # a web debug bundle is for serves them through the page. They are served
+    # by the bridge: dart2wasm and dart2js leave `registerExtension` with no VM
     # service behind it, so the bridge publishes the handlers on the page for
     # the dev tool to call over the browser's DevTools protocol. The DDC dev
     # loop imports the same staged file from its own synthetic entrypoint (see
@@ -589,7 +591,7 @@ def _flutter_web_bundle_impl(ctx):
     staged_agent_bridge = None
     if is_debug:
         staged_agent = ctx.actions.declare_file(ctx.label.name + ".agent_extensions.dart")
-        ctx.actions.symlink(output = staged_agent, target_file = ctx.file._agent_extensions_src)
+        ctx.actions.symlink(output = staged_agent, target_file = ctx.file._dev_tool_support_src)
         staged_agent_bridge = ctx.actions.declare_file(ctx.label.name + ".agent_web_bridge.dart")
         ctx.actions.symlink(output = staged_agent_bridge, target_file = ctx.file._agent_web_bridge_src)
 
@@ -1852,7 +1854,7 @@ build knows which served file is a native module.
         ),
         "_agent_web_bridge_src": attr.label(
             doc = "Serves the agent extensions from a debug bundle, which has no VM service: the wrapper main publishes them for the dev tool to call over the browser's DevTools protocol.",
-            default = Label("//flutter/private/agent_extensions:web_bridge.dart"),
+            default = Label("//flutter/private/dev_tool_support:web_bridge.dart"),
             allow_single_file = [".dart"],
         ),
     }),

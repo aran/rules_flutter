@@ -842,7 +842,7 @@ class FakeVmService implements VmService {
   ///
   /// This is what an app *refusing* looks like from the client side. A handler
   /// that returns `ServiceExtensionResponse.error` — every `_err` in
-  /// `agent_extensions/agent.dart`, so every "no widget matched" and every
+  /// `dev_tool_support/agent.dart`, so every "no widget matched" and every
   /// `waitFor` timeout — crosses the VM service as a JSON-RPC error, and
   /// `package:vm_service` completes the call with a throw rather than a
   /// response. A fake that can only answer cannot stand in for that.

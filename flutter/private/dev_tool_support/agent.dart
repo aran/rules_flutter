@@ -1,4 +1,5 @@
-// AI-agent custom service extensions.
+// The service extensions `flutter_bazel` drives a debug app through: the
+// agent commands, `buildInfo`, `renderState` and the uncaught-error hook.
 //
 // Registered before main() runs, so registration must not touch any Flutter
 // binding; binding-dependent setup is deferred to first handler invocation.
@@ -230,7 +231,7 @@ Future<ServiceExtensionResponse> Function(String, Map<String, String>) _guard(
       // `WidgetsBinding` also holds it false until `runApp` attaches the root
       // widget; see [_handleRenderState].) The state is routine wherever the
       // OS backgrounds apps — this file is staged into every *debug* kernel,
-      // iOS and Android included (`AGENT_EXTENSIONS_ATTR` in `common.bzl`) —
+      // iOS and Android included (`DEV_TOOL_SUPPORT_ATTRS` in `common.bzl`) —
       // and on macOS it follows the window: the embedder sends `hidden` when
       // `NSApplication.occlusionState` stops being visible (`FlutterEngine.mm`,
       // `handleDidChangeOcclusionState`). Measured on Darwin 27.0: an app that

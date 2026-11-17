@@ -193,7 +193,7 @@ List<String> definesToReplay({
 }
 
 /// The JSON-RPC code every `ServiceExtensionResponse.error` from the agent
-/// carries — `_err` in `flutter/private/agent_extensions/agent.dart` builds
+/// carries — `_err` in `flutter/private/dev_tool_support/agent.dart` builds
 /// them all with `ServiceExtensionResponse.invalidParams`.
 ///
 /// Named locally rather than imported, the way `reload_strategy.dart` names

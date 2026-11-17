@@ -8,7 +8,7 @@ by relative path.
 
 Neither is a `dart_library`: the sources are added to a test's kernel-compile
 srcs directly so they resolve `package:flutter_test` through the user's
-pub-managed `@deps`, the same arrangement `agent_extensions/agent.dart` uses.
+pub-managed `@deps`, the same arrangement `dev_tool_support/agent.dart` uses.
 """
 
 # `service.dart` and the comparator it imports are named by the `flutter_test`
