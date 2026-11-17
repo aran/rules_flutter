@@ -4090,13 +4090,14 @@ flutter_test(
 )
 ```
 
-The generated files land beside the `.arb` files, which must all be in one directory. List the target in `srcs` to compile them. The app needs `intl` in its own lock, as with `flutter gen-l10n`; the generator has its own copy.
+The generated files land beside the `.arb` files, which must all be in one directory, or in `output_dir`. List the target in `srcs` to compile them. The app needs `intl` in its own lock, as with `flutter gen-l10n`; the generator has its own copy.
 
 `l10n.yaml` is not read, because Bazel must know the output file names during analysis, before any file is read. Its settings are attributes instead, with `flutter gen-l10n`'s defaults:
 
 | `l10n.yaml` / `flutter gen-l10n` flag | Attribute | Default |
 |---|---|---|
 | `template-arb-file` | `template_arb_file` | `app_en.arb` |
+| `output-dir` | `output_dir` | beside the `.arb` files |
 | `output-localization-file` | `output_localization_file` | `app_localizations.dart` |
 | `output-class` | `output_class` | `AppLocalizations` |
 | `preferred-supported-locales` | `preferred_supported_locales` | `[]` |
