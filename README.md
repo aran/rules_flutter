@@ -3494,6 +3494,23 @@ A platform needs a `plugin_class`, a `dart_plugin_class`, `ffi_plugin` or a `def
 
 A federated plugin is an app-facing plugin (`url_launcher`) whose platforms other plugins implement (`url_launcher_android`, with `implements = "url_launcher"`); the app-facing plugin can name one of them its `default_package` on a platform. An application registers one implementation of each plugin on each platform, chosen as `flutter build` chooses it: the only one that reaches the application; else the one the application depends on directly; else the `default_package`. Two implementations depended on directly, or two with no default, fail analysis with flutter_tools' message. What the application depends on directly is the BUILD counterpart of an app pubspec's `dependencies`: the `deps` of the `flutter_application` (or `flutter_test`), and those of every `flutter_library` of the main repository it depends on. What a plugin, or a package from pub, depends on is not. To use another implementation than the default, add it to the application's `deps`. A `default_package` that does not reach the application, or that does not implement the plugin on that platform, is ignored, and the build prints flutter_tools' warning about it and succeeds.
 
+A plugin in an app pubspec's `dev_dependencies` (a debugging overlay, say) is registered by `flutter run` and `flutter build` in debug and profile builds, and left out of release builds. rules_flutter has no `dev_dependencies`: an application registers a plugin exactly when its `deps` reach it, in every mode. To get flutter_tools' behaviour, list a dev-only plugin under a `select()` on `@rules_flutter//flutter:release`, which matches `-c opt` without the profile flag:
+
+```starlark
+flutter_application(
+    name = "my_app",
+    # ...
+    deps = [
+        "@deps//:url_launcher",
+    ] + select({
+        "@rules_flutter//flutter:release": [],
+        "//conditions:default": ["@deps//:my_debug_overlay"],
+    }),
+)
+```
+
+Dart code that imports the plugin goes under the same `select()`, in a `flutter_library` of its own, say: a release build has no such package to compile it against.
+
 A plugin's native code is a target of its own. Swift goes in a `flutter_apple_plugin_library`. Kotlin or Java goes in a `flutter_android_plugin_library`, whose `flutter_engine` is a `flutter_android_engine(neverlink = True)`: the plugin compiles against the engine, and each app ships an engine for its own ABI. An Android app that depends on the plugin packages the library, registers its plugin class, and merges its `manifest` (receivers, services, permissions) into the app's. The library gets a `BuildConfig` in its `java_package`, with `DEBUG` and `BUILD_TYPE` as Gradle would set them for the build's mode.
 
 More plugins in the examples: [`e2e/plugin_example/greeting_plugin`](e2e/plugin_example/greeting_plugin/BUILD.bazel) has a Dart plugin class and no native code. [`e2e/ffi_example`](e2e/ffi_example) has plugins built on Native Assets, and [`multiply_plugin`](e2e/ffi_example/multiply_plugin/BUILD.bazel) there has a Dart plugin class with `native_deps`.
