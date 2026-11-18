@@ -192,6 +192,11 @@ class PubInputsWorkspace {
   Future<BazelResult> loadSpoke(String package) =>
       query('${spoke(package)}//:all');
 
+  /// Analyse [package]'s target, as a build of anything that depends on it
+  /// would.
+  Future<BazelResult> analyzeSpoke(String package) =>
+      bazel(['build', '--nobuild', '${spoke(package)}//:$package']);
+
   /// The files [package]'s target declares as `assets`, or as the fonts of
   /// its font families for `font`, one label a line.
   Future<BazelResult> declaredFiles(String kind, String package) {
@@ -802,6 +807,16 @@ bool namesPackage(String text, String name) {
 bool refusedAtFetch(BazelResult result) =>
     !result.succeeded &&
     result.output.contains('during the fetch of repository') &&
+    !result.output.contains('package contains errors');
+
+/// Whether [result] is a target rules_flutter wrote failing at analysis, for
+/// an input its repository fetched but cannot build, as opposed to the fetch
+/// failing (which breaks `bazel fetch --all` for builds that never use the
+/// package) or Bazel tripping over what was generated.
+bool refusedAtAnalysis(BazelResult result) =>
+    !result.succeeded &&
+    result.output.contains('Analysis of target') &&
+    !result.output.contains('during the fetch of repository') &&
     !result.output.contains('package contains errors');
 
 /// An Android plugin: a pubspec with `flutter.plugin.platforms.android`, one

@@ -665,7 +665,7 @@ def _parse_consumer_proguard_files(content):
                 idx = end + 1
     return sorted(paths.keys())
 
-def _detect_consumer_proguard_specs(ctx):
+def _detect_consumer_proguard_specs(ctx, problems):
     """Find the plugin's `consumer-rules.pro` files, declared via Gradle.
 
     Reads `android/build.gradle` (or `android/build.gradle.kts`),
@@ -686,6 +686,7 @@ def _detect_consumer_proguard_specs(ctx):
                     ctx.attr.package_name,
                     "consumerProguardFiles file",
                     relpath,
+                    problems,
                 ))
     return paths
 
@@ -979,11 +980,11 @@ def _file_name_problem(path):
             return "is not a normalised path inside the package (it has an empty, `.` or `..` segment)"
     return ""
 
-def _checked_file_name(package, what, path):
-    """Return `path`, or fail naming the package and the file it cannot hold."""
+def _checked_file_name(package, what, path, problems):
+    """Return `path`, adding to `problems` what names the package and the file it cannot hold."""
     problem = _file_name_problem(path)
     if problem:
-        fail("package {}: the {} {} {}, so rules_flutter cannot put it in the package's BUILD file.".format(
+        problems.append("package {}: the {} {} {}, so rules_flutter cannot put it in the package's BUILD file.".format(
             package,
             what,
             repr(path),
@@ -991,17 +992,19 @@ def _checked_file_name(package, what, path):
         ))
     return path
 
-def _lib_file_of(ctx, what, path, other, rest):
+def _lib_file_of(ctx, what, path, other, rest, problems):
     """The path of `lib/<rest>` in the package `other`, which the lock builds; the file may not exist.
 
-    `what` and `path` name the entry in the failure for a package the lock does not build.
+    `what` and `path` name the entry in what is added to `problems` for a
+    package the lock does not build, which has no such path: None then.
     """
     index = read_index(ctx, ctx.attr.prefix)
     if other not in index.built:
-        fail("package {}: the {} {} names the package {}, which the lock does not build.".format(ctx.attr.package_name, what, repr(path), other))
+        problems.append("package {}: the {} {} names the package {}, which the lock does not build.".format(ctx.attr.package_name, what, repr(path), other))
+        return None
     return sibling_path(ctx, source_repo(other, owner_prefix(index, other)), "pubspec.yaml").dirname.get_child("lib/" + rest)
 
-def _font_source(ctx, path):
+def _font_source(ctx, path, problems):
     """The file of the font a package lists at `path`, and its `asset` if it is another package's.
 
     As in flutter_tools, `packages/<other>/<rest>` that is no file of this
@@ -1021,7 +1024,7 @@ def _font_source(ctx, path):
     if named.package == package:
         source = ctx.path("lib/" + named.rest)
         if not source.exists or source.is_dir:
-            fail("package {}: it lists the font file {}, but neither that file nor lib/{} exists.".format(package, repr(path), named.rest))
+            problems.append("package {}: it lists the font file {}, but neither that file nor lib/{} exists.".format(package, repr(path), named.rest))
         return struct(src = ":lib/" + named.rest, asset = path)
     link = _link_lib_file(
         ctx,
@@ -1029,18 +1032,20 @@ def _font_source(ctx, path):
         "font file",
         path,
         named,
+        problems,
         variants = False,
         root = _OTHER_PACKAGES_FONTS,
         missing = "package {package}: the font file {listed} names lib/{rest} of the package {other}, which has no such file.",
     )
     return struct(src = ":" + link.path, asset = path)
 
-def _font_families(ctx, parsed_fonts):
+def _font_families(ctx, parsed_fonts, problems):
     """The font families a package declares, for `make_flutter_member_build_content`.
 
     Args:
         ctx: The repository context.
         parsed_fonts: `flutter_assets_block().fonts`.
+        problems: What keeps the package from being built, added to.
 
     Returns:
         A list of `struct(family, fonts)`, each font a `struct(src, asset,
@@ -1051,7 +1056,7 @@ def _font_families(ctx, parsed_fonts):
     for entry in parsed_fonts:
         fonts = []
         for font in entry.fonts:
-            source = _font_source(ctx, _checked_file_name(ctx.attr.package_name, "font file", font.asset))
+            source = _font_source(ctx, _checked_file_name(ctx.attr.package_name, "font file", font.asset, problems), problems)
             fonts.append(struct(src = source.src, asset = source.asset, weight = font.weight, style = font.style))
         families.append(struct(family = entry.family, fonts = fonts))
     return families
@@ -1092,15 +1097,16 @@ flutter_font_family(
         labels.append(":" + name)
     return struct(targets = targets, labels = labels)
 
-def _with_variants(ctx, package, path, listed = None):
+def _with_variants(ctx, package, path, problems, listed = None):
     """`path` if it is a file, and the files of that name in its `<number>x/` siblings.
 
     The resolution variants of an image are found beside it, in the
     directories next to it named for a scale (see `variant_scale`), as
     flutter_tools finds them. The listed file itself need not exist when a
     variant does; when neither does, the package lists something it does not
-    ship, which `flutter build` fails on and so does this. `listed` is the
-    entry as the pubspec writes it, when that is not `path`.
+    ship, which `flutter build` fails on and so does this: that is added to
+    `problems`, and there are no files. `listed` is the entry as the pubspec
+    writes it, when that is not `path`.
     """
     slash = path.rfind("/")
     prefix = path[:slash + 1]
@@ -1117,11 +1123,12 @@ def _with_variants(ctx, package, path, listed = None):
                     found.append("{}{}/{}".format(prefix, sibling.basename, name))
     if not found:
         if listed:
-            fail("package {}: it lists the asset {}, but neither that file nor {} nor a resolution variant of it exists.".format(package, repr(listed), path))
-        fail("package {}: it lists the asset {}, but neither that file nor a resolution variant of it exists.".format(package, repr(path)))
+            problems.append("package {}: it lists the asset {}, but neither that file nor {} nor a resolution variant of it exists.".format(package, repr(listed), path))
+        else:
+            problems.append("package {}: it lists the asset {}, but neither that file nor a resolution variant of it exists.".format(package, repr(path)))
     return sorted(found)
 
-def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
+def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths, problems):
     """Expand the package's `flutter: assets:` entries into files.
 
     Bazel needs an explicit label per file, so each entry is expanded at
@@ -1147,6 +1154,7 @@ def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
         parsed_assets: The package's parsed `flutter: assets:` entries.
         flavors: The package's `flavor_restrictions`, shared with its shaders.
         bundle_paths: The package's `_bundle_paths`, shared with its shaders.
+        problems: What keeps the package from being built, added to.
 
     Returns:
         struct(labels, platforms): `labels` is the `assets` of the package's
@@ -1158,32 +1166,33 @@ def _build_assets(ctx, package, parsed_assets, flavors, bundle_paths):
     for entry in parsed_assets:
         path = entry.path
         if path.endswith("/"):
-            mains = [(_checked_file_name(package, "asset file", f), None, "", "", False) for f in _files_in(ctx, path.rstrip("/"))]
+            mains = [(_checked_file_name(package, "asset file", f, problems), None, "", "", False) for f in _files_in(ctx, path.rstrip("/"))]
         else:
-            listed = _checked_file_name(package, "asset file", path)
+            listed = _checked_file_name(package, "asset file", path, problems)
             named = _packages_entry(ctx, listed)
             if named == None:
                 mains = [(listed, None, "", "", False)]
             elif named.package == package:
                 mains = [("lib/" + named.rest, listed, "lib/", "", False)]
             else:
-                link = _link_lib_file(ctx, package, "asset", listed, named, variants = True)
+                link = _link_lib_file(ctx, package, "asset", listed, named, problems, variants = True)
                 mains = [(link.path, listed, link.dir, "packages/{}/".format(named.package), True)]
         for main, remapped_from, strip, add, borrowed in mains:
-            for variant in _with_variants(ctx, package, main, listed = remapped_from):
+            for variant in _with_variants(ctx, package, main, problems, listed = remapped_from):
                 bundle_paths.add(variant, add + variant.removeprefix(strip), borrowed = borrowed)
                 files[":" + variant] = True
                 restrictions.add(variant, entry.platforms)
                 conflict = flavors.add(variant, path, entry.flavors, main = variant == main)
                 if conflict:
-                    fail(conflict)
+                    problems.append(conflict)
     return struct(labels = sorted(files.keys()), platforms = restrictions.platforms())
 
-def _build_additional_licenses(ctx, package, paths):
+def _build_additional_licenses(ctx, package, paths, problems):
     """The labels of the files a package lists under `flutter: licenses:`.
 
-    flutter_tools fails the build when one is missing; here the fetch does,
-    naming the package and the file, since a label for it cannot be written.
+    flutter_tools fails the build when one is missing; here so does the
+    package's target, added to `problems` naming the package and the file,
+    since a label for it cannot be written.
 
     Returns:
         The package-relative paths, in the order listed, as labels of the
@@ -1191,10 +1200,10 @@ def _build_additional_licenses(ctx, package, paths):
     """
     labels = []
     for path in paths:
-        _checked_file_name(package, "licence file", path)
+        _checked_file_name(package, "licence file", path, problems)
         file = ctx.path(path)
         if not file.exists or file.is_dir:
-            fail("package {}: its `flutter: licenses:` lists {}, which is not a file of the package.".format(package, repr(path)))
+            problems.append("package {}: its `flutter: licenses:` lists {}, which is not a file of the package.".format(package, repr(path)))
         labels.append(":" + path)
     return labels
 
@@ -1222,7 +1231,7 @@ def _packages_entry(ctx, path):
         return None
     return struct(package = parts[1], rest = parts[2])
 
-def _link_lib_file(ctx, package, what, listed, named, variants, root = OTHER_PACKAGES_ASSETS, missing = None, includes = False):
+def _link_lib_file(ctx, package, what, listed, named, problems, variants, root = OTHER_PACKAGES_ASSETS, missing = None, includes = False):
     """Link the file `lib/<named.rest>` of the package `named.package` into this repository.
 
     A package's files are private to its repository and any of them can be
@@ -1239,8 +1248,9 @@ def _link_lib_file(ctx, package, what, listed, named, variants, root = OTHER_PAC
     shader finds what it `#include`s there. The compiler is pointed at the
     folder of the link.
 
-    `missing` is the failure for a file that is not there, a format string over
-    `package`, `listed`, `rest` and `other`; by default one that names `what`.
+    `missing` is what is added to `problems` for a file that is not there, a
+    format string over `package`, `listed`, `rest` and `other`; by default one
+    that names `what`.
 
     Returns:
         `struct(path, dir)`: where the file is linked, and the directory above
@@ -1248,12 +1258,14 @@ def _link_lib_file(ctx, package, what, listed, named, variants, root = OTHER_PAC
     """
     other, rest = named.package, named.rest
     dir = "{}/{}/".format(root, other)
-    file = _lib_file_of(ctx, what, listed, other, rest)
+    file = _lib_file_of(ctx, what, listed, other, rest, problems)
+    if file == None:
+        return struct(path = dir + rest, dir = dir)
     exists = file.exists and not file.is_dir
     if exists:
         _link_once(ctx, file, dir + rest)
     elif not variants:
-        fail((missing or "package {package}: it lists the {what} {listed}, but the package {other} has no file lib/{rest}.").format(
+        problems.append((missing or "package {package}: it lists the {what} {listed}, but the package {other} has no file lib/{rest}.").format(
             package = package,
             what = what,
             listed = repr(listed),
@@ -1310,7 +1322,7 @@ def _bundle_paths():
 
     return struct(add = add, paths = paths, borrowed = borrowed)
 
-def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
+def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths, problems):
     """Expand the package's `flutter: shaders:` entries into files.
 
     The same rules as for assets (see `_build_assets`): an entry with
@@ -1325,6 +1337,7 @@ def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
         parsed_shaders: The package's parsed `flutter: shaders:` entries.
         flavors: The package's `flavor_restrictions`, shared with its assets.
         bundle_paths: The package's `_bundle_paths`, shared with its assets.
+        problems: What keeps the package from being built, added to.
 
     Returns:
         struct(labels, platforms): `labels` is the `shaders` of the package's
@@ -1334,7 +1347,7 @@ def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
     files = {}
     restrictions = _platform_restrictions()
     for entry in parsed_shaders:
-        listed = _checked_file_name(package, "shader file", entry.path)
+        listed = _checked_file_name(package, "shader file", entry.path, problems)
         named = _packages_entry(ctx, listed)
         path = listed
         bundled_as = listed
@@ -1343,16 +1356,16 @@ def _build_shaders(ctx, package, parsed_shaders, flavors, bundle_paths):
             bundled_as = named.rest
             source = ctx.path(path)
             if not source.exists or source.is_dir:
-                fail("package {}: it lists the shader {}, but neither that file nor {} exists.".format(package, repr(listed), path))
+                problems.append("package {}: it lists the shader {}, but neither that file nor {} exists.".format(package, repr(listed), path))
         elif named != None:
-            path = _link_lib_file(ctx, package, "shader", listed, named, variants = False, includes = True).path
+            path = _link_lib_file(ctx, package, "shader", listed, named, problems, variants = False, includes = True).path
             bundled_as = listed
         bundle_paths.add(path, bundled_as, borrowed = named != None and named.package != package)
         files[":" + path] = True
         restrictions.add(path, entry.platforms)
         conflict = flavors.add(path, entry.path, entry.flavors)
         if conflict:
-            fail(conflict)
+            problems.append(conflict)
     return struct(labels = sorted(files.keys()), platforms = restrictions.platforms())
 
 def _platform_restrictions():
@@ -2558,14 +2571,15 @@ def _is_tool_output(name):
     """Whether a name under `android/` is Gradle's or an IDE's, not the package's."""
     return name.startswith(".") or name in ("build", "local.properties")
 
-def _local_package_entries(ctx, directory):
+def _local_package_entries(ctx, directory, problems):
     """What of a local package's directory its build reads, besides its pubspec.
 
     The pubspec, already linked, says which directories its assets, fonts,
     shaders and licenses are in. `android/` is a real directory of the
     repository with its entries linked, because the repository writes its
     `android/BUILD.bazel` there; its listing is watched, so an added entry
-    fetches the repository again.
+    fetches the repository again. A directory the repository cannot link in
+    is added to `problems`, and left out.
     """
     pubspec = read_pubspec(ctx, ctx.attr.package_name, ctx.attr.version)
     assets = flutter_assets_block(pubspec.fields)
@@ -2578,8 +2592,9 @@ def _local_package_entries(ctx, directory):
 
         # `android/` is linked a level down, below the directory written here.
         if top != "android" and top in NEVER_LINKED + _WRITTEN:
-            fail(("package {}: its pubspec lists {}, but rules_flutter's repository for the package " +
-                  "writes its own {} there, so it cannot link the package's in.").format(ctx.attr.package_name, repr(path), repr(top)))
+            problems.append(("package {}: its pubspec lists {}, but rules_flutter's repository for the package " +
+                             "writes its own {} there, so it cannot link the package's in.").format(ctx.attr.package_name, repr(path), repr(top)))
+            continue
         if top and top not in (".", "..", "android", "pubspec.yaml"):
             entries[top] = True
     android = ctx.path(directory).get_child("android")
@@ -2589,7 +2604,7 @@ def _local_package_entries(ctx, directory):
                 entries["android/" + child.basename] = True
     return entries.keys()
 
-def fetch_local_package(ctx, directory):
+def fetch_local_package(ctx, directory, problems):
     """Links a `path` package's directory as the repository's package source.
 
     The pubspec first, which says what else of the directory the package
@@ -2598,9 +2613,10 @@ def fetch_local_package(ctx, directory):
     Args:
         ctx: The `repository_ctx`.
         directory: The package's directory, absolute.
+        problems: What keeps the package from being built, added to.
     """
     fetch_pub_path(ctx, directory, ["pubspec.yaml"])
-    fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory))
+    fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory, problems))
 
 def package_fetched(attr, fetched):
     """What the package is: its version, and its source.
@@ -2645,9 +2661,29 @@ def write_android_build(ctx, prelude, content):
     """
     ctx.file("android/BUILD.bazel", prelude + content)
 
+def _write_unbuildable(ctx, identity, version, pubspec_dependencies, message):
+    """Writes the source repository of a package whose own content rules_flutter cannot build.
+
+    Its target fails at analysis with `message` when a build uses it. The
+    package keeps its place in the libraries' plan: its pubspec's
+    dependencies are recorded, and it is a member like any other, so a
+    dependency cycle it is in is planned as it would be.
+    """
+    ctx.file("BUILD.bazel", identity.loads + FAILING_TARGETS_LOAD + failing_targets([ctx.attr.package_name], message) + identity.target)
+    ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_DART, "material_icons": False, "android_lib": False}))
+    write_pubspec_dependencies(ctx, pubspec_dependencies)
+    _write_maven_deps(ctx, version, [], [], "")
+    return _linked_repo_metadata(ctx)
+
 def _flutter_pub_package_impl(ctx):
     build_prelude = ""
     fetched = None
+
+    # What of the package's own content keeps it from being built: its
+    # target fails with the first, when a build uses it, and the repository
+    # still fetches (`bazel fetch --all`), as the package may be one no
+    # target uses.
+    problems = []
     if ctx.attr.unusable:
         write_failing_stub(ctx, [ctx.attr.package_name], ctx.attr.unusable, member = True)
         return ctx.repo_metadata(reproducible = True)
@@ -2657,7 +2693,7 @@ def _flutter_pub_package_impl(ctx):
             write_failing_stub(ctx, [ctx.attr.package_name], unusable, member = True)
             return _linked_repo_metadata(ctx)
     elif ctx.attr.directory:
-        fetch_local_package(ctx, ctx.attr.directory)
+        fetch_local_package(ctx, ctx.attr.directory, problems)
     else:
         # A hosted, git or Flutter SDK package: its files are another
         # repository's, linked in.
@@ -2679,31 +2715,32 @@ def _flutter_pub_package_impl(ctx):
         # its SDK, when something uses it: every SDK's packages still fetch.
         misfit = dependency_constraint_message(read_index(ctx, ctx.attr.prefix), ctx.attr.sdk, ctx.attr.package_name, pubspec.fields)
         if misfit:
-            write_failing_stub(ctx, [ctx.attr.package_name], misfit, member = True)
-            return _linked_repo_metadata(ctx)
+            problems.append(misfit)
     pubspec_dependencies = pubspec.dependencies
     language_version = pubspec.language_version
+    if problems:
+        return _write_unbuildable(ctx, identity, version, pubspec_dependencies, problems[0])
     plugin_block = flutter_plugin_block(pubspec.fields)
     manifest_errors = flutter_manifest_errors(pubspec.fields)
     if manifest_errors:
-        fail((
+        return _write_unbuildable(ctx, identity, version, pubspec_dependencies, (
             "package {}: its pubspec.yaml has `flutter:` fonts, assets or shaders that `flutter build` refuses:\n  {}"
         ).format(ctx.attr.package_name, "\n  ".join(manifest_errors)))
     asset_block = flutter_assets_block(pubspec.fields)
-    license_file = find_pub_license_file(ctx)
-    additional_licenses = _build_additional_licenses(ctx, ctx.attr.package_name, flutter_licenses_block(pubspec.fields))
     for asset in asset_block.assets:
         if asset.transformers:
-            fail((
+            return _write_unbuildable(ctx, identity, version, pubspec_dependencies, (
                 "package {}: its asset {} lists `transformers`, which rules_flutter does not run. " +
                 "Bundling the file as it is would ship it untransformed under the transformed file's name."
             ).format(ctx.attr.package_name, repr(asset.path)))
     for shader in asset_block.shaders:
         if shader.transformers:
-            fail((
+            return _write_unbuildable(ctx, identity, version, pubspec_dependencies, (
                 "package {}: its shader {} lists `transformers`, which rules_flutter does not run. " +
                 "Compiling the source as it is would ship a shader `flutter build` does not."
             ).format(ctx.attr.package_name, repr(shader.path)))
+    license_file = find_pub_license_file(ctx)
+    additional_licenses = _build_additional_licenses(ctx, ctx.attr.package_name, flutter_licenses_block(pubspec.fields), problems)
 
     # The names the pubspec depends on, for the libraries of the packages that
     # reach this one. Which of them the lock lists, and what that makes of
@@ -2732,11 +2769,13 @@ def _flutter_pub_package_impl(ctx):
 
     # Pre-compute the pub-asset attr inputs once. Used by either branch
     # below (plugin vs library).
-    font_families = _font_families(ctx, asset_block.fonts)
+    font_families = _font_families(ctx, asset_block.fonts, problems)
     flavors = flavor_restrictions(ctx.attr.package_name)
     bundle_paths = _bundle_paths()
-    bundled_assets = _build_assets(ctx, ctx.attr.package_name, asset_block.assets, flavors, bundle_paths)
-    bundled_shaders = _build_shaders(ctx, ctx.attr.package_name, asset_block.shaders, flavors, bundle_paths)
+    bundled_assets = _build_assets(ctx, ctx.attr.package_name, asset_block.assets, flavors, bundle_paths, problems)
+    bundled_shaders = _build_shaders(ctx, ctx.attr.package_name, asset_block.shaders, flavors, bundle_paths, problems)
+    if problems:
+        return _write_unbuildable(ctx, identity, version, pubspec_dependencies, problems[0])
     flavored = flavors.flavors()
     asset_flavors = {p: f for p, f in flavored.items() if ":" + p in bundled_assets.labels}
     shader_flavors = {p: f for p, f in flavored.items() if ":" + p in bundled_shaders.labels}
@@ -2914,7 +2953,11 @@ def _flutter_pub_package_impl(ctx):
             if (android_src_dir or android_has_resources) and not android_unbuildable:
                 android_gradle_maven = _read_plugin_maven_deps(ctx)
                 android_manifest = _detect_android_manifest(ctx)
-                android_consumer_proguard_specs = _detect_consumer_proguard_specs(ctx)
+                proguard_problems = []
+                android_consumer_proguard_specs = _detect_consumer_proguard_specs(ctx, proguard_problems)
+                if proguard_problems:
+                    android_unbuildable = proguard_problems[0]
+                    android_gradle_maven = None
 
         build_content = make_flutter_member_build_content(
             name = ctx.attr.package_name,

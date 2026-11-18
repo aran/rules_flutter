@@ -280,7 +280,7 @@ def flutter_assets_block(fields):
 # flutter_tools validates a pubspec's `flutter:` block (`_validate` in
 # flutter_manifest.dart) and refuses a manifest that fails. The projections
 # above read leniently; this is the check that makes a package flutter_tools
-# would refuse fail the fetch instead of losing the entry. Its messages follow
+# would refuse fail its target at analysis instead of losing the entry. Its messages follow
 # flutter_tools', each placed by where the entry is in the pubspec.
 
 _FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900]

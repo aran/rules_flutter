@@ -10,6 +10,9 @@
 ///  2. The `flutter:` block is read from the document, not from its layout: a
 ///     plugin and the assets written in YAML's flow style reach the package's
 ///     Android library and its files exactly as the block style does.
+///  3. A `flutter:` block flutter_tools refuses leaves the repository
+///     fetching, and the package's target failing at analysis naming the
+///     package and the entry.
 ///
 /// The workspaces are generated (`pub_inputs_fixture.dart`): a real
 /// `flutter_pub.from_lock()` hub over packages served from `file://`.
@@ -87,7 +90,9 @@ void main() {
   group('a flutter block flutter build refuses', () {
     // Package name to its `flutter:` block, and what flutter_tools says of it
     // (every refusal is a case in `flutter_pubspec_test.bzl`; these go through
-    // the fetch). The entry is named by where it is in the pubspec.
+    // the repository). The package's repository fetches, and its target fails
+    // at analysis, so a package no target uses breaks nothing. The entry is
+    // named by where it is in the pubspec.
     final refused = <String, (String, List<String>)>{
       'asset_not_a_list': (
         'flutter:\n  assets: a.txt\n',
@@ -152,11 +157,13 @@ void main() {
 
     for (final entry in refused.entries) {
       test(
-        '${entry.key} fails the fetch, naming the package and entry',
+        '${entry.key} fails its target, naming the package and entry',
         () async {
-          final result = await ws.loadSpoke(entry.key);
+          final loaded = await ws.loadSpoke(entry.key);
+          expect(loaded.succeeded, isTrue, reason: '$loaded');
+          final result = await ws.analyzeSpoke(entry.key);
           expect(result.succeeded, isFalse, reason: 'built from it:\n$result');
-          expect(refusedAtFetch(result), isTrue, reason: '$result');
+          expect(refusedAtAnalysis(result), isTrue, reason: '$result');
           expect(
             namesPackage(result.output, entry.key),
             isTrue,

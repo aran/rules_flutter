@@ -30,8 +30,9 @@ import 'package:test/test.dart';
 
 import 'pub_inputs_fixture.dart';
 
-/// Fail unless [result] is rules_flutter refusing [package] during the fetch
-/// of its repository, with [mentions] in the message.
+/// Fail unless [result], the analysis of [package]'s target, is rules_flutter
+/// refusing the package's input there, with [mentions] in the message. The
+/// repository fetches, so a package no target uses breaks nothing.
 ///
 /// [what] is the input, for the failure message.
 void expectRefused(
@@ -47,11 +48,11 @@ void expectRefused(
         'rules_flutter built @flutter_pub__$package from $what without a word',
   );
   expect(
-    refusedAtFetch(result),
+    refusedAtAnalysis(result),
     isTrue,
     reason:
-        'the failure should be rules_flutter refusing $what while fetching '
-        '$package, not something Bazel hit afterwards:\n$result',
+        'the failure should be the target of $package refusing $what at '
+        'analysis, not its fetch or something Bazel hit afterwards:\n$result',
   );
   expect(
     namesPackage(result.output, package),
@@ -112,10 +113,11 @@ void main() {
 
     /// The name is data. It is written into a generated BUILD file, so a
     /// name that is not a valid string there breaks the file, and one that is
-    /// Starlark runs as the spoke's own code. Either the package builds with
-    /// the file under the name it has, or the fetch refuses it, naming the
-    /// package and the file. A syntax error from a BUILD file nobody wrote, or
-    /// a label error from the generated one, is neither.
+    /// Starlark runs as the spoke's own code. The spoke always loads. Either
+    /// the package builds with the file under the name it has, or its target
+    /// refuses it at analysis, naming the package and the file. A syntax
+    /// error from a BUILD file nobody wrote, or a label error from the
+    /// generated one, is neither.
     for (final kind in ['asset', 'font']) {
       for (final entry in odd.entries) {
         test(
@@ -123,12 +125,16 @@ void main() {
           () async {
             final package = '${kind}_${entry.key}';
             final fragment = entry.value.$2;
-            final result = await ws.loadSpoke(package);
-            expect(
-              result.output,
-              isNot(contains('INJECTED')),
-              reason: 'a file name ran as code in the spoke:\n$result',
-            );
+            final loaded = await ws.loadSpoke(package);
+            expect(loaded.succeeded, isTrue, reason: '$loaded');
+            final result = await ws.analyzeSpoke(package);
+            for (final run in [loaded, result]) {
+              expect(
+                run.output,
+                isNot(contains('INJECTED')),
+                reason: 'a file name ran as code in the spoke:\n$run',
+              );
+            }
             if (result.succeeded) {
               final declared = await ws.declaredFiles(kind, package);
               expect(
@@ -255,7 +261,7 @@ void main() {
     /// bundled. rules_flutter does not run it, so building without it ships
     /// the untransformed file under the transformed file's name.
     test('is refused naming the package and the key', () async {
-      final result = await ws.loadSpoke('transformed');
+      final result = await ws.analyzeSpoke('transformed');
       expectRefused(
         result,
         package: 'transformed',
@@ -268,7 +274,7 @@ void main() {
     /// compiles it, so a shader built without them is not the one
     /// `flutter build` ships.
     test('on a shader is refused naming the package and the key', () async {
-      final result = await ws.loadSpoke('transformed_shader');
+      final result = await ws.analyzeSpoke('transformed_shader');
       expectRefused(
         result,
         package: 'transformed_shader',
