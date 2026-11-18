@@ -40,6 +40,9 @@
 ///     the program.
 /// 12. The checkout's framework over the release engine takes the Material
 ///     fonts its `bin/internal/material_fonts.version` names.
+/// 13. A release's framework over the checkout's engine (`flutter.custom_engine`)
+///     builds the macOS app from the checkout's out dirs and records the
+///     release's framework; pub resolves against the release's packages.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -789,6 +792,59 @@ void main() {
       '@@rules_flutter++flutter+framework_only_material_fonts//:all',
     ]);
     expect(fonts.exitCode, 0, reason: '${fonts.stderr}');
+  });
+
+  // --@rules_flutter//flutter:sdk=engine_only.
+  test(
+    'a release\'s framework over the checkout\'s engine records both',
+    skip: _appleOnly,
+    () async {
+      final record = (await _record('engine_only', const []))!;
+      expect(record['sdk'], 'engine_only');
+      expect(record['framework'], {'origin': 'release', 'version': '3.50.0'});
+      expect(record['snapshot_hash'], _snapshotHash);
+      expect(_outDirs(record), contains('host_release_arm64'));
+      expect(
+        (record['engine'] as Map).keys,
+        everyElement(contains('stand_in_engine')),
+      );
+    },
+  );
+
+  test('a release\'s framework over another engine resolves against the '
+      'release\'s packages', () async {
+    // What `@rules_flutter//flutter/pub` gives pub as FLUTTER_ROOT under
+    // this SDK: the release's tree, at its version.
+    const devRoot = '@@rules_flutter++flutter+engine_only_dev_root_src';
+    final build = await _bazel(['build', '$devRoot//:dev_root']);
+    expect(build.exitCode, 0, reason: '${build.stderr}');
+    final location = await _bazel([
+      'query',
+      '$devRoot//:bin/cache/flutter.version.json',
+      '--output=location',
+    ]);
+    expect(location.exitCode, 0, reason: '${location.stderr}');
+    final manifest = File(
+      '${location.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+    );
+    expect(
+      jsonDecode(manifest.readAsStringSync()),
+      allOf(
+        containsPair('flutterVersion', '3.50.0'),
+        containsPair('frameworkVersion', '3.50.0'),
+      ),
+    );
+    expect(
+      File(
+        p.join(
+          manifest.parent.parent.parent.path,
+          'packages',
+          'flutter',
+          'pubspec.yaml',
+        ),
+      ).existsSync(),
+      isTrue,
+    );
   });
 
   test('FLUTTER_LOCAL_ENGINES chooses only for the slots it fits', () async {

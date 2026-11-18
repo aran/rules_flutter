@@ -67,6 +67,15 @@ flutter.custom_framework(
     framework = "@mismatched_framework",
 )
 
+# A release's framework over the stand-in checkout's engine: the framework's
+# packages and dev root are the release's, the engine and its gen_snapshot the
+# checkout's.
+flutter.custom_engine(
+    name = "engine_only",
+    engine = "@stand_in_engine",
+    flutter_version = "3.50.0",
+)
+
 # A checkout's halves whose paths are given the way a developer gives them:
 # with --repo_env=FLUTTER_CHECKOUT and --repo_env=FLUTTER_ENGINE. Not set, the
 # repositories still load.
@@ -232,6 +241,11 @@ local_framework(
 local_engine(
     name = "mismatched_engine",
     src = "@fake_checkout_mismatched//:checkout/engine/src/ENGINE_SRC",
+)
+
+local_engine(
+    name = "stand_in_engine",
+    src = "@fake_checkout//:checkout/engine/src/ENGINE_SRC",
 )
 
 local_framework(name = "env_framework")
