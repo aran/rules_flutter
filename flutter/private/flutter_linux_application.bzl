@@ -458,6 +458,11 @@ def _flutter_linux_bundle_impl(ctx):
         )
     engine_files = flutter_sdk_info.engine_library[DefaultInfo].files.to_list()
 
+    # Only the engine's shared library ships in `lib/`, as the CMake install
+    # step of `flutter build linux` puts `libflutter_linux_gtk.so` there: the
+    # engine's headers are for compiling the runner and plugins.
+    engine_runtime_files = [f for f in engine_files if f.extension == "so"]
+
     # Build the bundle config JSON for the Dart bundler tool. Both
     # `native_libs` (the legacy FFI cc_library outputs) and the code assets
     # that ship (Native Assets dynamic_loading_bundle libraries) land at
@@ -471,7 +476,7 @@ def _flutter_linux_bundle_impl(ctx):
         aot_output_path = file_ref(refs, app_info.aot_output) if app_info.aot_output else None,
         aot_dst = "lib/libapp.so",
         icu_data_path = file_ref(refs, icu_data),
-        engine_basenames = [(file_ref(refs, f), f.basename) for f in engine_files],
+        engine_basenames = [(file_ref(refs, f), f.basename) for f in engine_runtime_files],
         native_basenames = [(file_ref(refs, lib), lib.basename) for lib in native_libs],
     )
     extra_inputs = []
@@ -511,7 +516,7 @@ def _flutter_linux_bundle_impl(ctx):
         "code_asset_os": "linux",
     }
 
-    inputs = [ctx.file._bundle_tool, flutter_assets, icu_data, runner_binary] + ctx.files._bundle_tool_imports + extra_inputs + native_libs + engine_files
+    inputs = [ctx.file._bundle_tool, flutter_assets, icu_data, runner_binary] + ctx.files._bundle_tool_imports + extra_inputs + native_libs + engine_runtime_files
 
     args = ctx.actions.args()
     args.add(ctx.file._bundle_tool)

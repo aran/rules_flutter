@@ -120,6 +120,26 @@ class LinuxBundle extends DesktopBundle {
 
   /// A shared library under `lib/`.
   String lib(String file) => '$path/lib/$file';
+
+  /// Checks the standard layout, and that `lib/` holds shared libraries
+  /// alone, as `flutter build linux` installs it: the engine's headers are
+  /// for compiling, not for the bundle.
+  @override
+  void checkStandardLayout() {
+    super.checkStandardLayout();
+    final dir = Directory('$path/lib');
+    final others = [
+      if (dir.existsSync())
+        for (final entry in dir.listSync())
+          if (!RegExp(r'\.so(\.[0-9]+)*$').hasMatch(entry.path))
+            entry.path.substring(dir.path.length + 1),
+    ]..sort();
+    check.expect(
+      'lib/ holds shared libraries alone',
+      condition: others.isEmpty,
+      detail: others.join(', '),
+    );
+  }
 }
 
 /// A bundle from `flutter_windows_app`.
