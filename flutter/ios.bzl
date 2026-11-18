@@ -1025,6 +1025,8 @@ def flutter_ios_xcframeworks(
         static_plugins = False,
         codesign_identity = None,
         minimum_os_version = IOS_MINIMUM_OS_VERSION,
+        info_plist = None,
+        swift_package_environment = {},
         **kwargs):
     """The xcframeworks a host app built by Xcode embeds Flutter with, as `flutter build ios-framework` makes them.
 
@@ -1052,6 +1054,21 @@ def flutter_ios_xcframeworks(
             (upstream's `--codesign-identity`), or `-` for ad hoc. Unset, they
             are unsigned, and Xcode signs them when it embeds them.
         minimum_os_version: The minimum iOS version of the frameworks.
+        info_plist: The Info.plist that a plugin whose Package.swift decides
+            its defines from the app reads, as `flutter_ios_app`'s
+            (`swift_package_environment`). The module has no Info.plist of
+            its own and the host's is not known here: name the one whose
+            usage descriptions the plugins should see. Unset, such a manifest
+            sees an empty one.
+        swift_package_environment: The environment in which the
+            `Package.swift` of each plugin that decides its defines from the
+            app is evaluated, as the shell's environment is under `flutter
+            build`: `{"AUDIO_SESSION_MICROPHONE": "1"}` for what
+            audio_session's README says to export. Such a manifest is
+            evaluated for this module, also seeing `info_plist` (see the
+            README's "Plugins whose Package.swift reads the app"). Nothing
+            else reads it, and the shell's environment does not reach the
+            manifests.
         **kwargs: `visibility`, `tags` and the like, for `name`.
     """
     internal_tags = kwargs.get("tags", []) + ["manual"]
@@ -1059,6 +1076,8 @@ def flutter_ios_xcframeworks(
         name = "_%s_app" % name,
         application = application,
         minimum_os_version = minimum_os_version,
+        info_plist = info_plist,
+        swift_package_environment = swift_package_environment,
         tags = internal_tags,
     )
     _flutter_ios_engine_xcframework(
@@ -1069,6 +1088,8 @@ def flutter_ios_xcframeworks(
         name = "_%s_code_assets" % name,
         application = application,
         minimum_os_version = minimum_os_version,
+        info_plist = info_plist,
+        swift_package_environment = swift_package_environment,
         tags = internal_tags,
     )
     xcframeworks = [
@@ -1081,6 +1102,8 @@ def flutter_ios_xcframeworks(
             name = "_%s_plugins" % name,
             application = application,
             minimum_os_version = minimum_os_version,
+            info_plist = info_plist,
+            swift_package_environment = swift_package_environment,
             static = static_plugins,
             tags = internal_tags,
         )
@@ -1089,6 +1112,8 @@ def flutter_ios_xcframeworks(
             application = application,
             plugins = "_%s_plugins" % name,
             minimum_os_version = minimum_os_version,
+            info_plist = info_plist,
+            swift_package_environment = swift_package_environment,
             tags = internal_tags,
         )
         xcframeworks += ["_%s_plugins" % name, "_%s_registrant" % name]

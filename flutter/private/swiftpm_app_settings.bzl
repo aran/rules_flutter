@@ -44,8 +44,9 @@ transition changes nothing, and apps share their plugins' builds.
 
 Add-to-app's plugin xcframeworks (`flutter_apple_plugin_xcframeworks.bzl`)
 depend on the list in each slice's configuration, the one the module is built
-in, and package the library of each marker from there: the module's plugins
-are built as for an app that sets neither an Info.plist nor an environment.
+in, and package the library of each marker from there. Each slice's
+transition sets the two build settings from the module's `info_plist` and
+`swift_package_environment` (`apple_add_to_app.bzl`), as an app's does.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
@@ -97,7 +98,23 @@ def swift_package_environment_problems(environment):
 # Whether the build has any such library (`flutter_apple_app_settings_repo`).
 SWIFTPM_APP_LIBRARIES_ANY = Label("@flutter_pub_apple_app_settings//:any")
 
-def _swiftpm_app_transition_impl(settings, attr):
+# What a transition into an app's configuration reads and sets
+# (`swiftpm_app_settings`).
+SWIFTPM_APP_SETTINGS_INPUTS = [str(SWIFTPM_APP_LIBRARIES_ANY), str(_INFO_PLIST), str(_ENVIRONMENT)]
+SWIFTPM_APP_SETTINGS_OUTPUTS = [str(_INFO_PLIST), str(_ENVIRONMENT)]
+
+def swiftpm_app_settings(settings, attr):
+    """The build settings of the app's configuration, for a transition.
+
+    Args:
+        settings: The transition's input settings, `SWIFTPM_APP_SETTINGS_INPUTS` among them.
+        attr: The rule's attributes: `info_plist` (a label, or its string)
+            and `swift_package_environment`.
+
+    Returns:
+        A dict of `SWIFTPM_APP_SETTINGS_OUTPUTS`.
+    """
+
     # With no plugin that reads them, the settings change nothing: the app's
     # native code stays in the configuration it is in, shared with other apps.
     if not settings[str(SWIFTPM_APP_LIBRARIES_ANY)]:
@@ -111,18 +128,26 @@ def _swiftpm_app_transition_impl(settings, attr):
     }
 
 swiftpm_app_transition = transition(
-    implementation = _swiftpm_app_transition_impl,
-    inputs = [str(SWIFTPM_APP_LIBRARIES_ANY), str(_INFO_PLIST), str(_ENVIRONMENT)],
-    outputs = [str(_INFO_PLIST), str(_ENVIRONMENT)],
+    implementation = swiftpm_app_settings,
+    inputs = SWIFTPM_APP_SETTINGS_INPUTS,
+    outputs = SWIFTPM_APP_SETTINGS_OUTPUTS,
 )
 
-def _flutter_apple_app_runner_impl(ctx):
+def check_swift_package_environment(ctx):
+    """Fails the build of `ctx`'s target when its `swift_package_environment` is wrong.
+
+    Args:
+        ctx: The rule context, with a `swift_package_environment` attribute.
+    """
     problems = swift_package_environment_problems(ctx.attr.swift_package_environment)
     if problems:
         fail("{}: `swift_package_environment` is the environment of the plugins' Package.swift:\n    {}".format(
             ctx.label,
             "\n    ".join(problems),
         ))
+
+def _flutter_apple_app_runner_impl(ctx):
+    check_swift_package_environment(ctx)
     runner = ctx.attr.deps[0]
     providers = [DefaultInfo(
         files = runner[DefaultInfo].files,

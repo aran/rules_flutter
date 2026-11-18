@@ -11,12 +11,13 @@ of its configuration (see `apple_add_to_app.bzl` for the slices).
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
-load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "dsym_steps", "framework_root", "relative_to", "xcframework_info_plist")
+load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "MODULE_APP_SETTINGS_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "dsym_steps", "framework_root", "relative_to", "xcframework_info_plist")
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "declare_dsym", "run_xcode_tool", "split_and_strip_aot_binary")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_ios_application.bzl", "ios_app_framework")
+load("//flutter/private:swiftpm_app_settings.bzl", "check_swift_package_environment")
 
 visibility("//flutter/...")
 
@@ -119,6 +120,7 @@ def _macos_app_slice(ctx, slice, app_info, sdk_record):
     )
 
 def _app_xcframework_impl(ctx):
+    check_swift_package_environment(ctx)
     platform = ctx.attr._platform
     slices = SLICES[platform]
     steps = []
@@ -149,6 +151,7 @@ def _app_xcframework_rule(platform):
             XCODE_TOOL_ATTRS,
             ASSEMBLE_DIRECTORY_ATTRS,
             BUNDLE_ATTRS,
+            MODULE_APP_SETTINGS_ATTRS,
             {
                 "application": attr.label(
                     doc = "The `flutter_application` whose Dart program and assets the framework holds.",

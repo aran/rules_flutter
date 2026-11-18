@@ -31,7 +31,7 @@ load("@rules_apple//apple/internal:resources.bzl", "resources")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry", "swift_package_environment_problems", "swiftpm_app_transition")
+load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry", "check_swift_package_environment", "swiftpm_app_transition")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -46,12 +46,7 @@ def _flutter_apple_plugins_aggregator_impl(ctx):
         if entry.platform == target_platform
     ]
 
-    problems = swift_package_environment_problems(ctx.attr.swift_package_environment)
-    if problems:
-        fail("{}: `swift_package_environment` is the environment of the plugins' Package.swift:\n    {}".format(
-            ctx.label,
-            "\n    ".join(problems),
-        ))
+    check_swift_package_environment(ctx)
 
     # The libraries whose Package.swift decides its defines from the app,
     # built for this one.

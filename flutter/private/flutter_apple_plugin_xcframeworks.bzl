@@ -29,13 +29,13 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "framework_resources", "framework_root", "xcframework_info_plist")
+load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "MODULE_APP_SETTINGS_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "framework_resources", "framework_root", "xcframework_info_plist")
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "process_native_library", "rewrite_install_names", "run_xcode_tool")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_ios_framework_names", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:native_libraries.bzl", "native_library_files")
-load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry")
+load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry", "check_swift_package_environment")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -459,6 +459,7 @@ def _framework_steps(ctx, slice, entry, module, binary):
     return steps
 
 def _plugin_xcframeworks_impl(ctx):
+    check_swift_package_environment(ctx)
     platform = ctx.attr._platform
     slices = SLICES[platform]
     per_package = {}
@@ -502,6 +503,7 @@ def _plugin_xcframeworks_rule(platform):
         attrs = dicts.add(
             XCODE_TOOL_ATTRS,
             BUNDLE_ATTRS,
+            MODULE_APP_SETTINGS_ATTRS,
             {
                 "application": attr.label(
                     doc = "The `flutter_application` whose Apple plugins are packaged.",
@@ -519,8 +521,8 @@ def _plugin_xcframeworks_rule(platform):
                           "embed them.",
                 ),
                 # The plugins whose Package.swift decides its defines from the
-                # app, built in each slice's configuration, so for the module:
-                # its environment and Info.plist are an app's that sets none.
+                # app, built in each slice's configuration, which carries the
+                # module's `info_plist` and `swift_package_environment`.
                 "_app_settings_libraries": attr.label(
                     default = SWIFTPM_APP_LIBRARIES,
                     cfg = SLICES_TRANSITION[platform],
@@ -547,6 +549,7 @@ flutter_ios_plugin_xcframeworks = _plugin_xcframeworks_rule("ios")
 flutter_macos_plugin_xcframeworks = _plugin_xcframeworks_rule("macos")
 
 def _code_asset_xcframeworks_impl(ctx):
+    check_swift_package_environment(ctx)
     platform = ctx.attr._platform
     slices = SLICES[platform]
 
@@ -732,6 +735,7 @@ def _code_asset_xcframeworks_rule(platform):
         attrs = dicts.add(
             XCODE_TOOL_ATTRS,
             BUNDLE_ATTRS,
+            MODULE_APP_SETTINGS_ATTRS,
             {
                 "application": attr.label(
                     doc = "The `flutter_application` whose code assets are packaged.",

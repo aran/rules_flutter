@@ -11,10 +11,17 @@ mode of its configuration, for each slice of the platform:
 - macOS: `macos-arm64`.
 
 Intel slices (`x86_64` simulator and Mac) are not built.
+
+Each slice is also the module's configuration for the plugins whose
+`Package.swift` decides its defines from the app (`swiftpm_app_settings.bzl`):
+the rules take the module's `info_plist` and `swift_package_environment`, as
+an app does, and every rule that builds from the module takes the same, so
+the whole module is built in one configuration.
 """
 
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "portable_tools")
+load("//flutter/private:swiftpm_app_settings.bzl", "SWIFTPM_APP_SETTINGS_INPUTS", "SWIFTPM_APP_SETTINGS_OUTPUTS", "swiftpm_app_settings")
 
 visibility("//flutter/...")
 
@@ -111,8 +118,9 @@ def _slice_settings(slice, minimum_os_version, settings):
 
 def _slices_transition(platform):
     def impl(settings, attr):
+        module = swiftpm_app_settings(settings, attr)
         return {
-            slice.id: _slice_settings(slice, attr.minimum_os_version, settings)
+            slice.id: dict(_slice_settings(slice, attr.minimum_os_version, settings), **module)
             for slice in SLICES[platform]
         }
 
@@ -122,12 +130,30 @@ def _slices_transition(platform):
             "//command_line_option:compilation_mode",
             "//command_line_option:features",
             _PROFILE,
-        ],
-        outputs = _OUTPUTS,
+        ] + SWIFTPM_APP_SETTINGS_INPUTS,
+        outputs = _OUTPUTS + SWIFTPM_APP_SETTINGS_OUTPUTS,
     )
 
-# A split over the slices of each platform, keyed by library identifier. The
-# rule that uses it has a `minimum_os_version` attribute.
+# The module's settings for its plugins whose Package.swift decides its
+# defines from the app, as an app's (`flutter_ios_app`, `flutter_macos_app`).
+MODULE_APP_SETTINGS_ATTRS = {
+    "info_plist": attr.label(
+        allow_single_file = [".plist"],
+        doc = "The Info.plist that a plugin whose Package.swift decides its " +
+              "defines from the app reads, as an app's. Unset, such a manifest " +
+              "sees an empty one.",
+    ),
+    "swift_package_environment": attr.string_dict(
+        doc = "The environment in which the `Package.swift` of each plugin " +
+              "that decides its defines from the app is evaluated, as the " +
+              "shell's environment is under `flutter build`, and as an app's " +
+              "`swift_package_environment`.",
+    ),
+}
+
+# A split over the slices of each platform, keyed by library identifier, each
+# in the module's configuration. The rule that uses it has a
+# `minimum_os_version` attribute and `MODULE_APP_SETTINGS_ATTRS`.
 SLICES_TRANSITION = {
     "ios": _slices_transition("ios"),
     "macos": _slices_transition("macos"),

@@ -42,7 +42,7 @@ load("@rules_flutter//flutter/tests:purls.bzl", "package_metadata_files")
 load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "one_application_configuration_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
-load(":add_to_app_app_settings_test.bzl", "add_to_app_configured_environment_test", "add_to_app_module_settings_test")
+load(":add_to_app_app_settings_test.bzl", "add_to_app_module_environment_test", "add_to_app_module_settings_test")
 load(":android_apk.bzl", "android_apk")
 load(":desktop_link_libraries_test.bzl", "linux_link_libraries_test", "windows_link_libraries_test")
 load(":gradle_host.bzl", "gradle_host_config")
@@ -1179,21 +1179,63 @@ flutter_macos_xcframeworks(
     tags = ["manual"],
 )
 
-# audio_session's Package.swift reads AUDIO_SESSION_MICROPHONE. Its add-to-app
-# framework is built for the module, which sets none, so it takes the
-# manifest's default; given the variable, the evaluation sees it.
+# audio_session 0.1.x compiles in its record permission code unless its
+# manifest's environment has AUDIO_SESSION_MICROPHONE=0. :module_<platform>
+# sets no environment; these modules set the variable to 0, as
+# :no_microphone_ios does for an app.
+flutter_ios_xcframeworks(
+    name = "no_microphone_module_ios",
+    application = ":add_to_app_module",
+    swift_package_environment = {"AUDIO_SESSION_MICROPHONE": "0"},
+    tags = ["manual"],
+)
+
+flutter_macos_xcframeworks(
+    name = "no_microphone_module_macos",
+    application = ":add_to_app_module",
+    swift_package_environment = {"AUDIO_SESSION_MICROPHONE": "0"},
+    tags = ["manual"],
+)
+
+# Each module's evaluation of audio_session's manifest sees its environment.
 [
     test(
-        name = "module_%s_audio_session_%s_test" % (platform, kind),
+        name = "%s_%s_audio_session_test" % (module, platform),
         target_compatible_with = ["@platforms//os:macos"],
-        target_under_test = ":module_" + platform,
+        target_under_test = ":%s_%s" % (module, platform),
     )
     for platform in ("ios", "macos")
-    for kind, test in [
-        ("module_settings", add_to_app_module_settings_test),
-        ("configured_environment", add_to_app_configured_environment_test),
+    for module, test in [
+        ("module", add_to_app_module_settings_test),
+        ("no_microphone_module", add_to_app_module_environment_test),
     ]
 ]
+
+apple_release_build(
+    name = "add_to_app_microphone_debug",
+    compilation_mode = "dbg",
+    sign = False,
+    tags = ["manual"],
+    targets = [
+        ":module_ios",
+        ":no_microphone_module_ios",
+    ],
+)
+
+# And each iOS module's audio_session framework carries the code its manifest
+# selects for it. (On macOS, audio_session 0.1.x has no code the variable
+# selects.)
+dart_test(
+    name = "add_to_app_microphone_test",
+    args = [
+        "module_ios=true",
+        "no_microphone_module_ios=false",
+    ],
+    data = [":add_to_app_microphone_debug"],
+    main = "test/add_to_app_microphone_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
 
 _ADD_TO_APP_PLATFORMS = [
     "ios",

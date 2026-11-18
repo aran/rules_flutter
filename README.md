@@ -1111,7 +1111,7 @@ flutter_ios_app(
 )
 ```
 
-`flutter_macos_app` takes the same attribute. The dict is the environment of every such manifest in the app, as the shell is under Xcode, and each manifest still decides what each variable does.
+`flutter_macos_app` takes the same attribute, and so do the add-to-app macros, `flutter_ios_xcframeworks` and `flutter_macos_xcframeworks`, with `info_plist` ([below](#add-to-app-ios-and-macos)). The dict is the environment of every such manifest in the app, as the shell is under Xcode, and each manifest still decides what each variable does.
 
 The defines are the only part of such a manifest that may depend on the app. Its sources, header search paths, dependencies and other settings are read once, when the plugin is fetched. If an evaluation for an app gives any of those differently, the build fails, naming the difference.
 
@@ -3001,9 +3001,18 @@ Other attributes:
 
 A plugin whose library depends on something that isn't a plugin, such as a product of a remote Swift package, fails the build with a message. Upstream makes such a dependency an xcframework of its own, which these rules don't do yet.
 
-A plugin whose `Package.swift` reads the app's settings ([above](#plugins-whose-packageswift-reads-the-app)) is built for the module, which has no Info.plist and no `swift_package_environment`. Its manifest sees an empty Info.plist and an empty environment, and takes its own defaults: `audio_session` compiles in its microphone code, and `permission_handler_apple` no permission's. The host app's Info.plist can't be read here, since the frameworks are built before the host. Upstream's command builds plugins through CocoaPods and never evaluates their `Package.swift`.
+A plugin whose `Package.swift` reads the app's settings ([above](#plugins-whose-packageswift-reads-the-app)) is built for the module, which takes the same two attributes an app does. The host app's Info.plist can't be read here, since the frameworks are built before the host, so `info_plist` names the one whose usage descriptions the plugins should see; unset, the manifest sees an empty one. `swift_package_environment` stands in for the shell's environment under `flutter build ios-framework`; unset, the manifest sees none and takes its own defaults: `audio_session` compiles in its microphone code, and `permission_handler_apple` no permission's.
 
-The pieces are Tier 2 rules of their own, each building the configuration's mode: `flutter_ios_app_xcframework`, `flutter_ios_engine_xcframework`, `flutter_ios_plugin_xcframeworks`, `flutter_ios_code_asset_xcframeworks` and `flutter_ios_registrant_xcframework`, and their `flutter_macos_*` counterparts except the registrant. Bazel can't keep a symlink to a directory inside a directory artifact, so in `bazel-bin` a macOS framework is its `Versions/A/` alone. `bazel run` makes the links a versioned framework has.
+```starlark
+flutter_ios_xcframeworks(
+    name = "module_ios",
+    application = ":module",
+    # What audio_session's README says to export before `flutter build`.
+    swift_package_environment = {"AUDIO_SESSION_MICROPHONE": "0"},
+)
+```
+
+The pieces are Tier 2 rules of their own, each building the configuration's mode: `flutter_ios_app_xcframework`, `flutter_ios_engine_xcframework`, `flutter_ios_plugin_xcframeworks`, `flutter_ios_code_asset_xcframeworks` and `flutter_ios_registrant_xcframework`, and their `flutter_macos_*` counterparts except the registrant. All but the engine take `info_plist` and `swift_package_environment`: give each the same, as the macros do, so the module is built in one configuration. Bazel can't keep a symlink to a directory inside a directory artifact, so in `bazel-bin` a macOS framework is its `Versions/A/` alone. `bazel run` makes the links a versioned framework has.
 
 ## Custom engines and frameworks
 

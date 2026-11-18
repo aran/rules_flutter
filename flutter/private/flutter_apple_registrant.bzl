@@ -16,11 +16,12 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "xcframework_info_plist")
+load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "MODULE_APP_SETTINGS_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "xcframework_info_plist")
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "run_xcode_tool")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_info.bzl", "plugins_on_platform")
+load("//flutter/private:swiftpm_app_settings.bzl", "check_swift_package_environment")
 
 visibility("//flutter/...")
 
@@ -144,6 +145,7 @@ def _engine_framework_dir(files, slice):
     fail("The iOS engine has no slice for %s" % slice.id)
 
 def _registrant_xcframework_impl(ctx):
+    check_swift_package_environment(ctx)
     plugins = _native_plugins(ctx.attr.application[FlutterApplicationInfo].plugins)
     header = ctx.actions.declare_file(ctx.label.name + "/GeneratedPluginRegistrant.h")
     source = ctx.actions.declare_file(ctx.label.name + "/GeneratedPluginRegistrant.m")
@@ -229,6 +231,7 @@ flutter_ios_registrant_xcframework = rule(
     attrs = dicts.add(
         XCODE_TOOL_ATTRS,
         BUNDLE_ATTRS,
+        MODULE_APP_SETTINGS_ATTRS,
         {
             "application": attr.label(
                 doc = "The `flutter_application` whose plugins the registrant registers.",

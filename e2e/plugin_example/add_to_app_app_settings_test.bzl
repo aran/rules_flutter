@@ -1,10 +1,10 @@
 """Add-to-app builds a plugin whose Package.swift reads the app, for the module.
 
 audio_session 0.1.x reads `AUDIO_SESSION_MICROPHONE` from its manifest's
-environment. An app evaluates the manifest with its `swift_package_environment`;
-the add-to-app plugin xcframeworks evaluate it in the configuration of each
-slice, which is the module's. An aspect over the target under test finds that
-evaluation and the environment it runs with.
+environment. An app evaluates the manifest with its `swift_package_environment`,
+and so does a module, through the same attribute of `flutter_ios_xcframeworks`
+and `flutter_macos_xcframeworks`. An aspect over the target under test finds
+the evaluation and the environment it runs with.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
@@ -56,24 +56,21 @@ def _module_settings_test_impl(ctx):
         asserts.false(env, "AUDIO_SESSION_MICROPHONE" in dict(evaluation.environment), evaluation)
     return analysistest.end(env)
 
-def _configured_environment_test_impl(ctx):
+def _module_environment_test_impl(ctx):
     env = analysistest.begin(ctx)
     for evaluation in _audio_session(env):
         asserts.equals(env, "0", dict(evaluation.environment).get("AUDIO_SESSION_MICROPHONE"), evaluation)
     return analysistest.end(env)
 
-# The add-to-app slice evaluates the manifest with the module's settings: none.
+# A module that sets no `swift_package_environment`: the manifest takes its
+# own default.
 add_to_app_module_settings_test = analysistest.make(
     _module_settings_test_impl,
     extra_target_under_test_aspects = [_evaluations_aspect],
 )
 
-# And with what the configuration of the slice gives, the same setting an
-# app's `swift_package_environment` sets: here AUDIO_SESSION_MICROPHONE=0.
-add_to_app_configured_environment_test = analysistest.make(
-    _configured_environment_test_impl,
+# A module whose `swift_package_environment` sets AUDIO_SESSION_MICROPHONE=0.
+add_to_app_module_environment_test = analysistest.make(
+    _module_environment_test_impl,
     extra_target_under_test_aspects = [_evaluations_aspect],
-    config_settings = {
-        str(Label("@rules_flutter//flutter/private:swiftpm_app_environment")): ["AUDIO_SESSION_MICROPHONE=0"],
-    },
 )
