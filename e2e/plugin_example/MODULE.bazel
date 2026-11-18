@@ -154,7 +154,8 @@ maven.install(
         "androidx.annotation:annotation:1.10.0",
         "androidx.browser:browser:1.9.0",
         "androidx.core:core:1.17.0",
-        "androidx.datastore:datastore-preferences:1.2.1",
+        # Named as an AAR: see `firebase-common` below.
+        "androidx.datastore:datastore-preferences:aar:1.2.1",
         "androidx.datastore:datastore:1.2.1",
         "androidx.media:media:1.7.0",
         "androidx.preference:preference:1.2.1",
@@ -171,12 +172,41 @@ maven.install(
         "androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0",
         "androidx.savedstate:savedstate-ktx:1.4.0",
     ],
+    boms = ["com.google.firebase:firebase-bom:35.1.0"],
     known_contributing_modules = ["rules_flutter"],
     lock_file = "//:rules_flutter_maven_install.json",
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
     ],
+)
+
+# firebase_core's, at the version of the Firebase BoM above. Its POM declares
+# `androidx.datastore:datastore-preferences` with `<type>jar</type>`, which
+# Gradle's module metadata overrides with the AAR. Pinned with that edge,
+# rules_jvm_external records the artifact once, as a jar with the AAR's
+# checksum, and its fetch fails. Without the edge, and with the AAR named
+# in `artifacts`, the lock holds each file with its own checksum.
+maven.artifact(
+    name = "rules_flutter_maven",
+    artifact = "firebase-common",
+    exclusions = ["androidx.datastore:datastore-preferences"],
+    group = "com.google.firebase",
+)
+
+# cloud_firestore's Gradle build excludes these from what firebase-firestore
+# brings, which `artifacts` cannot say: `bazel run
+# //:firebase_android_maven_artifacts` prints this tag.
+maven.artifact(
+    name = "rules_flutter_maven",
+    artifact = "firebase-firestore",
+    exclusions = [
+        "com.fasterxml.jackson.core:jackson-databind",
+        "com.google.truth:truth",
+        "junit:junit",
+        "org.mockito:mockito-core",
+    ],
+    group = "com.google.firebase",
 )
 use_repo(maven, "rules_flutter_maven")
 

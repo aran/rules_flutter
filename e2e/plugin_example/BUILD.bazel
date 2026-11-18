@@ -148,6 +148,21 @@ flutter_application(
     ],
 )
 
+# An app whose only Android plugins are FlutterFire's firebase_core and
+# cloud_firestore: a BoM, versionless artifacts, a project dependency of one
+# plugin on the other, and BuildConfig fields set from each plugin's pubspec.
+# `:firebase_android_build_test` and `:verify_firebase_build_config_test`.
+flutter_application(
+    name = "firebase_app",
+    main = "lib/firebase_only.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:cloud_firestore",
+        "@deps//:firebase_core",
+        "@deps//:flutter",
+    ],
+)
+
 # An app whose only Android plugin is `java17_plugin`, a Java plugin whose
 # Gradle build declares Java 17, which its sources need:
 # `:java17_android_build_test`.
@@ -424,6 +439,20 @@ flutter_android_build(
     name = "java17_arm64_build",
     android_platforms = ["@rules_android//:arm64-v8a"],
     targets = [":java17_android"],
+)
+
+flutter_android_app(
+    name = "firebase_android",
+    application = ":firebase_app",
+    application_id = "com.example.firebase",
+    namespace = "com.example.plugin_example",
+    proguard_specs = [],
+)
+
+flutter_android_build(
+    name = "firebase_arm64_build",
+    android_platforms = ["@rules_android//:arm64-v8a"],
+    targets = [":firebase_android"],
 )
 
 flutter_android_app(
@@ -775,6 +804,37 @@ build_test(
     targets = [":annotated_arm64_build"],
 )
 
+# firebase_core and cloud_firestore compile: cloud_firestore against
+# firebase_core's library, both against the artifacts of the Firebase BoM,
+# and their registrars against their BuildConfig fields.
+build_test(
+    name = "firebase_android_build_test",
+    tags = ["android"],
+    targets = [":firebase_arm64_build"],
+)
+
+android_apk(
+    name = "firebase_android_arm64",
+    apk = ":firebase_arm64_build",
+    tags = ["android"],
+)
+
+# The BuildConfig fields FlutterFire's registrars read: LIBRARY_VERSION is the
+# version pubspec.lock locks each plugin at, as Gradle reads it from the
+# plugin's pubspec.yaml.
+dart_test(
+    name = "verify_firebase_build_config_test",
+    data = [
+        ":firebase_android_arm64",
+        ":pubspec.lock",
+        "@bazel_tools//tools/zip:zipper",
+    ],
+    env = {"ZIPPER_RUNFILE": "$(rlocationpath @bazel_tools//tools/zip:zipper)"},
+    main = "test/verify_firebase_build_config_test.dart",
+    tags = ["android"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
 # The Java of `java17_plugin` uses pattern matching for `instanceof` and a
 # switch expression, which compile at the Java 17 its Gradle build declares
 # and not at Java 8, so an APK of `java17_app` builds only at the former.
@@ -964,6 +1024,8 @@ flutter_library(
         "//mixed_plugin",
         "//pick",
         "@deps//:audio_session",
+        "@deps//:cloud_firestore",
+        "@deps//:firebase_core",
         "@deps//:flutter",
         "@deps//:geolocator_apple",
         "@deps//:kotlin_plugin_user",
