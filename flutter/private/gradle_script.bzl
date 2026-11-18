@@ -908,6 +908,25 @@ def _expression(text, scope):
         return _call_function(scope.functions[name], call_arguments(text[len(name) + 1:-1]), scope)
     return _chain(text, scope, {})
 
+def gradle_project(text, scope):
+    """The pub package whose project an expression is, or None.
+
+    `project(":x")`, `findProject(":x")`, `rootProject.findProject(":x")`, or
+    a variable set to one: Flutter's Gradle build names each plugin's
+    project after its package.
+
+    Args:
+        text: An expression.
+        scope: What the script defines (`gradle_scope`).
+
+    Returns:
+        The package's name, or None.
+    """
+    value = _expression(text, scope)
+    if value == None or value.kind != "project" or value.name in ("", ":root"):
+        return None
+    return value.name
+
 def _interpolation_end(text, start):
     """The index of the `}` that closes the `${` before `start` in a string's text, or -1."""
     mask = code_mask(text[start:])

@@ -189,6 +189,14 @@ def _annotated_deps_test_impl(ctx):
         annotated_deps = ["@@maven//:androidx_browser_browser"],
     )
     asserts.true(env, '+ ["@@maven//:androidx_browser_browser"]' in content, content)
+
+    # Another plugin's library, whose Gradle project the plugin's build depends on.
+    content = make_android_subpackage_build_content(
+        android_src_dir = "android/src/main",
+        java_package = "io.flutter.plugins.firebase.firestore",
+        plugin_deps = ["@flutter_pub__firebase_core//android:lib"],
+    )
+    asserts.true(env, '+ ["@flutter_pub__firebase_core//android:lib"]' in content, content)
     return unittest.end(env)
 
 annotated_deps_test = unittest.make(_annotated_deps_test_impl)

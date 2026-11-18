@@ -108,7 +108,6 @@ def _unsupported_forms_test_impl(ctx):
     env = unittest.begin(ctx)
     lines = [
         "implementation(libs.foo)",
-        'implementation(project(":x"))',
         "implementation files('x.jar')",
         "implementation group: 'a', name: 'b', version: '1'",
         'kapt("a:b:1")',
@@ -281,6 +280,47 @@ dependencies {
     return unittest.end(env)
 
 applied_scripts_test = unittest.make(_applied_scripts_test_impl)
+
+def _projects_test_impl(ctx):
+    """A plugin's dependency on another plugin's Gradle project is read as that plugin's."""
+    env = unittest.begin(ctx)
+
+    # cloud_firestore 7.2.0's `android/build.gradle`, line 22 and the
+    # declaration of its line 62.
+    r = parse_gradle_maven_dependencies("""\
+def firebaseCoreProject = findProject(':firebase_core')
+android {
+    dependencies {
+        api firebaseCoreProject
+        implementation project(':a')
+        api(project(":b"))
+        implementation rootProject.findProject(':c')
+        compileOnly project(':d')
+    }
+}
+if (flag) {
+    dependencies { implementation project(':e') }
+}
+dependencies {
+    implementation project(':nested:path')
+}
+""")
+    asserts.equals(
+        env,
+        [("firebase_core", "api", 4, True), ("a", "implementation", 5, True), ("b", "api", 6, True), ("c", "implementation", 7, True), ("e", "implementation", 12, False)],
+        [(p.package, p.configuration, p.line_number, p.checked) for p in r.projects],
+    )
+    asserts.equals(env, [], r.deps)
+
+    # A compile-only project, and a path that names no plugin, are not read.
+    asserts.equals(
+        env,
+        [(8, "form"), (12, "conditional"), (15, "form")],
+        [(u.line_number, u.why) for u in r.unread],
+    )
+    return unittest.end(env)
+
+projects_test = unittest.make(_projects_test_impl)
 
 def _closure_test_impl(ctx):
     """A declaration's closure is the declaration's, however many lines it spans.
@@ -749,6 +789,7 @@ def android_plugin_maven_test_suite(name):
         unsupported_forms_test,
         closure_test,
         boms_test,
+        projects_test,
         applied_scripts_test,
         conditional_declarations_test,
         versions_test,

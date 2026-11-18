@@ -30,6 +30,7 @@ load(
     "applied_script",
     "code_mask",
     "dependency_kind",
+    "gradle_project",
     "gradle_scope",
     "gradle_string",
     "gradle_tokens_with_applied",
@@ -270,7 +271,7 @@ def parse_gradle_maven_dependencies(content, applied = {}, properties = {}, scri
     reader cannot read is never silently lost, and is a warning rather than a
     failure, since a reader of Gradle's language that is not Gradle can be
     wrong about it: a declaration in another form (a version catalog entry,
-    `files(...)`, a project, a `kapt` or `debugImplementation`
+    `files(...)`, a `kapt` or `debugImplementation`
     configuration), an `apply from:` of a script the package lacks, and a
     well-formed declaration inside a condition or another block, which is
     also in `deps`, unchecked, and linked where `@rules_flutter_maven`
@@ -297,7 +298,11 @@ def parse_gradle_maven_dependencies(content, applied = {}, properties = {}, scri
         (the statement's first line), `line_number`, `script`, `checked` and
         `exclusions` (the `group:artifact`s its closure excludes). `boms` is
         a list of structs as `deps`' for the BoMs, without `kind` and
-        `exclusions`. `unread` is a list of structs with `line`,
+        `exclusions`. `projects` is a list of structs with `package` (the pub
+        package whose Android library the plugin's depends on, as
+        `api project(":x")` declares it), `configuration`, `line`,
+        `line_number`, `script` and `checked`; only an `implementation`,
+        `api` or `compile` one is read. `unread` is a list of structs with `line`,
         `line_number`, `script` and `why`: `"form"` for a statement the
         reader cannot read, `"conditional"` for a declaration it reads but
         outside the `dependencies` block's own statements.
@@ -307,6 +312,7 @@ def parse_gradle_maven_dependencies(content, applied = {}, properties = {}, scri
 
     deps = []
     boms = []
+    projects = []
     unread = []
     blocks = []
     plugin_group = None
@@ -379,6 +385,26 @@ def parse_gradle_maven_dependencies(content, applied = {}, properties = {}, scri
         if arg.startswith("(") and _call_argument("call" + arg, ["call"]):
             # `implementation(...)`: the argument in the parentheses.
             arg = arg[1:-1].strip()
+
+        # `api project(":firebase_core")`: the Android library of another
+        # plugin, which the hub's sibling repository builds.
+        project = gradle_project(arg, scope)
+        if project:
+            checked = _unconditional(blocks)
+            if kind != "deps":
+                report("form")
+                continue
+            if not checked:
+                report("conditional")
+            projects.append(struct(
+                package = project,
+                configuration = identifier,
+                line = reported,
+                line_number = t.line,
+                script = t.script,
+                checked = checked,
+            ))
+            continue
         platform = _call_argument(arg, ["platform", "enforcedPlatform"])
         if platform:
             arg = platform[1]
@@ -416,7 +442,7 @@ def parse_gradle_maven_dependencies(content, applied = {}, properties = {}, scri
             boms.append(struct(**declaration))
         else:
             deps.append(struct(kind = kind, exclusions = exclusions, **declaration))
-    return struct(group = plugin_group, deps = deps, boms = boms, unread = unread)
+    return struct(group = plugin_group, deps = deps, boms = boms, projects = projects, unread = unread)
 
 def maven_target_name(group, artifact):
     """rules_jvm_external's target name for `group:artifact`.
