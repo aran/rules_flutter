@@ -20,3 +20,11 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = ["//flutter/private:pub_extension"],
 )
+
+# This package's BUILD file and every .bzl in it, for //tools/bzl_deps_guard,
+# which checks that each bzl_library lists the libraries its sources load.
+filegroup(
+    name = "bzl_library_inputs",
+    srcs = ["BUILD.bazel"] + glob(["*.bzl"]),
+    visibility = ["//tools/bzl_deps_guard:__pkg__"],
+)

@@ -222,15 +222,24 @@ bzl_library(
         "//flutter/private:flutter_application",
         "//flutter/private:flutter_asset_bundle",
         "//flutter/private:flutter_font",
+        "//flutter/private:flutter_gen_l10n",
         "//flutter/private:flutter_kernel",
         "//flutter/private:flutter_library",
+        "//flutter/private:flutter_native_library",
         "//flutter/private:flutter_plugin",
         "//flutter/private:flutter_plugin_platform",
         "//flutter/private:flutter_profile_build",
         "//flutter/private:flutter_program_test",
         "//flutter/private:flutter_test",
+        "//flutter/private:test_config",
         "@rules_dart//dart:defs",
     ],
+)
+
+bzl_library(
+    name = "dev_files",
+    srcs = ["dev_files.bzl"],
+    visibility = ["//flutter:__subpackages__"],
 )
 
 bzl_library(
@@ -238,10 +247,19 @@ bzl_library(
     srcs = ["integration_test.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        ":android",
+        ":ios",
+        ":linux",
         ":macos",
+        ":web",
+        ":windows",
+        "//flutter/private:flutter_android_emulator",
         "//flutter/private:flutter_application_variant",
         "//flutter/private:flutter_integration_bootstrap",
         "//flutter/private:flutter_integration_test",
+        "//flutter/private:flutter_linux_runtime",
+        "//flutter/private:flutter_test",
+        "//flutter/private:test_config",
     ],
 )
 
@@ -252,14 +270,22 @@ bzl_library(
     deps = [
         "//flutter/private:android_debug_info",
         "//flutter/private:app_version",
+        "//flutter/private:common",
+        "//flutter/private:constants",
         "//flutter/private:flutter_android_aar",
         "//flutter/private:flutter_android_application",
         "//flutter/private:flutter_android_build",
         "//flutter/private:flutter_android_bundle_install",
+        "//flutter/private:flutter_android_classes",
         "//flutter/private:flutter_android_manifest_merge",
+        "//flutter/private:flutter_android_plugin_library",
+        "//flutter/private:flutter_android_plugin_libs",
+        "//flutter/private:flutter_android_registrant",
         "//flutter/private:flutter_android_release",
         "@bazel_skylib//rules:expand_template",
         "@bazel_skylib//rules:write_file",
+        "@rules_dart//dart:defs",
+        "@rules_java//java:core_rules",
     ],
 )
 
@@ -267,14 +293,26 @@ bzl_library(
     name = "linux",
     srcs = ["linux.bzl"],
     visibility = ["//visibility:public"],
-    deps = ["//flutter/private:flutter_linux_application"],
+    deps = [
+        "//flutter/private:flutter_linux_application",
+        "//flutter/private:flutter_linux_engine_rule",
+        "//flutter/private:flutter_linux_plugin_library",
+        "//flutter/private:flutter_linux_registrant",
+    ],
 )
 
 bzl_library(
     name = "windows",
     srcs = ["windows.bzl"],
     visibility = ["//visibility:public"],
-    deps = ["//flutter/private:flutter_windows_application"],
+    deps = [
+        "//flutter/private:app_version",
+        "//flutter/private:flutter_windows_application",
+        "//flutter/private:flutter_windows_engine_rule",
+        "//flutter/private:flutter_windows_plugin_library",
+        "//flutter/private:flutter_windows_registrant",
+        "//flutter/private:flutter_windows_resources",
+    ],
 )
 
 bzl_library(
@@ -284,14 +322,31 @@ bzl_library(
     deps = [
         "//flutter/private:app_version",
         "//flutter/private:apple_app",
+        "//flutter/private:apple_engine",
         "//flutter/private:apple_version_check",
+        "//flutter/private:apple_xcframeworks_codesign",
+        "//flutter/private:apple_xcframeworks_layout",
+        "//flutter/private:constants",
         "//flutter/private:debug_build",
         "//flutter/private:flutter_apple_bundle_version",
+        "//flutter/private:flutter_apple_plugin_library",
+        "//flutter/private:flutter_apple_plugin_xcframeworks",
+        "//flutter/private:flutter_apple_plugins_aggregator",
+        "//flutter/private:flutter_apple_registrant",
+        "//flutter/private:flutter_apple_xcframeworks",
         "//flutter/private:flutter_ios_application",
         "//flutter/private:flutter_ios_registrant",
         "//flutter/private:flutter_plist_merge",
+        "//flutter/private:ios_entitlements",
         "//flutter/private:ios_signing_check",
         "//flutter/private:runner_module",
+        "//flutter/private:swiftpm_app_settings",
+        "//flutter/private:validation",
+        "@bazel_skylib//rules:build_test",
+        "@bazel_skylib//rules:expand_template",
+        "@rules_apple//apple",
+        "@rules_apple//apple:ios",
+        "@rules_swift//swift",
     ],
 )
 
@@ -302,12 +357,27 @@ bzl_library(
     deps = [
         "//flutter/private:app_version",
         "//flutter/private:apple_app",
+        "//flutter/private:apple_engine",
         "//flutter/private:apple_version_check",
+        "//flutter/private:apple_xcframeworks_codesign",
+        "//flutter/private:apple_xcframeworks_layout",
+        "//flutter/private:constants",
         "//flutter/private:flutter_apple_bundle_version",
+        "//flutter/private:flutter_apple_plugin_library",
+        "//flutter/private:flutter_apple_plugin_xcframeworks",
+        "//flutter/private:flutter_apple_plugins_aggregator",
+        "//flutter/private:flutter_apple_registrant",
+        "//flutter/private:flutter_apple_xcframeworks",
         "//flutter/private:flutter_macos_application",
         "//flutter/private:flutter_macos_registrant",
         "//flutter/private:flutter_plist_merge",
         "//flutter/private:runner_module",
+        "//flutter/private:swiftpm_app_settings",
+        "//flutter/private:validation",
+        "@bazel_skylib//rules:expand_template",
+        "@rules_apple//apple",
+        "@rules_apple//apple:macos",
+        "@rules_swift//swift",
     ],
 )
 
@@ -316,7 +386,6 @@ bzl_library(
     srcs = ["web.bzl"],
     visibility = ["//visibility:public"],
     deps = [
-        "//flutter/private:app_version",
         "//flutter/private:flutter_web_application",
         "//flutter/private:flutter_web_branch",
         "@bazel_skylib//rules:expand_template",
@@ -328,11 +397,27 @@ bzl_library(
     srcs = ["extensions.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        ":local_sdk",
+        "//flutter/private:constants",
         "//flutter/private:custom_sdks",
+        "//flutter/private:engine_labels",
+        "//flutter/private:flutter_android_emulator_repo",
+        "//flutter/private:flutter_chrome_for_testing",
+        "//flutter/private:flutter_dev_root_repo",
+        "//flutter/private:flutter_face_repo",
+        "//flutter/private:flutter_linux_runtime_repo",
+        "//flutter/private:flutter_material_fonts_repo",
+        "//flutter/private:flutter_sdk_toolchains_repo",
         "//flutter/private:flutter_sdks_repo",
+        "//flutter/private:flutter_web_sdk_repo",
+        "//flutter/private:linux_runtime_pins",
+        "//flutter/private:local_engine",
         "//flutter/private:pub_extension",
         "//flutter/private:repositories",
         "//flutter/private:toolchain_version",
+        "//flutter/private:toolchains_repo",
+        "//flutter/private:versions",
+        "@rules_dart//dart:repositories",
     ],
 )
 
@@ -340,6 +425,7 @@ bzl_library(
     name = "engine",
     srcs = ["engine.bzl"],
     visibility = ["//visibility:public"],
+    deps = ["@rules_dart//dart:toolchain"],
 )
 
 bzl_library(
@@ -364,4 +450,22 @@ filegroup(
     name = "bzl_sources",
     srcs = glob(["*.bzl"]),
     visibility = ["//tools/download_guard:__pkg__"],
+)
+
+# This package's BUILD file and every .bzl in it, for //tools/bzl_deps_guard,
+# which checks that each bzl_library lists the libraries its sources load.
+filegroup(
+    name = "bzl_library_inputs",
+    srcs = ["BUILD.bazel"] + glob(["*.bzl"]),
+    visibility = ["//tools/bzl_deps_guard:__pkg__"],
+)
+
+bzl_library(
+    name = "local_sdk",
+    srcs = ["local_sdk.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter/private:framework_source",
+        "//flutter/private:local_engine",
+    ],
 )

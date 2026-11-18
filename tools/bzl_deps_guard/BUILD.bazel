@@ -1,0 +1,39 @@
+load("@rules_dart//dart:defs.bzl", "dart_test")
+
+# Every bzl_library lists, as direct deps, the libraries of the files its
+# sources load. See bzl_library_deps.dart for the property.
+dart_test(
+    name = "bzl_library_deps_test",
+    size = "small",
+    srcs = ["bzl_library_deps.dart"],
+    main = "test/bzl_library_deps_test.dart",
+    deps = ["@dev_tool_deps//:test"],
+)
+
+# The repository's own bzl_library targets. A package that gains its first one
+# is added to `data` and to `BZL_LIBRARY_INPUTS`.
+dart_test(
+    name = "repository_bzl_libraries_test",
+    size = "small",
+    srcs = ["bzl_library_deps.dart"],
+    data = [
+        "//flutter:bzl_library_inputs",
+        "//flutter/ext/go_router:bzl_library_inputs",
+        "//flutter/private:bzl_library_inputs",
+        "//flutter/pub:bzl_library_inputs",
+    ],
+    env = {
+        "BZL_LIBRARY_INPUTS": " ".join([
+            "$(rlocationpaths //flutter:bzl_library_inputs)",
+            "$(rlocationpaths //flutter/ext/go_router:bzl_library_inputs)",
+            "$(rlocationpaths //flutter/private:bzl_library_inputs)",
+            "$(rlocationpaths //flutter/pub:bzl_library_inputs)",
+        ]),
+        "RUNFILES_SOURCE_REPO": "",
+    },
+    main = "test/repository_bzl_libraries_test.dart",
+    deps = [
+        "@dev_tool_deps//:test",
+        "@rules_dart//dart/runfiles",
+    ],
+)
