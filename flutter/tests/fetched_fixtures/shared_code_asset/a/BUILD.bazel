@@ -10,7 +10,7 @@ fetched_package_metadata(
     code_assets = ["@rules_flutter//flutter/tests/shared_code_asset_fixture:a_own"],
     # Fetched alike, as two pub hubs each fetch one package, so `a_again` is
     # this package too.
-    fetched_identity = "pkg:pub/shared_a@1.0.0",
+    purl = "pkg:pub/shared_a@1.0.0",
     version = "1.0.0",
 )
 

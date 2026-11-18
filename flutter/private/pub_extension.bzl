@@ -11,7 +11,7 @@ extension is identified by the file that defines it and its name.
 """
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_path_identity")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url", "pub_archive_files", "pub_files_label", "pub_git_files")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven")
@@ -483,10 +483,11 @@ def _path_entry(t, name, info):
         kind = LOCAL,
         version = info.get("version", ""),
         directory = path_package_directory(t.lock_dir, path),
-        # What rules_dart's `pub` states it was fetched as for this entry, so
-        # a program reaching both fetchers' copies of the directory takes
-        # them for one package.
-        path_identity = pub_path_identity(t.tag.lock, path),
+        # The lock and its path to the directory, which say what rules_dart's
+        # `pub` states it was fetched as for this entry, so a program reaching
+        # both fetchers' copies of the directory takes them for one package.
+        lock = t.tag.lock,
+        path = path,
     )
 
 def _hub_listing(hub_packages, package):
@@ -765,7 +766,8 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 package_name = name,
                 version = e.version,
                 directory = e.directory,
-                path_identity = e.path_identity,
+                lock = e.lock,
+                path = e.path,
                 overlay_roots = overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,

@@ -2,8 +2,8 @@
 
 rules_dart writes it (`make_package_metadata_content`), so a package
 rules_flutter fetches is declared as rules_dart's `pub` declares the same
-package: with what it was fetched as, its fetched identity, which is what lets
-a program reaching both fetchers' copies take them for one package.
+package: with its source, what it was fetched as, which is what lets a program
+reaching both fetchers' copies take them for one package.
 """
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_package_identity", _make_package_metadata_content = "make_package_metadata_content")
@@ -15,24 +15,17 @@ visibility("//flutter/...")
 # name Gazelle gives one, and the one rules_dart's generated packages use.
 METADATA_TARGET_NAME = "pubspec-metadata"
 
-# What a generated BUILD file of a package with no fetched identity loads the
-# rule from.
-PACKAGE_METADATA_LOAD = 'load("@rules_dart//dart:defs.bzl", "dart_package_metadata")\n'
-
-def package_metadata_loads(fetched_identity = "", purl = ""):
+def package_metadata_loads(source = None):
     """The loads a generated BUILD file needs for its package metadata.
 
     Args:
-        fetched_identity: What the package was fetched as, or "" (see
-            `make_package_metadata_content`).
-        purl: The package's purl when `fetched_identity` is not one
-            (`package_fetched`), or "".
+        source: Where the package came from (`package_fetched`), or None.
 
     Returns:
-        The `load` lines: with a fetched identity, those
-        `pub_package_identity` gives for it.
+        The `load` lines `pub_package_identity` gives for the source: the
+        declaration's rule, and with a purl, `package_metadata`.
     """
-    return pub_package_identity(fetched_identity, purl).loads if fetched_identity or purl else PACKAGE_METADATA_LOAD
+    return pub_package_identity(source).loads
 
 def make_package_metadata_content(
         package_name,
@@ -42,7 +35,7 @@ def make_package_metadata_content(
         build_hook = "",
         link_hook = "",
         license_file = "",
-        fetched_identity = "",
+        source = None,
         visibility = "//visibility:public"):
     """The package metadata target stating a generated package's facts.
 
@@ -54,9 +47,10 @@ def make_package_metadata_content(
         build_hook: Its `hook/build.dart`, package-relative, or "".
         link_hook: Its `hook/link.dart`, package-relative, or "".
         license_file: Its `NOTICES` or `LICENSE`, package-relative, or "".
-        fetched_identity: What it was fetched as (`pub_hosted_purl`,
-            `pub_git_identity`, `pub_path_identity`), which makes it rules_dart's
-            `fetched_package_metadata`; or "" for a package no fetcher states.
+        source: Where it came from (`pub_hosted_source`, `pub_git_source`,
+            `pub_path_source`), whose fetched identity makes it the fetched
+            declaration rules_dart's `pub` writes for the same lock entry; or
+            None for a package no fetcher states.
         visibility: The target's visibility.
 
     Returns:
@@ -71,6 +65,6 @@ def make_package_metadata_content(
         build_hook = build_hook,
         link_hook = link_hook,
         license_file = license_file,
-        fetched_identity = fetched_identity,
+        source = source,
         visibility = visibility,
     )

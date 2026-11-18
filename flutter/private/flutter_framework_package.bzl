@@ -23,7 +23,7 @@ load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:flutter_pub_index.bzl", "library_label", "read_index")
 load("//flutter/private:framework_source.bzl", "check_dependency_constraints", "check_lock_floor", "link_framework_package", "read_framework", "unset_message", "write_unset_stub")
-load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "PACKAGE_METADATA_LOAD", "make_package_metadata_content")
+load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:pinned.bzl", "pinned")
 
 visibility("//flutter/...")
@@ -59,7 +59,7 @@ def make_flutter_framework_build_content(deps, language_version, license_file = 
         dep_lines = ['        "{}",'.format(dep) for dep in deps]
         deps_block = "    deps = [\n{}\n    ],\n".format("\n".join(dep_lines))
 
-    return PACKAGE_METADATA_LOAD + """\
+    return package_metadata_loads() + """\
 load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_framework_library")
 
 {metadata}

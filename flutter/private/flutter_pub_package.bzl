@@ -52,7 +52,7 @@ rule asks for it.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_files_fetched", "pub_package_identity")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_files_fetched", "pub_package_identity", "pub_path_source")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
@@ -1483,7 +1483,7 @@ _RESOURCES_GLOB_BLOCK = """    resources = glob(
     ),
 """
 
-def _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity = "", purl = ""):
+def _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, source = None):
     """The package metadata of a generated member: the package's facts.
 
     Shared by the `pub_package_member` and `flutter_pub_member` generators, so
@@ -1501,10 +1501,10 @@ def _member_metadata(name, language_version, code_assets, unreplaced_hook, versi
         build_hook = unreplaced_hook,
         link_hook = link_hook,
         license_file = license_file,
-        fetched_identity = fetched_identity,
-    ) + pub_package_identity(fetched_identity, purl).target
+        source = source,
+    ) + pub_package_identity(source).target
 
-def make_dart_member_build_content(name, language_version, code_assets, unreplaced_hook, version = "", license_file = "", link_hook = "", fetched_identity = "", purl = ""):
+def make_dart_member_build_content(name, language_version, code_assets, unreplaced_hook, version = "", license_file = "", link_hook = "", source = None):
     """Generate BUILD content for the source repository of a pure-Dart pub package.
 
     A package with nothing of Flutter's in its pubspec is rules_dart's own
@@ -1524,19 +1524,17 @@ def make_dart_member_build_content(name, language_version, code_assets, unreplac
         version: The resolved package version, or "".
         license_file: The package's `NOTICES` or `LICENSE` (`find_pub_license_file`), or "".
         link_hook: Its `hook/link.dart`, or "".
-        fetched_identity: What it was fetched as: its purl (`pub_hosted_purl`,
-            `pub_git_identity`'s purl), also stated on a `package_metadata` that
-            its `REPO.bazel` attaches to every target of the repository; the
-            directory a path package is built from (`pub_path_identity`), or
-            a relative git url's repository (`pub_git_identity`); or
-            "" for a package no fetcher states.
-        purl: The purl of a git package locked by a relative url, whose
-            identity is not one (`package_fetched`), so an SBOM lists it; or "".
+        source: Where it came from (`package_fetched`): what it was fetched
+            as, the archive or git commit (`pub_hosted_source`,
+            `pub_git_source`) or the directory a path package is built from
+            (`pub_path_source`), and its purl, stated on a `package_metadata`
+            that its `REPO.bazel` attaches to every target of the repository;
+            or None for a package no fetcher states.
 
     Returns:
         BUILD.bazel content as a string.
     """
-    return package_metadata_loads(fetched_identity, purl) + """\
+    return package_metadata_loads(source) + """\
 load("@rules_dart//dart/pub:pub_library.bzl", "pub_package_member")
 
 {metadata}
@@ -1549,7 +1547,7 @@ pub_package_member(
 """.format(
         name = name,
         resources = _RESOURCES_GLOB_BLOCK,
-        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity, purl),
+        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, source),
         metadata_target = METADATA_TARGET_NAME,
     )
 
@@ -1635,8 +1633,7 @@ def make_flutter_member_build_content(
         android_group = "",
         license_file = "",
         link_hook = "",
-        fetched_identity = "",
-        purl = "",
+        source = None,
         implements = ""):
     """Generate BUILD content for the source repository of a Flutter pub package.
 
@@ -1667,8 +1664,7 @@ def make_flutter_member_build_content(
             `dart_package_metadata` states with its other facts).
         license_file: The package's `NOTICES` or `LICENSE` (`find_pub_license_file`), or "".
         link_hook: Its `hook/link.dart`, or "".
-        fetched_identity: What it was fetched as, as for `make_dart_member_build_content`.
-        purl: Its purl when the identity is not one, as for `make_dart_member_build_content`.
+        source: Where it came from, as for `make_dart_member_build_content`.
         has_android_lib: Whether the package has an `android/` sub-package
             that defines `:lib`, which the member lists under `exports`,
             selected on Android.
@@ -1857,7 +1853,7 @@ flutter_unbuilt_plugin_library(
 
     # The `lib/` glob is `allow_empty`: a pub package can be only assets or native
     # code, with no Dart.
-    return package_metadata_loads(fetched_identity, purl) + """\
+    return package_metadata_loads(source) + """\
 load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_pub_member")
 {extra_loads}
 {metadata}
@@ -1870,7 +1866,7 @@ flutter_pub_member(
 {extra_targets}
 """.format(
         name = name,
-        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity, purl),
+        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, source),
         metadata_target = METADATA_TARGET_NAME,
         resources = _RESOURCES_GLOB_BLOCK,
         platforms_arg = platforms_arg,
@@ -2591,17 +2587,17 @@ def fetch_local_package(ctx, directory):
     fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory))
 
 def package_fetched(attr, fetched):
-    """What the package is: its version, what it was fetched as, and its purl.
+    """What the package is: its version, and its source.
 
     What rules_dart's `pub` states for the same lock entry, so a program
     reaching both fetchers' copies of one package takes them for one. A hosted
-    or git package's version, fetched identity and purl are what its files
-    repository records it fetched (`pub_files_fetched`), never facts passed
-    beside it, which could describe bytes never fetched. A path package's
-    identity is the directory it is built from (`path_identity`). A Flutter
-    SDK package, whose files repository records nothing, and a package of a
-    framework source state none: rules_dart's `pub` never fetches one, so no
-    second copy has to match.
+    or git package's version and source are what its files repository records
+    it fetched (`pub_files_fetched`), never facts passed beside it, which could
+    describe bytes never fetched. A path package's source is the directory it
+    is built from, named by its lock and the lock's path to it
+    (`pub_path_source`). A Flutter SDK package, whose files repository records
+    nothing, and a package of a framework source have none: rules_dart's `pub`
+    never fetches one, so no second copy has to match.
 
     Args:
         attr: A `flutter_pub_package`'s attributes.
@@ -2609,25 +2605,21 @@ def package_fetched(attr, fetched):
             `pub_files_fetched` returns it, or None.
 
     Returns:
-        `struct(version, fetched_identity, purl)`: the identity "" for
-        nothing, and the purl of a git package, which `pub_files_fetched`
-        returns for every one (equal to the identity for a remote url), else "".
+        `struct(version, source)`: the source as `pub_package_identity` takes
+        it, None for a package with none, and for a path package the lock
+        names outside the lock's repository.
     """
     if fetched == None:
-        return struct(
-            version = attr.version,
-            fetched_identity = attr.path_identity if attr.directory else "",
-            purl = "",
-        )
+        if not attr.directory:
+            return struct(version = attr.version, source = None)
+        if attr.lock == None:
+            fail("package {}: a `path` package built from {} names no `lock`, whose `path` to it says what it is.".format(attr.package_name, attr.directory))
+        return struct(version = attr.version, source = pub_path_source(attr.lock, attr.path))
     if fetched.package_name != attr.package_name:
         fail("package {}: its files repository fetched package {} {}.".format(attr.package_name, fetched.package_name, fetched.version))
     if attr.version:
         fail("package {}: `version` is set, and a hosted or git package's version is the one its files repository fetched ({}).".format(attr.package_name, fetched.version))
-    return struct(
-        version = fetched.version,
-        fetched_identity = fetched.fetched_identity,
-        purl = fetched.purl,
-    )
+    return struct(version = fetched.version, source = fetched.source)
 
 def write_android_build(ctx, prelude, content):
     """Write the `android/BUILD.bazel` of a plugin: `content` after the load of the files repository.
@@ -2655,9 +2647,7 @@ def _flutter_pub_package_impl(ctx):
         fetched = pub_files_fetched(ctx, ctx.attr.files)
     package = package_fetched(ctx.attr, fetched)
     version = package.version
-    fetched_identity = package.fetched_identity
-    purl = package.purl
-    identity = pub_package_identity(fetched_identity, purl)
+    identity = pub_package_identity(package.source)
     if identity.repo_file:
         ctx.file("REPO.bazel", identity.repo_file)
 
@@ -2904,8 +2894,7 @@ def _flutter_pub_package_impl(ctx):
             language_version = language_version,
             version = version,
             license_file = license_file,
-            fetched_identity = fetched_identity,
-            purl = purl,
+            source = package.source,
             code_assets = ctx.attr.code_assets,
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
@@ -2950,8 +2939,7 @@ def _flutter_pub_package_impl(ctx):
             language_version = language_version,
             version = version,
             license_file = license_file,
-            fetched_identity = fetched_identity,
-            purl = purl,
+            source = package.source,
             code_assets = ctx.attr.code_assets,
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
@@ -2982,8 +2970,7 @@ def _flutter_pub_package_impl(ctx):
             link_hook = hooks.link_hook,
             version = version,
             license_file = license_file,
-            fetched_identity = fetched_identity,
-            purl = purl,
+            source = package.source,
         )
         android_src_dir = ""
         android_java_package = ""
@@ -3088,17 +3075,20 @@ flutter_pub_package = repository_rule(
             doc = "The repository holding a hosted, git or Flutter SDK package's files, as rules_dart's " +
                   "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
                   "What `pub_archive_files` or `pub_git_files` records it fetched is the package's version, " +
-                  "fetched identity and purl. Unused with `directory` or `framework_json`.",
+                  "source. Unused with `directory` or `framework_json`.",
         ),
         "directory": attr.string(
-            doc = "A `path` package's directory, absolute: the lock's `description.path`, resolved against the lock's directory. " +
+            doc = "A `path` package's directory, absolute: `path` resolved against the real directory of `lock`. " +
                   "When set, the package is linked from it.",
             default = "",
         ),
-        "path_identity": attr.string(
-            doc = "A `path` package's fetched identity, as rules_dart's `pub` states it for the same lock entry " +
-                  "(`pub_path_identity`): the lock's repository and the directory in it. Empty for a directory " +
-                  "outside the lock's repository, and for any other package.",
+        "lock": attr.label(
+            doc = "A `path` package's lock. With `path`, it is what the package is built from, as rules_dart's " +
+                  "`pub` states it for the same lock entry (`pub_path_source`): the lock's repository and the " +
+                  "directory in it.",
+        ),
+        "path": attr.string(
+            doc = "A `path` package's `description.path` in `lock`: relative to the lock's directory, or absolute.",
             default = "",
         ),
         "framework_json": attr.label(

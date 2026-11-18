@@ -27,7 +27,7 @@ fetched_package_metadata(
     code_assets = ["@rules_flutter//flutter/tests/code_asset_fixture:wrapped"],
     # Fetched alike, as two pub hubs each fetch one package, so `owner_twin/`
     # is this package too.
-    fetched_identity = "pkg:pub/code_asset_owner@1.0.0",
+    purl = "pkg:pub/code_asset_owner@1.0.0",
     version = "1.0.0",
 )
 
