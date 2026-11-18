@@ -43,6 +43,8 @@ Schema reference (Flutter's pubspec):
             ...
 """
 
+visibility("//flutter/...")
+
 def flutter_block(fields):
     """Return the `flutter:` sub-dict, or empty dict when absent.
 

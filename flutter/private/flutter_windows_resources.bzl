@@ -17,6 +17,8 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter/private:app_version.bzl", "windows_version")
 load("//flutter/private:application_version.bzl", "APPLICATION_VERSION_ATTR", "application_version", "version_names")
 
+visibility("//flutter/...")
+
 WINDOWS_RESOURCE_COMPILER_TOOLCHAIN_TYPE = "@bazel_tools//tools/res:toolchain_type"
 
 def windows_version_defines(ctx):

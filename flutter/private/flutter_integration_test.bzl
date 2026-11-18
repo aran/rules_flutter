@@ -17,6 +17,8 @@ load("//flutter/private:flutter_android_emulator.bzl", "FlutterAndroidSystemImag
 load("//flutter/private:flutter_linux_runtime.bzl", "linux_runtime_check")
 load("//flutter/private:test_tags.bzl", "tag_selectors")
 
+visibility("//flutter/...")
+
 _ANDROID_PLATFORMS = str(Label("@rules_android//flags:android_platforms"))
 
 def _android_dbg_transition_impl(_settings, attr):

@@ -2,6 +2,8 @@
 
 load("//flutter/private:dbg_transition.bzl", "dbg_transition")
 
+visibility("//flutter/...")
+
 def _debug_build_impl(ctx):
     return [DefaultInfo(files = depset(transitive = [
         t[DefaultInfo].files

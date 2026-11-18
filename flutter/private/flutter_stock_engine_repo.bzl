@@ -27,6 +27,8 @@ load("//flutter/private:pinned.bzl", "pinned")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_ENGINE_PLATFORMS", "HOST_PLATFORMS")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
+visibility("//flutter/...")
+
 _LOAD = 'load("@rules_flutter//flutter:engine.bzl", "flutter_android_engine_slice", "flutter_gen_snapshot", "flutter_host_tools", "flutter_ios_engine_slice", "flutter_linux_engine_slice", "flutter_macos_engine_slice", "flutter_platform_kernel", "flutter_web_sdk", "flutter_windows_engine_slice")\n\n'
 
 _ENGINE_RULES = {

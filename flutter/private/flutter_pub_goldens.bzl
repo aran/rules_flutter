@@ -14,6 +14,8 @@ an integration test asks for it.
 load("//flutter/private:flutter_pub_index.bzl", "library_repo")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME")
 
+visibility("//flutter/...")
+
 def _flutter_pub_goldens_impl(ctx):
     ctx.file("BUILD.bazel", """\
 load("@rules_dart//dart:defs.bzl", "dart_package_metadata")
@@ -35,7 +37,7 @@ flutter_test(
     visibility = ["//visibility:public"],
 )
 """.format(
-        flutter_test_bzl = str(Label("//flutter/private:flutter_test.bzl")),
+        flutter_test_bzl = str(Label("//flutter/private:generated_repos.bzl")),
         service = str(Label("//flutter/private/goldens:service.dart")),
         comparator = str(Label("//flutter/private/goldens:comparator.dart")),
         flutter_test_repo = library_repo("flutter_test"),

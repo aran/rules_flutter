@@ -15,6 +15,8 @@ is made, naming the artifact:
 can still be empty.
 """
 
+visibility("//flutter/...")
+
 _HEX = "0123456789abcdef"
 
 def digest_problem(sha256):

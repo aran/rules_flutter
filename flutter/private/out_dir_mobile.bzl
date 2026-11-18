@@ -22,6 +22,8 @@ load("//flutter/private:engine_labels.bzl", "ENGINE_MODES", "android_arches", "a
 load("//flutter/private:engine_out_dirs.bzl", "dict_text", "first_existing", "link_into", "out_dir_provenance", "select_out_dir")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "HOST_PLATFORMS")
 
+visibility("//flutter/...")
+
 # The directories flutter_tools searches for a gen_snapshot (`_genSnapshotPath`)
 # that a macOS host can run, with the CPUs of the hosts each binary runs on.
 # `universal` holds the lipo of both Mac CPUs; a `clang_<cpu>` directory is the

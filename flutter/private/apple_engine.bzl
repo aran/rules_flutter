@@ -13,6 +13,8 @@ load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter:engine.bzl", "FlutterEngineInfo")
 
+visibility("//flutter/...")
+
 # FlutterMacOS.framework of the build mode, as `framework_imports` of an
 # apple_dynamic_framework_import.
 MACOS_ENGINE_FRAMEWORK = [Label("@flutter_macos_engine//:engine_library")]

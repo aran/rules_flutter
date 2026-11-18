@@ -13,6 +13,8 @@ its `attrs` and runs the action in the `PORTABLE` exec group.
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
 
+visibility("//flutter/...")
+
 ASSEMBLE_DIRECTORY_ATTRS = {
     "_assemble_tool": attr.label(
         default = "//flutter/private/tools:assemble_directory.dart",

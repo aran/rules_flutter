@@ -1,5 +1,7 @@
 """Which Flutter version a `flutter.toolchain` name resolves to."""
 
+visibility("//flutter/...")
+
 def parse_flutter_version(v):
     """Splits a version string into a list of ints for comparison.
 

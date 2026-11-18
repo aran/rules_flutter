@@ -24,6 +24,8 @@ a library nobody touched, which is what a shared list did when it was tried.
 
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 
+visibility("//flutter/...")
+
 NativeSourcesInfo = provider(
     doc = "Source files a native library below this target is built from.",
     fields = {"sources": "depset[File]"},

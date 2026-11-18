@@ -2,6 +2,8 @@
 
 load("@rules_android//rules:utils.bzl", android_utils = "utils")
 
+visibility("//flutter/...")
+
 # rules_android reads the platforms of an APK from this Starlark flag when it
 # has a value, and from Bazel's native `--android_platforms` only when it is
 # empty. Setting the Starlark flag alone is enough, and cannot disagree with a

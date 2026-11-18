@@ -8,6 +8,8 @@ the same way.
 
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_ENGINE_PLATFORMS", "HOST_PLATFORMS")
 
+visibility("//flutter/...")
+
 ENGINE_MODES = ["debug", "profile", "release"]
 
 # The slice directory of a desktop engine, by the platform string of its target.

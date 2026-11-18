@@ -47,8 +47,7 @@ const fakeFlutterVersion = '0.0.0';
 
 /// One repository to declare in the generated workspace.
 class ProbeRepo {
-  const ProbeRepo(this.name, this.rule, this.attrs, {String? bzl})
-    : bzl = bzl ?? rule;
+  const ProbeRepo(this.name, this.rule, this.attrs, {this.bzl});
 
   /// The apparent name, as given to `--repo=@name`.
   final String name;
@@ -57,13 +56,14 @@ class ProbeRepo {
   /// function that calls one.
   final String rule;
 
-  /// The file under `//flutter/private` that defines [rule], without `.bzl`,
-  /// or the label of another module's file (`@rules_dart//...`).
-  final String bzl;
+  /// The label of another module's file that defines [rule]
+  /// (`@rules_dart//...`), or null for a rule of rules_flutter's, which
+  /// `generated_repos.bzl` exports.
+  final String? bzl;
 
-  /// The label of the file defining [rule].
+  /// The label of the file to load [rule] from.
   String get bzlLabel =>
-      bzl.startsWith('@') ? bzl : '@rules_flutter//flutter/private:$bzl.bzl';
+      bzl ?? '@rules_flutter//flutter/private:generated_repos.bzl';
 
   /// Starlark source of each attribute's value.
   final Map<String, String> attrs;
@@ -191,7 +191,7 @@ class Probe {
 /// Call from `setUpAll`: the workspace is disposed after the group.
 ///
 /// Repositories that find each other by name through one module extension (a
-/// hub's, `flutter_pub_index.bzl`) can only be declared by one: [extension] is
+/// hub's, `flutter_pub_index`) can only be declared by one: [extension] is
 /// the source of a module extension named `probe` that declares them, and
 /// [extensionRepos] the names it makes, which are `use_repo`d into the probe.
 Future<Probe> probe({

@@ -1,5 +1,7 @@
 """The targets an aspect follows from the rule it visits."""
 
+visibility("//flutter/...")
+
 def rule_attr_targets(rule_attr, names):
     """The Targets a rule's attributes hold.
 

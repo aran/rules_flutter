@@ -48,6 +48,8 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi")
 load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS")
 
+visibility("//flutter/...")
+
 _TOOL = Label("//flutter/private/tools:strip_native_libs.dart")
 
 _STRIP = "strip"

@@ -10,6 +10,8 @@ is missing or pins at a version a plugin does not accept
 load("@rules_dart//dart:utils.bzl", "dart_compile_action", "runfiles_path")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
+visibility("//flutter/...")
+
 def _flutter_swift_packages_report_impl(ctx):
     dart_sdk_info = ctx.toolchains["@rules_dart//dart:toolchain_type"].dart_sdk_info
     workspace_name = ctx.workspace_name

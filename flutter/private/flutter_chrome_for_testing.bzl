@@ -14,6 +14,8 @@ web integration test's runner is analysed: the `chrome` runner of
 load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "chrome_for_testing_url")
 
+visibility("//flutter/...")
+
 def _executable(platform):
     return "chrome-headless-shell.exe" if platform.startswith("win") else "chrome-headless-shell"
 

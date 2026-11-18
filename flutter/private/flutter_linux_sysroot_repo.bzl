@@ -9,6 +9,8 @@ One repo per target architecture (amd64/arm64), shared across host platforms.
 load(":archives.bzl", "archive", "archive_repo")
 load(":engine_helpers.bzl", "linux_multiarch_triple")
 
+visibility("//flutter/...")
+
 _SYSROOT_URL = "https://commondatastorage.googleapis.com/chrome-linux-sysroot/{sha256}"
 
 # Map from our architecture names to the Debian architecture names used in

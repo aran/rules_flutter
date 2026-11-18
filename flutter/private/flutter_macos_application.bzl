@@ -30,6 +30,8 @@ load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tool
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
+visibility("//flutter/...")
+
 # -- flutter_macos_app_framework (App.framework assembly) -------------------------
 
 _APP_FRAMEWORK_INFO_PLIST = """\

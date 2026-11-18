@@ -32,6 +32,8 @@ load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "c
 load("//flutter/private:mobile_engine_check.bzl", "check_ios_engine")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
+visibility("//flutter/...")
+
 def _flutter_ios_application_impl(ctx):
     """Bundles Flutter compilation outputs for iOS packaging."""
     app_info = ctx.attr.application[FlutterApplicationInfo]

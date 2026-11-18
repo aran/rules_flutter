@@ -10,6 +10,8 @@ that stages copies of source files into a program names the sources.
 load("@rules_dart//dart:providers.bzl", "DartAnalyzableInfo", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "dart_analyzable_info", "package_info_from_metadata", "package_lib_prefix")
 
+visibility("//flutter/...")
+
 StagedSourcesInfo = provider(
     doc = "The source files a target's Dart outputs are copies of. A program " +
           "compiles the copies, and analysis checks these in their place: " +

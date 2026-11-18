@@ -7,6 +7,8 @@ An app of any other source does, and its pieces are checked first
 (`flutter_sdk_record.bzl`).
 """
 
+visibility("//flutter/...")
+
 RELEASE_ORIGIN = "release"
 
 def is_release_engine(host_tools):

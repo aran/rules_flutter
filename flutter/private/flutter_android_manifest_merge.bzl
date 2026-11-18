@@ -48,6 +48,8 @@ load("//flutter/private:app_version.bzl", "android_version")
 load("//flutter/private:application_version.bzl", "APPLICATION_VERSION_ATTR", "application_version", "version_names")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 _TOOL = Label("//flutter/private/tools:merge_android_manifests.dart")
 
 def _exported_library_manifests(libraries):

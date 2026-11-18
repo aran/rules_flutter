@@ -48,7 +48,7 @@ def _a_cycle_is_one_library_over_its_members_test_impl(ctx):
         flutter = True,
         member_dependencies = {"dio_web_adapter": ["dio"], "dio": ["path", "dio_web_adapter"]},
     )
-    asserts.true(env, 'load("@rules_flutter//flutter/private:flutter_pub_library.bzl", "flutter_pub_library")' in flutter, flutter)
+    asserts.true(env, 'load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_pub_library")' in flutter, flutter)
     asserts.true(env, '\nflutter_pub_library(\n    name = "dio",' in flutter, flutter)
     asserts.true(env, '    members = ["@flutter_pub__dio//:dio", "@flutter_pub__dio_web_adapter//:dio_web_adapter"],' in flutter, flutter)
     asserts.true(env, '    deps = ["@flutter_pub_lib__path//:path"],' in flutter, flutter)

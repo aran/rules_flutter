@@ -3,6 +3,8 @@
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 
+visibility("//flutter/...")
+
 def compile_and_link_runner(
         ctx,
         name,

@@ -45,6 +45,8 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "dart_program_assets_actions
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "portable_tools")
 
+visibility("//flutter/...")
+
 # Map (target_os, arch) → the Target string Dart's
 # `Target.fromArchitectureAndOS` would produce. Keep this mirrored
 # with the `hooks_runner` package's `lib/src/model/target.dart`

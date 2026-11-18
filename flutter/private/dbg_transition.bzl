@@ -1,5 +1,7 @@
 """The transition to debug mode, for the targets that run only there."""
 
+visibility("//flutter/...")
+
 _PROFILE = str(Label("//flutter:profile"))
 
 # Debug mode, not profile: the flag is refused with any `-c` but opt, and a

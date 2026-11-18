@@ -21,6 +21,8 @@ naming it (`unread_jvm_level_message`).
 
 load("//flutter/private:gradle_script.bzl", "applied_script", "call_argument", "gradle_scope", "gradle_string", "gradle_tokens_with_applied", "gradle_value", "leading_identifier")
 
+visibility("//flutter/...")
+
 # The Android Gradle plugin's `compileOptions` default when the module names
 # no Java toolchain: Java 11 since AGP 9.0 (issuetracker 369246556), the AGP
 # that `flutter create`'s Android templates use in the pinned Flutter (9.1).

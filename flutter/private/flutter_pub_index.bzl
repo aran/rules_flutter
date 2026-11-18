@@ -34,6 +34,8 @@ repository, over every lock of the build. A hub is only the set of aliases a
 user's own lock names.
 """
 
+visibility("//flutter/...")
+
 # What the repositories of the build are named by. No hub name is part of them,
 # so a hub cannot be named with this prefix.
 SPOKE_PREFIX = "flutter_pub"

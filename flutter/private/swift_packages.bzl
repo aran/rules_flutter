@@ -25,6 +25,8 @@ against what the plugins' manifests require (`requirement_violation`).
 `MODULE.bazel` need for the hub's plugins (`flutter_swift_packages_report.bzl`).
 """
 
+visibility("//flutter/...")
+
 # The repository that lists the root's pins, for the plugins' Apple
 # repositories.
 SWIFT_PACKAGES_REPO = "flutter_pub_swift_packages"

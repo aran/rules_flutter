@@ -2,6 +2,8 @@
 
 load("//flutter:providers.bzl", "FlutterSdkRecordInfo")
 
+visibility("//flutter/...")
+
 def _mode_impl(settings, attr):
     return {
         "//command_line_option:compilation_mode": "dbg" if attr.mode == "debug" else "opt",

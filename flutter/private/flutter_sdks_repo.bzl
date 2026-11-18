@@ -7,6 +7,8 @@ SDKs: each one's release and framework source. It reads them here, from
 `sdks.json`, rather than from the toolchain tags it cannot see.
 """
 
+visibility("//flutter/...")
+
 def _flutter_sdks_repo_impl(ctx):
     ctx.file("BUILD.bazel", "")
 

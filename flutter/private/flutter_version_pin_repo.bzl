@@ -7,6 +7,8 @@ same environment as the program, and `FlutterVersion` is part of it. This
 repository is where such a rule reads it.
 """
 
+visibility("//flutter/...")
+
 def _impl(repository_ctx):
     repository_ctx.file("BUILD.bazel", "")
     repository_ctx.file(

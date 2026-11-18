@@ -1,5 +1,7 @@
 """The `pub` extension's root-only statements: `flutter_pub.settings` and ignored hooks."""
 
+visibility("//flutter/...")
+
 def root_only_settings(modules):
     """The root's `flutter_pub.settings` and ignored hooks, refusing either from any other module.
 

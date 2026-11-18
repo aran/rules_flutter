@@ -24,6 +24,8 @@ load("//flutter/private:engine_labels.bzl", "ENGINE_MODES", "desktop_engine_dir"
 load("//flutter/private:engine_out_dirs.bzl", "dict_text", "first_existing", "link_into", "out_dir_provenance", "select_out_dir")
 load("//flutter/private:toolchains_repo.bzl", "DESKTOP_ENGINE_PLATFORMS")
 
+visibility("//flutter/...")
+
 # The out dir name's prefix of each desktop OS.
 _OS_PREFIX = {"linux": "linux", "windows": "win"}
 

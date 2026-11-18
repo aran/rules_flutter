@@ -7,6 +7,8 @@ was built in, so that building its output groups builds them and nothing of the
 artifact itself. These are the parts of that walk no platform changes.
 """
 
+visibility("//flutter/...")
+
 PartsInfo = provider(
     doc = "Every bundle's assets and native library inputs at or below this node.",
     fields = {

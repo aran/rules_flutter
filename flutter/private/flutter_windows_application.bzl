@@ -34,6 +34,8 @@ load("//flutter/private:mobile_engine_check.bzl", "check_desktop_engine")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 load("//flutter/private:plugin_registrant.bzl", "registrant_include_dirs")
 
+visibility("//flutter/...")
+
 # =============================================================================
 # Runner compilation rule
 # =============================================================================

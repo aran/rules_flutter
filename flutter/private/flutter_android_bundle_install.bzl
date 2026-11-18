@@ -19,6 +19,8 @@ load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
+visibility("//flutter/...")
+
 _ANDROID_TOOLCHAIN = "@rules_android//toolchains/android:toolchain_type"
 _ANDROID_SDK_TOOLCHAIN = "@rules_android//toolchains/android_sdk:toolchain_type"
 

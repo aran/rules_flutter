@@ -13,7 +13,7 @@
 # Placeholder substitution is performed by `_resolve_overlay_template`;
 # this comment names none of them, because it rewrites comment text too.
 
-load("@rules_flutter//flutter/private:android_build_config.bzl", "android_build_config")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "android_build_config")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 load("@rules_kotlin//kotlin:core.bzl", "kt_kotlinc_options")
 

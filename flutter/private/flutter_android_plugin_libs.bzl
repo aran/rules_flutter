@@ -27,6 +27,8 @@ load("//flutter/private:android_plugin_maven.bzl", "maven_app_report", "maven_ch
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_application.bzl", "ANDROID_NATIVE_LIBS_ATTRS", "android_abi", "validate_android_native_libs")
 
+visibility("//flutter/...")
+
 FlutterAndroidMavenInfo = provider(
     doc = "What a pub hub's Android plugins declare in their Gradle builds, and what `@rules_flutter_maven` resolved.",
     fields = {

@@ -15,6 +15,8 @@ load("@rules_dart//dart:utils.bzl", "dart_program_assets_actions", "program_kern
 load("//flutter/private:common.bzl", "program_package", "program_package_files")
 load("//flutter/private:constants.bzl", "ANDROID_MIN_SDK_VERSION", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 
+visibility("//flutter/...")
+
 def link_hooks_plan(program, deps, links):
     """Whether a program is linked, decided before its compile.
 

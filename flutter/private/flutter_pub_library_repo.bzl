@@ -24,6 +24,8 @@ load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_grap
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "source_repo")
 load("//flutter/private:pub_cycles.bzl", "DECLARE")
 
+visibility("//flutter/...")
+
 _MATERIAL_ICONS = "@rules_flutter//flutter:material_icons"
 
 def _labels(labels):
@@ -88,7 +90,7 @@ def make_library_build_content(name, members, deps, flutter, android_libs = [], 
     if name == _TEST_PACKAGE:
         return _test_package_build_content(members, deps)
     load_statement, rule = (
-        ('load("@rules_flutter//flutter/private:flutter_pub_library.bzl", "flutter_pub_library")', "flutter_pub_library") if flutter else ('load("@rules_dart//dart/pub:pub_library.bzl", "pub_library")', "pub_library")
+        ('load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_pub_library")', "flutter_pub_library") if flutter else ('load("@rules_dart//dart/pub:pub_library.bzl", "pub_library")', "pub_library")
     )
     return """\
 {load_statement}

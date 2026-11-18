@@ -34,6 +34,8 @@ load("@rules_dart//dart:utils.bzl", "DART_TOOLCHAIN_TYPES_ATTR")
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
 load("//flutter/private:native_sources.bzl", "NativeSourcesInfo", "native_sources_aspect")
 
+visibility("//flutter/...")
+
 CodeAssetLibrariesInfo = provider(
     doc = "The code-asset libraries at or below this target, with what their build declares.",
     fields = {

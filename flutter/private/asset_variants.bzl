@@ -6,6 +6,8 @@ into assets and their variants. Both must agree, and both must agree with
 flutter_tools, which finds a variant by the name of the directory it is in.
 """
 
+visibility("//flutter/...")
+
 def variant_scale(directory):
     """The scale a directory name stands for, or None for any other name.
 

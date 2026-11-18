@@ -22,6 +22,8 @@ package and the fix. Every function returns messages and never calls `fail`:
 a unit test cannot catch `fail`.
 """
 
+visibility("//flutter/...")
+
 def lock_directory(lock):
     """The directory of a lock, from the root of its repository.
 

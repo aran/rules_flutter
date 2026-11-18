@@ -14,6 +14,8 @@ load("//flutter/private:framework_source.bzl", "framework_root", "unset_message"
 load("//flutter/private:pinned.bzl", "pinned")
 load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS")
 
+visibility("//flutter/...")
+
 _STORAGE = "https://storage.googleapis.com/"
 
 def _known_archives():

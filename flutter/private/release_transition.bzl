@@ -1,5 +1,7 @@
 """The transition to an Android release build, for `flutter_android_release`."""
 
+visibility("//flutter/...")
+
 _PROFILE = str(Label("//flutter:profile"))
 _ANDROID_PLATFORMS = str(Label("@rules_android//flags:android_platforms"))
 

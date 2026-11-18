@@ -32,6 +32,8 @@ of this file:
     revision; unrelated to the Flutter version.
 """
 
+visibility("//flutter/...")
+
 _GCS_BASE = "https://storage.googleapis.com/flutter_infra_release/flutter"
 
 _SOURCE_TARBALL_TEMPLATE = "https://github.com/flutter/flutter/archive/refs/tags/{version}.tar.gz"

@@ -37,6 +37,8 @@ evaluated again for each app, which its defines are taken from
 (`swiftpm_app_settings.bzl`).
 """
 
+visibility("//flutter/...")
+
 def _strip_comments(text):
     """Returns `text` without `//` and `/* */` comments, leaving strings alone."""
     out = []

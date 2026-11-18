@@ -29,6 +29,8 @@ load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "flutter_info")
 load("//flutter/private:flutter_pub_member_info.bzl", "member_contributions")
 
+visibility("//flutter/...")
+
 def _targets_of(ctx, name):
     # An attribute of that name may be a single label, or absent.
     value = getattr(ctx.rule.attr, name, None)

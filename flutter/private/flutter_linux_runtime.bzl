@@ -12,6 +12,8 @@ load("@rules_dart//dart:utils.bzl", "runfiles_path")
 load("//flutter:providers.bzl", "FlutterLinuxRuntimeInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 # What the host's C and C++ runtime is, by the names a file needs it by:
 # glibc's libraries, its dynamic loader for each architecture, and GCC's C++
 # runtime. The runtime brings everything else.

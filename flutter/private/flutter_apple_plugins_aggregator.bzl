@@ -34,6 +34,8 @@ load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "swift_package_environment_problems", "swiftpm_app_transition")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
+visibility("//flutter/...")
+
 def _flutter_apple_plugins_aggregator_impl(ctx):
     flutter_info = ctx.attr.application[FlutterApplicationInfo]
     target_platform = ctx.attr.platform

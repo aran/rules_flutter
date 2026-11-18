@@ -22,6 +22,8 @@ only where the action is sandboxed or remote.
 
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 
+visibility("//flutter/...")
+
 # A file reference inside a `json_config_args` value. The index is the
 # reference's position in the `refs` list, so the order `json.encode`
 # writes keys in (sorted) does not matter.

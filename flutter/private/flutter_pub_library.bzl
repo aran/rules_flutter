@@ -33,6 +33,8 @@ load("//flutter/private:flutter_library.bzl", "SKY_ENGINE_ATTR", "bundled_withou
 load("//flutter/private:flutter_plugin.bzl", "PLUGIN_PACKAGE_ATTRS", "plugin_contributions")
 load("//flutter/private:flutter_pub_member_info.bzl", "FlutterPubMemberInfo", "member_contributions")
 
+visibility("//flutter/...")
+
 def _flutter_pub_member_impl(ctx):
     metadata = ctx.attr.package[DartPackageMetadataInfo]
     package_name = metadata.package_name

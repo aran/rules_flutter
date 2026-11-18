@@ -19,6 +19,8 @@ load("//flutter/private:pub_constraint.bzl", "allows")
 load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
 load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
+visibility("//flutter/...")
+
 FRAMEWORK_JSON = "flutter_framework.json"
 
 def framework_root(ctx):

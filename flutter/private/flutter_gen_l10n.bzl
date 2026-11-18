@@ -20,6 +20,8 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "non_dart_transition")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:path_mapping.bzl", "dirname")
 
+visibility("//flutter/...")
+
 def _locale_of(basename, prefix, label):
     """The locale a template-prefixed arb filename encodes, e.g. `es_419`."""
     if not basename.endswith(".arb"):

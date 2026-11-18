@@ -6,6 +6,8 @@ load("//flutter/private:app_entrypoint.bzl", "app_scheme_location", "compute_wra
 load("//flutter/private:program_analysis.bzl", "StagedSourcesInfo")
 load("//flutter/private:required_packages.bzl", "check_required_packages")
 
+visibility("//flutter/...")
+
 # How the program reaches the test file it runs.
 #
 # The app scheme (`org-dartlang-app:///<workspace path>`) is what the kernel

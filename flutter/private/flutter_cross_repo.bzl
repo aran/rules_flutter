@@ -12,6 +12,8 @@ load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "engine_artifact_url", "gen_snapshot_cross_artifact_path")
 load(":engine_helpers.bzl", "gen_snapshot_binary_name", "gen_snapshot_host_platform")
 
+visibility("//flutter/...")
+
 def flutter_cross_compilation_repo(name, engine_revision, host_platform, target_platform, gen_snapshot_sha256 = ""):
     """Declares the repository of the release gen_snapshot of one host and Android target.
 

@@ -35,6 +35,8 @@ load(
     "leading_identifier",
 )
 
+visibility("//flutter/...")
+
 _SOURCE = """\
 package {package};
 

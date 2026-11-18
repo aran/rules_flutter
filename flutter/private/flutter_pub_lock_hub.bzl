@@ -27,6 +27,8 @@ never run for the same hub. `flutter_pub.from_lock()` always invokes this one.
 
 load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "GOLDENS_REPO", "library_repo", "source_repo")
 
+visibility("//flutter/...")
+
 def _flutter_pub_lock_hub_impl(ctx):
     built = {pkg: True for pkg in ctx.attr.built_packages}
     sdk_packages = {pkg: True for pkg in ctx.attr.sdk_packages}
@@ -106,7 +108,7 @@ alias(
     ctx.file(
         "swift/BUILD.bazel",
         """\
-load("@rules_flutter//flutter/private:flutter_swift_packages_report.bzl", "flutter_swift_packages_report")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_swift_packages_report")
 
 flutter_swift_packages_report(
     name = "packages",

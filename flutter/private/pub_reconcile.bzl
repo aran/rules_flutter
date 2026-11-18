@@ -25,6 +25,8 @@ An entry is a `struct` the extension makes of one lock entry:
 load("@rules_dart//dart/pub:pub_versions.bzl", "pub_version_request", "select_pub_version")
 load("//flutter/private:lock_entry_kind.bzl", "GIT", "HOSTED", "IGNORED", "LOCAL", "UNSUPPORTED")
 
+visibility("//flutter/...")
+
 def pub_command(verb, lock_dir, packages = []):
     """The command that re-resolves the lock in `lock_dir` with the pinned toolchain.
 

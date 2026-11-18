@@ -24,6 +24,8 @@ would push that divergence into per-rule conditionals.
 
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo")
 
+visibility("//flutter/...")
+
 def _flutter_linux_plugin_library_impl(ctx):
     return [
         FlutterLinuxPluginInfo(

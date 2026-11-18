@@ -12,6 +12,8 @@ load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter/private:engine_helpers.bzl", "find_engine_header_dir")
 
+visibility("//flutter/...")
+
 def _flutter_linux_engine_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
     flutter_sdk_info = flutter_toolchain.flutter_sdk_info

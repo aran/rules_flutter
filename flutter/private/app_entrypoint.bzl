@@ -18,6 +18,8 @@ alive across hot restart.
 
 load("@rules_dart//dart:utils.bzl", "colocate_packages", "generate_package_config", "merged_package_record", "package_lib_prefix")
 
+visibility("//flutter/...")
+
 # The file-system scheme a file with no `package:` URI is compiled under — a
 # `main` outside its package's `lib/`, and the generated plugin registrant. One
 # name for the build's kernel compile and the dev loop's compiler alike, which

@@ -25,6 +25,8 @@ discovers the font File via `ctx.toolchains[...]` instead.
 load("@rules_dart//dart:utils.bzl", "dart_info_no_package", "non_dart_transition")
 load("//flutter/private:flutter_info.bzl", "flutter_info")
 
+visibility("//flutter/...")
+
 _MATERIAL_ICONS_BUNDLE_PATH = "fonts/MaterialIcons-Regular.otf"
 
 def _flutter_material_icons_impl(ctx):

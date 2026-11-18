@@ -4,6 +4,8 @@ load("@rules_dart//dart:utils.bzl", "dart_whole_program_kernel_action")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME")
 load("//flutter/private:flutter_module.bzl", "flutter_kernel_sdk_info")
 
+visibility("//flutter/...")
+
 def flutter_kernel_resources(_os, inputs_size):
     """What a Flutter kernel compile uses, for Bazel's local scheduler.
 

@@ -7,6 +7,8 @@ platform-specific rule would be a trap.
 
 load(":validation.bzl", "validate_swift_module_name")
 
+visibility("//flutter/...")
+
 def runner_module_name(macro, name):
     """Derives the runner's Swift module name from an app target's name.
 

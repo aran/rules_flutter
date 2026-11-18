@@ -13,6 +13,8 @@ add. Bazel's own failure for a repository nobody injected names neither the
 plugin nor `inject_repo`.
 """
 
+visibility("//flutter/...")
+
 def _flutter_missing_swift_package_impl(ctx):
     fail(ctx.attr.message)
 

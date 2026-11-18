@@ -62,6 +62,8 @@ load("//flutter/private:framework_source.bzl", "framework_root", "read_framework
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME")
 load("//flutter/private:pinned.bzl", "pinned")
 
+visibility("//flutter/...")
+
 # The exact closure of `src/localizations/gen_l10n.dart` once the six import
 # edges are cut. Listed explicitly rather than globbed: the subset boundary is
 # the whole point of this repository, so it is stated, not inferred. Files the

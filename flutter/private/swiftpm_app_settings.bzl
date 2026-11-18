@@ -58,6 +58,8 @@ load(":apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL
 load(":exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load(":unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
+visibility("//flutter/...")
+
 # The build settings an app sets for the plugins it builds this way.
 _INFO_PLIST = Label("//flutter/private:swiftpm_app_info_plist")
 _ENVIRONMENT = Label("//flutter/private:swiftpm_app_environment")

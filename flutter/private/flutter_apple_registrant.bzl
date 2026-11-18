@@ -22,6 +22,8 @@ load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_info.bzl", "plugins_on_platform")
 
+visibility("//flutter/...")
+
 _NAME = "FlutterPluginRegistrant"
 
 # Upstream's `_objcPluginRegistryHeaderTemplate` (flutter_plugins.dart).

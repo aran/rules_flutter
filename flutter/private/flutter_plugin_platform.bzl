@@ -26,6 +26,8 @@ load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInf
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
+visibility("//flutter/...")
+
 # The platforms whose native library is `lib`, and what it provides there.
 _LIB_PROVIDERS = {
     "ios": ([CcInfo, FlutterSwiftPMAppLibraryInfo], "a `flutter_apple_plugin_library`"),

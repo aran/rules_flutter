@@ -21,6 +21,8 @@ load(
 )
 load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleModuleHeadersInfo", "module_headers_aspect")
 
+visibility("//flutter/...")
+
 def _package_archives(library, repo):
     """The static archives `library` links that are built in the repository `repo`.
 

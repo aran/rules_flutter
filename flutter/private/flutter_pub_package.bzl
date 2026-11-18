@@ -76,6 +76,8 @@ load(
     "unbuilt_native_code_message",
 )
 
+visibility("//flutter/...")
+
 # The Apple source extensions of a plugin's CocoaPods layout.
 _APPLE_SRC_EXTENSIONS = ("swift", "m", "mm", "h")
 
@@ -1697,7 +1699,7 @@ def make_flutter_member_build_content(
     extra_targets = []
 
     if unbuilt_native_code:
-        extra_loads.append('load("@rules_flutter//flutter/private:unbuilt_native_code.bzl", "flutter_unbuilt_plugin_library")')
+        extra_loads.append('load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_unbuilt_plugin_library")')
     if linux_src_dir:
         extra_loads.append('load("@rules_flutter//flutter:linux.bzl", "flutter_linux_plugin_library")')
     if windows_src_dir:
@@ -1779,14 +1781,14 @@ flutter_unbuilt_plugin_library(
             platform_labels.append(":plugin_" + platform)
             extra_targets.append(_format_plugin_platform(platform, plugin_platforms[platform], libs.get(platform), android_group))
         if platform_labels:
-            extra_loads.append('load("@rules_flutter//flutter/private:flutter_plugin_platform.bzl", "flutter_plugin_platform")')
+            extra_loads.append('load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_plugin_platform")')
     platforms_arg = "    platforms = {},\n".format(_format_label_list_literal(platform_labels)) if platform_labels else ""
     if implements and plugin_platforms != None:
         platforms_arg = "    implements = {},\n".format(repr(implements)) + platforms_arg
 
     font_targets = _format_font_targets(fonts)
     if fonts:
-        extra_loads.append('load("@rules_flutter//flutter/private:flutter_font.bzl", "flutter_font", "flutter_font_family")')
+        extra_loads.append('load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_font", "flutter_font_family")')
         extra_targets.extend(font_targets.targets)
 
     # Android sources travel through a sibling `android/` sub-package, whose
@@ -1829,7 +1831,7 @@ flutter_unbuilt_plugin_library(
     # The `lib/` glob is `allow_empty`: a pub package can be only assets or native
     # code, with no Dart.
     return package_metadata_loads(fetched_identity, purl) + """\
-load("@rules_flutter//flutter/private:flutter_pub_library.bzl", "flutter_pub_member")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_pub_member")
 {extra_loads}
 {metadata}
 flutter_pub_member(
@@ -2053,7 +2055,7 @@ write_file(
         maven_loads = (
             'load("@flutter_pub_android_maven//:resolved.bzl", "RESOLVED")\n' +
             'load("@rules_android//android:rules.bzl", "android_library")\n' +
-            'load("@rules_flutter//flutter/private:android_plugin_maven.bzl", "maven_labels")\n'
+            'load("@rules_flutter//flutter/private:generated_repos.bzl", "maven_labels")\n'
         )
         maven_call = """
 # The artifacts this plugin's Gradle build declares that @rules_flutter_maven
@@ -2090,7 +2092,7 @@ android_library(
     bc_package = java_package if java_package else "_unknown"
 
     return """\
-{maven_loads}{write_file_load}load("@rules_flutter//flutter/private:android_build_config.bzl", "android_build_config")
+{maven_loads}{write_file_load}load("@rules_flutter//flutter/private:generated_repos.bzl", "android_build_config")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 load("@rules_kotlin//kotlin:core.bzl", "kt_kotlinc_options")
 {maven_call}

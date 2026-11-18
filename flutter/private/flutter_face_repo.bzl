@@ -7,6 +7,8 @@ the repository of the SDK's own source. A name the flag does not declare
 fails at the first `select()`, listing the declared names.
 """
 
+visibility("//flutter/...")
+
 def face_build_content(sdks, targets, extra = ""):
     """The BUILD file of a face.
 
@@ -150,7 +152,7 @@ def android_engine_face_extra(sdks, arch, abi):
     Returns:
         BUILD text, for `flutter_face_repo(extra = ...)`.
     """
-    content = 'load("@rules_flutter//flutter/private:flutter_android_engine_jar.bzl", "flutter_android_engine_jar")\n'
+    content = 'load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_android_engine_jar")\n'
     declared = ", ".join(sorted(sdks.keys()))
     for sdk, prefix in sorted(sdks.items()):
         for mode in ["debug", "profile", "release"]:

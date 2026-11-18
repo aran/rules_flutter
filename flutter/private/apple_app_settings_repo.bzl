@@ -15,6 +15,8 @@ list runs no Xcode. Only an iOS or macOS app's aggregator fetches it.
 load(":apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "APP_LIBRARY_SUFFIX", "apple_repo")
 load(":flutter_pub_index.bzl", "sibling_path", "source_repo")
 
+visibility("//flutter/...")
+
 def _flutter_apple_app_settings_impl(ctx):
     libraries = {"ios": [], "macos": []}
     for package in ctx.attr.packages:
@@ -27,7 +29,7 @@ def _flutter_apple_app_settings_impl(ctx):
                 libraries[platform].append("@{}//:{}_apple_{}{}".format(apple_repo(package), package, platform, APP_LIBRARY_SUFFIX))
     ctx.file("BUILD.bazel", """\
 load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
-load("@rules_flutter//flutter/private:swiftpm_app_settings.bzl", "flutter_swiftpm_app_libraries")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_swiftpm_app_libraries")
 
 # Whether the build has any such library, for `swiftpm_app_transition`: without
 # one, an app's settings change nothing, and its native code is built in the

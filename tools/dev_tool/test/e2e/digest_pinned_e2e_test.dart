@@ -149,7 +149,7 @@ void main() {
           'host_platform': str('darwin-arm64'),
           'target_platform': str('android-arm64'),
           'gen_snapshot_sha256': str(digest),
-        }, bzl: 'flutter_cross_repo'),
+        }),
         ProbeRepo('web_sdk_ok', 'flutter_web_sdk_repo', {
           'engine_revision': str(revision),
           'sha256': str(digest),

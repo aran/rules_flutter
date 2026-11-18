@@ -15,6 +15,8 @@ load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "pa
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 
+visibility("//flutter/...")
+
 _TOOL = Label("//flutter/private/tools:generate_asset_manifest.dart")
 
 def detect_dpr(path):

@@ -15,6 +15,8 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("//flutter/private:apple_xcframeworks_layout.bzl", "EXPORT_ATTRS", "FlutterXCFrameworksLayoutInfo", "export_providers")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 def _codesign_impl(ctx):
     layout = ctx.attr.xcframeworks[FlutterXCFrameworksLayoutInfo]
     if not ctx.attr.identity:

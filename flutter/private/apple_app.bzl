@@ -33,6 +33,8 @@ load(
 load("//flutter/private:program_analysis.bzl", "BundledProgramInfo", "bundled_program_aspect")
 load("//flutter/private:swiftpm_app_settings.bzl", "swiftpm_app_transition")
 
+visibility("//flutter/...")
+
 # What a rules_apple application provides that something downstream reads: a
 # test host takes the bundle info, `bazel run` the executable, and a dSYM
 # build the debug outputs.

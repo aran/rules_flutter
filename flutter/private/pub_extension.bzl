@@ -38,6 +38,8 @@ load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settin
 load("//flutter/private:swift_packages.bzl", "declare_swift_packages")
 load("//flutter/private:versions.bzl", "flutter_sdk_exact_pins", "flutter_sdk_packages", "flutter_source_sha256")
 
+visibility("//flutter/...")
+
 # The name of the SDK every build has: the default `flutter.toolchain`.
 DEFAULT_SDK_NAME = "flutter"
 

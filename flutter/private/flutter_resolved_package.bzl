@@ -16,10 +16,12 @@ name. Neither the target's location nor the lock's version is checked: the map
 says where Bazel gets the package.
 """
 
+visibility("//flutter/...")
+
 def _flutter_resolved_package_impl(rctx):
     attr = rctx.attr
     rctx.file("BUILD.bazel", """\
-load("@rules_flutter//flutter/private:resolved_package.bzl", "resolved_package")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "resolved_package")
 
 resolved_package(
     name = {name},

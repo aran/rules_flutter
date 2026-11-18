@@ -11,6 +11,8 @@ its repo.
 load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "engine_artifact_url")
 
+visibility("//flutter/...")
+
 def flutter_profile_repo(name, engine_revision, downloads, build_file_content, sha256s = {}):
     """Declares a lazily fetched repository of profile-mode engine artifacts.
 

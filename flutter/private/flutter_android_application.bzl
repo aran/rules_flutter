@@ -67,6 +67,8 @@ load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "r
 load("//flutter/private:mobile_engine_check.bzl", "check_android_engine")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
+visibility("//flutter/...")
+
 # The ABIs of devices that can have 16 KB pages: Android's 64-bit ones. Every
 # native library packaged for them is checked to be aligned for that.
 _SIXTEEN_KB_ABIS = ["arm64-v8a", "x86_64"]

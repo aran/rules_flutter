@@ -11,6 +11,8 @@ flutter_windows_application.bzl.
 
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
+visibility("//flutter/...")
+
 FlutterLinuxPluginInfo = provider(
     doc = "Source bundle for a Flutter plugin's Linux C++ implementation.",
     fields = {

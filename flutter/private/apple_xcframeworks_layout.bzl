@@ -14,6 +14,8 @@ load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "assemble_bundle"
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "run_code_assets_tool")
 
+visibility("//flutter/...")
+
 FlutterXCFrameworksLayoutInfo = provider(
     doc = "An add-to-app layout of one build mode, as `flutter build <platform>-framework` writes it.",
     fields = {

@@ -6,6 +6,8 @@ Generates generated_plugin_registrant.cc and .h from FlutterApplicationInfo plug
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:plugin_registrant.bzl", "generate_native_plugin_registrant", "generate_native_plugin_registrant_header")
 
+visibility("//flutter/...")
+
 def _flutter_linux_registrant_impl(ctx):
     plugins = ctx.attr.application[FlutterApplicationInfo].plugins
     registrant = generate_native_plugin_registrant(ctx, plugins, "linux")

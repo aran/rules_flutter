@@ -17,6 +17,8 @@ every other asset of the package is.
 
 load("//flutter:providers.bzl", "FlutterFontFamilyInfo", "FlutterFontInfo")
 
+visibility("//flutter/...")
+
 # What flutter_tools accepts for `weight:` and `style:` (flutter_manifest.dart).
 _WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900]
 _STYLES = ["normal", "italic"]

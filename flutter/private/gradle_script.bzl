@@ -6,6 +6,8 @@ a script into statements and block headers, and `applied_scripts` names the
 scripts it applies (`apply from:`).
 """
 
+visibility("//flutter/...")
+
 # Gradle configurations by what they mean for a plugin's compile classpath.
 _KIND_BY_CONFIGURATION = {
     "implementation": "deps",

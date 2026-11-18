@@ -13,6 +13,8 @@ where the lock got it from, and what to do. Nothing that does not depend on it i
 affected.
 """
 
+visibility("//flutter/...")
+
 def _unsupported_package_impl(ctx):
     fail(ctx.attr.message)
 
@@ -69,7 +71,7 @@ def ignored_package_message(package, ignorings):
 def _flutter_unsupported_package_impl(repository_ctx):
     package = repository_ctx.attr.package_name
     repository_ctx.file("BUILD.bazel", """\
-load("@rules_flutter//flutter/private:flutter_unsupported_package.bzl", "unsupported_package")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "unsupported_package")
 
 unsupported_package(
     name = {name},

@@ -281,7 +281,7 @@ def _no_resources_subpackage_test_impl(ctx):
     asserts.false(env, "check()" in content, "the spoke runs no build-wide check:\n" + content)
     for needle in [
         'load("@flutter_pub_android_maven//:resolved.bzl", "RESOLVED")',
-        'load("@rules_flutter//flutter/private:android_plugin_maven.bzl", "maven_labels")',
+        'load("@rules_flutter//flutter/private:generated_repos.bzl", "maven_labels")',
         "_maven = maven_labels(",
         ", RESOLVED)",
         "deps = [\"@rules_flutter//flutter/private/android:plugin_engine\"] + _maven.deps + [\":_compile_only\"],",

@@ -24,6 +24,8 @@ Two explicit modes, both never-wrong:
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 _TOOL = Label("//flutter/private/tools:merge_plists.dart")
 _SIGNING_TOOL = Label("//flutter/private/tools:signing_entitlements.dart")
 

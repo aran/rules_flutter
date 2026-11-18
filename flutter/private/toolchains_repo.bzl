@@ -15,6 +15,8 @@ This guidance tells us how to avoid that: we put the toolchain targets in the al
 with only the toolchain attribute pointing into the platform-specific repositories.
 """
 
+visibility("//flutter/...")
+
 # Host platforms on which Flutter builds can run.
 # Keys are platform strings used in Flutter artifact URLs.
 HOST_PLATFORMS = {

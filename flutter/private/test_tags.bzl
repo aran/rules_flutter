@@ -1,5 +1,7 @@
 """The `include_tags` and `exclude_tags` attributes of the test rules."""
 
+visibility("//flutter/...")
+
 def tag_selectors(ctx, attr_name, rule_kind):
     """The entries of the `include_tags` or `exclude_tags` attribute.
 

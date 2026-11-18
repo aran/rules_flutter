@@ -10,15 +10,19 @@ on.
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label")
 
 # The repository rules `flutter_pub.from_lock` makes a package's repositories
-# with, loaded to make our own: there is no public name for them.
+# with, loaded to make our own: there is no public name for them, only the file
+# that exports them to rules_flutter's generated repositories.
 # buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:flutter_pub_index.bzl", "INDEX_REPO", "files_repo", "flutter_pub_index", "library_repo", "source_repo")
-
-# buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
-
-# buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
+load(
+    "@rules_flutter//flutter/private:generated_repos.bzl",
+    "INDEX_REPO",
+    "files_repo",
+    "flutter_pub_index",
+    "flutter_pub_library_repo",
+    "flutter_pub_package",
+    "library_repo",
+    "source_repo",
+)
 
 # The packages under `//registry`, with the version of each.
 PACKAGES = {

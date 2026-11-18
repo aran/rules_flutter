@@ -16,6 +16,8 @@ Intel slices (`x86_64` simulator and Mac) are not built.
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "portable_tools")
 
+visibility("//flutter/...")
+
 _PROFILE = str(Label("//flutter:profile"))
 
 # One entry per xcframework slice: its library identifier, the CPU of its

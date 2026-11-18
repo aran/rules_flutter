@@ -8,6 +8,8 @@ a program reaching both fetchers' copies take them for one package.
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_package_identity", _make_package_metadata_content = "make_package_metadata_content")
 
+visibility("//flutter/...")
+
 # The name of the package metadata target a package BUILD file that
 # rules_flutter writes declares, and its targets name in `package`. It is the
 # name Gazelle gives one, and the one rules_dart's generated packages use.

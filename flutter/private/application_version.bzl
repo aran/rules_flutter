@@ -32,6 +32,8 @@ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInputsInfo")
 load("//flutter/private:app_version.bzl", "DEFAULT_BUILD_NAME", "DEFAULT_BUILD_NUMBER")
 
+visibility("//flutter/...")
+
 # The settings that replace an application's version for one build, as the
 # user writes them on the command line, by the attribute each replaces.
 VERSION_SETTINGS = {

@@ -16,7 +16,6 @@ shared dependency twice.
 
 # The transition itself, rather than the copy `//flutter:native_hot_patch.bzl`
 # exports for users: this tool has nothing to do with hot patching.
-# buildifier: disable=bzl-visibility
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
 def _host_tool_impl(ctx):

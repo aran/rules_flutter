@@ -12,6 +12,8 @@ and the selected SDK, and is generated beside the SDKs (flutter_face_repo.bzl).
 load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "engine_artifact_url", "ios_engine_artifact_path")
 
+visibility("//flutter/...")
+
 def flutter_ios_engine_repo(name, engine_revision, mode, sha256 = ""):
     """Declares the repository of the iOS engine (Flutter.xcframework) of one build mode.
 

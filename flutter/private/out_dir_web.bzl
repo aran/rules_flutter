@@ -19,6 +19,8 @@ SDK's, which is why the pieces are checked against it (`sdk_check.dart`).
 
 load("//flutter/private:engine_out_dirs.bzl", "dict_text", "link_into", "out_dir_provenance", "select_out_dir")
 
+visibility("//flutter/...")
+
 # The files of the web SDK tree a web application names, by their target in
 # the `web` package, and where each is in the repository (the linked
 # `flutter_web_sdk` directory is `web-sdk/`, the Dart SDK `dart-sdk/`).

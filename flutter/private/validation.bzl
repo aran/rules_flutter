@@ -2,6 +2,8 @@
 
 load("//flutter/private:sdk_defines.bzl", "VERSION_DEFINE_KEYS")
 
+visibility("//flutter/...")
+
 def validate_bundle_id(bundle_id):
     """Validate that a bundle_id is a well-formed reverse-DNS identifier.
 

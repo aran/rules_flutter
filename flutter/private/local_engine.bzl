@@ -11,6 +11,8 @@ load("//flutter/private:out_dir_desktop.bzl", "desktop_slices")
 load("//flutter/private:out_dir_mobile.bzl", "mobile_slices")
 load("//flutter/private:out_dir_web.bzl", "web_slices")
 
+visibility("//flutter/...")
+
 _ENGINE_LOAD = 'load("@rules_flutter//flutter:engine.bzl", "flutter_android_engine_slice", "flutter_gen_snapshot", "flutter_host_tools", "flutter_ios_engine_slice", "flutter_linux_engine_slice", "flutter_macos_engine_slice", "flutter_missing_slice", "flutter_platform_kernel", "flutter_web_sdk", "flutter_windows_engine_slice")\n'
 
 def unset_message(env, what, example):

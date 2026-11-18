@@ -4,6 +4,8 @@ load("@rules_apple//apple:providers.bzl", "apple_provider")
 load("//flutter/private:app_version.bzl", "apple_version")
 load("//flutter/private:application_version.bzl", "APPLICATION_VERSION_ATTR", "application_version", "version_names")
 
+visibility("//flutter/...")
+
 def _impl(ctx):
     given = application_version(ctx.label, ctx.attr.application, ctx.attr.build_name, ctx.attr.build_number)
     version = apple_version(given.build_name, given.build_number, version_names(given.settings))

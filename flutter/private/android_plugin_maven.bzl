@@ -37,6 +37,8 @@ load(
     "leading_identifier",
 )
 
+visibility("//flutter/...")
+
 # Where each spoke records what its Gradle build declares, at the spoke's root.
 MAVEN_DEPS_FILE = "flutter_android_maven_deps.json"
 
@@ -1088,7 +1090,7 @@ def _flutter_android_maven_impl(rctx):
     rctx.file("maven_artifacts.dart", rctx.read(Label("//flutter/private/tools:maven_artifacts.dart")))
     rctx.file("BUILD.bazel", """\
 load("@rules_dart//dart:defs.bzl", "dart_binary")
-load("@rules_flutter//flutter/private:flutter_android_plugin_libs.bzl", "flutter_android_maven_requirements")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_android_maven_requirements")
 
 # What an application's `flutter_android_plugin_libs` checks the plugins it
 # links against.

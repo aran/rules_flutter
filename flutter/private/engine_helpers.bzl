@@ -5,6 +5,8 @@ mapping, and the macOS double zip, used by the repositories of the engine
 artifacts.
 """
 
+visibility("//flutter/...")
+
 # -- Engine filegroup templates ------------------------------------------------
 # One template per OS. `{name}` is the target's name, which says the build
 # mode of the engine it holds (see `engine_filegroup_for_os`); `{dir}` is where

@@ -1,5 +1,7 @@
 """What an Android emulator runner boots: a system image, and what it is."""
 
+visibility("//flutter/...")
+
 FlutterAndroidSystemImageInfo = provider(
     doc = "An Android emulator system image: what the emulator's device is configured as, and the image's files.",
     fields = {

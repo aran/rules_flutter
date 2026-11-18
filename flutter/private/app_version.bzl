@@ -31,6 +31,8 @@ its attribute, or as `names` gives it: a value that
 `--@rules_flutter//flutter:build_number` set is named as that setting.
 """
 
+visibility("//flutter/...")
+
 DEFAULT_BUILD_NAME = "1.0.0"
 DEFAULT_BUILD_NUMBER = "1"
 

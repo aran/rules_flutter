@@ -1,5 +1,7 @@
 """Finds a test's `flutter_test_config.dart` the way `flutter test` does."""
 
+visibility("//flutter/...")
+
 TEST_CONFIG_FILENAME = "flutter_test_config.dart"
 
 def find_test_config(main, exists):

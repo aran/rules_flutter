@@ -17,6 +17,8 @@ load("//flutter:providers.bzl", "FlutterSdkRecordInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:sdk_origin.bzl", "RELEASE_ORIGIN", "is_release_engine")
 
+visibility("//flutter/...")
+
 _TOOLCHAIN_TYPE = "@rules_flutter//flutter:toolchain_type"
 
 def _public(provenance):

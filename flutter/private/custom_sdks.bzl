@@ -1,5 +1,7 @@
 """Which SDKs the root module declares with the tags that replace part of a release, or all of it."""
 
+visibility("//flutter/...")
+
 # The tags, each one form of SDK: its attributes are what that form needs.
 CUSTOM_SDK_TAGS = ["custom_framework", "custom_engine", "custom_sdk", "checkout"]
 

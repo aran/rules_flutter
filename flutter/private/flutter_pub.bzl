@@ -28,6 +28,8 @@ from the build graph instead, so that file has no consumer here.
 load("@rules_dart//dart:utils.bzl", "dart_compile_action", "runfiles_path")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
+visibility("//flutter/...")
+
 def _flutter_pub_impl(ctx):
     flutter_sdk_info = ctx.toolchains["@rules_flutter//flutter:toolchain_type"].flutter_sdk_info
     dart_sdk_info = ctx.toolchains["@rules_dart//dart:toolchain_type"].dart_sdk_info

@@ -31,6 +31,8 @@ target and the `flutter_library` targets of the main repository depend on.
 load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "plugins_in_registration_order")
 
+visibility("//flutter/...")
+
 # The platforms flutter_tools chooses for, in the order it reports on them.
 _PLATFORMS = ("android", "ios", "linux", "macos", "windows", "web")
 

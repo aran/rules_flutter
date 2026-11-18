@@ -10,6 +10,8 @@ launch.
 load("//flutter/private:constants.bzl", "ANDROID_ABI_FOR_ARCH")
 load("//flutter/private:engine_labels.bzl", "android_engine_cpu")
 
+visibility("//flutter/...")
+
 def check_ios_engine(label, sdk_record, arch, is_device):
     """Fails when the iOS engine has no xcframework slice for the app's environment and CPU.
 

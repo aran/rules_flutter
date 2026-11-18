@@ -18,6 +18,8 @@ would push that divergence into per-rule conditionals.
 
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterWindowsPluginInfo")
 
+visibility("//flutter/...")
+
 def _flutter_windows_plugin_library_impl(ctx):
     return [
         FlutterWindowsPluginInfo(

@@ -25,6 +25,8 @@ load("//flutter/private:program_analysis.bzl", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "program_version_dart_defines")
 load("//flutter/private:validation.bzl", "validate_dart_defines")
 
+visibility("//flutter/...")
+
 def make_web_wrapper_main_content(original_import, registrant_import = None, agent_imports = None):
     """Generate a web wrapper main.dart that uses ui_web.bootstrapEngine().
 

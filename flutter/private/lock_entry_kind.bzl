@@ -12,6 +12,8 @@ not (`ignored`). A `git`
 package is fetched at the commit the lock records and built like a hosted one.
 """
 
+visibility("//flutter/...")
+
 # A package fetched from a pub registry.
 HOSTED = "hosted"
 

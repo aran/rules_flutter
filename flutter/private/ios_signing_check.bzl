@@ -2,6 +2,8 @@
 
 load("@apple_support//lib:apple_support.bzl", "apple_support")
 
+visibility("//flutter/...")
+
 def _impl(ctx):
     if apple_support.target_environment_from_rule_ctx(ctx) == "device" and not ctx.attr.provisioning_profile_set:
         fail((

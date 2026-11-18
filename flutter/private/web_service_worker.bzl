@@ -21,6 +21,8 @@ already exists*, so a first-time visitor never gets a worker at all and the
 teardown is confined to the upgrade path it exists for.
 """
 
+visibility("//flutter/...")
+
 def service_worker_version_for(worker_js):
     """The `?v=` value flutter.js appends to the worker's URL.
 

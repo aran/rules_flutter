@@ -23,6 +23,8 @@ the profile that *can* grant push, and Xcode writes it again — so the target
 that cannot use it is the one that says so.
 """
 
+visibility("//flutter/...")
+
 def resolve_ios_entitlements(entitlements, discovered):
     """The entitlements label for an iOS app, or None to ship none.
 

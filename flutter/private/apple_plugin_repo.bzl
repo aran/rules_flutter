@@ -38,6 +38,8 @@ load(
     "swift_package_targets",
 )
 
+visibility("//flutter/...")
+
 # What a plugin's source repository writes for this one.
 APPLE_PLUGIN_FILE = "flutter_apple_plugin.json"
 
@@ -664,10 +666,14 @@ def _apple_plugin_repo_impl(ctx):
     ctx.file("BUILD.bazel", """\
 load("@rules_apple//apple:resources.bzl", "apple_resource_bundle")
 load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
-load("@rules_flutter//flutter/private:flutter_apple_kept_symbols.bzl", "flutter_apple_kept_symbols")
-load("@rules_flutter//flutter/private:swift_package_product.bzl", "flutter_swift_package_product")
-load("@rules_flutter//flutter/private:swiftpm_app_settings.bzl", "flutter_swiftpm_app_library", "flutter_swiftpm_app_settings")
-load("@rules_flutter//flutter/private:unbuilt_native_code.bzl", "flutter_unbuilt_plugin_library")
+load(
+    "@rules_flutter//flutter/private:generated_repos.bzl",
+    "flutter_apple_kept_symbols",
+    "flutter_swift_package_product",
+    "flutter_swiftpm_app_library",
+    "flutter_swiftpm_app_settings",
+    "flutter_unbuilt_plugin_library",
+)
 {targets}{requirements}""".format(
         targets = "".join(targets),
         requirements = _SWIFT_REQUIREMENTS_TARGET,

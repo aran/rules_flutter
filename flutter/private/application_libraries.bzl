@@ -4,6 +4,8 @@ load("@rules_dart//dart:providers.bzl", "DartModuleInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInputsInfo")
 load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
 
+visibility("//flutter/...")
+
 ApplicationLibrariesInfo = provider(
     doc = "The libraries an application's program depends on, each with its kernel modules: what `flutter_test`'s `application` adds to the test's `deps`.",
     fields = {

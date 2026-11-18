@@ -9,6 +9,8 @@ load("//flutter/private:common.bzl", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
 load("//flutter/private:path_mapping.bzl", "sdk_action")
 
+visibility("//flutter/...")
+
 def web_build_mode(ctx):
     """The web build mode for the current Bazel compilation mode.
 

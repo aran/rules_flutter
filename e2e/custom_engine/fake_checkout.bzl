@@ -23,7 +23,7 @@ kernel format, the web's version of the same mismatch.
 """
 
 # buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "FLUTTER_VERSIONS")
 
 _RELEASE = "3.50.0"
 _OUT = "checkout/engine/src/out/"

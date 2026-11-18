@@ -22,6 +22,8 @@ load("//flutter/private:flutter_web_sdk_repo.bzl", "flutter_web_sdk_repo")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "DESKTOP_ENGINE_PLATFORMS", "HOST_PLATFORMS", "sdk_repo_name")
 load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS", "LINUX_SYSROOT_CHECKSUMS")
 
+visibility("//flutter/...")
+
 # The profile engine's repository: its flutter.jar, which the Android engine
 # slice of the profile mode is over.
 _ANDROID_PROFILE_ENGINE_BUILD = """\

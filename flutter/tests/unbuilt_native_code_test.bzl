@@ -257,7 +257,7 @@ def _member_content_test_impl(ctx):
         },
     )
     for part in [
-        'load("@rules_flutter//flutter/private:unbuilt_native_code.bzl", "flutter_unbuilt_plugin_library")',
+        'load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_unbuilt_plugin_library")',
         'flutter_unbuilt_plugin_library(\n    name = "rusty_apple_macos",\n    message = "macos message",',
         'flutter_unbuilt_plugin_library(\n    name = "rusty_linux",\n    message = "linux message",',
         'flutter_unbuilt_plugin_library(\n    name = "rusty_windows",\n    message = "windows message",',

@@ -7,6 +7,8 @@ load anything.
 
 load(":archive_repo.bzl", "flutter_archive_repo")
 
+visibility("//flutter/...")
+
 def archive(artifact, url, sha256, output = "", strip_prefix = "", type = ""):
     """One archive for `archive_repo` to extract.
 

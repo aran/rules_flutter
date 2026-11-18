@@ -35,6 +35,8 @@ load(
 load("//flutter:providers.bzl", "FlutterApplicationInputsInfo")
 load("//flutter/private:app_entrypoint.bzl", "compile_package_config", "synthesize_app_package")
 
+visibility("//flutter/...")
+
 # The web runtime each branch builds for, which keys the split: `wasm` is built
 # for the bundle's `wasm_platform`, `js` for its `js_platform`.
 BRANCH_COMPILER = {

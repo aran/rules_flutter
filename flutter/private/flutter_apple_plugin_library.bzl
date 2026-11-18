@@ -29,6 +29,8 @@ load("@rules_swift//mixed_language:mixed_language_library.bzl", "mixed_language_
 load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_library")
 load(":apple_engine.bzl", "IOS_ENGINE_XCFRAMEWORK", "MACOS_ENGINE_FRAMEWORK", "flutter_engine_module_maps")
 
+visibility("//flutter/...")
+
 _CLANG_SOURCE_EXTENSIONS = ("m", "mm", "c", "cc", "cpp", "cxx", "c++", "s", "S")
 _HEADER_EXTENSIONS = ("h", "hh", "hpp", "hxx", "h++", "inc")
 

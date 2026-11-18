@@ -17,6 +17,8 @@ load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "KERNEL_COMPIL
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
 
+visibility("//flutter/...")
+
 def _flutter_aot_snapshot_impl(ctx):
     flutter_toolchain = ctx.toolchains["@rules_flutter//flutter:toolchain_type"]
     flutter_sdk_info = flutter_toolchain.flutter_sdk_info

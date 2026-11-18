@@ -18,6 +18,8 @@ load("@rules_dart//dart:utils.bzl", "COVERAGE_ATTRS", "runfiles_path", "test_cov
 load("//flutter:providers.bzl", "FlutterTestProgramInfo")
 load("//flutter/private:test_tags.bzl", "tag_selectors")
 
+visibility("//flutter/...")
+
 # The environment variables the runner starts from. A target's own `env` never
 # sets one of these: it is the runner's start-up contract, and a target that
 # quietly replaced one would fail far from the cause.

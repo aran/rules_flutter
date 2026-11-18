@@ -5,7 +5,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 # The aggregation an application's bundle goes through: there is no public name
 # for it.
 # buildifier: disable=bzl-visibility
-load("@rules_flutter//flutter/private:flutter_library.bzl", "aggregate_pub_contributions")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "aggregate_pub_contributions")
 
 def _impl(ctx):
     env = analysistest.begin(ctx)

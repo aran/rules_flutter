@@ -30,6 +30,8 @@ load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
 load("//flutter/private:plugin_resolution.bzl", "application_plugins", "chosen_native_code")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info")
 
+visibility("//flutter/...")
+
 _FLUTTER_TOOLCHAIN_TYPE = "@rules_flutter//flutter:toolchain_type"
 
 # What an application rule declares so it can be built for a web platform,

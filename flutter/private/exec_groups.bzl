@@ -30,6 +30,8 @@ runs. A user who needs one target's actions elsewhere sets
 part of the rules' interface.
 """
 
+visibility("//flutter/...")
+
 PORTABLE = "portable"
 
 FLUTTER_EXEC_TOOLS = Label("//flutter:exec_tools_toolchain_type")

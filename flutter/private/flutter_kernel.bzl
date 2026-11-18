@@ -7,6 +7,8 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
 load("//flutter/private:common.bzl", "DEV_TOOL_SUPPORT_ATTRS", "KERNEL_COMPILE_ATTRS", "flutter_compile_kernel")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 def _flutter_kernel_impl(ctx):
     # flutter_compile_kernel handles mode-aware platform dill selection.
     # If the user explicitly requests AOT, force it regardless of mode.

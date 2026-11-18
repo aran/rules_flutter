@@ -5,6 +5,8 @@ Its own file so that `flutter_info_forwarding.bzl`, which every rule reading
 `flutter_pub_library.bzl`, which loads those rules.
 """
 
+visibility("//flutter/...")
+
 FlutterPubMemberInfo = provider(
     doc = "What a Flutter pub package contributes to `FlutterInfo`, beyond its Dart package.",
     fields = {

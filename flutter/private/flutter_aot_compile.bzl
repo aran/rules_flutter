@@ -10,6 +10,8 @@ Output format depends on the target platform:
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "SPLIT_DEBUG_INFO_ATTR", "split_debug_info")
 
+visibility("//flutter/...")
+
 _FLUTTER_TOOLCHAIN = Label("//flutter:toolchain_type")
 
 # gen_snapshot flags whose value is a file path gen_snapshot writes, by their

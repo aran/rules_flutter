@@ -18,6 +18,8 @@ load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_ios_application.bzl", "ios_app_framework")
 
+visibility("//flutter/...")
+
 _MINIMUM_OS_VERSION = {"ios": IOS_MINIMUM_OS_VERSION, "macos": MACOS_MINIMUM_OS_VERSION}
 
 _MACOS_APP_FRAMEWORK_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>

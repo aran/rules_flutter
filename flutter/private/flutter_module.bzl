@@ -12,6 +12,8 @@ load("@rules_dart//dart:providers.bzl", "DartKernelSdkInfo")
 load("@rules_dart//dart:utils.bzl", "dart_kernel_runtime", "dart_module_aspect")
 load("//flutter/private:exec_groups.bzl", "FLUTTER_EXEC_TOOLS")
 
+visibility("//flutter/...")
+
 # The libraries whose classes' `toString` an optimized build reduces to the
 # default, as flutter_tools' `buildModeOptions` asks for profile and release.
 _DELETE_TOSTRING = [

@@ -9,6 +9,8 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE")
 load("//flutter/private:path_mapping.bzl", "dirname")
 
+visibility("//flutter/...")
+
 # Platform-specific impellerc flags. Flutter's shader compiler targets:
 # - iOS: Metal only
 # - macOS: SKSL + Metal

@@ -19,6 +19,8 @@ load("@rules_dart//dart/pub:pub_files_root.bzl", "write_pub_files_root")
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:pinned.bzl", "pinned")
 
+visibility("//flutter/...")
+
 def _flutter_source_files_impl(rctx):
     # The tarball is the one every consumer of the framework source fetches,
     # pinned to the same digest, so Bazel's repository cache serves it to all

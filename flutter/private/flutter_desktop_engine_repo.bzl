@@ -14,6 +14,8 @@ load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "cpp_client_wrapper_artifact_path", "desktop_engine_artifact_path", "engine_artifact_url")
 load(":engine_helpers.bzl", "engine_filegroup_for_os", "macos_inner_framework")
 
+visibility("//flutter/...")
+
 def flutter_desktop_engine_repo(name, engine_revision, target_os, target_arch, mode = "release", sha256 = "", cpp_wrapper_sha256 = ""):
     """Declares the repository of a desktop Flutter engine library.
 

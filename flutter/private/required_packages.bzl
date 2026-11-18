@@ -2,6 +2,8 @@
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 
+visibility("//flutter/...")
+
 def check_required_packages(label, deps, required):
     """Fails unless the program's dependencies bring each of `required`.
 

@@ -15,6 +15,8 @@ runs on the emulator.
 load("//flutter/private:artifact_urls.bzl", "android_emulator_url", "android_system_image_url")
 load("//flutter/private:pinned.bzl", "pinned")
 
+visibility("//flutter/...")
+
 def _flutter_android_emulator_impl(repository_ctx):
     host = repository_ctx.attr.host
     repository_ctx.download_and_extract(
@@ -87,7 +89,7 @@ def _flutter_android_system_image_impl(repository_ctx):
         abi = attr.abi,
         api_level = attr.api_level,
         tag = attr.tag,
-        rule_bzl = str(Label("//flutter/private:flutter_android_emulator.bzl")),
+        rule_bzl = str(Label("//flutter/private:generated_repos.bzl")),
     ))
 
 # `system_image` says what the image is, which the emulator's device

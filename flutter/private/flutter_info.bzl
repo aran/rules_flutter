@@ -20,6 +20,8 @@ ordinary call with no arguments, not a special one.
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("//flutter:providers.bzl", "FlutterInfo")
 
+visibility("//flutter/...")
+
 def dedup_plugins(all_plugins):
     """Deduplicates plugin structs by name, keeping first occurrence.
 

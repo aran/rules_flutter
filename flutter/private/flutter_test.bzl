@@ -93,6 +93,8 @@ load("//flutter/private:plugin_resolution.bzl", "application_plugins")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "app_version_dart_defines")
 
+visibility("//flutter/...")
+
 # The target's Flutter SDK, whose `flutter_tester` runs the test.
 _FLUTTER_TOOLCHAIN = "@rules_flutter//flutter:toolchain_type"
 

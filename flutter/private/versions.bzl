@@ -32,6 +32,8 @@ ARTIFACT_CHECKSUMS maps version → artifact_path → sha256.
 
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 
+visibility("//flutter/...")
+
 FLUTTER_VERSIONS = {
     "3.50.0": struct(
         engine_revision = "371f77202a73e8dff57a8b3bff75bca55c090aee",

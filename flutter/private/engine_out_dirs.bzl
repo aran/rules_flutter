@@ -7,6 +7,8 @@ name is only how the scan finds candidates: `args.gn` is the authority on what
 a directory holds.
 """
 
+visibility("//flutter/...")
+
 _MODES = ["debug", "profile", "release"]
 _CPUS = ["arm", "arm64", "x64", "x86", "riscv64", "loong64"]
 _OSES = ["host", "wasm", "mac", "ios", "android", "linux", "win", "fuchsia"]

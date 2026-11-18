@@ -14,6 +14,8 @@ why `@rules_flutter//flutter/pub` exists — resolving with the pinned toolchain
 is the only thing that prevents it.
 """
 
+visibility("//flutter/...")
+
 def parse_lock_sdk_constraints(lock_content):
     """Extracts the `sdks:` block from a pubspec.lock.
 

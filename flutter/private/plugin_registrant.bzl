@@ -11,6 +11,8 @@ order flutter_tools does (`plugins_on_platform`).
 
 load("//flutter/private:flutter_info.bzl", "plugins_on_platform")
 
+visibility("//flutter/...")
+
 def make_registrant_content(plugins, target_platform = None, agent_import = None, native_agent_import = None):
     """Generate Dart source content for plugin registration.
 

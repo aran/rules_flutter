@@ -12,6 +12,8 @@ load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS")
 load("//flutter/private:program_analysis.bzl", "staged_sources")
 load("//flutter/private:required_packages.bzl", "check_required_packages")
 
+visibility("//flutter/...")
+
 def _flutter_application_variant_impl(ctx):
     program = ctx.attr.application[FlutterApplicationInputsInfo].inputs
     deps = program.deps + ctx.attr.deps

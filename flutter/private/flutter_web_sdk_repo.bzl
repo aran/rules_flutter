@@ -11,6 +11,8 @@ Dart SDK libraries (dart:core, dart:async, etc.).
 load("//flutter/private:pinned.bzl", "pinned")
 load(":artifact_urls.bzl", "dart_sdk_artifact_path", "engine_artifact_url")
 
+visibility("//flutter/...")
+
 def _detect_host_platform(repository_ctx):
     """Detect the host platform string (e.g. 'darwin-arm64', 'linux-x64')."""
     os_name = repository_ctx.os.name

@@ -14,6 +14,8 @@ known before: its form, and that the root's name packages the build builds.
 load("@rules_dart//dart/ext:registry.bzl", "curated_cycles")
 load("@rules_dart//dart/pub:pub_graph.bzl", "cycle_declaration", "cycle_declarations_error")
 
+visibility("//flutter/...")
+
 # The tag that declares a cycle, as a user writes it, for messages.
 DECLARE = "flutter_pub.cycle"
 

@@ -15,6 +15,8 @@ Differences from npm's semver that matter here:
   the breaking version is the next minor, for `0.0.z` too.
 """
 
+visibility("//flutter/...")
+
 _DIGITS = "0123456789"
 _IDENT_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-"
 

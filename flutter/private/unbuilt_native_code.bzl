@@ -30,6 +30,8 @@ builds is not checked: the overlay is how the library is supplied.
 load("//flutter/private:cmake_link_libraries.bzl", "scan_cmake_commands")
 load("//flutter/private:gradle_script.bzl", "gradle_statements")
 
+visibility("//flutter/...")
+
 _CARGOKIT = "which builds a Rust crate with cargo"
 
 PLATFORM_NAMES = {

@@ -13,6 +13,8 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "CC_TOOLCHAIN_TYPE", "use_cc_toolchain")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 
+visibility("//flutter/...")
+
 # The attributes and toolchains a rule needs to call `run_xcode_tool`.
 XCODE_TOOL_ATTRS = dicts.add(
     apple_support.action_required_attrs(),

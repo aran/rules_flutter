@@ -33,6 +33,8 @@ load("//flutter/private:android_plugin_maven.bzl", "compare_maven_versions")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 
+visibility("//flutter/...")
+
 _MavenCoordinatesInfo = provider(
     doc = "The Maven coordinates of the rules_jvm_external targets below a library.",
     fields = {

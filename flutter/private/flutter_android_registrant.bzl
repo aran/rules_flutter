@@ -14,6 +14,8 @@ Tier-1 macro) compiles the registrant + every transitive plugin's
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:plugin_registrant.bzl", "generate_native_plugin_registrant")
 
+visibility("//flutter/...")
+
 def _flutter_android_registrant_impl(ctx):
     plugins = ctx.attr.application[FlutterApplicationInfo].plugins
     registrant = generate_native_plugin_registrant(ctx, plugins, "android")

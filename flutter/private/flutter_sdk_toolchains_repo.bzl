@@ -14,6 +14,8 @@ load("//flutter/private:sdk_defines.bzl", "custom_sdk_dart_defines", "sdk_dart_d
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "HOST_PLATFORMS")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
+visibility("//flutter/...")
+
 def _release_kernel(engine):
     return """select({{
         "@rules_flutter//flutter/private:dbg": None,

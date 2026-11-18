@@ -33,6 +33,8 @@ load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 load("//flutter/private:sdk_origin.bzl", "is_release_engine")
 
+visibility("//flutter/...")
+
 # `flutter build aar`'s default `--target-platform`: android-arm, android-arm64
 # and android-x64.
 DEFAULT_AAR_ABIS = ["armeabi-v7a", "arm64-v8a", "x86_64"]

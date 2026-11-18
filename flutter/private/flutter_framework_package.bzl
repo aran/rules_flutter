@@ -26,6 +26,8 @@ load("//flutter/private:framework_source.bzl", "check_dependency_constraints", "
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "PACKAGE_METADATA_LOAD", "make_package_metadata_content")
 load("//flutter/private:pinned.bzl", "pinned")
 
+visibility("//flutter/...")
+
 _PACKAGE = "flutter"
 
 def make_flutter_framework_build_content(deps, language_version, license_file = ""):
@@ -58,7 +60,7 @@ def make_flutter_framework_build_content(deps, language_version, license_file = 
         deps_block = "    deps = [\n{}\n    ],\n".format("\n".join(dep_lines))
 
     return PACKAGE_METADATA_LOAD + """\
-load("@rules_flutter//flutter/private:flutter_library.bzl", "flutter_framework_library")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_framework_library")
 
 {metadata}
 flutter_framework_library(

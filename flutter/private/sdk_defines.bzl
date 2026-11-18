@@ -15,6 +15,8 @@ come from the release the toolchain pins (`versions.bzl`). The app's are its
 load("//flutter/private:app_version.bzl", "DEFAULT_BUILD_NAME", "DEFAULT_BUILD_NUMBER")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
+visibility("//flutter/...")
+
 APP_BUILD_NAME_DEFINE = "FLUTTER_BUILD_NAME"
 APP_BUILD_NUMBER_DEFINE = "FLUTTER_BUILD_NUMBER"
 

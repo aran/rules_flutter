@@ -1,5 +1,7 @@
 """Shared constants for rules_flutter."""
 
+visibility("//flutter/...")
+
 # Minimum OS deployment targets: both the default and the floor.
 #
 # These are not a style choice. The prebuilt engine these rules vend is itself

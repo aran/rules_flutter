@@ -36,6 +36,8 @@ load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "native_asset_framework_name", "run_code_assets_tool")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
+visibility("//flutter/...")
+
 _MINIMUM_OS_VERSION = {"ios": IOS_MINIMUM_OS_VERSION, "macos": MACOS_MINIMUM_OS_VERSION}
 
 # The engine framework a plugin links, by platform.

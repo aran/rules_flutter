@@ -150,8 +150,7 @@ void main() {
       // name of a sibling of the same extension.
       extension:
           """
-load("@rules_flutter//flutter/private:flutter_framework_package.bzl", "flutter_framework_package")
-load("@rules_flutter//flutter/private:flutter_pub_index.bzl", "flutter_pub_index")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_framework_package", "flutter_pub_index")
 
 def _impl(_):
     flutter_pub_index(

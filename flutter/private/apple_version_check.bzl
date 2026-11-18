@@ -23,6 +23,8 @@ load("//flutter/private:app_version.bzl", "apple_version")
 load("//flutter/private:application_version.bzl", "shown_label", "version_names")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
+visibility("//flutter/...")
+
 def _impl(ctx):
     tools = portable_tools(ctx)
     stamp = ctx.actions.declare_file(ctx.label.name + ".checked")

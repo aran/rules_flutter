@@ -36,6 +36,8 @@ load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "nat
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
+visibility("//flutter/...")
+
 def build_plugin_struct(name, plugin_platforms, implements = ""):
     """Build a plugin metadata struct from per-platform metadata.
 

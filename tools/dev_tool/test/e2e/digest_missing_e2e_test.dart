@@ -202,7 +202,6 @@ void main() {
               'host_platform': str('darwin-arm64'),
               'target_platform': str('android-arm64'),
             },
-            bzl: 'flutter_cross_repo',
           ),
         ),
         // The web SDK repository fetches two archives; the second is the Dart

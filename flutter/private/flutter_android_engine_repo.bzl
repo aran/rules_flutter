@@ -15,6 +15,8 @@ This is lazy — only fetched when an Android build target is used.
 load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "android_engine_artifact_path", "engine_artifact_url")
 
+visibility("//flutter/...")
+
 def flutter_android_engine_repo(name, engine_revision, android_arch, release_sha256 = "", debug_sha256 = ""):
     """Declares the repository of the Android engine of one ABI, release and debug.
 

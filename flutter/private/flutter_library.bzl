@@ -7,6 +7,8 @@ load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "flutter_info")
 load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 
+visibility("//flutter/...")
+
 def package_root_of(owner):
     """The root of the Dart package `owner` is in: the directory above `lib/`.
 

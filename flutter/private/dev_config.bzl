@@ -22,6 +22,8 @@ only through that. The other values:
   `write_dev_config` refuses one under the output tree.
 """
 
+visibility("//flutter/...")
+
 _MAX_NODES = 1000000
 
 def dev_config_file(file, names):

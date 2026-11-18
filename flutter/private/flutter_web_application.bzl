@@ -102,6 +102,8 @@ load(
     "service_worker_load_args",
 )
 
+visibility("//flutter/...")
+
 # The glyph the engine measures an icon font's height with.
 _SPACE_CODE_POINT = 32
 

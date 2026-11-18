@@ -32,6 +32,8 @@ failure when a runner links the plugin, so that builds for other platforms are
 unaffected.
 """
 
+visibility("//flutter/...")
+
 _WHITESPACE = " \t\r\n"
 _IDENTIFIER_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
