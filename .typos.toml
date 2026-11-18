@@ -38,8 +38,9 @@ Paeth = "Paeth"
 # be reported. Most are also `flutter create` output, which this repo does not
 # edit, so there is nothing to correct even where a hit is real.
 #
-# tls_fixture.dart is a PEM certificate and key inlined as base64, for the same
-# reason: no prose in it to check.
+# tls_fixture.dart is a PEM certificate and key inlined as base64, and
+# signed_profile_fixture.dart a signed profile, for the same reason: no prose
+# in them to check.
 #
 # The Maven lock files (`*_install.json`) are rules_jvm_external's output: they
 # list Java package names, and typos "corrects" some of them (`oer` to `over`,
@@ -50,4 +51,5 @@ extend-exclude = [
   "**/*.xib",
   "**/*.pbxproj",
   "**/tls_fixture.dart",
+  "**/signed_profile_fixture.dart",
 ]

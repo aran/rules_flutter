@@ -77,7 +77,7 @@ load("//flutter/private:flutter_apple_registrant.bzl", _flutter_apple_swift_pack
 load("//flutter/private:flutter_apple_xcframeworks.bzl", _flutter_ios_app_xcframework = "flutter_ios_app_xcframework", _flutter_ios_engine_xcframework = "flutter_ios_engine_xcframework")
 load("//flutter/private:flutter_ios_application.bzl", _flutter_ios_app_framework_rule = "flutter_ios_app_framework", _flutter_ios_application = "flutter_ios_application", _flutter_ios_dropped_frameworks_rule = "flutter_ios_dropped_frameworks", _flutter_ios_native_frameworks_rule = "flutter_ios_native_frameworks", _flutter_ios_privacy_manifests_rule = "flutter_ios_privacy_manifests")
 load("//flutter/private:flutter_ios_registrant.bzl", _flutter_ios_registrant_rule = "flutter_ios_registrant")
-load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
+load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge", _flutter_signing_entitlements = "flutter_signing_entitlements")
 load("//flutter/private:ios_entitlements.bzl", "resolve_ios_entitlements")
 load("//flutter/private:ios_signing_check.bzl", "flutter_ios_signing_check")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
@@ -510,9 +510,14 @@ def flutter_ios_app(
             it to `ios_application`. Unlike macOS (where flutter create
             always emits the entitlements files), iOS only ships
             Runner.entitlements when capabilities are enabled in Xcode;
-            its absence is a valid, capability-less app and the macro
-            ships nothing rather than synthesizing a default. Pass `False`
-            to ship none although the file exists — a device build is
+            its absence is a valid, capability-less app. Either way a
+            signed app is signed as Xcode signs it: with its own
+            entitlements, its `application-identifier` (the profile's
+            prefix and the bundle id), the profile's
+            `com.apple.developer.team-identifier`, `beta-reports-active`
+            and `get-task-allow` where the profile grants them, and
+            nothing else the profile grants. Pass `False` to ship none of
+            the app's own although the file exists — a device build is
             signed against a profile, and an entitlement the profile does
             not grant fails it: `aps-environment`, which Xcode writes when
             Push is enabled, cannot be granted by a team wildcard profile
@@ -638,6 +643,23 @@ def flutter_ios_app(
             testonly = testonly,
         )
         entitlements = "__%s_entitlements" % name
+
+    # A signed app gets the entitlements Xcode signs it with: its own, its
+    # `application-identifier`, and the profile's team identifier and
+    # `beta-reports-active`. Given none, rules_apple would sign it with all the
+    # profile grants, a wildcard profile's keychain group `<team>.*` among
+    # them, shared with every app signed that way; given some, without the
+    # team identifier. A `select()` of a profile is resolved by the rule, which
+    # passes the app's own entitlements through where it gives `None`.
+    if provisioning_profile != None:
+        _flutter_signing_entitlements(
+            name = "__%s_signing_entitlements" % name,
+            entitlements = entitlements,
+            provisioning_profile = provisioning_profile,
+            tags = tags,
+            testonly = testonly,
+        )
+        entitlements = "__%s_signing_entitlements" % name
 
     # The app icon: the conventional catalog `flutter create` writes, unless
     # the caller named something else. Discovered for the same reason the

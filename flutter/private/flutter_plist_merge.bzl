@@ -25,6 +25,15 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 
 _TOOL = Label("//flutter/private/tools:merge_plists.dart")
+_SIGNING_TOOL = Label("//flutter/private/tools:signing_entitlements.dart")
+
+_EMPTY_PLIST = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>
+"""
 
 def _flutter_plist_merge_impl(ctx):
     tools = portable_tools(ctx)
@@ -156,3 +165,91 @@ def flutter_entitlements_merge(name, additions, base = None, **kwargs):
         tags = tags,
         **kwargs
     )
+
+def _flutter_signing_entitlements_impl(ctx):
+    # No profile in this configuration, such as the simulator branch of a
+    # `select()` that names one only for a device: the bundle is not signed
+    # against a profile, and keeps its own entitlements. The bundle rule takes
+    # a single file, so a bundle with none gets an empty dictionary.
+    if not ctx.file.provisioning_profile:
+        if ctx.file.entitlements:
+            return [DefaultInfo(files = depset([ctx.file.entitlements]))]
+        empty = ctx.actions.declare_file("%s/Signing.entitlements" % ctx.label.name)
+        ctx.actions.write(empty, _EMPTY_PLIST)
+        return [DefaultInfo(files = depset([empty]))]
+
+    tools = portable_tools(ctx)
+    output = ctx.actions.declare_file("%s/Signing.entitlements" % ctx.label.name)
+
+    args = ctx.actions.args()
+    args.add(ctx.file._signing_tool)
+    args.add("--profile", ctx.file.provisioning_profile)
+    inputs = [
+        ctx.file._signing_tool,
+        ctx.file._merge_tool,
+        ctx.file._plist_binary,
+        ctx.file.provisioning_profile,
+    ]
+    if ctx.file.entitlements:
+        args.add("--entitlements", ctx.file.entitlements)
+        inputs.append(ctx.file.entitlements)
+    args.add("--output", output)
+
+    ctx.actions.run(
+        executable = tools.dart,
+        arguments = [args],
+        inputs = depset(
+            direct = inputs,
+            transitive = [tools.sdk_files.run],
+        ),
+        outputs = [output],
+        mnemonic = "FlutterSigningEntitlements",
+        exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
+        progress_message = "Writing the signing entitlements of %{label}",
+    )
+
+    return [DefaultInfo(files = depset([output]))]
+
+flutter_signing_entitlements = rule(
+    implementation = _flutter_signing_entitlements_impl,
+    attrs = {
+        "entitlements": attr.label(
+            doc = "The bundle's own entitlements. May be omitted: an iOS app " +
+                  "with no capabilities has none.",
+            allow_single_file = True,
+        ),
+        "provisioning_profile": attr.label(
+            doc = "The profile the bundle is signed against. May be a " +
+                  "`select()` that gives `None` where the bundle is not " +
+                  "signed against one: there the output is the bundle's own " +
+                  "entitlements.",
+            allow_single_file = True,
+        ),
+        "_merge_tool": attr.label(
+            default = _TOOL,
+            allow_single_file = True,
+        ),
+        "_plist_binary": attr.label(
+            default = "//flutter/private/tools:plist_binary.dart",
+            allow_single_file = True,
+        ),
+        "_signing_tool": attr.label(
+            default = _SIGNING_TOOL,
+            allow_single_file = True,
+        ),
+    },
+    exec_groups = PORTABLE_EXEC_GROUPS,
+    doc = """The entitlements a bundle is signed with against a provisioning profile.
+
+They are the bundle's own and what Xcode takes from the profile: the bundle's
+`application-identifier` (`com.apple.application-identifier` on macOS), and
+the profile's `com.apple.developer.team-identifier` and `beta-reports-active`,
+each only where the profile grants it and the bundle's own do not set it.
+rules_apple adds the profile's `get-task-allow`. Pass the output to the bundle
+rule's `entitlements`, beside the same `provisioning_profile`: without it,
+rules_apple signs a bundle that has no entitlements with everything the
+profile grants, and one that has some without a team identifier. In a
+configuration with no profile the output is the bundle's own entitlements, or
+an empty dictionary for a bundle with none.""",
+)

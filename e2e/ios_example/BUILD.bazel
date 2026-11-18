@@ -774,6 +774,69 @@ dart_test(
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
+# What a signed app's entitlements say, as rules_apple hands them to codesign,
+# against a team wildcard development profile
+# (profiles/team_wildcard.mobileprovision) and an App Store distribution profile
+# (profiles/app_store.mobileprovision). Both grant a wildcard keychain group,
+# and the distribution profile `beta-reports-active`. Against each, one app
+# declares no capability, as `flutter create` leaves it, and the other a
+# keychain group of its own.
+flutter_ios_app(
+    name = "signing_plain_app_device",
+    application = ":app_flutter",
+    bundle_id = "com.rulesflutter.ios.example.signing",
+    provisioning_profile = "profiles/team_wildcard.mobileprovision",
+)
+
+flutter_ios_app(
+    name = "signing_keychain_app_device",
+    application = ":app_flutter",
+    bundle_id = "com.rulesflutter.ios.example.signing.keychain",
+    entitlements = "signing/SharedKeychain.entitlements",
+    provisioning_profile = "profiles/team_wildcard.mobileprovision",
+)
+
+flutter_ios_app(
+    name = "signing_store_plain_app_device",
+    application = ":app_flutter",
+    bundle_id = "com.rulesflutter.ios.example.signing.store",
+    provisioning_profile = "profiles/app_store.mobileprovision",
+)
+
+flutter_ios_app(
+    name = "signing_store_keychain_app_device",
+    application = ":app_flutter",
+    bundle_id = "com.rulesflutter.ios.example.signing.store",
+    entitlements = "signing/SharedKeychain.entitlements",
+    provisioning_profile = "profiles/app_store.mobileprovision",
+)
+
+apple_release_build(
+    name = "signing_entitlements",
+    compilation_mode = "opt",
+    entitlements = True,
+    ios_device = True,
+    sign = False,
+    targets = [
+        ":signing_keychain_app_device",
+        ":signing_plain_app_device",
+        ":signing_store_keychain_app_device",
+        ":signing_store_plain_app_device",
+    ],
+)
+
+dart_test(
+    name = "verify_ios_signing_entitlements_test",
+    args = ["$(rlocationpaths :signing_entitlements)"],
+    data = [":signing_entitlements"],
+    main = "test/verify_ios_signing_entitlements_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = [
+        "@rules_dart//dart/runfiles",
+        "@rules_flutter//tools/e2e_testing",
+    ],
+)
+
 # =============================================================================
 # Plugins whose Package.swift decides its defines from the app
 # =============================================================================

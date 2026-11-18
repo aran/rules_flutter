@@ -6,7 +6,7 @@ compilation mode that builds Flutter's release mode (`fastbuild` and `opt`), so
 it needs the bundle built in a mode it names, not the one the command line has.
 """
 
-load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
+load("@rules_apple//apple:providers.bzl", "AppleBundleInfo", "AppleFrameworkImportInfo")
 
 _OBFUSCATE = str(Label("//flutter:obfuscate"))
 _SPLIT_DEBUG_INFO = str(Label("@rules_dart//dart:split_debug_info"))
@@ -42,6 +42,13 @@ _transition = transition(
 def _impl(ctx):
     files = []
     for target in ctx.attr.targets:
+        if ctx.attr.entitlements:
+            # rules_flutter's app forwards the bundle's provider.
+            entitlements = target[AppleBundleInfo].entitlements
+            if not entitlements:
+                fail("%s: %s is signed with no entitlements" % (ctx.label, target.label))
+            files.append(depset([entitlements]))
+            continue
         files.append(target[DefaultInfo].files)
 
         # A framework import has no files of its own: its frameworks are here.
@@ -62,11 +69,17 @@ frameworks of the framework imports among them.
 
 With `generate_dsym`, builds them with `--apple_generate_dsym` and forwards
 the dSYM bundles the targets' `dsyms` output group holds besides their own
-files. With `obfuscate`, builds them obfuscated.""",
+files. With `obfuscate`, builds them obfuscated. With `entitlements`, forwards
+the entitlements each is signed with instead of its files.""",
     attrs = {
         "compilation_mode": attr.string(
             mandatory = True,
             values = ["dbg", "fastbuild", "opt"],
+        ),
+        "entitlements": attr.bool(
+            default = False,
+            doc = "Forward the entitlements each bundle is signed with, as " +
+                  "rules_apple hands them to `codesign`, instead of its files.",
         ),
         "generate_dsym": attr.bool(
             default = False,

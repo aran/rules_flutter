@@ -34,6 +34,18 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
    modifications in [Explicit Clang modules on macOS and iOS](#explicit-clang-modules-on-macos-and-ios),
    which rules_flutter used to apply. See
    [Swift packages a plugin depends on](#swift-packages-a-plugin-depends-on).
+2. Signed iOS apps get the entitlements Xcode gives them (see `entitlements`
+   under [iOS](#ios)), no longer all their provisioning profile grants:
+   - An app with no entitlements file was signed with everything its profile
+     grants. A grant it used only that way, such as push
+     (`aps-environment`), associated domains or an App Group, now has to be
+     in its entitlements file.
+   - Without `keychain-access-groups` of its own, an app with no entitlements
+     file, or one signed with a wildcard profile, saved keychain items to the
+     group `<TEAM>.*` by default; it now saves them to
+     `<TEAM>.<bundle id>`. To keep reading the old items, list
+     `$(AppIdentifierPrefix)*` under `keychain-access-groups` in its
+     entitlements.
 
 ### Migrating from 0.0.8
 
@@ -1739,7 +1751,7 @@ The simulator runs an unsigned app, but APIs behind some entitlements, App Group
 | `info_plist` | Used in place of `ios/Runner/Info.plist`. Keep `UISceneDelegateClassName` as `$(PRODUCT_MODULE_NAME).SceneDelegate`, as `flutter create` writes it: the runner's module is named after the target, so `Runner.SceneDelegate` isn't found. |
 | `build_name`, `build_number`, `version` | See [App version](#app-version). |
 | `launch_storyboard` | Used in place of `ios/Runner/Base.lproj/LaunchScreen.storyboard`. |
-| `entitlements` | Used in place of `ios/Runner/Runner.entitlements`, which the macro uses if it exists. `flutter create` writes none, and an app without one is fine. `False` ships none even if the file exists (see [Running on an iOS device](#running-on-an-ios-device)). |
+| `entitlements` | Used in place of `ios/Runner/Runner.entitlements`, which the macro uses if it exists. `flutter create` writes none, and an app without one is fine. `False` ships none even if the file exists (see [Running on an iOS device](#running-on-an-ios-device)). A signed app is signed with the entitlements Xcode gives it: its own, its `application-identifier` (the profile's prefix and the bundle id), and the profile's `com.apple.developer.team-identifier`, `beta-reports-active` and `get-task-allow` where the profile grants them. Nothing else the profile grants is added, so a capability the app uses, such as push or associated domains, has to be in its entitlements. See [Migrating from 0.1.0](#migrating-from-010) for keychain items saved before this. |
 | `additional_entitlements` | Entitlement files merged into the app's, in every mode. With no `Runner.entitlements`, they are the app's entitlements. See [Release builds and permissions](#release-builds-and-permissions). |
 | `provisioning_profile` | The profile a device build is signed with, usually a `local_provisioning_profile` target. Required for a device build, unused by a simulator build. |
 | `app_icons` | Defaults to the `AppIcon.appiconset` in `ios/Runner/Assets.xcassets`. See [App icons](#app-icons). |

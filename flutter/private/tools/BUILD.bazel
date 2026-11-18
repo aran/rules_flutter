@@ -36,6 +36,7 @@ exports_files(
         "merge_plists.dart",
         "plist_binary.dart",
         "sdk_check.dart",
+        "signing_entitlements.dart",
         "strip_native_libs.dart",
         "swiftpm_app_settings.dart",
         "validate_android_elf.dart",
@@ -435,6 +436,19 @@ dart_test(
         "test/binary_plist_fixture.dart",
     ],
     main = "test/merge_plists_test.dart",
+    deps = ["@dev_tool_deps//:test"],
+)
+
+# The signing tool imports the merger, which imports the binary plist reader.
+dart_test(
+    name = "signing_entitlements_test",
+    srcs = [
+        "merge_plists.dart",
+        "plist_binary.dart",
+        "signing_entitlements.dart",
+        "test/signed_profile_fixture.dart",
+    ],
+    main = "test/signing_entitlements_test.dart",
     deps = ["@dev_tool_deps//:test"],
 )
 
