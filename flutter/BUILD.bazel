@@ -250,6 +250,7 @@ bzl_library(
     srcs = ["android.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:android_debug_info",
         "//flutter/private:app_version",
         "//flutter/private:flutter_android_aar",
         "//flutter/private:flutter_android_application",

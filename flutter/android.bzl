@@ -123,6 +123,7 @@ load("@rules_dart//dart:defs.bzl", "dart_binary")
 load("@rules_java//java:java_import.bzl", _java_import = "java_import")
 load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_library")
 load("@rules_kotlin//kotlin:core.bzl", _kt_kotlinc_options = "kt_kotlinc_options")
+load("//flutter/private:android_debug_info.bzl", _flutter_android_debug_info = "flutter_android_debug_info")
 load("//flutter/private:app_version.bzl", "manifest_values_conflict", "version_arg")
 load("//flutter/private:constants.bzl", _ANDROID_MIN_SDK_VERSION = "ANDROID_MIN_SDK_VERSION", _ANDROID_REGISTRANT_JVM_TARGET = "ANDROID_REGISTRANT_JVM_TARGET", _ANDROID_TARGET_SDK_VERSION = "ANDROID_TARGET_SDK_VERSION")
 load("//flutter/private:flutter_android_aar.bzl", _DEFAULT_AAR_ABIS = "DEFAULT_AAR_ABIS", _flutter_android_maven_repo = "flutter_android_maven_repo", _flutter_android_module_aar = "flutter_android_module_aar", _flutter_android_plugin_aars = "flutter_android_plugin_aars")
@@ -212,6 +213,11 @@ flutter_android_build = _flutter_android_build
 # every ABI. The key is read at run time from Flutter's `key.properties` and
 # never reaches the build graph. See flutter/private/flutter_android_release.bzl.
 flutter_android_release = _flutter_android_release
+
+# Applied from the command line, gives an APK (`android_binary`) the
+# `.symbols` of the snapshots it ships in its `debug_info` output group. See
+# flutter/private/android_debug_info.bzl.
+flutter_android_debug_info = _flutter_android_debug_info
 
 # The AAR of a Flutter module (`flutter_<mode>`), the AARs of its plugins, and
 # the Maven repository of both, for a Gradle-built host app: the pieces of

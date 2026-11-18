@@ -9,6 +9,7 @@ packages: the application built at the top level compiles another snapshot.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_android//providers:providers.bzl", "AndroidBinaryNativeLibsInfo", "AndroidNativeLibsInfo")
+load("//flutter:android.bzl", "flutter_android_debug_info")
 
 _ShippedLibsInfo = provider(
     doc = "The native library zips of the Flutter bundles an app packages, each in the configuration it is packaged from.",
@@ -70,6 +71,17 @@ _probe = rule(
     )},
 )
 
+# The same, of an APK under `flutter_android_debug_info`, as
+# `--aspects=@rules_flutter//flutter:android.bzl%flutter_android_debug_info`
+# applies it.
+_apk_probe = rule(
+    implementation = _probe_impl,
+    attrs = {"app": attr.label(
+        mandatory = True,
+        aspects = [_shipped_libs, flutter_android_debug_info],
+    )},
+)
+
 def _split_debug_info_impl(ctx):
     env = analysistest.begin(ctx)
     groups = analysistest.target_under_test(env)[OutputGroupInfo]
@@ -117,7 +129,7 @@ _split_debug_info_two_abis_test = analysistest.make(
     config_settings = _SETTINGS | _TWO_ABIS,
 )
 
-def android_split_debug_info_test(name, target, symbols, two_abis = False):
+def android_split_debug_info_test(name, target, symbols, two_abis = False, apk = False):
     """A test that `target`'s `debug_info` group holds the `.symbols` of each snapshot it packages.
 
     Built `-c opt`, obfuscated, with `--@rules_dart//dart:split_debug_info`.
@@ -129,13 +141,15 @@ def android_split_debug_info_test(name, target, symbols, two_abis = False):
     Args:
         name: The test's name.
         target: The app: an AAR repository (`flutter_android_aar`), an App
-            Bundle (`flutter_android_app`'s `app_bundle`) or a
-            `flutter_android_release`.
+            Bundle (`flutter_android_app`'s `app_bundle`), a
+            `flutter_android_release`, or with `apk` an APK.
         symbols: The files' basenames, one an ABI (`app.android-arm64.symbols`).
         two_abis: Build for arm64-v8a and armeabi-v7a rather than the command
             line's `--@rules_android//flags:android_platforms`.
+        apk: `target` is an APK (`android_binary`), which has the group only
+            under the `flutter_android_debug_info` aspect.
     """
     probe = name + "_probe"
-    _probe(name = probe, app = target, tags = ["manual"])
+    (_apk_probe if apk else _probe)(name = probe, app = target, tags = ["manual"])
     rule = _split_debug_info_two_abis_test if two_abis else _split_debug_info_test
     rule(name = name, target_under_test = probe, symbols = symbols)

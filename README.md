@@ -460,7 +460,15 @@ bazel build -c opt //:my_app_macos \
 - `flutter_ios_app`, `flutter_macos_app`, `flutter_linux_app` and `flutter_windows_app` hold their one `.symbols`.
 - `flutter_android_app`'s `app_bundle` holds one for each ABI it ships (`app.android-arm.symbols`, `app.android-arm64.symbols`, `app.android-x64.symbols`), as `flutter build appbundle --split-debug-info` writes them. So does `flutter_android_release`, for its release build.
 - `flutter_android_aar` holds one for each ABI of the AAR.
-- The APK itself, rules_android's `android_binary`, passes on no output group. Build its `app_bundle` for its `.symbols`: the App Bundle's base module is the same build, so they are the APK's.
+- The APK itself, rules_android's `android_binary`, passes on no output group of rules_flutter's, so the `flutter_android_debug_info` aspect gives it one: one `.symbols` for each ABI in the APK, as `flutter build apk --split-debug-info` writes them, from the builds the APK packages, so nothing compiles again. It works on an `android_binary` assembled from the composable rules too:
+
+  ```sh
+  bazel build -c opt //:my_app_android \
+      --@rules_dart//dart:split_debug_info \
+      --@rules_flutter//flutter:obfuscate \
+      --aspects=@rules_flutter//flutter:android.bzl%flutter_android_debug_info \
+      --output_groups=+debug_info
+  ```
 
 A rules_dart `dart_binary` writes `<name>.symbols`. `--@rules_flutter//flutter:obfuscate` renames the Dart symbols. It needs `split_debug_info`, as `--obfuscate` needs `--split-debug-info`, and the build fails without it. A debug build ignores both.
 
