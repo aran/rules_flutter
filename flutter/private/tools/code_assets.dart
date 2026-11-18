@@ -21,6 +21,8 @@
 ///     into `<dir>`, at its path in the platform's code-asset directory. A
 ///     shipped library with a `--copy` of the same file name (one stripped
 ///     for the bundle) is placed from the copy.
+///     On Linux, each library's runpath entries relative to `$ORIGIN` become
+///     one `$ORIGIN`, the bundle's `lib/`.
 ///   dart code_assets.dart android-libs --program-assets=<file> --abi <abi>
 ///       --output <zip> [--library <file>]... [--library-as <name> <file>]...
 ///     Writes the APK's native libraries, `lib/<abi>/<name>` entries stored
@@ -54,6 +56,7 @@ import 'dart:io';
 
 import 'apple_frameworks.dart' show copyBundle;
 import 'assemble_directory.dart' show copyFile;
+import 'elf_runpath.dart' show ElfDynamic, bundledRunpath;
 import 'zip_archive.dart' show ZipEntry, writeZip;
 
 /// The name and version of the program-assets line format this reads.
@@ -394,7 +397,8 @@ String _programAssets(List<String> args) {
 
 /// Copies each library that ships, and [always], into [output] as
 /// [placement] has them in its directory. Two ids served by one library copy
-/// it once.
+/// it once. On Linux each library's runpath is the bundle's (`bundledRunpath`),
+/// and one that links another the bundle carries must find it by `$ORIGIN`.
 void place(
   ProgramCodeAssets program,
   CodeAssetPlacement placement,
@@ -407,6 +411,8 @@ void place(
   };
   Directory(output).createSync(recursive: true);
   final placed = <String, String>{};
+  // On Linux, what each library placed links and where it looks.
+  final linked = <String, ElfDynamic>{};
   void copy(String source, String fileName) {
     final target = placement.pathInDirectory(fileName);
     final other = placed[target];
@@ -417,7 +423,18 @@ void place(
       );
     }
     placed[target] = source;
-    copyFile(File(source), '$output/$target');
+    if (placement.os != 'linux') {
+      copyFile(File(source), '$output/$target');
+      return;
+    }
+    // Upstream's build hooks link a Linux library with a runpath of
+    // `$ORIGIN`, by which it finds the code assets it links beside it.
+    final bytes = bundledRunpath(File(source).readAsBytesSync(), source);
+    final placedFile = File('$output/$target');
+    placedFile.parent.createSync(recursive: true);
+    if (placedFile.existsSync()) placedFile.deleteSync();
+    placedFile.writeAsBytesSync(bytes);
+    linked[target] = ElfDynamic.read(bytes, source);
   }
 
   for (final asset in program.shipped) {
@@ -432,6 +449,24 @@ void place(
   }
   for (final library in always) {
     copy(library, library.substring(library.lastIndexOf('/') + 1));
+  }
+  for (final MapEntry(key: target, value: elf) in linked.entries) {
+    final siblings = [
+      for (final name in elf.needed)
+        if (name != target && linked.containsKey(name)) name,
+    ];
+    // The loader reads DT_RPATH only when there is no DT_RUNPATH.
+    final searched = (elf.runpath ?? elf.rpath ?? '').split(':');
+    if (siblings.isNotEmpty &&
+        !searched.contains(r'$ORIGIN') &&
+        !searched.contains(r'${ORIGIN}')) {
+      throw StateError(
+        '${placed[target]} links ${siblings.join(', ')}, which the bundle '
+        'carries beside it, but has no runpath of `\$ORIGIN` to find '
+        '${siblings.length == 1 ? 'it' : 'them'} there. Link it with '
+        '`-Wl,-rpath,\$ORIGIN`, as Flutter\'s build hooks do',
+      );
+    }
   }
 }
 

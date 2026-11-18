@@ -11,6 +11,8 @@
 ///    the bundled sqlite3.dll, which nothing in this workspace names —
 ///    the app depends on drift, and the registry attaches the library to
 ///    package:sqlite3.
+///  * a code asset that links another: `chain_top.dll` calls into
+///    `chain_base.dll` beside it, next to the exe.
 ///
 /// The runner is launched with TMP/TEMP pointed at a directory this test
 /// controls, so the marker the app writes in main() lands somewhere we can
@@ -22,7 +24,7 @@
 ///
 /// Pass criteria: the app writes
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2
-/// negate(5)=-5 kept(20)=21` to `%TMP%\ffi_result.txt`.
+/// negate(5)=-5 kept(20)=21 chain(1)=202` to `%TMP%\ffi_result.txt`.
 library;
 
 import 'dart:io';
@@ -32,7 +34,7 @@ import 'package:rules_flutter_e2e_testing/runfiles_paths.dart';
 
 const _marker =
     'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2 '
-    'negate(5)=-5 kept(20)=21';
+    'negate(5)=-5 kept(20)=21 chain(1)=202';
 const _timeout = Duration(seconds: 60);
 
 Future<void> main() async {

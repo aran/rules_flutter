@@ -57,6 +57,7 @@ filegroup(
     srcs = [
         "apple_frameworks.dart",
         "assemble_directory.dart",
+        "elf_runpath.dart",
         "zip_archive.dart",
     ],
     visibility = ["//flutter:__subpackages__"],
@@ -313,6 +314,7 @@ _UNIT_TESTS = {
             "assemble_directory.dart",
             "bundle_app.dart",
             "code_assets.dart",
+            "elf_runpath.dart",
             "zip_archive.dart",
         ],
         [],
@@ -384,6 +386,8 @@ dart_test(
         "apple_frameworks.dart",
         "assemble_directory.dart",
         "code_assets.dart",
+        "elf_runpath.dart",
+        "test/elf_fixture.dart",
         "zip_archive.dart",
     ],
     data = ["@rules_dart//dart/program_assets:conformance"],
@@ -393,6 +397,16 @@ dart_test(
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
     ],
+)
+
+dart_test(
+    name = "elf_runpath_test",
+    srcs = [
+        "elf_runpath.dart",
+        "test/elf_fixture.dart",
+    ],
+    main = "test/elf_runpath_test.dart",
+    deps = ["@dev_tool_deps//:test"],
 )
 
 # Stand-in for `impellerc`, which `compile_shader_test` runs through

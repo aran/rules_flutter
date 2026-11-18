@@ -6,6 +6,8 @@ import 'package:runfiles/runfiles.dart';
 import 'package:test/test.dart';
 
 import '../code_assets.dart';
+import '../elf_runpath.dart' show ElfDynamic;
+import 'elf_fixture.dart';
 import '../zip_archive.dart' show readZip;
 
 void main() {
@@ -168,12 +170,12 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsStringSync('native');
       final out = '${dir.path}/out';
-      place(program, CodeAssetPlacement('linux'), out, [always.path]);
-      final linux = [
+      place(program, CodeAssetPlacement('windows'), out, [always.path]);
+      final placed = [
         for (final f in Directory(out).listSync(recursive: true))
           if (f is File) f.path.substring(out.length + 1),
       ]..sort();
-      expect(linux, ['libadd.so', 'libnative.so', 'libtrim.so']);
+      expect(placed, ['libadd.so', 'libnative.so', 'libtrim.so']);
     });
 
     test('places a library that ships from its copy of the same name', () {
@@ -190,7 +192,7 @@ void main() {
       final out = '${dir.path}/out';
       place(
         program,
-        CodeAssetPlacement('linux'),
+        CodeAssetPlacement('windows'),
         out,
         [],
         copies: [copy.path],
@@ -210,6 +212,90 @@ void main() {
       expect(
         () => place(program, CodeAssetPlacement('linux'), dir.path, []),
         throwsStateError,
+      );
+    });
+  });
+
+  group('place on Linux', () {
+    // What Bazel links a `cc_shared_library` with a dynamic dependency with.
+    const bazelRunpath =
+        r'$ORIGIN/_solib_k8/_U:$ORIGIN/libtop.so.runfiles/_main/_solib_k8/_U';
+
+    String library(Directory dir, String name, List<int> bytes) =>
+        (File('${dir.path}/in/$name')
+              ..createSync(recursive: true)
+              ..writeAsBytesSync(bytes))
+            .path;
+
+    test('a library finds the code assets it links by \$ORIGIN', () {
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final top = library(
+        dir,
+        'libtop.so',
+        elfLibrary(
+          needed: ['libbase.so', 'libc.so.6'],
+          soname: 'libtop.so',
+          runpath: bazelRunpath,
+        ),
+      );
+      final base = library(
+        dir,
+        'libbase.so',
+        elfLibrary(needed: ['libc.so.6'], soname: 'libbase.so'),
+      );
+      final out = '${dir.path}/out';
+      place(_empty(dir), CodeAssetPlacement('linux'), out, [top, base]);
+      final placed = ElfDynamic.read(
+        File('$out/libtop.so').readAsBytesSync(),
+        'libtop.so',
+      );
+      expect(placed.runpath, r'$ORIGIN');
+      expect(placed.needed, ['libbase.so', 'libc.so.6']);
+      expect(
+        ElfDynamic.read(File('$out/libbase.so').readAsBytesSync(), 'b').runpath,
+        isNull,
+      );
+    });
+
+    test('refuses a library that links one beside it with no \$ORIGIN', () {
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final top = library(
+        dir,
+        'libtop.so',
+        elfLibrary(needed: ['libbase.so'], runpath: '/opt/lib'),
+      );
+      final base = library(dir, 'libbase.so', elfLibrary());
+      expect(
+        () => place(
+          _empty(dir),
+          CodeAssetPlacement('linux'),
+          '${dir.path}/out',
+          [top, base],
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('libtop.so links libbase.so'), contains(r'$ORIGIN')),
+          ),
+        ),
+      );
+    });
+
+    test('refuses a library that is not ELF', () {
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final text = library(dir, 'libtext.so', 'not a library'.codeUnits);
+      expect(
+        () => place(
+          _empty(dir),
+          CodeAssetPlacement('linux'),
+          '${dir.path}/out',
+          [text],
+        ),
+        throwsFormatException,
       );
     });
   });
@@ -422,4 +508,14 @@ void main() {
       '',
     );
   });
+}
+
+/// A program that ships no code assets, so only `place`'s `always` libraries
+/// are placed.
+ProgramCodeAssets _empty(Directory dir) {
+  final file = File('${dir.path}/empty.params')
+    ..writeAsStringSync(
+      '--format\n$programAssetsFormat\n--paths\nexec\n--holds\ncode\n',
+    );
+  return ProgramCodeAssets.read(file.path);
 }

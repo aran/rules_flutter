@@ -1,8 +1,14 @@
 /// Verifies the Linux bundle has the expected structure,
-/// including the native shared library with the correct filename.
+/// including the native shared library with the correct filename, and that a
+/// code asset that links another finds it beside it in `lib/`, by a runpath
+/// of `$ORIGIN` and none of the build tree's paths, as a library that
+/// Flutter's build hooks link does.
 library;
 
+import 'dart:io';
+
 import 'package:rules_flutter_e2e_testing/desktop_bundle.dart';
+import 'package:rules_flutter_e2e_testing/elf.dart';
 
 void main() {
   final bundle = LinuxBundle.fromRunfiles('ffi_linux')..checkStandardLayout();
@@ -53,6 +59,19 @@ void main() {
       bundle.flutterAssets,
       shipped: ['package:pick/kept', 'package:add_plugin/add_plugin.dart'],
       dropped: ['package:pick/dropped'],
+    );
+  final top = ElfImage.fromFile(File(bundle.lib('libchain_top.so')))
+      .dynamicNames();
+  check
+    ..expect(
+      'libchain_top.so links libchain_base.so',
+      condition: top != null && top.needed.contains('libchain_base.so'),
+      detail: '${top?.needed}',
+    )
+    ..expect(
+      r'libchain_top.so finds what it links in lib/, by a runpath of $ORIGIN',
+      condition: top?.runpath == r'$ORIGIN',
+      detail: '${top?.runpath}',
     );
   bundle.finish();
 }

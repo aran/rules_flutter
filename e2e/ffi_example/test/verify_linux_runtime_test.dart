@@ -11,6 +11,9 @@
 ///    the bundled libsqlite3.so, which nothing in this workspace names —
 ///    the app depends on drift, and the registry attaches the library to
 ///    package:sqlite3.
+///  * a code asset that links another: `lib/libchain_top.so` calls into
+///    `lib/libchain_base.so` beside it, by the `$ORIGIN` runpath the bundle
+///    gave it.
 ///
 /// The runner is launched with TMPDIR pointed at a directory this test
 /// controls, so the marker the app writes in main() lands somewhere we can
@@ -25,7 +28,7 @@
 ///
 /// Pass criteria: the app writes
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2
-/// negate(5)=-5 kept(20)=21` to `$TMPDIR/ffi_result.txt`.
+/// negate(5)=-5 kept(20)=21 chain(1)=202` to `$TMPDIR/ffi_result.txt`.
 library;
 
 import 'dart:io';
@@ -35,7 +38,7 @@ import 'package:rules_flutter_e2e_testing/runfiles_paths.dart';
 
 const _marker =
     'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2 '
-    'negate(5)=-5 kept(20)=21';
+    'negate(5)=-5 kept(20)=21 chain(1)=202';
 // Software rendering on a GPU-less VM is slow to first frame; main() runs
 // well before that, but boot the whole engine generously.
 const _timeout = Duration(seconds: 60);
