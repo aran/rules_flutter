@@ -252,7 +252,7 @@ def _unquote(text):
         return text[1:-1]
     return None
 
-def _call_argument(text, prefix):
+def call_argument(text, prefix):
     """The argument of `prefix(arg)` when `text` is exactly that call, else None."""
     if not text.startswith(prefix + "(") or not text.endswith(")"):
         return None
@@ -281,7 +281,7 @@ def applied_script(text):
     if not rest or rest[0] not in ":=":
         return None
     rest = rest[1:].strip()
-    arg = _call_argument(rest, "file")
+    arg = call_argument(rest, "file")
     arg = arg if arg != None else rest
     unquoted = _unquote(arg)
     return unquoted if unquoted != None else arg
@@ -492,8 +492,16 @@ def _definition(text, blocks):
 
 _CONTROL_FLOW = ("if", "else", "for", "while", "try", "catch", "finally")
 
-def _assignment(text):
-    """`(name, rest)` of a statement `name ...`, `if (c) name ...` or `else name ...`."""
+def assignment(text):
+    """`(name, rest)` of a statement `name ...`, `if (c) name ...` or `else name ...`.
+
+    Args:
+        text: A statement.
+
+    Returns:
+        The name the statement starts with past its `if (...)` and `else`,
+        and the rest, stripped.
+    """
     text = text.strip()
     for _ in range(4):
         word = leading_identifier(text)
@@ -562,7 +570,7 @@ def gradle_scope(tokens, properties = {}):
             if d:
                 variables[d[0]] = d[1]
                 continue
-            name, rest = _assignment(t.text)
+            name, rest = assignment(t.text)
 
             # In a configuration block, such as `android { }`, `x = ...` sets
             # the block's `x`; in the script or its control flow, the variable.
@@ -622,14 +630,17 @@ def _project_path(text):
     return None
 
 def _variable_value(name, scope):
-    """The value of a variable whose expression is a literal or names a project, else None."""
+    """The value of a variable: a literal, a project, or else its expression, which a reader may know the form of."""
     expression = scope.variables[name]
     literal = _plain_literal(expression)
     if literal != None:
         return _str([literal])
     if expression in ("true", "false"):
         return _bool(expression == "true")
-    return _project_path(expression)
+    project = _project_path(expression)
+    if project != None:
+        return project
+    return struct(kind = "expression", text = expression)
 
 def _property(project, key, scope):
     """The property `key` of `project`: the script's, another plugin's, or the root's."""
@@ -665,7 +676,9 @@ def _atom(text, scope, bindings):
         return _project(":root")
     if text == "properties":
         return struct(kind = "properties", project = "")
-    if text == "ext":
+
+    # Kotlin's `extra` is Groovy's `ext`.
+    if text in ("ext", "extra"):
         return struct(kind = "ext", project = "")
     if text in scope.variables:
         return _variable_value(text, scope)
@@ -687,7 +700,7 @@ def _member(value, name, args, scope):
         if args == None:
             if name == "properties":
                 return struct(kind = "properties", project = value.name)
-            if name == "ext":
+            if name in ("ext", "extra"):
                 return struct(kind = "ext", project = value.name)
             return None
         if name in ("findProperty", "property") and len(args) == 1:
@@ -845,6 +858,8 @@ def _truth(value):
         return False
     if value.kind == "bool":
         return value.value
+    if value.kind == "expression":
+        return None
     if value.kind == "str":
         if [p for p in value.parts if type(p) != "string"]:
             return None
@@ -907,6 +922,22 @@ def _expression(text, scope):
             return None
         return _call_function(scope.functions[name], call_arguments(text[len(name) + 1:-1]), scope)
     return _chain(text, scope, {})
+
+def gradle_value(text, scope):
+    """What an expression evaluates to, as far as the reader follows it.
+
+    Args:
+        text: An expression.
+        scope: What the script defines (`gradle_scope`).
+
+    Returns:
+        None when the reader cannot follow it, else a struct of `kind`:
+        `"str"` (`parts`, as `gradle_string` gives them), `"bool"` (`value`),
+        `"null"`, `"project"` (`name`), or `"expression"` (`text`, the
+        expression a variable is set to that is not a literal, such as
+        `JavaVersion.VERSION_17`, for a reader that knows its form).
+    """
+    return _expression(text, scope)
 
 def gradle_project(text, scope):
     """The pub package whose project an expression is, or None.

@@ -32,8 +32,8 @@ kotlin {
 }
 """
 
-def _level(content, applied = {}):
-    parsed = parse_gradle_jvm_level(content, applied)
+def _level(content, applied = {}, properties = {}):
+    parsed = parse_gradle_jvm_level(content, applied, properties)
     return (parsed.level, parsed.declared, len(parsed.unread))
 
 def _declared_forms_test_impl(ctx):
@@ -157,6 +157,47 @@ ext {
 
 variables_test = unittest.make(_variables_test_impl)
 
+def _shared_evaluator_forms_test_impl(ctx):
+    """The names the shared Gradle evaluator resolves: typed and `final` variables, `ext[...]`, `extra`, `gradle.properties`."""
+    env = unittest.begin(ctx)
+    asserts.equals(env, (17, "jvmTarget", 0), _level("""\
+String jvm = "17"
+kotlinOptions { jvmTarget = jvm }
+"""))
+    asserts.equals(env, (11, "targetCompatibility", 0), _level("""\
+final javaLevel = JavaVersion.VERSION_11
+android { compileOptions { targetCompatibility javaLevel } }
+"""))
+    asserts.equals(env, (17, "targetCompatibility", 0), _level("""\
+ext["javaVersion"] = JavaVersion.VERSION_17
+android { compileOptions { targetCompatibility = ext["javaVersion"] } }
+"""))
+    asserts.equals(env, (21, "jvmTarget", 0), _level("""\
+ext.kotlinTarget = "21"
+kotlin { compilerOptions { jvmTarget.set(JvmTarget.fromTarget(extra["kotlinTarget"])) } }
+"""))
+    asserts.equals(env, (17, "jvmTarget", 0), _level("""\
+kotlinOptions { jvmTarget = "${project.findProperty('jvm')}" }
+""", properties = {"jvm": "17"}))
+
+    # A property of the package's gradle.properties, by name or lookup.
+    asserts.equals(env, (17, "targetCompatibility", 0), _level(
+        "android { compileOptions { targetCompatibility = JavaVersion.toVersion(javaLevel) } }\n",
+        properties = {"javaLevel": "17"},
+    ))
+    asserts.equals(env, (11, "jvmTarget", 0), _level(
+        "kotlinOptions { jvmTarget = project.property('kotlinJvm') }\n",
+        properties = {"kotlinJvm": "11"},
+    ))
+
+    # Without the property file the name is unknown, and reported.
+    asserts.equals(env, (AGP_DEFAULT_JVM_LEVEL, "", 1), _level(
+        "android { compileOptions { targetCompatibility = JavaVersion.toVersion(javaLevel) } }\n",
+    ))
+    return unittest.end(env)
+
+shared_evaluator_forms_test = unittest.make(_shared_evaluator_forms_test_impl)
+
 def _unread_test_impl(ctx):
     """A declaration the reader cannot read is reported where it could decide the level."""
     env = unittest.begin(ctx)
@@ -242,6 +283,7 @@ def android_plugin_jvm_target_test_suite(name):
         declared_forms_test,
         java_target_comes_first_test,
         variables_test,
+        shared_evaluator_forms_test,
         unread_test,
         unread_message_test,
         kotlinc_jvm_target_test,

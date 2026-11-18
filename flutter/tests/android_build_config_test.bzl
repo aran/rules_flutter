@@ -5,7 +5,7 @@ any other `-c` (`opt`, and `fastbuild`, the default) is release.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//flutter/private:android_build_config.bzl", "android_build_config", "parse_gradle_build_config_fields", "unread_build_config_message")
+load("//flutter/private:android_build_config.bzl", "android_build_config", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load(":action_content.bzl", "written_text")
 load(":engine_mode.bzl", "MODE_FLAGS")
 
@@ -72,8 +72,75 @@ def _parse_test_impl(ctx):
         [(u.script, u.line_number, u.line) for u in r.unread],
     )
     message = unread_build_config_message("firebase_core", r.unread)
-    for needle in ["firebase_core's Gradle build", "    android/user-agent.gradle:18: buildConfigField 'String', 'LIBRARY_VERSION'"]:
+    for needle in [
+        "firebase_core's Gradle build",
+        "    android/user-agent.gradle:18: buildConfigField 'String', 'LIBRARY_VERSION'",
+        'flutter_pub.annotation(package = "firebase_core", build_config_fields = {"<NAME>": "<value>"})',
+    ]:
         asserts.true(env, needle in message, message)
+
+    # With the pubspec's version, FlutterFire's statements are recognised:
+    # the field has the version Gradle computes, `+` as `-`.
+    r = parse_gradle_build_config_fields(
+        'apply from: file("./user-agent.gradle")\n',
+        applied = {"./user-agent.gradle": _FIREBASE_USER_AGENT},
+        pubspec_version = "5.1.0+2",
+    )
+    asserts.equals(env, ['String LIBRARY_VERSION = "5.1.0-2"', 'String LIBRARY_NAME = "flutter-fire-core"'], r.fields)
+    asserts.equals(env, [], r.unread)
+
+    # Statements that are not exactly FlutterFire's are not recognised.
+    for old, new in [
+        ('replaceAll("\\\\+", "-")', 'replaceAll("\\\\+", "_")'),
+        ("group(1)", "group(0)"),
+        ("'pubspec.yaml'", "'other.yaml'"),
+        ("}\n\nandroid {", '}\nlibraryVersionName = "other"\n\nandroid {'),
+    ]:
+        if old not in _FIREBASE_USER_AGENT:
+            fail("fixture lacks " + old)
+        r = parse_gradle_build_config_fields(
+            _FIREBASE_USER_AGENT.replace(old, new, 1),
+            pubspec_version = "5.1.0",
+        )
+        asserts.equals(env, ["LIBRARY_VERSION"], [u.line.split("'")[3] for u in r.unread], new)
+
+    # The root's annotation gives a value, the type staying the Gradle line's;
+    # one for a field the build does not declare is named.
+    r = parse_gradle_build_config_fields(
+        _FIREBASE_USER_AGENT,
+        annotated = {"LIBRARY_VERSION": '"9.9.9"', "MISSING": "1"},
+    )
+    asserts.equals(env, ['String LIBRARY_VERSION = "9.9.9"', 'String LIBRARY_NAME = "flutter-fire-core"'], r.fields)
+    asserts.equals(env, [], r.unread)
+    asserts.equals(env, ["MISSING"], r.unknown)
+    message = unknown_build_config_message("firebase_core", r.unknown)
+    asserts.true(env, "`MISSING`" in message and "firebase_core" in message, message)
+
+    # A field declared in each build type, or in `defaultConfig` and a build
+    # type, is one Java field once annotated. One `defaultConfig` declares
+    # again (here after an applied script did) keeps its last value.
+    r = parse_gradle_build_config_fields(
+        """\
+apply from: file("./more.gradle")
+android {
+    defaultConfig {
+        buildConfigField "String", "SHARED", '"default"'
+        buildConfigField "int", "AGAIN", "1"
+    }
+    buildTypes {
+        debug { buildConfigField "String", "TYPED", '"debug"' }
+        release {
+            buildConfigField "String", "TYPED", '"release"'
+            buildConfigField "String", "SHARED", '"release"'
+        }
+    }
+}
+""",
+        applied = {"./more.gradle": 'android { defaultConfig { buildConfigField "int", "AGAIN", "2" } }\n'},
+        annotated = {"TYPED": '"t"', "SHARED": '"s"'},
+    )
+    asserts.equals(env, ["int AGAIN = 1", 'String SHARED = "s"', 'String TYPED = "t"'], r.fields)
+    asserts.equals(env, [], r.unread)
 
     # The Kotlin form, a property, and fields outside `defaultConfig`.
     r = parse_gradle_build_config_fields(

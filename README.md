@@ -973,7 +973,7 @@ rules_flutter reads a plugin's Gradle file without running Gradle. It understand
 - `org.jetbrains.kotlin:kotlin-stdlib*` and `io.flutter:*` are skipped, because the Kotlin rules and the engine provide them.
 - The declaration must sit directly in the script's `dependencies { }` block, or in one inside `android { }`. A declaration inside an `if`, an `afterEvaluate` or any other block may or may not run under Gradle. It is linked when `@rules_flutter_maven` has the artifact, and not required.
 
-A `buildConfigField` in `android { defaultConfig { } }` adds its field to the plugin's `BuildConfig`, as Gradle does, with its arguments computed as above. One whose value rules_flutter can't compute, or one in a build type, a flavor or a condition, fails the plugin's Android build, naming the line, rather than leaving the field out or giving it a value Gradle wouldn't.
+A `buildConfigField` in `android { defaultConfig { } }` adds its field to the plugin's `BuildConfig`, as Gradle does, with its arguments computed as above. The FlutterFire plugins set `LIBRARY_VERSION` from their own `pubspec.yaml` with a regular expression; rules_flutter recognises those exact statements and gives the field the package's version with `+` as `-`, as Gradle does. A field whose value rules_flutter can't compute, or one in a build type, a flavor or a condition, fails the plugin's Android build, naming the line, rather than leaving the field out or giving it a value Gradle wouldn't. `flutter_pub.annotation(build_config_fields = ...)` below gives such a field its value.
 
 Anything else in a plugin the app links is a warning, naming the plugin, its Gradle file and each line, because a reader that isn't Gradle can be wrong. That covers a declaration inside a block, and a dependency written any other way: a version catalog entry such as `libs.foo`, a `compileOnly` or `runtimeOnly` project, `files(...)`, Groovy map notation, any other statement in a declaration's closure, `kapt`, `ksp`, `annotationProcessor`, `coreLibraryDesugaring`, a variant configuration such as `debugImplementation`, or an `apply from:` of a script the package doesn't have. The plugin's library doesn't link those. `bazel run @<hub>//android:maven_artifacts` and an app's `<app>_maven_artifacts` list the same lines below the ones to paste, so they show before an app builds.
 
@@ -987,6 +987,17 @@ flutter_pub.annotation(
 ```
 
 This works like `crate.annotation` for a Rust crate in rules_rust. Each label is added to the generated Android library of that one package, and counts as if the plugin's Gradle build had declared it. The app's build fails, naming it, when `@rules_flutter_maven` doesn't resolve it. `<app>_maven_artifacts` lists it as declared by the plugin, and the duplicate-class check below covers it. An annotated plugin no longer warns about its unread lines, since you have stated its dependencies.
+
+`build_config_fields` gives the value of a `buildConfigField` that rules_flutter can't compute, by field name, as the Java expression Gradle's third argument holds. A string keeps its quotes:
+
+```starlark
+flutter_pub.annotation(
+    package = "some_plugin",
+    build_config_fields = {"LIBRARY_VERSION": "\"1.2.3\""},
+)
+```
+
+The type stays the one the Gradle line declares, and the annotation wins over what rules_flutter reads or recognises. A field the plugin's Gradle build doesn't declare fails its Android build, naming the plugin and the field. An annotation names a package, not a version: a version written there goes stale when the lock moves the package, so update it with each bump.
 
 Only the root module may use `flutter_pub.annotation`, once per package. It fails the build when no lock lists the package, or when the package isn't a plugin with Android sources whose library rules_flutter generates.
 

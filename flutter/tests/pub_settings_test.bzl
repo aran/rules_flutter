@@ -57,18 +57,18 @@ _MAVEN = "@@maven//:"
 def _annotating_module(name, is_root, *tags):
     return struct(name = name, is_root = is_root, tags = struct(annotation = list(tags)))
 
-def _tag(package, android_deps = []):
-    return struct(package = package, android_deps = [_MAVEN + d for d in android_deps])
+def _tag(package, android_deps = [], build_config_fields = {}):
+    return struct(package = package, android_deps = [_MAVEN + d for d in android_deps], build_config_fields = build_config_fields)
 
 def _the_root_annotates_packages_test_impl(ctx):
     env = unittest.begin(ctx)
 
     a = root_annotations([
-        _annotating_module("root", True, _tag("p", ["x", "y"]), _tag("q")),
+        _annotating_module("root", True, _tag("p", ["x", "y"]), _tag("q", build_config_fields = {"LIBRARY_VERSION": '"1.0"'})),
         _annotating_module("dep", False),
     ], _MAVEN)
     asserts.equals(env, None, a.error)
-    asserts.equals(env, {"p": {"android_deps": ["@@maven//:x", "@@maven//:y"]}, "q": {"android_deps": []}}, a.by_package)
+    asserts.equals(env, {"p": {"android_deps": ["@@maven//:x", "@@maven//:y"], "build_config_fields": {}}, "q": {"android_deps": [], "build_config_fields": {"LIBRARY_VERSION": '"1.0"'}}}, a.by_package)
 
     asserts.equals(env, None, unknown_annotation(a.by_package, ["p", "q"]))
     message = unknown_annotation(a.by_package, ["q"])

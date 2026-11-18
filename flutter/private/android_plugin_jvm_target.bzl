@@ -19,7 +19,7 @@ level, is reported rather than skipped: the plugin's Android build fails
 naming it (`unread_jvm_level_message`).
 """
 
-load("//flutter/private:gradle_script.bzl", "applied_scripts", "gradle_tokens")
+load("//flutter/private:gradle_script.bzl", "applied_script", "call_argument", "gradle_scope", "gradle_string", "gradle_tokens_with_applied", "gradle_value", "leading_identifier")
 
 # The Android Gradle plugin's `compileOptions` default when the module names
 # no Java toolchain: Java 11 since AGP 9.0 (issuetracker 369246556), the AGP
@@ -49,21 +49,6 @@ def kotlinc_jvm_target(level):
         return None
     return str(level)
 
-_IDENT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-
-def _leading_identifier(text):
-    end = 0
-    for c in text.elems():
-        if c not in _IDENT_CHARS:
-            break
-        end += 1
-    return text[:end]
-
-def _unquote(text):
-    if len(text) >= 2 and text[0] in "'\"" and text[-1] == text[0]:
-        return text[1:-1]
-    return None
-
 def _major(text):
     """`17`, `1.8`, `8` as a Java major version, or None."""
     text = text.strip()
@@ -71,14 +56,8 @@ def _major(text):
         text = text[2:]
     return int(text) if text.isdigit() else None
 
-def _call_argument(text, prefix):
-    """The argument of `prefix(arg)` when `text` is exactly that call, else None."""
-    if not text.startswith(prefix + "(") or not text.endswith(")"):
-        return None
-    return text[len(prefix) + 1:-1].strip()
-
-# What a value may be read through: a qualified name of a constant, and the
-# conversions between Java's and Kotlin's version types.
+# The forms of a version the reader knows: a qualified name of a constant, and
+# the conversions between Java's and Kotlin's version types.
 _CONSTANT_PREFIXES = (
     "JavaVersion.VERSION_",
     "org.gradle.api.JavaVersion.VERSION_",
@@ -94,10 +73,14 @@ _CONVERSIONS = (
     "org.gradle.jvm.toolchain.JavaLanguageVersion.of",
 )
 _SUFFIXES = (".toString()", ".majorVersion", ".target", ".asInt()")
-_VARIABLE_PREFIXES = ("project.ext.", "project.extra.", "project.", "ext.", "extra.")
 
-def _value(text, variables):
-    """The Java major version `text` evaluates to, or None when it is not readable."""
+def _value(text, scope):
+    """The Java major version `text` evaluates to, or None when it is not readable.
+
+    The forms of a version are this reader's; what a name stands for (a
+    variable, `ext`, `extra`, a project property, `gradle.properties`) is the
+    shared evaluator's (`gradle_value`).
+    """
     text = text.strip()
 
     # Each round unwraps one conversion or variable.
@@ -112,9 +95,6 @@ def _value(text, variables):
                     stripped = True
             if not stripped:
                 break
-        quoted = _unquote(text)
-        if quoted != None:
-            return _major(quoted)
         if _major(text) != None:
             return _major(text)
         for prefix in _CONSTANT_PREFIXES:
@@ -122,25 +102,33 @@ def _value(text, variables):
                 return _major(text[len(prefix):])
         inner = None
         for call in _CONVERSIONS:
-            arg = _call_argument(text, call)
+            arg = call_argument(text, call)
             if arg != None:
                 inner = arg
                 break
-        if inner == None:
-            name = text
-            for prefix in _VARIABLE_PREFIXES:
-                if name.startswith(prefix):
-                    name = name[len(prefix):]
-                    break
-            if not name or _leading_identifier(name) != name or name not in variables:
+        if inner != None:
+            text = inner.strip()
+            continue
+        if text[0] in "'\"":
+            # A string, whose `$x` and `${...}` the evaluator follows.
+            parts = gradle_string(text, scope)
+            value = struct(kind = "str", parts = parts) if parts != None else None
+        else:
+            value = gradle_value(text, scope)
+        if value == None:
+            return None
+        if value.kind == "str":
+            if [p for p in value.parts if type(p) != "string"]:
                 return None
-            inner = variables[name]
-        text = inner.strip()
+            return _major("".join(value.parts))
+        if value.kind != "expression":
+            return None
+        text = value.text.strip()
     return None
 
 def _assigned(text, key):
     """The value `text` gives `key` (`key = v`, `key v`, `key(v)`, `key.set(v)`), or None."""
-    if _leading_identifier(text) != key:
+    if leading_identifier(text) != key:
         return None
     rest = text[len(key):]
     if not rest:
@@ -156,30 +144,6 @@ def _assigned(text, key):
         return rest
     return None
 
-def _definition(text, blocks):
-    """`(name, expression)` when `text` defines a variable a value may name, else None."""
-    for prefix in ("def ", "val ", "var ", "final def "):
-        if text.startswith(prefix):
-            rest = text[len(prefix):].strip()
-            name = _leading_identifier(rest)
-            rest = rest[len(name):].strip()
-            if rest.startswith(":"):
-                rest = rest[1:].strip()
-                rest = rest[len(_leading_identifier(rest)):].strip()
-            return (name, rest[1:]) if name and rest.startswith("=") else None
-    for prefix in ("ext.", "project.ext."):
-        if text.startswith(prefix):
-            rest = text[len(prefix):]
-            name = _leading_identifier(rest)
-            rest = rest[len(name):].strip()
-            return (name, rest[1:]) if name and rest.startswith("=") else None
-    if blocks and blocks[-1] == "ext":
-        name = _leading_identifier(text)
-        rest = text[len(name):].strip()
-        if name and rest.startswith("=") and not rest.startswith("=="):
-            return (name, rest[1:])
-    return None
-
 _KEYS = {
     "targetCompatibility": "java",
     "jvmTarget": "kotlin",
@@ -190,20 +154,23 @@ _KEYS = {
 # What decides the level, first to last.
 _PRECEDENCE = (("java", "targetCompatibility"), ("kotlin", "jvmTarget"), ("toolchain", "toolchain"))
 
-def parse_gradle_jvm_level(content, applied = {}, script = "android/build.gradle"):
+def parse_gradle_jvm_level(content, applied = {}, properties = {}, script = "android/build.gradle"):
     """The level a plugin's Android sources compile at, read from its Gradle script.
 
     Statement based, like the Maven reader (`gradle_tokens`). Reads
     `targetCompatibility`, `jvmTarget`, `jvmToolchain(n)` and a toolchain's
     `languageVersion = JavaLanguageVersion.of(n)`, written as a version
     (`JavaVersion.VERSION_17`, `JvmTarget.JVM_17`, `"17"`, `'1.8'`, `17`, the
-    conversions between them) or as a variable the script, or a script it
-    applies, defines (`def`, `val`, `ext.x =`, an `ext { }` block).
+    conversions between them) or as a name the shared evaluator resolves
+    (`gradle_value`): a variable the script, or a script it applies, defines
+    (`def`, `val`, `final`, `String x =`, `ext.x =`, `ext["x"] =`, an
+    `ext { }` block), or a property of `gradle.properties`.
 
     Args:
         content: The text of `build.gradle` or `build.gradle.kts`.
         applied: The text of each script `content` applies that the package
             has, by the path `gradle_applied_scripts` gives.
+        properties: The package's `gradle.properties` (`parse_gradle_properties`).
         script: The path of `content` in the package, for `unread`.
 
     Returns:
@@ -216,43 +183,27 @@ def parse_gradle_jvm_level(content, applied = {}, script = "android/build.gradle
         and, where nothing declared is read, each script applied that is not
         in `applied`. The level is not known when `unread` is not empty.
     """
-    directory = script.rpartition("/")[0]
-    sources = [(content, script)]
-    missing = []
-    for a in applied_scripts(content):
-        if a.path in applied:
-            sources.append((applied[a.path], directory + "/" + a.path if directory else a.path))
-        else:
-            missing.append(struct(script = script, line = a.line, line_number = a.line_number))
+    tokens = gradle_tokens_with_applied(content, applied, script)
+    scope = gradle_scope(tokens, properties)
 
-    # The statements of the script and of each script it applies, whose
-    # variables it may name. A script an applied one applies is not read.
-    statements = []
-    for text, path in sources:
-        blocks = []
-        for t in gradle_tokens(text):
-            if t.kind == "open":
-                blocks.append(_leading_identifier(t.text) or t.text)
-            elif t.kind == "close":
-                if blocks:
-                    blocks.pop()
-            else:
-                statements.append(struct(text = t.text, line = t.line, blocks = list(blocks), script = path))
-
-    variables = {}
-    for s in statements:
-        d = _definition(s.text, s.blocks)
-        if d:
-            variables[d[0]] = d[1]
+    # A script the script applies that is not read, which could declare the
+    # level itself. One an applied script applies is not read either.
+    missing = [
+        struct(script = script, line = t.text, line_number = t.line)
+        for t in tokens
+        if t.kind == "statement" and t.script == script and not t.applied and applied_script(t.text)
+    ]
 
     found = {}
     unread = {}
-    for s in statements:
-        key = _leading_identifier(s.text)
+    for t in tokens:
+        if t.kind != "statement":
+            continue
+        key = leading_identifier(t.text)
         kind = _KEYS.get(key)
         if not kind:
             continue
-        value = _assigned(s.text, key)
+        value = _assigned(t.text, key)
         if value == None:
             continue
         value = value.strip()
@@ -260,9 +211,9 @@ def parse_gradle_jvm_level(content, applied = {}, script = "android/build.gradle
         # Kotlin's own `languageVersion` is a Kotlin version, not a toolchain's.
         if key == "languageVersion" and "JavaLanguageVersion" not in value:
             continue
-        level = _value(value, variables)
+        level = _value(value, scope)
         if level == None:
-            unread.setdefault(kind, []).append(struct(script = s.script, line = s.text, line_number = s.line))
+            unread.setdefault(kind, []).append(struct(script = t.script, line = t.text, line_number = t.line))
             continue
         found[kind] = level
 

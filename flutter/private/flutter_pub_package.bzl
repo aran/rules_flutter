@@ -54,7 +54,7 @@ rule asks for it.
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
-load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unread_build_config_message")
+load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "parse_gradle_maven_dependencies")
 load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_library_label")
@@ -728,24 +728,27 @@ def _plugin_project_libraries(ctx, projects):
         ))
     return struct(labels = labels, error = "")
 
-def _read_plugin_build_config_fields(ctx):
+def _read_plugin_build_config_fields(ctx, pubspec_version):
     """The fields the plugin's Gradle build adds to its `BuildConfig` (`parse_gradle_build_config_fields`)."""
     script = _android_gradle_script(ctx)
     if not script:
-        return struct(fields = [], unread = [])
+        return struct(fields = [], unread = [], unknown = sorted(ctx.attr.build_config_fields.keys()))
     content = ctx.read(script)
     return parse_gradle_build_config_fields(
         content,
         applied = _read_applied_scripts(ctx, content),
         properties = _read_gradle_properties(ctx),
         script = "android/" + script.basename,
+        pubspec_version = pubspec_version,
+        annotated = ctx.attr.build_config_fields,
     )
 
 def _read_plugin_jvm_level(ctx):
     """The Java/Kotlin level the plugin's Gradle build compiles its Android sources at.
 
-    Reads `android/build.gradle` (else the `.kts`) and the scripts of the
-    package it applies (see `parse_gradle_jvm_level`).
+    Reads `android/build.gradle` (else the `.kts`), the scripts of the
+    package it applies and its `gradle.properties` (see
+    `parse_gradle_jvm_level`).
 
     Returns:
         `struct(level, error)`: the Java major version, or the message an
@@ -758,7 +761,7 @@ def _read_plugin_jvm_level(ctx):
     content = ctx.read(script)
     applied = _read_applied_scripts(ctx, content)
     script_path = "android/" + script.basename
-    parsed = parse_gradle_jvm_level(content, applied, script = script_path)
+    parsed = parse_gradle_jvm_level(content, applied, _read_gradle_properties(ctx), script = script_path)
     if parsed.unread:
         return struct(level = None, error = unread_jvm_level_message(ctx.attr.package_name, parsed.unread))
     if kotlinc_jvm_target(parsed.level) == None:
@@ -2726,6 +2729,12 @@ def _flutter_pub_package_impl(ctx):
             )
             break
 
+    if overlay_content and ctx.attr.build_config_fields:
+        fail((
+            "flutter_pub.annotation(package = \"{pkg}\", build_config_fields = ...) gives " +
+            "fields of the BuildConfig rules_flutter generates, and the plugin overlay of " +
+            "{pkg} supplies its own targets. Remove the annotation."
+        ).format(pkg = ctx.attr.package_name))
     if overlay_content and ctx.attr.android_deps:
         fail((
             "flutter_pub.annotation(package = \"{pkg}\") adds Android dependencies to the " +
@@ -2958,13 +2967,19 @@ def _flutter_pub_package_impl(ctx):
     # reported here: the library is written as for the ones it read, and the
     # application that links the plugin warns, naming each line
     # (`flutter_android_plugin_libs`).
-    if ctx.attr.android_deps and not (android_src_dir or android_has_resources):
+    annotated_fields = [
+        field
+        for field, given in [("android_deps", ctx.attr.android_deps), ("build_config_fields", ctx.attr.build_config_fields)]
+        if given
+    ]
+    if annotated_fields and not (android_src_dir or android_has_resources):
         fail((
-            "flutter_pub.annotation(package = \"{pkg}\", android_deps = ...) needs a Flutter " +
+            "flutter_pub.annotation(package = \"{pkg}\", {field} = ...) needs a Flutter " +
             "plugin with Android sources or resources whose Android library rules_flutter " +
             "generates, and {pkg} {why}. Remove the annotation."
         ).format(
             pkg = ctx.attr.package_name,
+            field = annotated_fields[0],
             why = ("has an Android library its own Gradle build makes, which rules_flutter cannot translate" if android_native_build else "is not one"),
         ))
     maven_deps = []
@@ -2982,12 +2997,17 @@ def _flutter_pub_package_impl(ctx):
         # A level the reader cannot read fails the plugin's Android build, as
         # an unbuilt native library does, rather than compiling at a guess.
         android_jvm = _read_plugin_jvm_level(ctx)
-        build_config = _read_plugin_build_config_fields(ctx)
+        version = pubspec.fields.get("version")
+        build_config = _read_plugin_build_config_fields(ctx, str(version) if version != None else None)
         plugin_libs = _plugin_project_libraries(ctx, android_gradle_maven.projects if android_gradle_maven else [])
         if android_jvm.error:
             write_android_build(ctx, build_prelude, make_android_failing_build_content(android_jvm.error))
         elif plugin_libs.error:
             write_android_build(ctx, build_prelude, make_android_failing_build_content(plugin_libs.error))
+        elif build_config.unknown:
+            write_android_build(ctx, build_prelude, make_android_failing_build_content(
+                unknown_build_config_message(ctx.attr.package_name, build_config.unknown),
+            ))
         elif build_config.unread:
             write_android_build(ctx, build_prelude, make_android_failing_build_content(
                 unread_build_config_message(ctx.attr.package_name, build_config.unread),
@@ -3083,6 +3103,11 @@ flutter_pub_package = repository_rule(
                   "`flutter_pub.annotation`. Written as the labels' canonical " +
                   "strings, so the repository stays fetchable by the root's name for it.",
             default = [],
+        ),
+        "build_config_fields": attr.string_dict(
+            doc = "Values of the plugin's `buildConfigField`s, by field name, from the root's " +
+                  "`flutter_pub.annotation`, each a Java expression. They replace what the reader reads.",
+            default = {},
         ),
         "ignore_hook": attr.bool(
             doc = "Treat this package's build hook as irrelevant. Without it, a " +

@@ -228,6 +228,19 @@ pub_annotation_tag = tag_class(
                   "`android/BUILD.bazel.tpl`, which lists its own dependencies.",
             default = [],
         ),
+        "build_config_fields": attr.string_dict(
+            doc = "Values of the `buildConfigField`s the package's Gradle build " +
+                  "declares, by field name, each the Java expression Gradle's third " +
+                  "argument gives: a string keeps its quotes, so a version is " +
+                  "`\"\\\"1.2.3\\\"\"` in MODULE.bazel. " +
+                  "They replace what rules_flutter reads or recognises, for a field " +
+                  "whose value it cannot compute without running Gradle; the type " +
+                  "stays the one the Gradle line declares. A field the Gradle build " +
+                  "does not declare fails the plugin's Android build, naming it. An " +
+                  "annotation names a package, not a version: a value that is a " +
+                  "version goes stale when the lock moves the package.",
+            default = {},
+        ),
     },
     doc = "Adds to one pub package's generated targets what its own files cannot " +
           "say, as `crate.annotation` does for a Rust crate. Only the root module " +
@@ -716,6 +729,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,
                 android_deps = annotations.get(name, {}).get("android_deps", []),
+                build_config_fields = annotations.get(name, {}).get("build_config_fields", {}),
             )
         elif e.kind == GIT:
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
@@ -742,6 +756,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,
                 android_deps = annotations.get(name, {}).get("android_deps", []),
+                build_config_fields = annotations.get(name, {}).get("build_config_fields", {}),
             )
         elif e.kind == LOCAL:
             # The directory pub reads, built from its pubspec as a hosted
@@ -759,6 +774,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,
                 android_deps = annotations.get(name, {}).get("android_deps", []),
+                build_config_fields = annotations.get(name, {}).get("build_config_fields", {}),
             )
         elif e.kind == FLUTTER_SOURCE:
             for prefix, sdk in reps.items():
@@ -786,6 +802,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                     prefix = prefix,
                     overlay_roots = overlay_roots,
                     android_deps = annotations.get(name, {}).get("android_deps", []),
+                    build_config_fields = annotations.get(name, {}).get("build_config_fields", {}),
                 )
 
     # The build's Android Maven data: what every built spoke's Gradle build
