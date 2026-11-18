@@ -92,9 +92,6 @@ List<ProbeRepo> hostedPubPackage(
   ProbeRepo(name, 'flutter_pub_package', {
     'files': str('@${name}_files//:BUILD.bazel'),
     'package_name': str(package),
-    'version': str(version),
-    'sha256': str(sha256),
-    'base_url': str(baseUrl),
   }),
 ];
 

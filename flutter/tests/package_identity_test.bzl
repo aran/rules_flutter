@@ -15,12 +15,12 @@ is `fetched_purls_test`'s (`purls.bzl`).
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "make_package_metadata_content", "pub_git_purl", "pub_hosted_purl", "pub_package_identity", "pub_path_identity")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "make_package_metadata_content", "pub_git_identity", "pub_git_purl", "pub_hosted_purl", "pub_package_identity", "pub_path_identity")
 load(
     "//flutter/private:flutter_pub_package.bzl",
     "make_dart_member_build_content",
     "make_flutter_member_build_content",
-    "package_fetched_identity",
+    "package_fetched",
 )
 
 _SHA = "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04"
@@ -84,31 +84,40 @@ def _path_members_state_no_purl_test_impl(ctx):
         asserts.true(env, "\npackage_metadata(" not in content and "rules/package_metadata.bzl" not in content, content)
     return unittest.end(env)
 
-def _fetched_identity_follows_the_lock_entry_test_impl(ctx):
-    """A package repository states what rules_dart computes from the same lock entry's fields."""
+def _fetched_identity_follows_what_was_fetched_test_impl(ctx):
+    """A package repository states what its files repository fetched, or for a path package its directory."""
     env = unittest.begin(ctx)
-    none = dict(git_url = "", resolved_ref = "", git_path = ".", sha256 = "", base_url = "https://pub.dev", directory = "", path_identity = "")
 
     def attr(**kwargs):
-        fields = dict(none, package_name = "args", version = "2.7.0")
+        fields = dict(package_name = "args", version = "", directory = "", path_identity = "")
         fields.update(kwargs)
         return struct(**fields)
 
-    asserts.equals(env, pub_hosted_purl("args", "2.7.0", _SHA), package_fetched_identity(attr(sha256 = _SHA)))
-    asserts.equals(
-        env,
-        pub_hosted_purl("args", "2.7.0", _SHA, "https://pub.example.com/"),
-        package_fetched_identity(attr(sha256 = _SHA, base_url = "https://pub.example.com/")),
+    # A hosted or git package: what `pub_files_fetched` read, never facts
+    # passed beside the files.
+    hosted = struct(package_name = "args", version = "2.7.0", fetched_identity = pub_hosted_purl("args", "2.7.0", _SHA), purl = "")
+    package = package_fetched(attr(), hosted)
+    asserts.equals(env, "2.7.0", package.version)
+    asserts.equals(env, hosted.fetched_identity, package.fetched_identity)
+    asserts.equals(env, "", package.purl)
+    lock = Label("//app:pubspec.lock")
+    relative = struct(
+        package_name = "args",
+        version = "2.7.0",
+        fetched_identity = pub_git_identity("args", "2.7.0", "../shared", _COMMIT, "pkgs/args", lock),
+        purl = pub_git_purl("args", "2.7.0", "../shared", _COMMIT, "pkgs/args"),
     )
-    asserts.equals(
-        env,
-        pub_git_purl("args", "2.7.0", "../args.git", _COMMIT, "pkgs/args"),
-        package_fetched_identity(attr(git_url = "../args.git", resolved_ref = _COMMIT, git_path = "pkgs/args")),
-    )
-    asserts.equals(env, "@@//packages/args", package_fetched_identity(attr(directory = "/abs/packages/args", path_identity = "@@//packages/args")))
+    package = package_fetched(attr(), relative)
+    asserts.equals(env, relative.fetched_identity, package.fetched_identity)
+    asserts.equals(env, relative.purl, package.purl)
 
-    # A Flutter SDK package: rules_dart's `pub` never fetches one.
-    asserts.equals(env, "", package_fetched_identity(attr()))
+    # A path package: the directory it is built from, at the lock's version.
+    package = package_fetched(attr(version = "2.7.0", directory = "/abs/packages/args", path_identity = "@@//packages/args"), None)
+    asserts.equals(env, struct(version = "2.7.0", fetched_identity = "@@//packages/args", purl = ""), package)
+
+    # A Flutter SDK package, whose files repository records nothing:
+    # rules_dart's `pub` never fetches one.
+    asserts.equals(env, struct(version = "0.0.0", fetched_identity = "", purl = ""), package_fetched(attr(version = "0.0.0"), None))
     return unittest.end(env)
 
 def _members_without_an_identity_state_none_test_impl(ctx):
@@ -120,16 +129,6 @@ def _members_without_an_identity_state_none_test_impl(ctx):
     ]:
         asserts.true(env, "\npackage_metadata(" not in content and "package_metadata.bzl" not in content, content)
         asserts.true(env, "fetched_identity" not in content and "\ndart_package_metadata(" in content, content)
-    return unittest.end(env)
-
-def _purls_follow_the_lock_entry_test_impl(ctx):
-    env = unittest.begin(ctx)
-    asserts.equals(env, "pkg:pub/args@2.7.0?checksum=sha256:" + _SHA, pub_hosted_purl("args", "2.7.0", _SHA))
-    asserts.equals(
-        env,
-        "pkg:pub/args@2.7.0?vcs_url=git%2Bhttps:%2F%2Fexample.com%2Fargs.git%40" + _COMMIT + "%23pkgs%2Fargs",
-        pub_git_purl("args", "2.7.0", "https://example.com/args.git", _COMMIT, "pkgs/args"),
-    )
     return unittest.end(env)
 
 # `path` 1.9.1, as both the root lock and go_router_builder's record it.
@@ -162,11 +161,26 @@ _both_fetchers_copies_are_one_package_test = analysistest.make(
 )
 
 _members_state_their_purl_test = unittest.make(_members_state_their_purl_test_impl)
+
+def _relative_git_members_state_their_purl_test_impl(ctx):
+    """A git package locked by a relative url is fetched as its repository and listed by its purl."""
+    env = unittest.begin(ctx)
+    lock = Label("//app:pubspec.lock")
+    identity = pub_git_identity("args", "2.7.0", "../shared", _COMMIT, "pkgs/args", lock)
+    purl = pub_git_purl("args", "2.7.0", "../shared", _COMMIT, "pkgs/args")
+    for content in [
+        make_dart_member_build_content("args", "3.4", [], "", version = "2.7.0", fetched_identity = identity, purl = purl),
+        make_flutter_member_build_content("args", "3.4", [], "", version = "2.7.0", fetched_identity = identity, purl = purl, plugin_platforms = {"web": {"pluginClass": "WebPlugin"}}),
+    ]:
+        asserts.true(env, _identity_target(purl) in content, content)
+        asserts.true(env, identity in content, content)
+    return unittest.end(env)
+
 _members_are_fetched_as_rules_dart_states_it_test = unittest.make(_members_are_fetched_as_rules_dart_states_it_test_impl)
 _path_members_state_no_purl_test = unittest.make(_path_members_state_no_purl_test_impl)
-_fetched_identity_follows_the_lock_entry_test = unittest.make(_fetched_identity_follows_the_lock_entry_test_impl)
+_fetched_identity_follows_what_was_fetched_test = unittest.make(_fetched_identity_follows_what_was_fetched_test_impl)
+_relative_git_members_state_their_purl_test = unittest.make(_relative_git_members_state_their_purl_test_impl)
 _members_without_an_identity_state_none_test = unittest.make(_members_without_an_identity_state_none_test_impl)
-_purls_follow_the_lock_entry_test = unittest.make(_purls_follow_the_lock_entry_test_impl)
 
 def package_identity_test_suite(name):
     """Registers the package identity unit tests.
@@ -187,8 +201,8 @@ def package_identity_test_suite(name):
         _members_state_their_purl_test,
         _members_are_fetched_as_rules_dart_states_it_test,
         _path_members_state_no_purl_test,
-        _fetched_identity_follows_the_lock_entry_test,
+        _fetched_identity_follows_what_was_fetched_test,
+        _relative_git_members_state_their_purl_test,
         _members_without_an_identity_state_none_test,
-        _purls_follow_the_lock_entry_test,
     )
     native.test_suite(name = name, tests = [name + "_unit", name + "_both_fetchers"])

@@ -52,7 +52,7 @@ rule asks for it.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_git_purl", "pub_hosted_purl", "pub_package_identity")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_files_fetched", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
@@ -549,7 +549,7 @@ def _platform_native_build(ctx, platform, info):
         mechanism = ffi_plugin_native_build(build)
     return mechanism
 
-def _detect_unbuilt_native_code(ctx, plugin_block):
+def _detect_unbuilt_native_code(ctx, version, plugin_block):
     """The plugin's native code rules_flutter does not build, per platform.
 
     Returns:
@@ -568,7 +568,7 @@ def _detect_unbuilt_native_code(ctx, plugin_block):
         if mechanism:
             out[platform] = unbuilt_native_code_message(
                 ctx.attr.package_name,
-                ctx.attr.version,
+                version,
                 platform,
                 mechanism,
             )
@@ -836,7 +836,7 @@ def _annotated_dicts(labels):
     """
     return [{"label": label, "name": label.rsplit("//:", 1)[1]} for label in labels]
 
-def _write_maven_deps(ctx, deps, unread, script, annotated = [], boms = []):
+def _write_maven_deps(ctx, version, deps, unread, script, annotated = [], boms = []):
     """Record the Maven dependencies the Android check of the hub reads.
 
     Written for every spoke, so `@flutter_pub_android_maven` can read
@@ -852,7 +852,7 @@ def _write_maven_deps(ctx, deps, unread, script, annotated = [], boms = []):
     """
     ctx.file(MAVEN_DEPS_FILE, json.encode({
         "package": ctx.attr.package_name,
-        "version": ctx.attr.version,
+        "version": version,
         "script": script,
         "deps": deps,
         "boms": boms,
@@ -1454,7 +1454,7 @@ _RESOURCES_GLOB_BLOCK = """    resources = glob(
     ),
 """
 
-def _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity = ""):
+def _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity = "", purl = ""):
     """The package metadata of a generated member: the package's facts.
 
     Shared by the `pub_package_member` and `flutter_pub_member` generators, so
@@ -1473,9 +1473,9 @@ def _member_metadata(name, language_version, code_assets, unreplaced_hook, versi
         link_hook = link_hook,
         license_file = license_file,
         fetched_identity = fetched_identity,
-    ) + pub_package_identity(fetched_identity).target
+    ) + pub_package_identity(fetched_identity, purl).target
 
-def make_dart_member_build_content(name, language_version, code_assets, unreplaced_hook, version = "", license_file = "", link_hook = "", fetched_identity = ""):
+def make_dart_member_build_content(name, language_version, code_assets, unreplaced_hook, version = "", license_file = "", link_hook = "", fetched_identity = "", purl = ""):
     """Generate BUILD content for the source repository of a pure-Dart pub package.
 
     A package with nothing of Flutter's in its pubspec is rules_dart's own
@@ -1496,15 +1496,18 @@ def make_dart_member_build_content(name, language_version, code_assets, unreplac
         license_file: The package's `NOTICES` or `LICENSE` (`find_pub_license_file`), or "".
         link_hook: Its `hook/link.dart`, or "".
         fetched_identity: What it was fetched as: its purl (`pub_hosted_purl`,
-            `pub_git_purl`), also stated on a `package_metadata` that its
-            `REPO.bazel` attaches to every target of the repository; the
-            directory a path package is built from (`pub_path_identity`); or
+            `pub_git_identity`'s purl), also stated on a `package_metadata` that
+            its `REPO.bazel` attaches to every target of the repository; the
+            directory a path package is built from (`pub_path_identity`), or
+            a relative git url's repository (`pub_git_identity`); or
             "" for a package no fetcher states.
+        purl: The purl of a git package locked by a relative url, whose
+            identity is not one (`package_fetched`), so an SBOM lists it; or "".
 
     Returns:
         BUILD.bazel content as a string.
     """
-    return package_metadata_loads(fetched_identity) + """\
+    return package_metadata_loads(fetched_identity, purl) + """\
 load("@rules_dart//dart/pub:pub_library.bzl", "pub_package_member")
 
 {metadata}
@@ -1517,7 +1520,7 @@ pub_package_member(
 """.format(
         name = name,
         resources = _RESOURCES_GLOB_BLOCK,
-        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity),
+        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity, purl),
         metadata_target = METADATA_TARGET_NAME,
     )
 
@@ -1604,6 +1607,7 @@ def make_flutter_member_build_content(
         license_file = "",
         link_hook = "",
         fetched_identity = "",
+        purl = "",
         implements = ""):
     """Generate BUILD content for the source repository of a Flutter pub package.
 
@@ -1635,6 +1639,7 @@ def make_flutter_member_build_content(
         license_file: The package's `NOTICES` or `LICENSE` (`find_pub_license_file`), or "".
         link_hook: Its `hook/link.dart`, or "".
         fetched_identity: What it was fetched as, as for `make_dart_member_build_content`.
+        purl: Its purl when the identity is not one, as for `make_dart_member_build_content`.
         has_android_lib: Whether the package has an `android/` sub-package
             that defines `:lib`, which the member lists under `exports`,
             selected on Android.
@@ -1823,7 +1828,7 @@ flutter_unbuilt_plugin_library(
 
     # The `lib/` glob is `allow_empty`: a pub package can be only assets or native
     # code, with no Dart.
-    return package_metadata_loads(fetched_identity) + """\
+    return package_metadata_loads(fetched_identity, purl) + """\
 load("@rules_flutter//flutter/private:flutter_pub_library.bzl", "flutter_pub_member")
 {extra_loads}
 {metadata}
@@ -1836,7 +1841,7 @@ flutter_pub_member(
 {extra_targets}
 """.format(
         name = name,
-        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity),
+        metadata = _member_metadata(name, language_version, code_assets, unreplaced_hook, version, license_file, link_hook, fetched_identity, purl),
         metadata_target = METADATA_TARGET_NAME,
         resources = _RESOURCES_GLOB_BLOCK,
         platforms_arg = platforms_arg,
@@ -2556,41 +2561,44 @@ def fetch_local_package(ctx, directory):
     fetch_pub_path(ctx, directory, ["pubspec.yaml"])
     fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory))
 
-def package_fetched_identity(attr):
-    """What the package was fetched as, or "" for nothing.
+def package_fetched(attr, fetched):
+    """What the package is: its version, what it was fetched as, and its purl.
 
-    What rules_dart's `pub` states for the same lock entry, from the same
-    helpers, so a program reaching both fetchers' copies of one package takes
-    them for one: a hosted or git package's purl (which SBOM tools also read),
-    and the directory a path package is built from, which the extension works
-    out from the lock (`path_identity`). A Flutter SDK package states none:
-    rules_dart's `pub` never fetches one, so no second copy has to match.
+    What rules_dart's `pub` states for the same lock entry, so a program
+    reaching both fetchers' copies of one package takes them for one. A hosted
+    or git package's version, fetched identity and purl are what its files
+    repository records it fetched (`pub_files_fetched`), never facts passed
+    beside it, which could describe bytes never fetched. A path package's
+    identity is the directory it is built from (`path_identity`). A Flutter
+    SDK package, whose files repository records nothing, and a package of a
+    framework source state none: rules_dart's `pub` never fetches one, so no
+    second copy has to match.
 
     Args:
         attr: A `flutter_pub_package`'s attributes.
+        fetched: What its files repository records it fetched, as
+            `pub_files_fetched` returns it, or None.
 
     Returns:
-        The fetched identity, or "".
+        `struct(version, fetched_identity, purl)`: the identity "" for
+        nothing, and the purl of a git package, which `pub_files_fetched`
+        returns for every one (equal to the identity for a remote url), else "".
     """
-    if attr.directory:
-        return attr.path_identity
-    if attr.git_url:
-        return pub_git_purl(
-            attr.package_name,
-            attr.version,
-            attr.git_url,
-            attr.resolved_ref,
-            attr.git_path,
+    if fetched == None:
+        return struct(
+            version = attr.version,
+            fetched_identity = attr.path_identity if attr.directory else "",
+            purl = "",
         )
-    if attr.sha256:
-        # A hosted package's digest; a Flutter SDK package has none.
-        return pub_hosted_purl(
-            attr.package_name,
-            attr.version,
-            attr.sha256,
-            attr.base_url,
-        )
-    return ""
+    if fetched.package_name != attr.package_name:
+        fail("package {}: its files repository fetched package {} {}.".format(attr.package_name, fetched.package_name, fetched.version))
+    if attr.version:
+        fail("package {}: `version` is set, and a hosted or git package's version is the one its files repository fetched ({}).".format(attr.package_name, fetched.version))
+    return struct(
+        version = fetched.version,
+        fetched_identity = fetched.fetched_identity,
+        purl = fetched.purl,
+    )
 
 def write_android_build(ctx, prelude, content):
     """Write the `android/BUILD.bazel` of a plugin: `content` after the load of the files repository.
@@ -2602,6 +2610,7 @@ def write_android_build(ctx, prelude, content):
 
 def _flutter_pub_package_impl(ctx):
     build_prelude = ""
+    fetched = None
     if ctx.attr.framework_json:
         unset = unset_message(ctx)
         if unset:
@@ -2614,15 +2623,19 @@ def _flutter_pub_package_impl(ctx):
         # A hosted, git or Flutter SDK package: its files are another
         # repository's, linked in.
         build_prelude = _link_package_files(ctx)
-    fetched_identity = package_fetched_identity(ctx.attr)
-    identity = pub_package_identity(fetched_identity)
+        fetched = pub_files_fetched(ctx, ctx.attr.files)
+    package = package_fetched(ctx.attr, fetched)
+    version = package.version
+    fetched_identity = package.fetched_identity
+    purl = package.purl
+    identity = pub_package_identity(fetched_identity, purl)
     if identity.repo_file:
         ctx.file("REPO.bazel", identity.repo_file)
 
     # Pub's own reading of the pubspec: a package pub would refuse (malformed
     # YAML, a `name` that is not this package's, a dependency or constraint of
     # the wrong type) fails the fetch, naming the package.
-    pubspec = read_pubspec(ctx, ctx.attr.package_name, ctx.attr.version)
+    pubspec = read_pubspec(ctx, ctx.attr.package_name, version)
     if ctx.attr.framework_json:
         # What a Flutter SDK package of a framework other than the release
         # needs of the hosted packages must be what the locks hold. (A
@@ -2708,7 +2721,7 @@ def _flutter_pub_package_impl(ctx):
             ctx,
             overlay_label,
             ctx.attr.package_name,
-            ctx.attr.version,
+            version,
             language_version,
             dep_labels,
             license_file,
@@ -2722,7 +2735,7 @@ def _flutter_pub_package_impl(ctx):
                 ctx,
                 overlay_label,
                 ctx.attr.package_name,
-                ctx.attr.version,
+                version,
                 language_version,
                 dep_labels,
                 "android/BUILD.bazel.tpl",
@@ -2765,7 +2778,7 @@ def _flutter_pub_package_impl(ctx):
             overlay_maven_deps = _maven_dep_dicts(overlay_parsed)
             overlay_boms = _bom_dicts(overlay_parsed)
             overlay_script = overlay_parsed.script
-        _write_maven_deps(ctx, overlay_maven_deps, [], overlay_script, boms = overlay_boms)
+        _write_maven_deps(ctx, version, overlay_maven_deps, [], overlay_script, boms = overlay_boms)
         if overlay_android_content:
             write_android_build(ctx, build_prelude, overlay_android_content)
         return _linked_repo_metadata(ctx)
@@ -2782,7 +2795,7 @@ def _flutter_pub_package_impl(ctx):
         # A platform whose library the plugin's own build makes by means
         # rules_flutter does not run gets a stand-in for its library that
         # fails that platform's build; its sources are not compiled.
-        unbuilt_native_code = _detect_unbuilt_native_code(ctx, plugin_block)
+        unbuilt_native_code = _detect_unbuilt_native_code(ctx, version, plugin_block)
 
         # Each Apple platform with a plugin class has a library in the
         # plugin's Apple repository, built from its Package.swift or, without
@@ -2860,9 +2873,10 @@ def _flutter_pub_package_impl(ctx):
         build_content = make_flutter_member_build_content(
             name = ctx.attr.package_name,
             language_version = language_version,
-            version = ctx.attr.version,
+            version = version,
             license_file = license_file,
             fetched_identity = fetched_identity,
+            purl = purl,
             code_assets = ctx.attr.code_assets,
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
@@ -2905,9 +2919,10 @@ def _flutter_pub_package_impl(ctx):
         build_content = make_flutter_member_build_content(
             name = ctx.attr.package_name,
             language_version = language_version,
-            version = ctx.attr.version,
+            version = version,
             license_file = license_file,
             fetched_identity = fetched_identity,
+            purl = purl,
             code_assets = ctx.attr.code_assets,
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
@@ -2936,9 +2951,10 @@ def _flutter_pub_package_impl(ctx):
             code_assets = ctx.attr.code_assets,
             unreplaced_hook = unreplaced_hook,
             link_hook = hooks.link_hook,
-            version = ctx.attr.version,
+            version = version,
             license_file = license_file,
             fetched_identity = fetched_identity,
+            purl = purl,
         )
         android_src_dir = ""
         android_java_package = ""
@@ -3025,7 +3041,7 @@ def _flutter_pub_package_impl(ctx):
                 jvm_level = android_jvm.level,
                 build_config_fields = build_config.fields,
             ))
-    _write_maven_deps(ctx, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps), maven_boms)
+    _write_maven_deps(ctx, version, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps), maven_boms)
     return _linked_repo_metadata(ctx)
 
 flutter_pub_package = repository_rule(
@@ -3036,29 +3052,14 @@ flutter_pub_package = repository_rule(
             mandatory = True,
         ),
         "version": attr.string(
-            doc = "The package version, as pubspec.lock records it (`0.0.0` for an SDK package).",
-            mandatory = True,
+            doc = "A path package's version, as pubspec.lock records it, or a Flutter SDK package's (`0.0.0`). " +
+                  "Unset for a hosted or git package, whose version is the one its `files` repository fetched.",
         ),
         "files": attr.label(
             doc = "The repository holding a hosted, git or Flutter SDK package's files, as rules_dart's " +
                   "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
-                  "Unused with `directory` or `framework_json`.",
-        ),
-        "sha256": attr.string(
-            doc = "A hosted package's archive digest, as pubspec.lock records it, for its purl. Empty for any other package.",
-            default = "",
-        ),
-        "git_url": attr.string(
-            doc = "A git package's repository: `description.url` in the lock, for its purl.",
-            default = "",
-        ),
-        "resolved_ref": attr.string(
-            doc = "A git package's locked commit: `description.resolved-ref`, a full commit id.",
-            default = "",
-        ),
-        "git_path": attr.string(
-            doc = "A git package's directory in the repository: `description.path`.",
-            default = ".",
+                  "What `pub_archive_files` or `pub_git_files` records it fetched is the package's version, " +
+                  "fetched identity and purl. Unused with `directory` or `framework_json`.",
         ),
         "directory": attr.string(
             doc = "A `path` package's directory, absolute: the lock's `description.path`, resolved against the lock's directory. " +
@@ -3070,10 +3071,6 @@ flutter_pub_package = repository_rule(
                   "(`pub_path_identity`): the lock's repository and the directory in it. Empty for a directory " +
                   "outside the lock's repository, and for any other package.",
             default = "",
-        ),
-        "base_url": attr.string(
-            doc = "Base URL of a hosted package's pub repository, for its purl.",
-            default = "https://pub.dev",
         ),
         "framework_json": attr.label(
             doc = "The `flutter_framework.json` of a framework source holding this package as `packages/<package_name>`, " +

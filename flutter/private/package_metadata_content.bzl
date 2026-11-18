@@ -17,18 +17,20 @@ METADATA_TARGET_NAME = "pubspec-metadata"
 # rule from.
 PACKAGE_METADATA_LOAD = 'load("@rules_dart//dart:defs.bzl", "dart_package_metadata")\n'
 
-def package_metadata_loads(fetched_identity = ""):
+def package_metadata_loads(fetched_identity = "", purl = ""):
     """The loads a generated BUILD file needs for its package metadata.
 
     Args:
         fetched_identity: What the package was fetched as, or "" (see
             `make_package_metadata_content`).
+        purl: The package's purl when `fetched_identity` is not one
+            (`package_fetched`), or "".
 
     Returns:
         The `load` lines: with a fetched identity, those
         `pub_package_identity` gives for it.
     """
-    return pub_package_identity(fetched_identity).loads if fetched_identity else PACKAGE_METADATA_LOAD
+    return pub_package_identity(fetched_identity, purl).loads if fetched_identity or purl else PACKAGE_METADATA_LOAD
 
 def make_package_metadata_content(
         package_name,
@@ -51,7 +53,7 @@ def make_package_metadata_content(
         link_hook: Its `hook/link.dart`, package-relative, or "".
         license_file: Its `NOTICES` or `LICENSE`, package-relative, or "".
         fetched_identity: What it was fetched as (`pub_hosted_purl`,
-            `pub_git_purl`, `pub_path_identity`), which makes it rules_dart's
+            `pub_git_identity`, `pub_path_identity`), which makes it rules_dart's
             `fetched_package_metadata`; or "" for a package no fetcher states.
         visibility: The target's visibility.
 

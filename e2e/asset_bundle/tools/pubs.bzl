@@ -64,9 +64,6 @@ def _pubs_impl(mctx):
             name = source_repo(name),
             files = pub_files_label(files_repo(name)),
             package_name = name,
-            version = version,
-            sha256 = checksums[name],
-            base_url = "file://" + str(registry),
         )
         flutter_pub_library_repo(
             name = library_repo(name),

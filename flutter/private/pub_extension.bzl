@@ -458,12 +458,13 @@ def _git_entry(tag, name, info):
         fail("The git package \"%s\" %s (in %s) has no `description.url`. Run `dart pub get` to rewrite the lock." % (name, version, tag.lock))
     resolved_ref = desc.get("resolved-ref", "")
     check_pub_git_resolved_ref(name, version, resolved_ref, str(tag.lock), rewrite = pub_command("get", lock_directory(tag.lock)))
+    git_path = desc.get("path", ".")
     return dict(
         kind = GIT,
         version = version,
         git_url = url,
         resolved_ref = resolved_ref,
-        git_path = desc.get("path", "."),
+        git_path = git_path,
         # A relative url is resolved against the lock's directory; any other
         # leaves the lock out, so editing the lock does not refetch the package.
         git_lock = str(tag.lock) if is_relative_git_url(url) else "",
@@ -715,9 +716,6 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 name = source_repo(name),
                 files = pub_files_label(files_repo(name)),
                 package_name = name,
-                version = e.version,
-                sha256 = e.sha256,
-                base_url = e.url,
                 overlay_roots = overlay_roots,
                 # rules_dart's curated registry is the single source of truth
                 # for which pub package a Bazel-built native library stands in
@@ -748,10 +746,6 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 name = source_repo(name),
                 files = pub_files_label(files_repo(name)),
                 package_name = name,
-                version = e.version,
-                git_url = e.git_url,
-                resolved_ref = e.resolved_ref,
-                git_path = e.git_path,
                 overlay_roots = overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
                 ignore_hook = name in ignore_hooks,
