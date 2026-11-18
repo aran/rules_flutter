@@ -2038,6 +2038,13 @@ bazel test //:linux_pass_test //:linux_filter_test //:linux_red_twin_test \
 and web_example's `:render_test`. The first run fetches the runtime (about 160
 Debian packages, 350 MB unpacked) and checks it (`FlutterLinuxRuntimeCheck`).
 
+A passing Linux app logs two GTK critical messages, `atk_socket_embed: assertion
+'plug_id != NULL' failed` and `fl_gnome_settings_set_interface_settings: ...
+assertion 'G_IS_SETTINGS(settings)' failed`. They are the engine's on any system
+with no session bus and no `org.gnome.desktop.interface` schema, a bundle from
+`flutter build linux` included: the runtime gives the app neither, so it gets
+the engine's defaults (light theme, 24-hour clock, text scale 1) on every host.
+
 **When to run:** After any change to the integration test rules or the runner for
 Linux (`flutter_linux_integration_test`, `LinuxDevice`,
 `tools/dev_tool/lib/integration/`), to the runtime (`flutter_linux_runtime*.bzl`,

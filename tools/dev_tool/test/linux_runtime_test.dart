@@ -29,6 +29,9 @@ const _host = {
   'LD_LIBRARY_PATH': '/opt/host/lib',
   'GTK_PATH': '/usr/lib/gtk-3.0',
   'XDG_DATA_DIRS': '/usr/share',
+  'XDG_DATA_HOME': '/home/me/.local/share',
+  'XDG_RUNTIME_DIR': '/run/user/1000',
+  'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus',
 };
 
 void main() {
@@ -81,7 +84,23 @@ void main() {
       expect(env['GIO_MODULE_DIR'], p.join(_lib, 'gio', 'modules'));
       expect(env['FONTCONFIG_FILE'], '/rf/rt/fonts.conf');
       expect(env.containsKey('GTK_PATH'), isFalse);
-      expect(env.containsKey('XDG_DATA_DIRS'), isFalse);
+    });
+
+    test('reads the runtime\'s data files, so no settings schema of the '
+        'host\'s', () {
+      expect(env['XDG_DATA_DIRS'], _under('/rf/rt/root', ['usr', 'share']));
+    });
+
+    test('reads no settings schema from the user\'s data directory either', () {
+      // GLib looks in `$XDG_DATA_HOME` before `XDG_DATA_DIRS`.
+      expect(env['XDG_DATA_HOME'], p.join('/tmp/t/cache', 'xdg-data'));
+      expect(env['XDG_DATA_HOME'], isNot(_host['XDG_DATA_HOME']));
+    });
+
+    test('reaches no session bus of the host\'s, by address or by the '
+        'runtime directory GLib finds one in', () {
+      expect(env.containsKey('DBUS_SESSION_BUS_ADDRESS'), isFalse);
+      expect(env.containsKey('XDG_RUNTIME_DIR'), isFalse);
     });
 
     test('keeps the rest of the host\'s', () {

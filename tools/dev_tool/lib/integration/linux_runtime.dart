@@ -52,6 +52,8 @@ const _hostOnly = {
   'GTK_PATH',
   'GTK_THEME',
   'XDG_DATA_DIRS',
+  'XDG_DATA_HOME',
+  'XDG_RUNTIME_DIR',
 };
 
 /// The runtime unpacked in the runfiles.
@@ -113,7 +115,8 @@ class LinuxRuntime {
   /// would point it at the host's display, libraries or modules, with the
   /// runtime's in their place, and [display] when it draws on one.
   ///
-  /// [cacheDir] is where fontconfig keeps its cache: the test's own.
+  /// [cacheDir] is where fontconfig keeps its cache: the test's own. It also
+  /// holds the (empty) data directory of the user the program runs as.
   Map<String, String> environment({
     required Map<String, String> host,
     required String cacheDir,
@@ -134,7 +137,18 @@ class LinuxRuntime {
     // store that would keep them needs a session daemon.
     'GIO_MODULE_DIR': p.join(_lib, 'gio', 'modules'),
     'GSETTINGS_BACKEND': 'memory',
-    // No accessibility bus to bridge to.
+    // Data files are the runtime's. Unset, GLib reads `/usr/share`, and the
+    // engine would take its desktop settings from whatever GSettings schemas
+    // the host has compiled. The runtime has none, so the engine logs a
+    // critical that it has no `org.gnome.desktop.interface` and uses its own
+    // defaults, as it does on any system without a desktop.
+    'XDG_DATA_DIRS': _share,
+    // GLib reads `$XDG_DATA_HOME/glib-2.0/schemas` before `XDG_DATA_DIRS`, and
+    // unset it is `$HOME/.local/share`, which the user's own schemas may be in.
+    // A directory of the test's, which has none.
+    'XDG_DATA_HOME': p.join(cacheDir, 'xdg-data'),
+    // No accessibility bus to bridge to. The engine logs an `atk_socket_embed`
+    // critical for it, as it does on any system without a session bus.
     'NO_AT_BRIDGE': '1',
     'GDK_BACKEND': 'x11',
     if (display != null) 'DISPLAY': ':$display',
