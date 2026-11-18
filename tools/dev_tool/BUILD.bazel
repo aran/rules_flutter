@@ -474,7 +474,7 @@ dart_test(
     name = "e2e_runner_test",
     srcs = ["tool/e2e.dart"],
     main = "test/e2e_runner_test.dart",
-    deps = _TEST_DEP + ["@rules_dart//dart/runfiles"],
+    deps = _TEST_DEP + _PATH_DEP + ["@rules_dart//dart/runfiles"],
 )
 
 # The Dart in this package that belongs to no package's `lib/` and to no test
@@ -570,5 +570,5 @@ dart_binary(
     main = "tool/e2e.dart",
     tags = ["manual"],
     visibility = ["//visibility:private"],
-    deps = ["@rules_dart//dart/runfiles"],
+    deps = _PATH_DEP + ["@rules_dart//dart/runfiles"],
 )

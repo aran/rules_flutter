@@ -442,6 +442,15 @@ actually *ran* is zero. It runs the suite on `Platform.resolvedExecutable`, the
 VM running the runner itself, so the `dart` its first line of output names is
 the one that runs — see the next section.
 
+The same goes for each selector you pass. A test file, `--plain-name` or
+`--name` that ran no case fails the run and is named in the verdict, even when
+the other selectors ran plenty: `dart test` joins them, so a mistyped name, or
+one file of six that is all gated on macOS, would otherwise leave the run green
+having proved nothing about it. A selector whose cases were all skipped on this
+host fails the same way and says so. A `--tags` selector is not checked
+one by one, since the result stream does not say which tags a case has; a run
+that selects nothing at all names the tags `dart_test.yaml` does not declare.
+
 One trap worth naming if you ever parse that stream yourself: a skipped test
 reports `result: "success"` in the JSON reporter, for backwards compatibility.
 The predicate for "ran and passed" is `result == "success" && !skipped

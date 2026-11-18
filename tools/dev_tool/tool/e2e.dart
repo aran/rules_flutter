@@ -10,6 +10,15 @@
 /// Arguments are forwarded to `dart test`; any positional one replaces the
 /// default `test/e2e/` path.
 ///
+/// ## Every selector must run a case
+///
+/// A test file, `--plain-name` or `--name` that the caller passes must run at
+/// least one case, or the run fails and says which selector ran nothing. `dart
+/// test` joins them: it runs the cases that match all the names and the
+/// tags, in the files named, so a mistyped name next to a good one, or one file
+/// of six that is all gated on macOS, is a selector that ran nothing while the
+/// run itself is green. See [Selection].
+///
 /// ## Why this exists rather than a bare `dart test`
 ///
 /// `dart test` has three ways to finish without running the suite, and only two
@@ -74,6 +83,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:runfiles/runfiles.dart';
 
 /// The leading argument the target's `args` supplies: the runfiles path of
@@ -115,15 +125,19 @@ Future<void> main(List<String> runArgs) async {
   final adb = _runfile(runArgs[1].substring(_adbFlag.length), 'adb');
   final args = runArgs.sublist(2);
   final packageDir = _packageDir();
+  final selection = Selection.parse(
+    args,
+    packageDir.uri,
+    isDirectory: (path) =>
+        FileSystemEntity.typeSync(path) == FileSystemEntityType.directory,
+  );
   // Forwarded verbatim and in order — splitting flags from positionals would
   // tear `--plain-name occluded` in half, since the value carries no leading
-  // dash. The default path is supplied only when the caller named nothing that
-  // could be one; when they did, `dart test` resolves it, and when they passed
-  // a flag value that merely looks positional it falls back to `test/`, where
-  // `--tags=e2e` still selects these files and nothing else.
+  // dash. The default path is supplied only when the caller named no file or
+  // directory.
   final testArgs = [
     'test',
-    if (!args.any((a) => !a.startsWith('-'))) _defaultPath,
+    if (selection.paths.isEmpty) _defaultPath,
     ..._alwaysArgs,
     ...args,
   ];
@@ -137,7 +151,12 @@ Future<void> main(List<String> runArgs) async {
 
   final environment = _suiteEnvironment(flutterRoot, adb);
   await _resolve(packageDir, environment);
-  final outcome = await _runSuite(packageDir, environment, testArgs);
+  final outcome = await _runSuite(
+    packageDir,
+    environment,
+    testArgs,
+    selection,
+  );
   outcome.report();
   exit(outcome.ok ? 0 : 1);
 }
@@ -238,6 +257,7 @@ Future<Outcome> _runSuite(
   Directory packageDir,
   Map<String, String> environment,
   List<String> testArgs,
+  Selection selection,
 ) async {
   final process = await Process.start(
     Platform.resolvedExecutable,
@@ -251,7 +271,10 @@ Future<Outcome> _runSuite(
   // place that says why. Relayed line by line rather than with `addStream`,
   // which would bind `stderr` and make this runner's own writes throw
   // `StreamSink is bound to a stream` the moment a test reported anything.
-  final outcome = Outcome();
+  final outcome = Outcome(
+    selection: selection,
+    declaredTags: _declaredTags(packageDir),
+  );
   await Future.wait([
     process.stderr
         .transform(utf8.decoder)
@@ -266,6 +289,288 @@ Future<Outcome> _runSuite(
   return outcome;
 }
 
+/// The tags `dart_test.yaml` in [packageDir] declares, or null if it cannot be
+/// read.
+///
+/// Only the plain names under its top-level `tags:` are read; a key that is a
+/// boolean selector (`"e2e && app_builds"`) configures a combination and
+/// declares none.
+Set<String>? _declaredTags(Directory packageDir) {
+  final file = File('${packageDir.path}/dart_test.yaml');
+  if (!file.existsSync()) return null;
+  return declaredTagsOf(file.readAsLinesSync());
+}
+
+/// The tag names under the top-level `tags:` key of the lines of a
+/// `dart_test.yaml`.
+Set<String> declaredTagsOf(List<String> lines) {
+  final tags = <String>{};
+  var inTags = false;
+  for (final line in lines) {
+    if (line.startsWith('tags:')) {
+      inTags = true;
+    } else if (line.isNotEmpty && !line.startsWith(RegExp(r'[ #]'))) {
+      inTags = false;
+    } else if (inTags) {
+      final key = RegExp(r'^  ([A-Za-z0-9_-]+):').firstMatch(line);
+      if (key != null) tags.add(key.group(1)!);
+    }
+  }
+  return tags;
+}
+
+/// The `dart test` options that take their value from the next argument when
+/// written without `=`, by long name, and the short names of those that have
+/// one.
+const _valueOptions = {
+  'name',
+  'plain-name',
+  'tags',
+  'exclude-tags',
+  'platform',
+  'compiler',
+  'preset',
+  'concurrency',
+  'total-shards',
+  'shard-index',
+  'timeout',
+  'suite-load-timeout',
+  'coverage',
+  'coverage-path',
+  'coverage-package',
+  'test-randomize-ordering-seed',
+  'reporter',
+  'file-reporter',
+};
+const _shortOptions = {
+  'n': 'name',
+  'N': 'plain-name',
+  't': 'tags',
+  'x': 'exclude-tags',
+  'p': 'platform',
+  'c': 'compiler',
+  'P': 'preset',
+  'j': 'concurrency',
+  'r': 'reporter',
+};
+
+/// A test file or directory the caller named.
+class PathSelector {
+  PathSelector(this.argument, this.path, {required this.directory});
+
+  /// As the caller wrote it.
+  final String argument;
+
+  /// Where it is, resolved against the package, without a query.
+  final String path;
+
+  final bool directory;
+
+  /// Whether [suitePath], a resolved path, is this file or inside this
+  /// directory. Both are URI paths, so `/` separates them on every host.
+  bool covers(String suitePath) =>
+      directory ? p.posix.isWithin(path, suitePath) : suitePath == path;
+}
+
+/// What the caller selected with, read out of the arguments for `dart test`.
+///
+/// `dart test` runs a case only when it is in one of the files named and
+/// matches every `--name`, every `--plain-name` and the tags. What the run
+/// reports is therefore the cases of the whole, and a selector that matched
+/// nothing by itself is invisible in it: the run is green so long as the other
+/// selectors found something. So each selector is checked on its own against
+/// the cases the run reported ([unmatched]):
+///
+/// * A file or directory must hold a case that ran. It is the selector that
+///   can be wrong while the others are right, for several files are joined
+///   rather than intersected.
+/// * A `--name` or `--plain-name` must match the name of a case that ran. That
+///   a case ran at all means every name matched it, so this fails only when
+///   the cases it matches were all skipped, on a host that cannot run them.
+/// * A `--tags` selector cannot be checked this way, because the reporter does
+///   not say which tags a case has. A run in which nothing was selected is
+///   explained by the tags `dart_test.yaml` does not declare, for a mistyped
+///   tag is what makes it so.
+///
+/// `--exclude-tags` removes cases and selects none, so it is not checked.
+class Selection {
+  Selection({
+    required this.base,
+    this.paths = const [],
+    this.names = const [],
+    this.plainNames = const [],
+    this.tags = const [],
+  });
+
+  /// The package directory, which relative paths are resolved against.
+  final Uri base;
+  final List<PathSelector> paths;
+  final List<String> names;
+  final List<String> plainNames;
+  final List<String> tags;
+
+  /// Reads [args]. A positional argument is a path to a test file or
+  /// directory, resolved against [base]; [isDirectory] says whether a resolved
+  /// path is a directory. An option that takes a value and has it in the next
+  /// argument does not make that value a path.
+  factory Selection.parse(
+    List<String> args,
+    Uri base, {
+    required bool Function(String path) isDirectory,
+  }) {
+    final paths = <PathSelector>[];
+    final names = <String>[];
+    final plainNames = <String>[];
+    final tags = <String>[];
+    void value(String option, String value) {
+      switch (option) {
+        case 'name':
+          names.add(value);
+        case 'plain-name':
+          plainNames.add(value);
+        case 'tags':
+          tags.add(value);
+      }
+    }
+
+    for (var i = 0; i < args.length; i++) {
+      final arg = args[i];
+      if (arg.startsWith('--')) {
+        final equals = arg.indexOf('=');
+        if (equals > 0) {
+          value(arg.substring(2, equals), arg.substring(equals + 1));
+        } else if (_valueOptions.contains(arg.substring(2))) {
+          if (i + 1 < args.length) value(arg.substring(2), args[++i]);
+        }
+      } else if (arg.length >= 2 && arg.startsWith('-')) {
+        final option = _shortOptions[arg[1]];
+        if (option == null) continue;
+        if (arg.length > 2) {
+          value(option, arg.substring(arg[2] == '=' ? 3 : 2));
+        } else if (i + 1 < args.length) {
+          value(option, args[++i]);
+        }
+      } else {
+        // `file.dart?name=…` selects within a file; the file is the selector.
+        final path = base.resolve(arg.split('?').first).path;
+        paths.add(PathSelector(arg, path, directory: isDirectory(path)));
+      }
+    }
+    return Selection(
+      base: base,
+      paths: paths,
+      names: names,
+      plainNames: plainNames,
+      tags: tags,
+    );
+  }
+
+  /// A selection of nothing in particular.
+  factory Selection.none() => Selection(base: Uri.directory('/'));
+
+  /// A suite's path, as the reporter prints it, resolved as the paths of the
+  /// selectors are.
+  String resolve(String suitePath) => base.resolve(suitePath).path;
+
+  /// What the caller passed that [cases] show ran nothing, one line each.
+  List<String> unmatched(List<ReportedCase> cases) {
+    String skippedWhy(List<ReportedCase> matched) {
+      final reasons = {
+        for (final c in matched)
+          if (c.skipReason != null) c.skipReason!,
+      };
+      return 'all ${matched.length} skipped'
+          '${reasons.isEmpty ? '' : ' (${reasons.join('; ')})'}: a case that '
+          'this host cannot run does not count as run';
+    }
+
+    String why(List<ReportedCase> matched, String nothing) =>
+        matched.isEmpty ? nothing : skippedWhy(matched);
+
+    final lines = <String>[];
+    for (final selector in paths) {
+      final matched = [
+        for (final c in cases)
+          if (c.suitePath != null && selector.covers(resolve(c.suitePath!))) c,
+      ];
+      if (matched.any((c) => c.executed)) continue;
+      lines.add(
+        '${selector.argument} — ${why(matched, 'no case of it matched the '
+        'other selectors, or it declares none')}',
+      );
+    }
+    for (final name in names) {
+      final RegExp pattern;
+      try {
+        pattern = RegExp(name);
+      } on FormatException catch (e) {
+        lines.add('--name=$name — not a regular expression: ${e.message}');
+        continue;
+      }
+      final matched = [
+        for (final c in cases)
+          if (pattern.hasMatch(c.name)) c,
+      ];
+      if (matched.any((c) => c.executed)) continue;
+      lines.add('--name=$name — ${why(matched, 'no case name matches it')}');
+    }
+    for (final name in plainNames) {
+      final matched = [
+        for (final c in cases)
+          if (c.name.contains(name)) c,
+      ];
+      if (matched.any((c) => c.executed)) continue;
+      lines.add(
+        '--plain-name=$name — ${why(matched, 'no case name contains it')}',
+      );
+    }
+    return lines;
+  }
+
+  /// Which of the caller's tags [declared] does not declare, as the lines of
+  /// an explanation for a run that selected nothing.
+  List<String> undeclaredTags(Set<String> declared) {
+    final undeclared = <String>[];
+    for (final selector in tags) {
+      for (final tag in selector.split(RegExp(r'[^A-Za-z0-9_-]+'))) {
+        if (tag.isNotEmpty && !declared.contains(tag)) {
+          undeclared.add(
+            '--tags=$selector — `$tag` is not a tag dart_test.yaml declares',
+          );
+        }
+      }
+    }
+    return undeclared;
+  }
+
+  /// Everything the caller selected with, as the arguments they passed.
+  List<String> get all => [
+    for (final p in paths) p.argument,
+    for (final n in names) '--name=$n',
+    for (final n in plainNames) '--plain-name=$n',
+    for (final t in tags) '--tags=$t',
+  ];
+}
+
+/// One case the run reported, as far as selectors are checked against it.
+class ReportedCase {
+  ReportedCase(
+    this.name,
+    this.suitePath, {
+    required this.executed,
+    this.skipReason,
+  });
+
+  final String name;
+
+  /// The test file, as the reporter printed it; null if it did not say.
+  final String? suitePath;
+
+  /// Whether it ran (and passed or failed), rather than skipped.
+  final bool executed;
+  final String? skipReason;
+}
+
 /// Accumulates the `package:test` JSON event stream into a verdict.
 ///
 /// The contract used here, from `package:test`'s json reporter: every test
@@ -277,6 +582,19 @@ Future<Outcome> _runSuite(
 /// `success: true` for both of the run-nothing cases, which is exactly why the
 /// counts below, and not `done`, decide the verdict.
 class Outcome {
+  Outcome({Selection? selection, this.declaredTags})
+    : selection = selection ?? Selection.none();
+
+  /// What the caller selected with. Every part of it must have run a case.
+  final Selection selection;
+
+  /// The tags `dart_test.yaml` declares, null if unknown.
+  final Set<String>? declaredTags;
+
+  /// Each case reported, with the file it is in.
+  final cases = <ReportedCase>[];
+  final _suitePaths = <int, String>{};
+  final _suiteOfTest = <int, int>{};
   final _names = <int, String>{};
   final _errors = <String, List<String>>{};
 
@@ -325,10 +643,16 @@ class Outcome {
     if (decoded is! Map<String, dynamic>) return;
 
     switch (decoded['type']) {
+      case 'suite':
+        final suite = decoded['suite'] as Map<String, dynamic>;
+        final path = suite['path'];
+        if (path is String) _suitePaths[suite['id'] as int] = path;
       case 'testStart':
         final test = decoded['test'] as Map<String, dynamic>;
         final id = test['id'] as int;
         _names[id] = test['name'] as String;
+        final suiteId = test['suiteID'];
+        if (suiteId is int) _suiteOfTest[id] = suiteId;
         final metadata = test['metadata'];
         if (metadata is Map<String, dynamic>) {
           final reason = metadata['skipReason'];
@@ -342,12 +666,15 @@ class Outcome {
           skipped.add(name);
           final reason = _skipReasons[id];
           if (reason != null) _skipReasonByName[name] = reason;
+          _record(id, name, executed: false, skipReason: _skipReasons[id]);
           stderr.writeln('  ~ $name');
         } else if (decoded['result'] == 'success') {
           passed.add(name);
+          _record(id, name, executed: true);
           stderr.writeln('  + $name');
         } else {
           failed.add(name);
+          _record(id, name, executed: true);
           stderr.writeln('  ! $name (${decoded['result']})');
         }
       case 'print':
@@ -381,6 +708,23 @@ class Outcome {
     }
   }
 
+  void _record(
+    int id,
+    String name, {
+    required bool executed,
+    String? skipReason,
+  }) {
+    final suiteId = _suiteOfTest[id];
+    cases.add(
+      ReportedCase(
+        name,
+        suiteId == null ? null : _suitePaths[suiteId],
+        executed: executed,
+        skipReason: skipReason,
+      ),
+    );
+  }
+
   /// How many tests actually executed, whatever they then reported.
   ///
   /// This — not [passed] — is what says whether the suite *ran*. A failing
@@ -388,12 +732,14 @@ class Outcome {
   int get executed => passed.length + failed.length;
 
   /// A run counts only when the runner reached its own verdict, nothing failed,
-  /// and at least one test passed.
+  /// at least one test passed, and every selector the caller passed ran a case.
   ///
   /// That last clause matters: `dart test` exits 0 when every
   /// selected test skipped, so "no failures" alone cannot tell a pass from a
   /// suite that never ran.
-  bool get ok => runnerVerdict == true && failed.isEmpty && passed.isNotEmpty;
+  bool get ok => _ran && selection.unmatched(cases).isEmpty;
+
+  bool get _ran => runnerVerdict == true && failed.isEmpty && passed.isNotEmpty;
 
   /// Each name followed by whatever it reported, indented under it.
   String _indented(Iterable<String> names) => names
@@ -432,16 +778,26 @@ class Outcome {
           'whole, and none of this is a pass.';
     }
     if (executed == 0 && skipped.isEmpty) {
+      final undeclared = selection.undeclaredTags(declaredTags ?? const {});
+      final named = selection.all;
       return 'nothing was selected to run (dart test exited '
-          '$runnerExitCode). Check the paths, --tags and -n you passed.';
+          '$runnerExitCode). Check the paths, --tags and -n you passed'
+          '${named.isEmpty ? '' : ': ${named.join(', ')}'}.'
+          '${undeclared.isEmpty || declaredTags == null ? '' : '\n${undeclared.map((l) => '  $l').join('\n')}'}';
     }
     if (executed == 0) {
+      final unmatched = selection.unmatched(cases);
       return 'not one test actually ran — all ${skipped.length} of them '
           'skipped. `dart test` exits 0 for this, which is why it needs '
           'saying: this is not a pass, it is a suite that never executed. '
           'The skip reasons are above; on macOS the usual cause is a missing '
           'Screen Recording or Accessibility permission, and off macOS it is '
-          'that most of this suite is macOS-only.';
+          'that most of this suite is macOS-only.'
+          '${unmatched.isEmpty ? '' : '\nSelectors that ran no case:\n${unmatched.map((l) => '  $l').join('\n')}'}';
+    }
+    if (_ran) {
+      return 'these selectors ran no case, so what they select is unproven:\n'
+          '${selection.unmatched(cases).map((l) => '  $l').join('\n')}';
     }
     if (failed.isEmpty) {
       // The runner declared failure without any test carrying it. A test that
