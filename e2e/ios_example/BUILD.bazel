@@ -12,15 +12,18 @@ load(
     "flutter_ios_engine",
     "flutter_ios_info_plist_gen",
     "flutter_ios_native_frameworks_gen",
+    "flutter_ios_plugin_xcframeworks",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
     "flutter_ios_simulator_build",
     "flutter_ios_simulator_build_test",
+    "flutter_ios_xcframeworks",
 )
 load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "dev_config_test", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load("@rules_swift//swift:swift.bzl", "swift_library")
+load(":add_to_app_swift_packages_test.bzl", "add_to_app_swift_packages_test")
 load(":simulator_mode_test.bzl", "device_needs_profile_test", "simulator_fastbuild_refused_test")
 
 exports_files(["pubspec.lock"])
@@ -909,6 +912,81 @@ dart_test(
     name = "verify_ios_app_settings_plugins_test",
     data = [":app_settings_simulator"],
     main = "test/verify_ios_app_settings_plugins_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
+# =============================================================================
+# Add-to-app with a plugin on a remote Swift package
+#
+# firebase_core depends on firebase-ios-sdk, which depends on GoogleUtilities
+# and Promises. Each module of theirs is an xcframework of its own beside the
+# plugin's, as `flutter build ios-framework` makes each pod a plugin depends
+# on one, and so is firebase_core's Objective-C target, a module its Swift
+# interface imports.
+# =============================================================================
+
+flutter_application(
+    name = "add_to_app_module",
+    main = "lib/add_to_app_main.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:firebase_core",
+        "@deps//:flutter",
+    ],
+)
+
+flutter_ios_xcframeworks(
+    name = "module_ios",
+    application = ":add_to_app_module",
+    tags = ["manual"],
+)
+
+# The plugin xcframeworks alone, the Tier 2 rule the macro uses.
+flutter_ios_plugin_xcframeworks(
+    name = "module_ios_plugins",
+    application = ":add_to_app_module",
+    tags = ["manual"],
+)
+
+_ADD_TO_APP_SWIFT_PACKAGE_MODULES = [
+    "FBLPromises",
+    "Firebase",
+    "FirebaseCore",
+    "FirebaseCoreInternal",
+    "FirebaseInstallations",
+    "GoogleUtilities_Environment",
+    "GoogleUtilities_Logger",
+    "GoogleUtilities_NSData",
+    "GoogleUtilities_UserDefaults",
+    "third_party_IsAppEncrypted",
+]
+
+add_to_app_swift_packages_test(
+    name = "add_to_app_swift_packages_test",
+    target_compatible_with = ["@platforms//os:macos"],
+    target_under_test = ":module_ios_plugins",
+    xcframeworks = [
+        "firebase_core",
+        "firebase_core_objc",
+    ] + _ADD_TO_APP_SWIFT_PACKAGE_MODULES,
+)
+
+apple_release_build(
+    name = "add_to_app_ios_release",
+    compilation_mode = "fastbuild",
+    sign = False,
+    tags = ["manual"],
+    targets = [":module_ios"],
+)
+
+# The module as a host gets it: each module's code in its own framework, the
+# plugin's linking them, each resource bundle in its module's framework.
+dart_test(
+    name = "add_to_app_ios_swift_packages_test",
+    args = ["module_ios"] + _ADD_TO_APP_SWIFT_PACKAGE_MODULES,
+    data = [":add_to_app_ios_release"],
+    main = "test/add_to_app_swift_packages_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
     deps = ["@rules_flutter//tools/e2e_testing"],
 )

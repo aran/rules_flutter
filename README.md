@@ -2981,6 +2981,7 @@ What `<Mode>/` holds, as upstream:
 | `App.xcframework` | The Dart program and its assets: AOT in profile and release (with `dSYMs/`), kernel in debug. The iOS simulator slice is a debug build in every mode, as upstream's is, because the simulator engine runs nothing else. |
 | `Flutter.xcframework`, `FlutterMacOS.xcframework` | Flutter's own engine xcframework for the mode, copied with Flutter's signature. |
 | `<plugin>.xcframework` | One per plugin with Apple code, named after its module and holding only that plugin's code. It links Flutter at `@rpath`. Plugins built from a `Package.swift` are included, which upstream's CocoaPods-only command leaves out. |
+| `<module>.xcframework` | One per module of the [Swift packages plugins depend on](#swift-packages-a-plugin-depends-on), such as `FirebaseCore` and `GoogleUtilities_Logger` for `firebase_core`, as upstream makes each pod a plugin depends on a framework of its own. A plugin's framework links them, so plugins on one package share its code. A plugin's `Package.swift` target that is a module other than the one named after the plugin, such as `firebase_core_objc`, is one too. Each holds its module's headers or Swift interface and its resource bundle. |
 | `<code asset>.xcframework` | One per code asset: a build hook's or a `flutter_native_asset`'s dynamic library. |
 | `FlutterPluginRegistrant.xcframework` | iOS only: a static framework of upstream's Objective-C `GeneratedPluginRegistrant`. |
 
@@ -2997,10 +2998,10 @@ The frameworks have arm64 slices only, with no Intel simulator or Mac slice. So 
 Other attributes:
 
 - `plugins = False` leaves the plugins out, as upstream's `--no-plugins` does, for a host that ships them itself.
-- `static_plugins = True` makes them static frameworks to link and not embed, as `--static` does.
+- `static_plugins = True` makes them, and the Swift package modules, static frameworks to link and not embed, as `--static` does.
 - `minimum_os_version` defaults to `"15.0"` on iOS and `"12.0"` on macOS.
 
-A plugin whose library depends on something that isn't a plugin, such as a product of a remote Swift package, fails the build with a message. Upstream makes such a dependency an xcframework of its own, which these rules don't do yet.
+A plugin that depends on a remote Swift package needs the package declared by your root module, as an app does ([Swift packages a plugin depends on](#swift-packages-a-plugin-depends-on)). A module of a package that ships prebuilt dynamic frameworks (a `binaryTarget`) fails the build with a message: these rules don't package those yet.
 
 A plugin whose `Package.swift` reads the app's settings ([above](#plugins-whose-packageswift-reads-the-app)) is built for the module, which takes the same two attributes an app does. The host app's Info.plist can't be read here, since the frameworks are built before the host, so `info_plist` names the one whose usage descriptions the plugins should see; unset, the manifest sees an empty one. `swift_package_environment` stands in for the shell's environment under `flutter build ios-framework`; unset, the manifest sees none and takes its own defaults: `audio_session` compiles in its microphone code, and `permission_handler_apple` no permission's.
 

@@ -170,9 +170,12 @@ def _registrant_xcframework_impl(ctx):
             requested_features = ctx.features,
             unsupported_features = ctx.disabled_features,
         )
+
+        # Every framework of `plugins`: a plugin's interface imports the
+        # modules it depends on, of its own and of Swift packages.
         search = ["-F" + _engine_framework_dir(engine_files, slice)] + [
             "-F%s/%s" % (found[m].path, slice.id)
-            for m in sorted(modules)
+            for m in sorted(found)
         ]
         _, outputs = cc_common.compile(
             name = "%s_slices/%s" % (ctx.label.name, slice.id),
@@ -183,7 +186,7 @@ def _registrant_xcframework_impl(ctx):
             language = "objc",
             private_hdrs = [header],
             user_compile_flags = ["-fmodules", "-fobjc-arc"] + search,
-            additional_inputs = engine_files + [found[m] for m in sorted(modules)],
+            additional_inputs = engine_files + [found[m] for m in sorted(found)],
         )
         objects = outputs.objects or outputs.pic_objects
         archive = ctx.actions.declare_file("%s_slices/%s/%s" % (ctx.label.name, slice.id, _NAME))

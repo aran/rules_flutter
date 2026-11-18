@@ -26,7 +26,7 @@ load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_swift//mixed_language:mixed_language_library.bzl", "mixed_language_library")
-load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_library")
+load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect", "swift_library")
 load(":apple_engine.bzl", "IOS_ENGINE_XCFRAMEWORK", "MACOS_ENGINE_FRAMEWORK", "flutter_engine_module_maps")
 
 visibility("//flutter/...")
@@ -87,6 +87,48 @@ module_headers_aspect = aspect(
     implementation = _module_headers_aspect_impl,
     doc = "Gives a `flutter_apple_plugin_library` of C-family sources its module's " +
           "public headers (`FlutterAppleModuleHeadersInfo`), which an add-to-app framework holds.",
+)
+
+FlutterAppleLinkedTargetsInfo = provider(
+    doc = "The C-family and Swift targets an application's Apple plugins are linked from, which " +
+          "add-to-app makes frameworks of: the plugins' own, and those of the Swift packages they " +
+          "depend on.",
+    fields = {
+        "targets": "depset of structs: `label`, `cc_info` (CcInfo), `swift_info` (SwiftInfo or None).",
+    },
+)
+
+# From an application to its plugins' Apple libraries (through Dart
+# libraries, the pub hub's `members` and a plugin's `platforms`), and on to
+# the targets a library is linked from.
+_LINKED_TARGETS_EDGES = ["deps", "exports", "members", "platforms", "apple_lib", "implementation_deps"]
+
+def _linked_targets_aspect_impl(target, ctx):
+    transitive = []
+    for attr in _LINKED_TARGETS_EDGES:
+        value = getattr(ctx.rule.attr, attr, None)
+        for dep in (value if type(value) == "list" else [value]):
+            if type(dep) == "Target" and FlutterAppleLinkedTargetsInfo in dep:
+                transitive.append(dep[FlutterAppleLinkedTargetsInfo].targets)
+    direct = []
+    if CcInfo in target:
+        direct.append(struct(
+            label = target.label,
+            cc_info = target[CcInfo],
+            swift_info = target[SwiftInfo] if SwiftInfo in target else None,
+        ))
+    return [FlutterAppleLinkedTargetsInfo(targets = depset(direct, transitive = transitive))]
+
+linked_targets_aspect = aspect(
+    implementation = _linked_targets_aspect_impl,
+    attr_aspects = _LINKED_TARGETS_EDGES,
+    # The Clang module `swift_clang_module_aspect` gives a C-family library.
+    requires = [swift_clang_module_aspect],
+    provides = [FlutterAppleLinkedTargetsInfo],
+    doc = "Records each target an application's Apple plugins are linked from, with its CcInfo " +
+          "and its module, for the add-to-app frameworks: one per plugin, and one per module of " +
+          "a Swift package a plugin depends on. Attached by add-to-app's plugin xcframeworks " +
+          "alone, so an app's build does not pay for it.",
 )
 
 def _extension(path):
