@@ -864,6 +864,9 @@ def flutter_android_app(
             the build like the APK's. `bazel run` of it installs it on the
             device `ANDROID_SERIAL` names with bundletool, signed with the
             debug key. Hand it to `flutter_android_release` to sign a release.
+            With `--@rules_dart//dart:split_debug_info`, its `debug_info`
+            output group holds the `.symbols` of each ABI's `libapp.so`
+            (`app.android-arm64.symbols`), which are the APK's too.
         bundle_config: The bundletool `BundleConfig` (`.pb.json`) of
             `app_bundle`. The default,
             `@rules_flutter//flutter:android_bundle_config.pb.json`, is the

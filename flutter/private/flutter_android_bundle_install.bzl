@@ -17,6 +17,7 @@ load("@rules_android//providers:providers.bzl", "AndroidBundleInfo", "ApkInfo")
 load("@rules_dart//dart:utils.bzl", "runfiles_path")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load("//flutter/private:android_debug_info.bzl", "AndroidDebugInfo", "android_debug_info_aspect")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 
 visibility("//flutter/...")
@@ -103,6 +104,9 @@ def _flutter_android_app_bundle_impl(ctx):
         RunEnvironmentInfo(environment = {
             "RULES_FLUTTER_ANDROID_BUNDLE_INSTALL_CONFIG": runfiles_path(config, workspace),
         }),
+        # With `--@rules_dart//dart:split_debug_info`, the `.symbols` of the
+        # snapshot of each ABI the bundle ships.
+        OutputGroupInfo(debug_info = bundle[AndroidDebugInfo].debug_info),
         bundle[AndroidBundleInfo],
         apk_info,
     ]
@@ -122,6 +126,7 @@ flutter_android_app_bundle = rule(
         "bundle": attr.label(
             doc = "The `android_application` to forward and install.",
             mandatory = True,
+            aspects = [android_debug_info_aspect],
             providers = [AndroidBundleInfo, ApkInfo],
         ),
         "_java_runtime": attr.label(
@@ -149,6 +154,8 @@ flutter_android_app_bundle = rule(
 Builds and forwards `bundle` (its `AndroidBundleInfo` and `ApkInfo`, and the
 bundle as `<name>_unsigned.aab`). `bazel run` installs it on the device
 `ANDROID_SERIAL` names, or the only one connected, through bundletool, signed
-with the base module's debug key.
+with the base module's debug key. With `--@rules_dart//dart:split_debug_info`,
+its `debug_info` output group holds the `.symbols` of each ABI's `libapp.so`
+in the bundle (`app.android-arm64.symbols`).
 """,
 )

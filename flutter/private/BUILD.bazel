@@ -485,10 +485,17 @@ bzl_library(
 )
 
 bzl_library(
+    name = "android_debug_info",
+    srcs = ["android_debug_info.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "flutter_android_bundle_install",
     srcs = ["flutter_android_bundle_install.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":android_debug_info",
         ":host_platform_transition",
         "@rules_dart//dart:utils",
     ],
@@ -518,6 +525,7 @@ bzl_library(
     srcs = ["flutter_android_release.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":android_debug_info",
         ":host_platform_transition",
         ":release_transition",
         "@rules_dart//dart:utils",

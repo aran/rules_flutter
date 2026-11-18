@@ -455,7 +455,14 @@ bazel build -c opt //:my_app_macos \
     --output_groups=+debug_info
 ```
 
-`--@rules_dart//dart:split_debug_info` leaves the Dart debug information out of the AOT snapshot and writes it to a `.symbols` file named as `flutter build --split-debug-info` names it: `app.ios-arm64.symbols`, `app.darwin-arm64.symbols`, `app.android-arm64.symbols`, `app.linux-x64.symbols`. The file is in the `debug_info` output group of the `flutter_application` and a `flutter_aot_snapshot`, and of a `flutter_ios_app` or `flutter_macos_app`, which hold the one of the snapshot they ship: their bundle builds the application in a configuration of its own, so the application's file at the top level is another build's. A rules_dart `dart_binary` writes `<name>.symbols`. `--@rules_flutter//flutter:obfuscate` renames the Dart symbols. It needs `split_debug_info`, as `--obfuscate` needs `--split-debug-info`, and the build fails without it. A debug build ignores both.
+`--@rules_dart//dart:split_debug_info` leaves the Dart debug information out of the AOT snapshot and writes it to a `.symbols` file named as `flutter build --split-debug-info` names it: `app.ios-arm64.symbols`, `app.darwin-arm64.symbols`, `app.android-arm64.symbols`, `app.linux-x64.symbols`. The file is in the `debug_info` output group of the `flutter_application` and a `flutter_aot_snapshot`. An app's own target holds the files of the snapshots it ships, since it builds the application in configurations of its own and the application's file at the top level is another build's:
+
+- `flutter_ios_app`, `flutter_macos_app`, `flutter_linux_app` and `flutter_windows_app` hold their one `.symbols`.
+- `flutter_android_app`'s `app_bundle` holds one for each ABI it ships (`app.android-arm.symbols`, `app.android-arm64.symbols`, `app.android-x64.symbols`), as `flutter build appbundle --split-debug-info` writes them. So does `flutter_android_release`, for its release build.
+- `flutter_android_aar` holds one for each ABI of the AAR.
+- The APK itself, rules_android's `android_binary`, passes on no output group. Build its `app_bundle` for its `.symbols`: the App Bundle's base module is the same build, so they are the APK's.
+
+A rules_dart `dart_binary` writes `<name>.symbols`. `--@rules_flutter//flutter:obfuscate` renames the Dart symbols. It needs `split_debug_info`, as `--obfuscate` needs `--split-debug-info`, and the build fails without it. A debug build ignores both.
 
 The dSYM of an obfuscated app holds the original Dart names, and `gen_snapshot` warns about it. Don't ship it inside the app.
 

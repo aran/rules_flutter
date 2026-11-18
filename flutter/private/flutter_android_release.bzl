@@ -21,6 +21,7 @@ load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 load("@rules_android//providers:providers.bzl", "AndroidBundleInfo", "ApkInfo")
 load("@rules_dart//dart:utils.bzl", "runfiles_path")
 load("@rules_java//java/common:java_common.bzl", "java_common")
+load("//flutter/private:android_debug_info.bzl", "AndroidDebugInfo", "android_debug_info_aspect")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:release_transition.bzl", "android_release_transition")
 
@@ -113,7 +114,12 @@ def _flutter_android_release_impl(ctx):
         RunEnvironmentInfo(environment = {
             "RULES_FLUTTER_ANDROID_RELEASE_CONFIG": runfiles_path(config, workspace),
         }),
-        OutputGroupInfo(android_release_config = depset([config])),
+        OutputGroupInfo(
+            android_release_config = depset([config]),
+            # With `--@rules_dart//dart:split_debug_info`, the `.symbols` of
+            # the release snapshot of each ABI the bundle and APK ship.
+            debug_info = bundle[AndroidDebugInfo].debug_info,
+        ),
     ]
 
 _flutter_android_release = rule(
@@ -154,6 +160,7 @@ _flutter_android_release = rule(
             mandatory = True,
             cfg = android_release_transition,
             providers = [AndroidBundleInfo, ApkInfo],
+            aspects = [android_debug_info_aspect],
         ),
         "key_properties": attr.string(
             doc = "Where the signing configuration is, relative to this target's " +
@@ -180,6 +187,11 @@ the SDK's `apksigner`, checks both, and writes them to
 `build/app/outputs/flutter-apk/app-release.apk` under the package. Nothing is
 signed in a build action: the keystore and its passwords are read when the
 program runs and never reach Bazel.
+
+With `--@rules_dart//dart:split_debug_info`, its `debug_info` output group
+holds the `.symbols` of the release snapshot of each ABI the bundle and APK
+ship (`app.android-arm64.symbols`), as `flutter build appbundle
+--split-debug-info` writes them.
 
 Commands (after `--`):
 

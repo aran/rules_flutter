@@ -392,6 +392,13 @@ def _flutter_android_bundle_impl(ctx):
         OutputGroupInfo(
             native_libs = depset([packaged]),
             flutter_assets = depset([flutter_assets]),
+            # The `.symbols` of each ABI's `libapp.so` the app ships: built
+            # in `android_binary`'s own configuration (its `assets`), the
+            # application is split one an ABI, as the APK's native code is.
+            debug_info = depset(transitive = [
+                bundled_program_info(app)[0].debug_info
+                for app in ctx.split_attr.application.values()
+            ]),
             _validation = depset([validated]),
         ),
     ] + (
@@ -443,7 +450,9 @@ ABIs therefore carries `libapp.so` of each. Native libraries are validated to
 be ELF for the platform's ABI at packaging time. With
 `--@rules_dart//dart:split_debug_info`, it provides the `.symbols` of the
 snapshot it packages as `BundledProgramInfo`, which `flutter_android_aar`
-passes on. The `flutter_android_bundle`
+passes on, and in its `debug_info` output group those of every ABI it is
+split for: in the `android_binary`'s own configuration, every ABI of the APK.
+The `flutter_android_bundle`
 macro makes it incompatible with a platform that is not Android arm, arm64 or
 x86_64; reached any other way on such a platform, it fails, naming the flag
 to pass.""",

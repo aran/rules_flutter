@@ -483,6 +483,26 @@ android_split_debug_info_test(
     target = ":module_aar",
 )
 
+# Property: an App Bundle's `.symbols` are those of the snapshots it ships,
+# one an ABI, as `flutter build appbundle --split-debug-info` writes them.
+android_split_debug_info_test(
+    name = "android_app_bundle_split_debug_info_test",
+    symbols = [
+        "app.android-arm.symbols",
+        "app.android-arm64.symbols",
+    ],
+    target = ":app_bundle",
+    two_abis = True,
+)
+
+# Property: a release's `.symbols` are those of the release snapshots its App
+# Bundle and APK ship: every default ABI, whatever the command line says.
+android_split_debug_info_test(
+    name = "android_release_split_debug_info_test",
+    symbols = _ALL_ABI_SYMBOLS,
+    target = ":app_release",
+)
+
 # `flutter_android_app` takes `testonly = True`: every target it declares is
 # `testonly` too, so none is a non-test target depending on a `testonly`
 # application.
