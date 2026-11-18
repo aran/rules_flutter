@@ -1,0 +1,15 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_library")
+
+# Stands in for a pub package named `collection`.
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "collection",
+)
+
+flutter_library(
+    name = "collection",
+    srcs = ["lib/collection.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    visibility = ["//flutter/tests/sourceless_library_fixture:__subpackages__"],
+)

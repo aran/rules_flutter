@@ -1,0 +1,18 @@
+load("//flutter:defs.bzl", "flutter_library")
+
+# No sources and no `package`: it wraps its dependency, so it is no package,
+# though it is named like it.
+flutter_library(
+    name = "collection",
+    tags = ["manual"],
+    visibility = ["//flutter/tests/sourceless_library_fixture:__pkg__"],
+    deps = ["//flutter/tests/sourceless_library_fixture/pubdep:collection"],
+)
+
+# Its `data` still reaches what runs it.
+flutter_library(
+    name = "with_data",
+    data = ["data.txt"],
+    tags = ["manual"],
+    visibility = ["//flutter/tests/sourceless_library_fixture:__pkg__"],
+)

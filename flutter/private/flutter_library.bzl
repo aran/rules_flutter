@@ -1,7 +1,7 @@
 """Implementation of the flutter_library rule."""
 
 load("@rules_dart//dart:providers.bzl", "DartInfo", "DartUsedWithoutImportInfo")
-load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMPORT_CHECKER_ATTRS", "PORTABLE_EXEC_GROUPS", "RUNTIME_INDEPENDENT_ATTR", "SUMMARY_ATTRS", "dart_analyzable_info", "dart_info", "derive_package_root", "library_import_check", "library_package", "package_identity_attrs", "runtime_reset_when_independent")
+load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMPORT_CHECKER_ATTRS", "PORTABLE_EXEC_GROUPS", "RUNTIME_INDEPENDENT_ATTR", "SUMMARY_ATTRS", "dart_analyzable_info", "dart_info", "dart_info_no_package", "data_runfiles", "derive_package_root", "library_import_check", "library_package", "package_identity_attrs", "runtime_reset_when_independent")
 load("//flutter:providers.bzl", "FlutterFontFamilyInfo", "FlutterInfo")
 load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "flutter_info")
@@ -384,7 +384,43 @@ def flutter_analyzable_info_of_packages(ctx, packages, srcs, resources):
         resources = resources,
     )
 
+def _has_package_contents(ctx):
+    """Whether the library has anything of a package: a file, or a say in which one it is."""
+    return bool(
+        ctx.attr.package or
+        ctx.files.srcs or
+        ctx.files.resources or
+        ctx.files.assets or
+        ctx.files.shaders or
+        ctx.attr.fonts or
+        ctx.files.additional_licenses or
+        getattr(ctx.files, "framework_shaders", []),
+    )
+
+def _flutter_facade_impl(ctx):
+    """A library of only `deps` (and `data`): it passes them on and is no package."""
+    info = dart_info_no_package(
+        deps = ctx.attr.deps,
+        runfiles = data_runfiles(ctx, ctx.attr.data) if ctx.attr.data else None,
+    )
+    return [
+        DefaultInfo(runfiles = info.runfiles),
+        info,
+        flutter_info(
+            deps = ctx.attr.deps,
+            app_dependencies = [] if ctx.label.repo_name else direct_package_names(ctx.attr.deps),
+        ),
+        # It has no sources, but what it passes on is still what `bazel
+        # coverage` reports on for a test that reaches it, as `dart_library`'s.
+        coverage_common.instrumented_files_info(ctx, dependency_attributes = ["deps"]),
+    ] + library_import_check(ctx, [])
+
 def _flutter_library_impl(ctx):
+    # A library of only `deps` has no file of any package and names none, so
+    # it is no package, whatever its directory is called: a wrapper of pub's
+    # `collection` in `third_party/collection` is not a second `collection`.
+    if not _has_package_contents(ctx):
+        return _flutter_facade_impl(ctx)
     declared = library_package(ctx, ctx.files.srcs, ctx.files.resources)
     package_name = declared.package_name
     package_root = declared.package_root
@@ -531,7 +567,7 @@ flutter_library = rule(
     attrs = _LIBRARY_ATTRS,
     exec_groups = PORTABLE_EXEC_GROUPS,
     toolchains = COPY_TO_DIRECTORY_TOOLCHAINS,
-    doc = "Collects Flutter sources and assets, propagates DartInfo and FlutterInfo. Does not compile.",
+    doc = "Collects Flutter sources and assets, propagates DartInfo and FlutterInfo. Does not compile. A target with no files and no `package` passes its `deps` on and is no package, whatever its directory is called.",
 )
 
 flutter_framework_library = rule(

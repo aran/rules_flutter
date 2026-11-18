@@ -1,0 +1,40 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application")
+load("//flutter/tests:sourceless_library_test.bzl", "carries_data_test", "contributes_no_package_test", "program_has_one_package_test", "reports_deps_coverage_test")
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "sourceless_library_app",
+)
+
+# A program whose only dependency is a library named like the package it wraps.
+flutter_application(
+    name = "app",
+    main = "main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/sourceless_library_fixture/wrapper/collection"],
+)
+
+program_has_one_package_test(
+    name = "program_has_one_package_test",
+    size = "small",
+    target_under_test = ":app",
+)
+
+contributes_no_package_test(
+    name = "contributes_no_package_test",
+    size = "small",
+    target_under_test = "//flutter/tests/sourceless_library_fixture/wrapper/collection",
+)
+
+carries_data_test(
+    name = "carries_data_test",
+    size = "small",
+    target_under_test = "//flutter/tests/sourceless_library_fixture/wrapper/collection:with_data",
+)
+
+reports_deps_coverage_test(
+    name = "reports_deps_coverage_test",
+    size = "small",
+    target_under_test = "//flutter/tests/sourceless_library_fixture/wrapper/collection",
+)
