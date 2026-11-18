@@ -168,6 +168,81 @@ void main() {
       },
     );
 
+    group('the native-assets manifest', () {
+      String manifest(String target) => jsonEncode({
+        'format-version': [1, 0, 0],
+        'native-assets': {
+          target: {
+            'package:count_a/count_a': ['absolute', 'libcounter.so'],
+          },
+        },
+      });
+
+      test('names the code assets of every ABI the AAR has libraries for', () {
+        file(
+          'arm64/flutter_assets/NativeAssetsManifest.json',
+          manifest('android_arm64'),
+        );
+        file(
+          'arm/flutter_assets/NativeAssetsManifest.json',
+          manifest('android_arm'),
+        );
+        file(
+          'x86/flutter_assets/NativeAssetsManifest.json',
+          manifest('android_x64'),
+        );
+        final spec = parseArgs([
+          '--output', '${tmp.path}/out.aar', //
+          '--manifest', file('AndroidManifest.xml', '<manifest/>'),
+          // The configuration that compiles Java, whose ABI is not one of
+          // the AAR's.
+          '--flutter-assets', 'arm64-v8a', '${tmp.path}/arm64/flutter_assets',
+          '--flutter-assets', 'armeabi-v7a', '${tmp.path}/arm/flutter_assets',
+          '--flutter-assets', 'x86_64', '${tmp.path}/x86/flutter_assets',
+          '--jni', 'armeabi-v7a', file('arm/libapp.so', 'elf'),
+          '--jni', 'x86_64', file('x86/libapp.so', 'elf'),
+        ]);
+        final byName = {for (final e in aarEntries(spec)) e.name: e.bytes};
+        final merged = jsonDecode(
+          utf8.decode(
+            byName['assets/flutter_assets/NativeAssetsManifest.json']!,
+          ),
+        ) as Map<String, Object?>;
+        expect(merged['format-version'], [1, 0, 0]);
+        expect(
+          (merged['native-assets']! as Map<String, Object?>).keys,
+          ['android_arm', 'android_x64'],
+        );
+      });
+
+      test('fails when two builds name one target', () {
+        file(
+          'a/flutter_assets/NativeAssetsManifest.json',
+          manifest('android_arm'),
+        );
+        file(
+          'b/flutter_assets/NativeAssetsManifest.json',
+          manifest('android_arm'),
+        );
+        expect(
+          () => mergedNativeAssetsManifest(
+            [
+              ('armeabi-v7a', '${tmp.path}/a/flutter_assets'),
+              ('x86_64', '${tmp.path}/b/flutter_assets'),
+            ],
+            {'armeabi-v7a', 'x86_64'},
+          ),
+          throwsA(
+            isA<AarException>().having(
+              (e) => e.message,
+              'message',
+              contains('code assets for android_arm'),
+            ),
+          ),
+        );
+      });
+    });
+
     test('fails when one ABI has a file the other lacks', () {
       file('arm/flutter_assets/a', 'a');
       Directory('${tmp.path}/x86/flutter_assets').createSync(recursive: true);

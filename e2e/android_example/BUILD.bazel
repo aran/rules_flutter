@@ -462,11 +462,18 @@ _ALL_ABI_SYMBOLS = [
     "app.android-x64.symbols",
 ]
 
-# Built only for its test: the module's AAR of `app_flutter`.
+# The module's AAR of `app_flutter`.
 flutter_android_aar(
     name = "module_aar",
     package_name = "com.example.flutterapp.module",
     application = ":app_flutter",
+)
+
+# Builds the AAR, which holds one flutter_assets for every ABI: its
+# native-assets manifest names each ABI's code assets.
+build_test(
+    name = "module_aar_build_test",
+    targets = [":module_aar"],
 )
 
 android_split_debug_info_test(
