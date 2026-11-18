@@ -23,7 +23,8 @@ StagedSourcesInfo = provider(
 
 BundledProgramInfo = provider(
     doc = "The program a part of a platform's app bundle is built from, for " +
-          "the app to pass on what the bundle rule (rules_apple's) passes on " +
+          "the app to pass on what the bundle rule (rules_apple's, " +
+          "rules_android's `android_binary`) passes on " +
           "nothing of: the program's Dart files, for rules_dart's analysis, " +
           "and the split debug info of the snapshot it ships.",
     fields = {
@@ -59,8 +60,8 @@ def _bundled_program_aspect_impl(_target, ctx):
             return [part[BundledProgramInfo]]
     return []
 
-# Applied to an Apple bundle alone, without propagating: it reads the
-# `BundledProgramInfo` of the bundle's direct parts.
+# Applied to an Apple bundle or an `android_binary` alone, without
+# propagating: it reads the `BundledProgramInfo` of the bundle's direct parts.
 bundled_program_aspect = aspect(
     implementation = _bundled_program_aspect_impl,
     doc = "Finds the program among an app bundle's direct parts (`deps`, `additional_contents`).",

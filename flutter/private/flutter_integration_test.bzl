@@ -15,6 +15,7 @@ load("//flutter/private:dbg_transition.bzl", "DBG_SETTINGS", "dbg_transition")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_emulator.bzl", "FlutterAndroidSystemImageInfo")
 load("//flutter/private:flutter_linux_runtime.bzl", "linux_runtime_check")
+load("//flutter/private:program_analysis.bzl", "BundledProgramInfo", "bundled_program_aspect")
 load("//flutter/private:test_tags.bzl", "tag_selectors")
 
 visibility("//flutter/...")
@@ -500,23 +501,39 @@ def integration_test_impl(ctx, family, inherited_environment = []):
             inherited_environment = inherited_environment,
         ),
         testing.ExecutionInfo(runner.execution_requirements),
-        # The program's own Dart files, as the app passes them on, so
-        # rules_dart's analysis checks the test file and what it imports
-        # under this test's name. An Android app (rules_android's
-        # `android_binary`) passes nothing on.
-    ] + ([app[DartAnalyzableInfo]] if DartAnalyzableInfo in app else [])
+    ] + _program_analyzable_info(app)
+
+def _program_analyzable_info(app):
+    """The program's own Dart files, for rules_dart's analysis to check the test file and what it imports under the test's name.
+
+    As the app passes them on, or, for an Android app (rules_android's
+    `android_binary`, which passes nothing on), as `bundled_program_aspect`
+    reads them off its `flutter_android_bundle`.
+
+    Args:
+      app: The test's app Target.
+
+    Returns:
+      A list of the program's `DartAnalyzableInfo`, or an empty list.
+    """
+    if DartAnalyzableInfo in app:
+        return [app[DartAnalyzableInfo]]
+    program = app[BundledProgramInfo] if BundledProgramInfo in app else None
+    return [program.info] if program and program.info else []
 
 # The attributes every integration test rule has, whatever its family.
 #
 # `default_runner` is the runner a test is given when it names none, and None
 # for a family that has no runner of its own to default to. `cfg` is the
-# transition the app is built under.
-def _test_attrs(default_runner, cfg = dbg_transition):
+# transition the app is built under. `app_aspects` find the program inside an
+# app whose rule passes nothing of it on.
+def _test_attrs(default_runner, cfg = dbg_transition, app_aspects = []):
     return {
         "app": attr.label(
             doc = "The app the test runs, built in debug mode whatever the command line says: the suite is driven through the VM service a debug build serves, as `flutter test` forces debug for an integration test.",
             mandatory = True,
             cfg = cfg,
+            aspects = app_aspects,
         ),
         "runner": attr.label(
             doc = "Where the app runs.",
@@ -611,7 +628,7 @@ def _flutter_android_app_integration_test_impl(ctx):
 
 flutter_android_app_integration_test = rule(
     implementation = _flutter_android_app_integration_test_impl,
-    attrs = _test_attrs(None, cfg = android_dbg_transition) | {
+    attrs = _test_attrs(None, cfg = android_dbg_transition, app_aspects = [bundled_program_aspect]) | {
         "abi": attr.string(
             doc = "The ABI the app is built for, which the device must run: the platform of `--@rules_android//flags:android_platforms` the app is built under, whatever the command line says.",
             default = "arm64-v8a",
