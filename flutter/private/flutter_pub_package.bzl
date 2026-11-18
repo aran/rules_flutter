@@ -737,6 +737,10 @@ def _plugin_project_libraries(ctx, projects):
         has_lib = False
         if p.package in index.built or p.package in index.other:
             path = sibling_path(ctx, repo, MEMBER_FILE)
+
+            # Watched before the existence check, so the file appearing or
+            # going away refetches this repository.
+            ctx.watch(path)
             has_lib = path.exists and json.decode(ctx.read(path)).get("android_lib", False)
         if not has_lib:
             missing.append(p)

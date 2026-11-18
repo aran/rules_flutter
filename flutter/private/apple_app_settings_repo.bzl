@@ -21,6 +21,10 @@ def _flutter_apple_app_settings_impl(ctx):
     libraries = {"ios": [], "macos": []}
     for package in ctx.attr.packages:
         path = sibling_path(ctx, source_repo(package), APPLE_PLUGIN_FILE)
+
+        # A package without an Apple layout may gain one, when an overlay it
+        # was built from goes away, say.
+        ctx.watch(path)
         if not path.exists:
             continue
         layouts = json.decode(ctx.read(path))["platforms"]

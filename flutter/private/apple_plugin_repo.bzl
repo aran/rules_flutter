@@ -561,6 +561,10 @@ def _violation_message(package, version, platform, manifest, violations, remote,
 def _apple_plugin_repo_impl(ctx):
     package = ctx.attr.package_name
     info_path = sibling_path(ctx, source_repo(package, ctx.attr.prefix), APPLE_PLUGIN_FILE)
+
+    # A package without an Apple layout may gain one, when an overlay it was
+    # built from goes away, say.
+    ctx.watch(info_path)
     if not info_path.exists:
         # A package with no Apple library: nothing to build or report.
         ctx.file(SWIFT_REQUIREMENTS_FILE, json.encode({"package": package, "version": ctx.attr.version, "platforms": {}}))
