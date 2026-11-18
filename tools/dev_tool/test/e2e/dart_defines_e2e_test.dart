@@ -88,6 +88,11 @@ void main() {
       isNull,
       reason: 'app.hotReload: ${reload['error']}',
     );
+    expect(
+      reload['result']?['runningCode'],
+      'updated',
+      reason: 'app.hotReload must change the running code: ${reload['result']}',
+    );
 
     label = await dt.httpCommand('app.getText', {
       'appId': appId,
