@@ -122,6 +122,7 @@ load("@rules_android//android:rules.bzl", _android_application = "android_applic
 load("@rules_dart//dart:defs.bzl", "dart_binary")
 load("@rules_java//java:java_import.bzl", _java_import = "java_import")
 load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_library")
+load("@rules_kotlin//kotlin:jvm.bzl", _kt_javac_options = "kt_javac_options")
 load("//flutter/private:app_version.bzl", "manifest_values_conflict", "version_arg")
 load("//flutter/private:constants.bzl", _ANDROID_MIN_SDK_VERSION = "ANDROID_MIN_SDK_VERSION", _ANDROID_TARGET_SDK_VERSION = "ANDROID_TARGET_SDK_VERSION")
 load("//flutter/private:flutter_android_aar.bzl", _DEFAULT_AAR_ABIS = "DEFAULT_AAR_ABIS", _flutter_android_maven_repo = "flutter_android_maven_repo", _flutter_android_module_aar = "flutter_android_module_aar", _flutter_android_plugin_aars = "flutter_android_plugin_aars")
@@ -637,6 +638,37 @@ def _variant_overlay(name, variant, manifest, base_manifest):
         )
     return overlay
 
+def _registrant_library(name, src, deps, tags, testonly):
+    """Compiles a generated `GeneratedPluginRegistrant.java`.
+
+    The registrant is generated, so `--javacopt=-Xlint:all` has nothing to say
+    about it that its user could fix: its `[options]` warnings are turned off.
+    The target's `javac_opts` replace the Kotlin toolchain's `javac_options`
+    for this library only.
+
+    Args:
+        name: The library's name.
+        src: The `flutter_android_registrant` that generates the source.
+        deps: The engine and the plugins' libraries the registrant names.
+        tags: The tags of both targets.
+        testonly: The `testonly` of both targets.
+    """
+    _kt_javac_options(
+        name = name + "_javac_opts",
+        tags = tags,
+        testonly = testonly,
+        x_lint = ["-options"],
+    )
+    _kt_android_library(
+        name = name,
+        srcs = [src],
+        custom_package = "io.flutter.plugins",
+        javac_opts = name + "_javac_opts",
+        tags = tags,
+        testonly = testonly,
+        deps = deps,
+    )
+
 # -- Convenience macro (Tier 1) -----------------------------------------------
 
 def flutter_android_app(
@@ -958,10 +990,9 @@ def flutter_android_app(
     # through them, and the registrant names its class.
     registrant_deps = ["__%s_engine" % name, "__%s_plugin_libs" % name] + deps
 
-    _kt_android_library(
+    _registrant_library(
         name = "__%s_registrant" % name,
-        srcs = ["__%s_registrant_src" % name],
-        custom_package = "io.flutter.plugins",
+        src = "__%s_registrant_src" % name,
         tags = tags,
         testonly = testonly,
         deps = registrant_deps,
@@ -1313,10 +1344,9 @@ def flutter_android_aar(
         tags = tags,
         testonly = testonly,
     )
-    _kt_android_library(
+    _registrant_library(
         name = "__%s_registrant" % name,
-        srcs = ["__%s_registrant_src" % name],
-        custom_package = "io.flutter.plugins",
+        src = "__%s_registrant_src" % name,
         tags = tags,
         testonly = testonly,
         deps = ["__%s_engine" % name, "__%s_plugin_libs" % name],
