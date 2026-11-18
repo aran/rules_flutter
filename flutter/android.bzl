@@ -1256,6 +1256,11 @@ def flutter_android_aar(
         bazel run -c dbg //:module_aar
         bazel run -c opt //:module_aar
 
+    With `--@rules_dart//dart:split_debug_info`, the target's `debug_info`
+    output group holds the `.symbols` of each ABI's `libapp.so`
+    (`app.android-arm64.symbols`), as `flutter build aar --split-debug-info`
+    writes them.
+
     Args:
         name: Target name: the `flutter_android_maven_repo`.
         application: The module's `flutter_application`.

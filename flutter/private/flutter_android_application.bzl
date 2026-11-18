@@ -65,6 +65,7 @@ load("//flutter/private:common.bzl", "android_elf_machine_for_abi")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "run_code_assets_tool")
 load("//flutter/private:mobile_engine_check.bzl", "check_android_engine")
+load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
 # The ABIs of devices that can have 16 KB pages: Android's 64-bit ones. Every
 # native library packaged for them is checked to be aligned for that.
@@ -287,7 +288,12 @@ def _flutter_android_bundle_impl(ctx):
             flutter_assets = depset([flutter_assets]),
             _validation = depset([validated]),
         ),
-    ]
+    ] + (
+        # The application's `debug_info` group, built for this ABI: the
+        # `.symbols` of the `libapp.so` above, for what packages the bundle
+        # to pass on (`android_binary` passes on no group of its deps').
+        bundled_program_info(ctx.attr.application)
+    )
 
 flutter_android_bundle = rule(
     implementation = _flutter_android_bundle_impl,
@@ -321,7 +327,10 @@ one for each of `--@rules_android//flags:android_platforms`, and takes its ABI f
 the application behind it is built for the same platform, so the AOT compile
 and all native deps target Android with no further flag. An APK for several
 ABIs therefore carries `libapp.so` of each. Native libraries are validated to
-be ELF for the platform's ABI at packaging time. The `flutter_android_bundle`
+be ELF for the platform's ABI at packaging time. With
+`--@rules_dart//dart:split_debug_info`, it provides the `.symbols` of the
+snapshot it packages as `BundledProgramInfo`, which `flutter_android_aar`
+passes on. The `flutter_android_bundle`
 macro makes it incompatible with a platform that is not Android arm, arm64 or
 x86_64; reached any other way on such a platform, it fails, naming the flag
 to pass.""",

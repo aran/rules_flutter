@@ -1,0 +1,40 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application")
+load("//flutter:linux.bzl", "flutter_linux_bundle")
+load("//flutter:windows.bzl", "flutter_windows_bundle")
+
+package(default_visibility = ["//flutter/tests:__pkg__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "desktop_debug_info_fixture",
+)
+
+# Analysed by //flutter/tests:desktop_debug_info_test, never built. The runner
+# is a stand-in: no C++ toolchain is needed to analyse a bundle. The bundles'
+# `runner` takes a target, not a source file.
+filegroup(
+    name = "runner",
+    srcs = ["main.dart"],
+    tags = ["manual"],
+)
+
+flutter_application(
+    name = "app",
+    main = "main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+)
+
+flutter_linux_bundle(
+    name = "linux_bundle",
+    application = ":app",
+    runner = ":runner",
+    tags = ["manual"],
+)
+
+flutter_windows_bundle(
+    name = "windows_bundle",
+    application = ":app",
+    runner = ":runner",
+    tags = ["manual"],
+)

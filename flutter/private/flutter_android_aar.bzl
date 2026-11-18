@@ -29,6 +29,7 @@ load("//flutter/private:common.bzl", "ANDROID_ABIS", "BUILD_MODE_ATTR", "android
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "android_shared_libraries")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
+load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 load("//flutter/private:sdk_origin.bzl", "is_release_engine")
 
@@ -289,6 +290,12 @@ def _flutter_android_module_aar_impl(ctx):
     ]
     return [
         DefaultInfo(files = depset([aar])),
+        # The `.symbols` of each ABI's `libapp.so` in `jni/<abi>/`, from the
+        # bundle built for that ABI.
+        OutputGroupInfo(debug_info = depset(transitive = [
+            ctx.split_attr.bundle[abi][BundledProgramInfo].debug_info
+            for abi in ctx.attr.abis
+        ])),
         FlutterAndroidAarInfo(
             mode = mode,
             package_name = ctx.attr.package_name,
@@ -661,8 +668,10 @@ def _flutter_android_maven_repo_impl(ctx):
         is_executable = True,
     )
     runfiles = ctx.runfiles(files = [config, repo]).merge(tool[DefaultInfo].default_runfiles)
+    groups = ctx.attr.module[OutputGroupInfo]
     return [
         DefaultInfo(files = depset([repo]), executable = executable, runfiles = runfiles),
+        OutputGroupInfo(debug_info = groups.debug_info if "debug_info" in groups else depset()),
         RunEnvironmentInfo(environment = {
             "RULES_FLUTTER_ANDROID_AAR_CONFIG": runfiles_path(config, workspace),
         }),
@@ -686,7 +695,9 @@ engine's artifacts (`io.flutter:flutter_embedding_<mode>` and
 `io.flutter:<abi>_<mode>`, version `1.0.0-<engine revision>`, from
 `https://storage.googleapis.com/download.flutter.io`) and on every plugin's;
 each plugin's lists the Maven artifacts its Gradle build declares. There are
-no Gradle `.module` files and no sources or javadoc jars.
+no Gradle `.module` files and no sources or javadoc jars. Its `debug_info`
+output group is the module's: the `.symbols` of each ABI's `libapp.so` with
+`--@rules_dart//dart:split_debug_info`.
 
 `bazel run` of it writes the repository to `build/host/outputs/repo/` under
 the package (or `-- --output=<dir>`), where `flutter build aar` writes it,

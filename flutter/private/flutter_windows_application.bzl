@@ -436,9 +436,16 @@ def _flutter_windows_bundle_impl(ctx):
     )
 
     application = ctx.attr.application
+    groups = application[OutputGroupInfo] if OutputGroupInfo in application else None
 
-    # The program's own Dart files, for rules_dart's analysis of the app.
-    return [DefaultInfo(files = depset([bundle_dir]))] + (
+    return [
+        DefaultInfo(files = depset([bundle_dir])),
+        # The `.symbols` of the snapshot the bundle ships, with
+        # `--@rules_dart//dart:split_debug_info`: the application is built in
+        # this target's configuration.
+        OutputGroupInfo(debug_info = groups.debug_info if groups and "debug_info" in groups else depset()),
+    ] + (
+        # The program's own Dart files, for rules_dart's analysis of the app.
         [application[DartAnalyzableInfo]] if DartAnalyzableInfo in application else []
     )
 
