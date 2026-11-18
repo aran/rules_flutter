@@ -30,7 +30,7 @@ load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES_TRANSITION", "assemble_bundle", "framework_resources", "framework_root", "xcframework_info_plist")
-load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "run_xcode_tool")
+load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "process_native_library", "rewrite_install_names", "run_xcode_tool")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "native_asset_framework_name", "run_code_assets_tool")
@@ -554,6 +554,22 @@ def _code_asset_xcframeworks_impl(ctx):
             name = native_asset_framework_name(dylib.basename) if platform == "ios" else dylib.basename
             always.setdefault(name, []).append(slice.id)
 
+    # The libraries a slice bundles, each with its install name there: a
+    # library that links another records it by its old install name, which
+    # is rewritten, as the app's bundle does.
+    install_name_changes = {}
+    if platform == "ios":
+        for slice in slices:
+            install_name_changes[slice.id] = rewrite_install_names(
+                ctx,
+                "%s_slices/%s_install_names" % (ctx.label.name, slice.id),
+                [
+                    (dylibs[slice.id], "@rpath/%s.framework/%s" % (name, name))
+                    for name, dylibs in sorted(per_name.items())
+                    if len(dylibs) == len(slices)
+                ],
+            )
+
     candidates = {}
     for name, dylibs in sorted(per_name.items()):
         # As upstream's `verifyCodeAssetConsistency`: the device and simulator
@@ -571,15 +587,14 @@ def _code_asset_xcframeworks_impl(ctx):
                 # A framework, as the app's bundle has it and its native-assets
                 # manifest names it.
                 binary = ctx.actions.declare_file("%s_slices/%s/%s.framework/%s" % (ctx.label.name, slice.id, name, name))
-                run_xcode_tool(
+                process_native_library(
                     ctx,
-                    command = 'cp "$1" "$2" && chmod u+w "$2" && xcrun install_name_tool -id "$3" "$2"',
-                    arguments = [ctx.actions.args().add_all([dylib, binary, "@rpath/%s.framework/%s" % (name, name)])],
-                    inputs = [dylib],
-                    outputs = [binary],
+                    library = dylib,
+                    output = binary,
+                    symbols = struct(dsym = False, strip = False),
                     mnemonic = "FlutterCodeAssetFramework",
-                    execution_requirements = PATH_MAPPING,
-                    progress_message = "Wrapping %s into %s.framework" % (dylib.basename, name),
+                    install_name = "@rpath/%s.framework/%s" % (name, name),
+                    install_name_changes = install_name_changes[slice.id],
                 )
                 plist = ctx.actions.declare_file("%s_slices/%s/%s.framework/Info.plist" % (ctx.label.name, slice.id, name))
                 _framework_info_plist(ctx, plist, name, "io.flutter.flutter.native-assets.", platform)

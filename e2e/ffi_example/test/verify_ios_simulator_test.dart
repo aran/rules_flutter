@@ -15,6 +15,9 @@
 ///  * one library for two ids: the app serves `package:count_a` and
 ///    `package:count_b` from one `counter.framework`, and a count bumped
 ///    through each reads 2 only if both reached one loaded image of it.
+///  * a code asset that links another: `chain_top.framework` calls into
+///    `chain_base.framework`, which the loader finds only by the install name
+///    the bundle rewrote `chain_top`'s link to.
 ///
 /// Tagged "manual" (like the Android runtime test) because it needs a usable
 /// iOS simulator. Run explicitly:
@@ -22,7 +25,7 @@
 ///
 /// Pass criteria: after launch the app writes
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2
-/// negate(5)=-5 kept(20)=21` to
+/// negate(5)=-5 kept(20)=21 chain(1)=202` to
 /// `tmp/ffi_result.txt` in its sandbox — written in main() only if all three
 /// calls succeeded via the bundled native libraries. The test reads the file
 /// back through `simctl get_app_container` (a deterministic signal that
@@ -42,7 +45,7 @@ import 'package:rules_flutter_e2e_testing/ios_bundle.dart';
 const _bundleId = 'com.example.ffi';
 const _marker =
     'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2 '
-    'negate(5)=-5 kept(20)=21';
+    'negate(5)=-5 kept(20)=21 chain(1)=202';
 const _resultFile = 'tmp/ffi_result.txt';
 const _timeout = Duration(seconds: 60);
 
@@ -135,8 +138,8 @@ void _runOnSimulator(String appPath) {
   }
   print(
     'PASS: @Native asset bind (add), raw framework open (mul), '
-    'the curated sqlite3 code asset and the prebuilt one (negate) all '
-    'worked at runtime.',
+    'the curated sqlite3 code asset, the prebuilt one (negate) and one '
+    'linking another (chain) all worked at runtime.',
   );
 }
 

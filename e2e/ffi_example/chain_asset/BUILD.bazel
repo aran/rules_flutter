@@ -1,0 +1,21 @@
+load("@rules_dart//dart:defs.bzl", "dart_library")
+load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata")
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "chain_asset",
+    code_assets = [
+        "//:chain_base_asset",
+        "//:chain_top_asset",
+    ],
+)
+
+# A package with two code assets, one linking the other: `//:chain_top` loads
+# `//:chain_base` by the install name it had when `chain_top` was linked, which
+# the iOS bundle rewrites to the framework `chain_base` ships in.
+dart_library(
+    name = "chain_asset",
+    srcs = ["lib/chain_asset.dart"],
+    package = ":pubspec-metadata",
+    visibility = ["//visibility:public"],
+)

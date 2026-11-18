@@ -24,7 +24,7 @@ load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_imp
 load("@rules_cc//cc:find_cc_toolchain.bzl", "use_cc_toolchain")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
-load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "declare_dsym", "declare_library_dsym", "native_library_symbols", "process_native_library", "run_xcode_tool", "split_and_strip_aot_binary")
+load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "declare_dsym", "declare_library_dsym", "native_library_symbols", "process_native_library", "rewrite_install_names", "run_xcode_tool", "split_and_strip_aot_binary")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
@@ -319,8 +319,9 @@ def _flutter_ios_native_frameworks_impl(ctx):
     `native_libs` set (FFI `native_deps`) and every code-asset candidate
     contributed by Native Assets `dynamic_loading_bundle` declarations — is
     repackaged as `<name>.framework/<name>` (binary + Info.plist) with its
-    install name rewritten to `@rpath/<name>.framework/<name>`, matching
-    flutter_tools' `copyNativeCodeAssetsIOS`. The resulting
+    install name rewritten to `@rpath/<name>.framework/<name>`, and its links
+    to the others rewritten to theirs, matching flutter_tools'
+    `copyNativeCodeAssetsIOS`. The resulting
     `AppleFrameworkImportInfo` lets `ios_application` embed and code-sign each
     framework; the engine `dlopen`s the framework-relative path the
     native-assets manifest records (see flutter_native_assets.bzl).
@@ -340,9 +341,16 @@ def _flutter_ios_native_frameworks_impl(ctx):
     symbols = native_library_symbols(ctx)
     framework_files = []
     dsym_files = []
-    for dylib in dylibs:
-        name = native_asset_framework_name(dylib.basename)
+    names = {dylib: native_asset_framework_name(dylib.basename) for dylib in dylibs}
 
+    # A library that links another bundled here records it by its old install
+    # name; each is rewritten to the framework the other ships in.
+    install_name_changes = rewrite_install_names(
+        ctx,
+        ctx.label.name + "_install_names",
+        [(dylib, "@rpath/%s.framework/%s" % (name, name)) for dylib, name in names.items()],
+    )
+    for dylib, name in names.items():
         binary = ctx.actions.declare_file("%s/%s.framework/%s" % (ctx.label.name, name, name))
         plist = ctx.actions.declare_file("%s/%s.framework/Info.plist" % (ctx.label.name, name))
 
@@ -358,6 +366,7 @@ def _flutter_ios_native_frameworks_impl(ctx):
             mnemonic = "FlutterIOSNativeAssetFramework",
             dsym = dsym,
             install_name = "@rpath/%s.framework/%s" % (name, name),
+            install_name_changes = install_name_changes,
         )
         if dsym:
             dsym_files.extend(dsym.files)

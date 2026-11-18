@@ -7,6 +7,7 @@
 #   //sub_asset, //prebuilt_asset, //count_a, //count_b
 #                       code assets from a wrapper rule, a prebuilt file and one
 #                       library bound under two ids
+#   //chain_asset       two code assets, one linking the other
 #   //pick              code assets and the link hook that drops one
 #
 # The app below uses all of them but `//multiply_plugin`, and this file builds
@@ -31,7 +32,7 @@ load(
     "flutter_ios_native_frameworks_gen",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
-    "flutter_ios_simulator_build_test",
+    "flutter_ios_simulator_build",
 )
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
 load(
@@ -349,6 +350,45 @@ c_hot_patch(
     ]
 ]
 
+# Two code assets, one linking the other, as a package whose libraries share a
+# runtime ships them: `chain_top` records `chain_base` by the install name it
+# was linked against, and calls it.
+cc_library(
+    name = "chain_base_cc",
+    srcs = ["native/chain_base.c"],
+    hdrs = ["native/chain.h"],
+)
+
+cc_shared_library(
+    name = "chain_base",
+    deps = [":chain_base_cc"],
+)
+
+cc_library(
+    name = "chain_top_cc",
+    srcs = ["native/chain_top.c"],
+    deps = [":chain_base_cc"],
+)
+
+cc_shared_library(
+    name = "chain_top",
+    dynamic_deps = [":chain_base"],
+    deps = [":chain_top_cc"],
+)
+
+[
+    dart_code_asset(
+        name = "chain_%s_asset" % which,
+        asset_id = "package:chain_asset/" + which,
+        file = ":chain_" + which,
+        visibility = ["//chain_asset:__pkg__"],
+    )
+    for which in [
+        "base",
+        "top",
+    ]
+]
+
 dart_package_metadata(
     name = "pubspec-metadata",
     package_name = "ffi_example",
@@ -364,6 +404,7 @@ flutter_application(
     package = ":pubspec-metadata",
     deps = [
         "//add_plugin",
+        "//chain_asset",
         "//count_a",
         "//count_b",
         "//mul_plugin",
@@ -703,10 +744,20 @@ dart_test(
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
-flutter_ios_simulator_build_test(
-    name = "ios_bundle_build_test",
+# `:ffi_ios` as a simulator bundle, which is always a debug build.
+flutter_ios_simulator_build(
+    name = "ffi_ios_simulator",
+    testonly = True,
     target_compatible_with = ["@platforms//os:macos"],
     targets = [":ffi_ios"],
+)
+
+dart_test(
+    name = "verify_ios_bundle_test",
+    data = [":ffi_ios_simulator"],
+    main = "test/verify_ios_bundle_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
 build_test(
@@ -765,6 +816,7 @@ flutter_library(
     package = ":pubspec-metadata",
     deps = [
         "//add_plugin",
+        "//chain_asset",
         "//count_a",
         "//count_b",
         "//mul_plugin",

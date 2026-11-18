@@ -137,4 +137,28 @@ extension MachOInspection on MachO {
     }
     return names.single;
   }
+
+  /// The libraries the binary links (`LC_LOAD_DYLIB` and its kin), by the
+  /// names the dynamic linker looks them up by. `otool -L` lists a dylib's own
+  /// install name among them, which is left out.
+  ///
+  /// Throws a [StateError] if `otool` cannot read the file.
+  Set<String> linkedLibraries() {
+    final result = Process.runSync('otool', ['-L', path]);
+    if (result.exitCode != 0) {
+      throw StateError('otool -L $path failed: ${result.stderr}');
+    }
+    // A line naming the file, for each architecture, ends in `:`; each other
+    // is `<name> (compatibility version …, current version …)`.
+    final listed = {
+      for (final line in result.stdout.toString().split('\n'))
+        if (line.trim().isNotEmpty && !line.endsWith(':'))
+          line.trim().split(' (compatibility').first,
+    };
+    final own = Process.runSync('otool', ['-D', path]).stdout.toString();
+    return listed.difference({
+      for (final line in own.split('\n'))
+        if (line.trim().isNotEmpty && !line.endsWith(':')) line.trim(),
+    });
+  }
 }

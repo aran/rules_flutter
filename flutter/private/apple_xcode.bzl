@@ -192,7 +192,94 @@ def declare_library_dsym(ctx, directory, bundle, binary_name):
     dwarf = ctx.actions.declare_file(path + "/Contents/Resources/DWARF/" + binary_name)
     return struct(plist = plist, dwarf = dwarf, files = [plist, dwarf])
 
-def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None, install_name = None):
+def read_install_names(ctx, library, output):
+    """Registers the action that writes `library`'s install names to `output`.
+
+    One a line, as `otool -D` reads them: one for each architecture, which
+    need not agree; none for a file that is not a dylib. `rewrite_install_names`
+    reads them back. Each is a file of its own, so a change to a library that
+    keeps its install name reruns nothing that links it.
+
+    Args:
+      ctx: A rule context with `XCODE_TOOL_ATTRS`.
+      library: The library File.
+      output: The File to write.
+    """
+    run_xcode_tool(
+        ctx,
+        # The first line names the file, and so does the header of each
+        # architecture of a universal binary.
+        command = "\n".join([
+            "set -e",
+            'out="$(xcrun otool -D "$1")"',
+            'printf "%s\\n" "$out" | tail -n +2 | { grep -v " (architecture .*):$" || true; } > "$2"',
+        ]),
+        arguments = [ctx.actions.args().add_all([library, output])],
+        inputs = [library],
+        outputs = [output],
+        mnemonic = "FlutterAppleInstallNames",
+        execution_requirements = PATH_MAPPING,
+        progress_message = "Reading the install name of %s" % library.basename,
+    )
+
+def rewrite_install_names(ctx, directory, libraries):
+    """The links between bundled libraries, to rewrite as each moves to its new install name.
+
+    As `flutter build` does (`copyNativeCodeAssetsIOS`, `setInstallNamesDylib`):
+    a library that links another records it by that library's install name
+    when it was linked, `@rpath/libfoo.dylib`, say. Once `libfoo` ships as
+    `foo.framework/foo` under the install name `@rpath/foo.framework/foo`,
+    nothing has the old one, and the library that links it fails to load.
+    So every library is given `-change <old> <new>` for each library bundled
+    beside it (its own included, which changes nothing), from the old install
+    names `read_install_names` reads when the libraries are built.
+
+    Args:
+      ctx: A rule context with `XCODE_TOOL_ATTRS`.
+      directory: The package-relative directory to declare the install-name
+        files in.
+      libraries: Pairs of a library File and the install name it ships with,
+        every library of one bundle.
+
+    Returns:
+      A struct of `inputs`, the files of the old install names, and `pairs`,
+      which alternates each of those files with the install name it moves to,
+      for `process_native_library`'s `install_name_changes`.
+    """
+    inputs = []
+    pairs = []
+    for library, install_name in libraries:
+        names = ctx.actions.declare_file("%s/%s.install_names" % (directory, install_name.split("/")[-1]))
+        read_install_names(ctx, library, names)
+        inputs.append(names)
+        pairs.extend([names, install_name])
+    return struct(inputs = inputs, pairs = pairs)
+
+# Sets $2's install name to $3, and changes its links to the libraries named in
+# the files of `rewrite_install_names` from $5 on, each followed by the
+# install name it moves to.
+_INSTALL_NAME_TOOL = """\
+changes=()
+seen=$'\\n'
+for ((i = 5; i < $#; i += 2)); do
+  j=$((i + 1))
+  new="${!j}"
+  while IFS= read -r old; do
+    [ -n "$old" ] || continue
+    case "$seen" in
+      *$'\\n'"$old -> $new"$'\\n'*) continue ;;
+      *$'\\n'"$old -> "*)
+        echo "Two of the libraries bundled with $(basename "$1") have the install name $old" >&2
+        exit 1 ;;
+    esac
+    seen="$seen$old -> $new"$'\\n'
+    changes+=(-change "$old" "$new")
+  done < "${!i}"
+done
+xcrun install_name_tool -id "$3" "${changes[@]}" "$2"
+"""
+
+def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None, install_name = None, install_name_changes = None):
     """Registers the action that makes the copy of `library` an Apple app bundles.
 
     As `flutter build` treats a native asset (`native_assets_host.dart`):
@@ -214,9 +301,13 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
       mnemonic: The action's mnemonic.
       dsym: A `declare_library_dsym` struct, when `symbols.dsym`.
       install_name: None, or the install name to give the copy.
+      install_name_changes: None, or a `rewrite_install_names` struct of the
+        libraries bundled with this one, whose links to them the copy has
+        rewritten. Needs `install_name`.
     """
 
-    # $1 the library, $2 the copy, $3 its install name, $4 its dSYM's plist.
+    # $1 the library, $2 the copy, $3 its install name, $4 its dSYM's plist,
+    # and from $5 the install-name changes.
     args = ctx.actions.args().add_all([library, output])
     args.add(install_name or "")
     args.add_all([dsym.plist] if dsym else [""])
@@ -225,9 +316,15 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
         'cp "$1" "$2"',
         'chmod u+w "$2"',
     ]
+    inputs = [library]
     outputs = [output]
+    if install_name_changes:
+        if not install_name:
+            fail("install_name_changes needs an install_name")
+        args.add_all(install_name_changes.pairs)
+        inputs.extend(install_name_changes.inputs)
     if install_name:
-        commands.append('xcrun install_name_tool -id "$3" "$2"')
+        commands.append(_INSTALL_NAME_TOOL)
     if dsym:
         # dsymutil reads a copy without the debugging map (the stabs `strip -S`
         # removes), named as the shipped binary is, as its DWARF file is.
@@ -250,7 +347,7 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
         ctx,
         command = "\n".join(commands),
         arguments = [args],
-        inputs = [library],
+        inputs = inputs,
         outputs = outputs,
         mnemonic = mnemonic,
         execution_requirements = PATH_MAPPING,
