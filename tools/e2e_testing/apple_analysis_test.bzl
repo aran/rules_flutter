@@ -6,6 +6,7 @@ target platform the iOS rules must still cope with.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_dart//dart:providers.bzl", "DartAnalyzableInfo")
+load("//flutter:dev_files.bzl", "DEV_FILES_GROUP", "flutter_dev_files_aspect")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 
 def _analyses_impl(ctx):
@@ -283,3 +284,40 @@ def split_debug_info_test(name, target, symbols, ios_device = False):
     """
     rule = _split_debug_info_ios_device_test if ios_device else _split_debug_info_test
     rule(name = name, target_under_test = target, symbols = symbols)
+
+def _dev_config_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    files = getattr(target[OutputGroupInfo], DEV_FILES_GROUP).to_list()
+    asserts.equals(
+        env,
+        [ctx.attr.dev_config],
+        [f.basename for f in files if f.basename.endswith("_dev_config.json")],
+        ("the dev files of %s should hold the dev config of the application " +
+         "it runs, and no other: the dev tool reads the one in the app's " +
+         "configuration") % target.label,
+    )
+    return analysistest.end(env)
+
+_dev_config_test = analysistest.make(
+    _dev_config_impl,
+    attrs = {"dev_config": attr.string(mandatory = True)},
+    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    extra_target_under_test_aspects = [flutter_dev_files_aspect],
+)
+
+def dev_config_test(name, target, dev_config):
+    """A test that the dev files the dev tool builds through `target` hold one dev config, in `-c dbg`.
+
+    The dev tool builds `flutter_dev_files_aspect`'s group through the app and
+    reads the `_dev_config.json` in the configuration the app reports. That
+    must be the one of the application the app runs, alone: an app over a
+    `flutter_application_variant` reaches the application it varies too, in
+    the same configuration.
+
+    Args:
+        name: The test's name.
+        target: The app.
+        dev_config: The basename of the dev config (`<application>_dev_config.json`).
+    """
+    _dev_config_test(name = name, target_under_test = target, dev_config = dev_config)

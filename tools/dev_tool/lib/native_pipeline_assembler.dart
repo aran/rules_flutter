@@ -122,6 +122,15 @@ class NativePipelineAssembler {
   /// [AppliedVersions.seedFromBuild].
   final DateTime builtBefore;
 
+  /// The `flutter_assets` tree an earlier attempt read before its dev build,
+  /// for [_assembleAgain]; null on the first attempt, which reads it itself.
+  ///
+  /// Passed on, not read again: the failed attempt's build can have rewritten
+  /// the tree before it failed, and a tree read after that would baseline the
+  /// edits saved since the launch as what the app already shows. See
+  /// [_launchedBundle].
+  final Map<String, int>? launchedBundle;
+
   /// Null when the app was not launched by this command (attach).
   final NativeLaunch? launch;
 
@@ -135,6 +144,7 @@ class NativePipelineAssembler {
     required this.logger,
     required this.builtBefore,
     this.launch,
+    this.launchedBundle,
   });
 
   /// What the running app says about the build it came from.
@@ -160,26 +170,25 @@ class NativePipelineAssembler {
   /// are: [sessionBuildArgs] carries the run's own `--dart-define`s.
   late final List<String> _replayedDefines;
 
-  /// The bazel flags that produce the *dev* outputs: the dev config, the dev
-  /// package config, the regenerated codegen sources.
+  /// The app's `flutter_assets` tree as it was before this assembly built
+  /// anything: on `run`, as the launch build left it, which is what the app
+  /// was shown.
   ///
-  /// Deliberately not [BuildInfo.platformBuildArgs]: the platform flags that
-  /// value carries put a build in the app's *launch* configuration, and these
-  /// outputs are read from the configuration this command builds them in.
-  List<String> get _devArgs => [
-    ...configDevice.buildArgs,
-    ...sessionBuildArgs,
-    ..._replayedDefines,
-  ];
+  /// Read before the dev build because that build is of the app's own
+  /// configuration and rewrites this tree. An edit saved since the launch
+  /// would be in a tree read after it, baselined as what the app already
+  /// has, and the first reload would rebuild it, find it identical, and
+  /// deliver nothing.
+  ///
+  /// Null until this attempt reads it, which a failure before that point
+  /// leaves the next attempt to do.
+  Map<String, int>? _launchedBundle;
 
   /// The flags the running app says produced it, used by every bazel
-  /// invocation that has to reach the app's own configuration.
-  ///
-  /// Distinct from [_devArgs], which builds the *dev* outputs — dev config,
-  /// dev package config, regenerated codegen sources — in the top-level
-  /// configuration. Keeping one list per purpose is what stops the tracked
-  /// tree and the rebuilt tree from drifting apart when a user passes
-  /// `--build-arg`.
+  /// invocation this assembly runs: each one reaches the app's own
+  /// configuration through the launch target, so the dev files, the bundle and
+  /// its parts are all the ones the app runs, and the application is analysed
+  /// and built in that one configuration.
   List<String> get _launchArgs => [
     ..._info.platformBuildArgs,
     ...sessionBuildArgs,
@@ -332,6 +341,7 @@ class NativePipelineAssembler {
       logger: logger,
       builtBefore: builtBefore,
       launch: launch,
+      launchedBundle: _launchedBundle,
     ).assemble();
     // `_assemble` has two early returns that settle nothing — no session with a
     // VM service, and a device with no compiler config — and on the first
@@ -371,12 +381,13 @@ class NativePipelineAssembler {
       ),
     );
 
-    // Build the flutter_application target directly to materialize its
-    // DefaultInfo — the hot-reload `_dev_config.json` + dev
-    // `package_config.json`. The platform wrapper (`:app_macos`) consumes the
-    // flutter_application via providers, not files, so building it alone never
-    // produces these. Using the app target's own outputs also keeps the dev
-    // config's config-specific paths self-consistent.
+    // The flutter_application's own outputs — the hot-reload
+    // `_dev_config.json`, the dev `package_config.json`, the generated sources
+    // — through the launch target, in the configuration the app was built in.
+    // Not a build of the flutter_application on its own: that is the
+    // application in the top-level configuration, a second analysis and build
+    // of it and of every native library under it, whose files the running app
+    // never reads.
     //
     // `info`, not `fine`: the root logger sits at `INFO`, so a `fine` record is
     // dropped before anything can read it — leaving the several seconds of
@@ -388,41 +399,32 @@ class NativePipelineAssembler {
       'text': 'Building the hot-reload inputs for $target...',
       'target': target,
     });
-    final devAppLabel = await host.bazel.cqueryFlutterAppLabel(
-      target,
-      workspace: workspace,
-      compilationMode: 'dbg',
-      extraArgs: _devArgs,
-    );
-    if (devAppLabel == null) {
-      throw DevToolException(
-        'No flutter_application found in deps of $target.',
-      );
-    }
+    _launchedBundle =
+        launchedBundle ??
+        AssetBundle(
+          directory: '$workspace/${_info.assetsDir}',
+          workspaceRoot: workspace,
+          assetRoots: const {},
+          shaders: const {},
+        ).scan();
     // Checked, not discarded. A failed build otherwise flows on as an empty
     // output list, which `findDevConfig` reports as a missing
     // `_dev_config.json` and tells the user to "build with -c dbg" — a wrong
     // answer for a source file that simply did not compile. The build result is
     // the only place that distinguishes them.
-    final devBuild = await host.bazel.build(
-      devAppLabel,
-      workspace: workspace,
-      compilationMode: 'dbg',
-      extraArgs: _devArgs,
-    );
+    final devBuild = await _buildDevFiles();
     if (!devBuild.success) {
-      throw devBuild.asFailure('build $devAppLabel');
-    }
-    final flutterAppOutputs = devBuild.outputFiles;
-    // The build tells us the entrypoint + hot-reload layout via
-    // _dev_config.json; we never infer them from package_config rootUri shapes.
-    final devConfigPath = findDevConfig(flutterAppOutputs);
-    if (devConfigPath == null) {
-      throw DevToolException(
-        'No _dev_config.json in flutter_application outputs '
-        '(build with -c dbg).\nOutputs: $flutterAppOutputs',
+      throw BazelInvocationFailure(
+        command: 'build $target ($devFilesGroup)',
+        diagnostics: devBuild.stderr,
       );
     }
+    // The build tells us the entrypoint + hot-reload layout via
+    // _dev_config.json; we never infer them from package_config rootUri shapes.
+    final devConfigPath = devConfigOfApp(
+      devBuild.files,
+      assetsDir: _info.assetsDir,
+    );
     final devConfig = parseDevConfig(devConfigPath);
     // Everything below drives a compiler off these paths. A path the build
     // declared and did not write fails here, naming the file, rather than as
@@ -465,10 +467,9 @@ class NativePipelineAssembler {
       devConfig.devPackageConfig,
     );
 
-    // The registrant filtered for the platform the app is RUNNING on, not
-    // for the host platform this dev build resolved in — the two differ on
-    // an iOS run driven from a macOS host, and feeding the host's registers
-    // the wrong plugin set after a hot restart, silently.
+    // The registrant filtered for the platform the app is RUNNING on: the dev
+    // config carries one per platform, and feeding another's registers the
+    // wrong plugin set after a hot restart, silently.
     final registrant = devConfig.registrantFor(_info.targetPlatform);
     // The compiler is the one the build resolved, not one found in the
     // output base: a workspace can declare several SDKs and custom engines,
@@ -481,9 +482,8 @@ class NativePipelineAssembler {
       // it into the launch build only, and this compiler produces every dill
       // the app runs after a hot restart — so without it a restart is where the
       // app stops being able to say which build it came from. It comes from the
-      // running app rather than from `devConfig.dartDefines`, which the
-      // host-configured dev build wrote: replaying that value would have the app
-      // report the dev pipeline's configuration as its launch truth.
+      // running app rather than from `devConfig.dartDefines`, which the build
+      // wrote without it: the app's own value is its launch truth.
       dartDefines: [...devConfig.dartDefines, _info.defineAssignment],
       // A `file://` URI, deliberately, where the build's own kernel compile
       // names its registrant `org-dartlang-app:///<workspace path>`, mounted
@@ -518,7 +518,7 @@ class NativePipelineAssembler {
           : Uri.file(registrant).toString(),
       // The app says whether its kernel has widget creation locations, so a
       // reload's recompiled libraries keep them: the build's `track_widget_creation`
-      // is the app's, not something the host-configured dev build knows.
+      // is the app's, which it reports.
       trackWidgetCreation: _info.trackWidgetCreation,
       enableExperiments: devConfig.enableExperiments,
     );
@@ -638,12 +638,7 @@ class NativePipelineAssembler {
     // reload/restart so edits to codegen inputs are regenerated. Null for
     // non-codegen apps → no bazel build on a Dart edit (today's instant path).
     if (devConfig.generatedSourceUris.isNotEmpty) {
-      pipeline.refreshGenerated = () async => (await host.bazel.build(
-        devAppLabel,
-        workspace: workspace,
-        compilationMode: 'dbg',
-        extraArgs: _devArgs,
-      )).success;
+      pipeline.refreshGenerated = () async => (await _buildDevFiles()).success;
     }
 
     // What the app has `dlopen`ed, so a rebuild that moves one of these is
@@ -678,12 +673,7 @@ class NativePipelineAssembler {
     // watch would judge from source stats alone — see
     // `ReloadPipeline.rebuildNativeLibs`.
     if (nativeLibs != null && pipeline.relaunchIfNativeLibsChanged == null) {
-      pipeline.rebuildNativeLibs = () async => (await host.bazel.build(
-        devAppLabel,
-        workspace: workspace,
-        compilationMode: 'dbg',
-        extraArgs: _devArgs,
-      )).success;
+      pipeline.rebuildNativeLibs = () async => (await _buildDevFiles()).success;
     }
 
     pipeline.strategy = configDevice.createReloadStrategy();
@@ -778,14 +768,7 @@ class NativePipelineAssembler {
   /// The path comes from the app, not from a build of our own. A platform
   /// wrapper reaches the `flutter_application` through a split transition, so
   /// the app's tree lives in a configuration (`…-ST-<hash>`) no command line
-  /// can name, while the bare dev build this pipeline also does lands in the
-  /// top-level one.
-  ///
-  /// Not off the dev build's own output list: that lists the bare target in
-  /// the top-level configuration only, which for a wrapper is a tree the app
-  /// never reads. The pipeline would rebuild through the launch target while
-  /// diffing a directory that never changes, and nothing would report an
-  /// error; the edit would simply not arrive.
+  /// can name, and an Android wrapper reaches it in several.
   ///
   /// The cquery through the launch target is the cross-check, not the source.
   /// It answers "is the tree the app claims reachable from the target the user
@@ -838,6 +821,7 @@ class NativePipelineAssembler {
         shaders: shaders,
       ),
       builtBefore: builtBefore,
+      bundleState: _launchedBundle!,
     );
     // The refreshed assets, built the cheapest way the platform offers: an
     // APK is not packaged to learn that an asset moved.
@@ -847,14 +831,12 @@ class NativePipelineAssembler {
 
   /// Rebuild whatever produces the bundle the app is actually running.
   ///
-  /// The launch target, not `devAppLabel`: a platform rule reaches the
-  /// flutter_application through a transition, so the tree the tracker watches
-  /// lives in the *transitioned* configuration. Building the flutter_application
-  /// on its own writes the top-level one instead and leaves that directory
-  /// exactly as it was, so the rebuild reports success, the diff finds nothing
-  /// changed, and the edit is silently dropped. With no launch of our own there
-  /// is no transitioned configuration to reproduce, so the dev one is the only
-  /// one there is.
+  /// The launch target, not the flutter_application: a platform rule reaches
+  /// the flutter_application through a transition, so the tree the tracker
+  /// watches lives in the *transitioned* configuration. Building the
+  /// flutter_application on its own writes the top-level one instead and
+  /// leaves that directory exactly as it was, so the rebuild reports success,
+  /// the diff finds nothing changed, and the edit is silently dropped.
   /// [_rebuildBundle], deduplicated within one command: an `app.restart` whose
   /// asset sources moved asks for this build twice — once to refresh the bundle
   /// it diffs, once before the native-libs comparison — and the second is a
@@ -916,6 +898,17 @@ class NativePipelineAssembler {
     );
     return r.success;
   }
+
+  /// The application's dev files, through the launch target, in the app's
+  /// configuration (see [devConfigOfApp]).
+  Future<BazelAspectOutputs> _buildDevFiles() => host.bazel.buildAspectOutputs(
+    target,
+    workspace: workspace,
+    aspect: devFilesAspect,
+    outputGroup: devFilesGroup,
+    compilationMode: 'dbg',
+    extraArgs: _launchArgs,
+  );
 
   /// Arm the native-libs relauncher, if this command launched the app and the
   /// bundle carries loose native libraries at all.

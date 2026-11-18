@@ -182,10 +182,16 @@ class AssetTracker {
   ///
   /// [takeBundleChanges] takes the same guard for the same window, against the
   /// start of the rebuild it is committing.
-  AssetTracker(this.bundle, {required DateTime builtBefore})
-    : _bundleState = const {},
-      _sourceState = const {} {
-    _bundleState = bundle.scan();
+  ///
+  /// [bundleState] is the built tree as the app was shown it, scanned before
+  /// something rebuilt it; null reads the tree as it is now.
+  AssetTracker(
+    this.bundle, {
+    required DateTime builtBefore,
+    Map<String, int>? bundleState,
+  }) : _bundleState = const {},
+       _sourceState = const {} {
+    _bundleState = bundleState ?? bundle.scan();
     _sourceState = _scanSourceDirs(_bundleState, builtBefore: builtBefore);
   }
 

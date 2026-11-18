@@ -550,10 +550,9 @@ class DevConfig {
 ///
 /// [files] are one target's outputs in one configuration (see
 /// `Bazel.build`), so they hold at most one dev config. More than one is a
-/// listing that spans configurations, and picking among them is how a run
-/// came to read the launch build's copy: its generated sources and native
-/// libraries are paths the dev build never rewrites, so every hot reload
-/// compiled the codegen output the app launched with.
+/// listing that spans configurations, which says nothing about which of them
+/// the app runs, so it is refused rather than picked from. A listing that
+/// spans them on purpose is read with [devConfigOfApp].
 String? findDevConfig(List<String> files) {
   final candidates = [
     for (final f in files)
@@ -567,6 +566,43 @@ String? findDevConfig(List<String> files) {
   }
   return candidates.firstOrNull;
 }
+
+/// The `_dev_config.json` of the configuration the running app was built in.
+///
+/// [files] are the dev files the launch target's aspect collected (see
+/// `devFilesAspect`): the application's outputs in every configuration the
+/// launch target reaches it in. An Android app reaches it in one per ABI, so
+/// the dev config is the one in the output directory of the app's own
+/// [assetsDir], which the app reports and nothing here guesses.
+///
+/// Throws [DevToolException] when that configuration has no dev config among
+/// [files], naming the ones there are.
+String devConfigOfApp(List<String> files, {required String assetsDir}) {
+  final candidates = [
+    for (final f in files)
+      if (f.endsWith('_dev_config.json')) f,
+  ];
+  final configuration = _outputDirectory(assetsDir);
+  final matching = [
+    for (final c in candidates)
+      if (configuration != null && _outputDirectory(c) == configuration) c,
+  ];
+  if (matching.length != 1) {
+    throw DevToolException(
+      'The app reports its assets at "$assetsDir", and the build of its launch '
+      'target has ${matching.isEmpty ? 'no' : 'more than one'} _dev_config.json '
+      'in that configuration${configuration == null ? '' : ' ($configuration)'}.'
+      '${candidates.isEmpty ? '' : '\nDev configs it has:\n  ${candidates.join('\n  ')}'}',
+    );
+  }
+  return matching.single;
+}
+
+/// The configuration directory of a path under `bazel-out/`
+/// (`darwin_arm64-dbg-macos-arm64-min12.0-ST-<hash>`), or null for a path
+/// outside it.
+String? _outputDirectory(String path) =>
+    RegExp(r'(?:^|/)bazel-out/([^/]+)/').firstMatch(path)?.group(1);
 
 /// Parse dev config JSON from a file path, resolving symlinks.
 ///

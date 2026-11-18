@@ -516,6 +516,29 @@ void main() {
       expect(tracker.sourcesAreStale, isFalse);
     });
 
+    // The dev loop builds the app's own configuration after the launch and
+    // before it constructs the tracker. An edit saved in between is in the
+    // tree it reads then, so it baselines from the tree as the launch left it.
+    test('a tree rebuilt before the tracker still reports the edit, given '
+        'the tree the app was shown', () {
+      fixture.put(p.join('assets', 'logo.png'), 'v1');
+      final launched = fixture.bundle.scan();
+      // Before the edit's stamp: the edit is one the launch did not build.
+      final launchedBefore = DateTime.now();
+      fixture.edit(p.join('assets', 'logo.png'), 'v2');
+      fixture.build();
+
+      final tracker = AssetTracker(
+        fixture.bundle,
+        builtBefore: launchedBefore,
+        bundleState: launched,
+      );
+      expect(tracker.sourcesAreStale, isTrue);
+      expect(tracker.takeBundleChanges(rebuiltBefore: afterFixtureWrites()), {
+        'assets/logo.png',
+      });
+    });
+
     test('reports the archive paths a rebuild changed, once', () {
       fixture.put(p.join('assets', 'logo.png'), 'v1');
       fixture.put(p.join('assets', 'icon.png'), 'v1');

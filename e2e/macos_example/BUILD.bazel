@@ -19,7 +19,7 @@ load(
     "flutter_macos_registrant_gen",
     "flutter_macos_runner_lib_gen",
 )
-load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "dev_config_test", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_flag", "device_profile")
 load("@rules_flutter//tools/e2e_testing:version_build.bzl", "version_build")
@@ -159,6 +159,14 @@ flutter_macos_app(
     application = ":driver_flutter",
     bundle_id = "com.example.flutterapp.driver",
     target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The dev tool reads the dev config of the application the app runs: the
+# variant's, though the app reaches the application it varies as well.
+dev_config_test(
+    name = "driver_app_dev_config_test",
+    dev_config = "driver_flutter_dev_config.json",
+    target = ":driver_app",
 )
 
 # =============================================================================

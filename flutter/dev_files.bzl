@@ -11,11 +11,9 @@ those rules apply a split transition to their `deps`, so the
 (`…-ST-<hash>`) nothing can name and no sibling re-derives. An aspect rides the
 existing dep edges in the configuration they already have.
 
-The group is the `flutter_application`'s own `DefaultInfo` rather than a
-hand-listed subset, so the two cannot drift.
+The group is the one the `flutter_application` declares, its own `DefaultInfo`
+rather than a hand-listed subset, so the two cannot drift.
 """
-
-load("//flutter:providers.bzl", "FlutterApplicationInfo")
 
 # The output group the dev tool requests. Named for what it is rather than for
 # who wants it: a release build has no use for these, but they are not "debug"
@@ -23,13 +21,18 @@ load("//flutter:providers.bzl", "FlutterApplicationInfo")
 DEV_FILES_GROUP = "flutter_dev_files"
 
 def _flutter_dev_files_aspect_impl(target, ctx):
+    # The application declares the group itself, and the search ends there: an
+    # application below it is not the one the app runs. A
+    # `flutter_application_variant` holds the application it varies, whose dev
+    # config would otherwise sit beside the variant's in the same configuration.
+    # Not `FlutterApplicationInfo in target`: a bundling rule passes that
+    # provider on, with files of its own.
+    if OutputGroupInfo in target and hasattr(target[OutputGroupInfo], DEV_FILES_GROUP):
+        return []
+
     files = []
 
-    # The application itself. Its DefaultInfo is the whole interface.
-    if FlutterApplicationInfo in target:
-        files.append(target[DefaultInfo].files)
-
-    # Anything below it. `attr_aspects = ["*"]` rather than a named edge list:
+    # Otherwise the application below. `attr_aspects = ["*"]`, not an edge list:
     # the path from a launchable target down to its `flutter_application` runs
     # through rules this project does not own (`macos_application` → its
     # `deps` → a generated runner), so naming the edges would encode another

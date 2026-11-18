@@ -520,6 +520,45 @@ void main() {
     });
   });
 
+  group('devConfigOfApp', () {
+    const transitioned = 'darwin_arm64-dbg-android-ST-a6b';
+
+    test('takes the dev config of the configuration the app reports', () {
+      // An Android app reaches its application once per ABI.
+      expect(
+        devConfigOfApp(
+          [
+            '/root/bazel-out/darwin_arm64-dbg-android-ST-x86/bin/a_dev_config.json',
+            '/root/bazel-out/$transitioned/bin/a_dev_config.json',
+            '/root/bazel-out/$transitioned/bin/a_dev_package_config.json',
+          ],
+          assetsDir: 'bazel-out/$transitioned/bin/a_flutter_assets',
+        ),
+        '/root/bazel-out/$transitioned/bin/a_dev_config.json',
+      );
+    });
+
+    test('refuses a single dev config of another configuration', () {
+      expect(
+        () => devConfigOfApp(
+          ['/root/bazel-out/darwin_arm64-dbg/bin/a_dev_config.json'],
+          assetsDir: 'bazel-out/$transitioned/bin/a_flutter_assets',
+        ),
+        throwsA(
+          isA<DevToolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('no _dev_config.json'),
+              contains(transitioned),
+              contains('darwin_arm64-dbg/bin/a_dev_config.json'),
+            ),
+          ),
+        ),
+      );
+    });
+  });
+
   group('findDevConfig', () {
     test('finds _dev_config.json in output files', () {
       final result = findDevConfig([

@@ -400,9 +400,16 @@ List<String> devToolBazelFlags({
 ///
 /// Web needs none of this: `flutter_web_application` declares its own dev
 /// outputs and the tool names that target directly.
+const devFilesAspect =
+    '@rules_flutter//flutter:dev_files.bzl%flutter_dev_files_aspect';
+
+/// The output group [devFilesAspect] fills: the `flutter_application`'s own
+/// outputs, in each configuration the launch target reaches it in.
+const devFilesGroup = 'flutter_dev_files';
+
 const _devFilesAspect = [
-  '--aspects=@rules_flutter//flutter:dev_files.bzl%flutter_dev_files_aspect',
-  '--output_groups=+flutter_dev_files',
+  '--aspects=$devFilesAspect',
+  '--output_groups=+$devFilesGroup',
 ];
 
 /// The argv for a `bazel build` this dev tool runs.

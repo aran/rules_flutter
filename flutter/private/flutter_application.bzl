@@ -17,6 +17,7 @@ load("@apple_support//lib:apple_support.bzl", "apple_support")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartPackageMetadataInfo")
 load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "program_assets_action_args", "program_assets_attrs")
+load("//flutter:dev_files.bzl", "DEV_FILES_GROUP")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterApplicationInputsInfo", "FlutterInfo")
 load("//flutter/private:code_asset_libraries.bzl", "code_asset_libraries", "code_asset_libraries_aspect", "describe_code_asset_libraries")
 load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "PROGRAM_PACKAGE_DOC", "asset_roots", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "flutter_program_inputs", "host_target_arch", "launch_build_args", "shader_sources", "shakes_icons")
@@ -508,7 +509,11 @@ def flutter_application_build(ctx, inputs):
             },
         ))
 
+    default_files = depset(default_files)
     output_groups = {
+        # What the dev tool reads, through `flutter_dev_files_aspect`: this
+        # application's outputs, and none of an application it varies.
+        DEV_FILES_GROUP: default_files,
         "native_assets_manifest": depset([native_assets_manifest_file]),
     }
     if debug_info_output:
@@ -523,7 +528,7 @@ def flutter_application_build(ctx, inputs):
 
     providers = [
         FlutterApplicationInputsInfo(inputs = inputs),
-        DefaultInfo(files = depset(default_files)),
+        DefaultInfo(files = default_files),
         FlutterApplicationInfo(
             aot_output = aot_output,
             aot_object = aot_object,

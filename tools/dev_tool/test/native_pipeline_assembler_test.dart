@@ -57,6 +57,7 @@ void main() {
     bool extensionRegistered = true,
     List<String> sessionBuildArgs = const [],
     List<List<String>>? bazelCalls,
+    Future<Process> Function(List<String> args)? spawn,
   }) async {
     final logger = Logger('test.native_pipeline_assembler');
     final host = SessionHost(
@@ -68,6 +69,7 @@ void main() {
       bazel: Bazel.uninterruptible(
         spawn: (args, {required workingDirectory}) {
           bazelCalls?.add(args);
+          if (spawn != null) return spawn(args);
           return Process.start(
             'bazel',
             args,
@@ -141,6 +143,56 @@ void main() {
       expect(
         calls.first,
         containsAllInOrder(['cquery', '--config=a', '--config=b', '--jobs=4']),
+      );
+    });
+
+    // The running app came from the launch target's configuration, so its dev
+    // files are read from there: through the launch target and its aspect,
+    // with the flags the app says built it. A build of the flutter_application
+    // on its own is the application in the top-level configuration, analysed
+    // and built a second time, native code and all.
+    test('builds the dev files through the launch target, not the '
+        'application on its own', () async {
+      final calls = <List<String>>[];
+      final pipeline = await assembleAgainst(
+        buildInfo: buildInfoJson(),
+        sessionBuildArgs: ['--config=a'],
+        bazelCalls: calls,
+        spawn: (args) async {
+          final process = FakeProcess();
+          () async {
+            await process.outputAttached;
+            if (args.first == 'cquery') {
+              process.emitStdout('[]');
+              process.complete(0);
+            } else {
+              process.emitStderr('ERROR: the build stops here\n');
+              process.complete(1);
+            }
+          }();
+          return process;
+        },
+      );
+
+      final builds = [
+        for (final c in calls)
+          if (c.first == 'build') c,
+      ];
+      expect(builds, hasLength(1));
+      expect(
+        builds.single,
+        containsAllInOrder(['build', '//:app', '-c', 'dbg', '--config=a']),
+      );
+      expect(builds.single, contains('--aspects=$devFilesAspect'));
+      expect(builds.single, contains('--output_groups=$devFilesGroup'));
+      expect(
+        calls.expand((c) => c).where((a) => a.contains('app_flutter')),
+        isEmpty,
+        reason: 'nothing names the application outside the launch target',
+      );
+      expect(
+        pipeline.ready.unavailableReason,
+        contains('`bazel build //:app (flutter_dev_files)`'),
       );
     });
 

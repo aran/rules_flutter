@@ -17,7 +17,7 @@ load(
     "flutter_ios_simulator_build",
     "flutter_ios_simulator_build_test",
 )
-load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "dev_config_test", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load("@rules_swift//swift:swift.bzl", "swift_library")
@@ -391,6 +391,14 @@ one_application_configuration_test(
 one_application_configuration_test(
     name = "swiftpm_plugins_app_one_application_configuration_test",
     target = ":swiftpm_plugins_app",
+)
+
+# The dev tool finds the application's dev config through the app, past the
+# rule that bundles it, which passes the application's provider on.
+dev_config_test(
+    name = "app_dev_config_test",
+    dev_config = "app_flutter_dev_config.json",
+    target = ":app",
 )
 
 flutter_ios_simulator_build(
