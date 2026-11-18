@@ -34,6 +34,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'native_assets_manifests.dart';
 import 'zip_archive.dart';
 
 /// A failure the build reports as it is.
@@ -143,14 +144,10 @@ bool _sameBytes(List<int> a, List<int> b) {
 /// assets back it), so they are not compared.
 const _kernel = 'kernel_blob.bin';
 
-/// The native-assets manifest, which each ABI's build writes for its own
-/// target alone (`android_arm64`, say): [mergedNativeAssetsManifest].
-const nativeAssetsManifest = 'NativeAssetsManifest.json';
-
 /// The one native-assets manifest of an AAR: the code assets of each ABI of
-/// [abis], each under its own target, from that ABI's build of [perAbi], as
-/// flutter_tools writes one manifest for every ABI of a build. A build that
-/// has none contributes nothing.
+/// [abis], each under its own target, from that ABI's build of [perAbi]
+/// (`mergeNativeAssetsManifests`). A build that has none contributes
+/// nothing; null when none has one.
 ///
 /// Throws [AarException] when two builds disagree on the format or name one
 /// target.
@@ -158,48 +155,18 @@ Uint8List? mergedNativeAssetsManifest(
   List<(String, String)> perAbi,
   Set<String> abis,
 ) {
-  List<Object?>? format;
-  String? formatAbi;
-  final targets = <String, Object?>{};
-  final from = <String, String>{};
-  var any = false;
-  for (final (abi, dir) in perAbi) {
-    if (!abis.contains(abi)) continue;
-    final file = File('$dir/$nativeAssetsManifest');
-    if (!file.existsSync()) continue;
-    any = true;
-    final manifest =
-        json.decode(file.readAsStringSync()) as Map<String, Object?>;
-    final version = manifest['format-version'] as List<Object?>;
-    if (format != null && json.encode(format) != json.encode(version)) {
-      throw AarException(
-        'flutter_assets/$nativeAssetsManifest has format $version in the '
-        '$abi build and $format in the $formatAbi build',
-      );
-    }
-    format = version;
-    formatAbi = abi;
-    final sections = manifest['native-assets'] as Map<String, Object?>;
-    for (final MapEntry(key: target, :value) in sections.entries) {
-      final other = from[target];
-      if (other != null) {
-        throw AarException(
-          'flutter_assets/$nativeAssetsManifest of both the $other and $abi '
-          'builds has code assets for $target',
-        );
-      }
-      from[target] = abi;
-      targets[target] = value;
-    }
+  final manifests = [
+    for (final (abi, dir) in perAbi)
+      if (abis.contains(abi) &&
+          File('$dir/$nativeAssetsManifestName').existsSync())
+        (abi, File('$dir/$nativeAssetsManifestName').readAsStringSync()),
+  ];
+  if (manifests.isEmpty) return null;
+  try {
+    return utf8.encode(mergeNativeAssetsManifests(manifests));
+  } on ManifestMergeException catch (e) {
+    throw AarException('flutter_assets/${e.message}');
   }
-  if (!any) return null;
-  final sorted = targets.keys.toList()..sort();
-  return utf8.encode(
-    const JsonEncoder.withIndent('  ').convert({
-      'format-version': format,
-      'native-assets': {for (final t in sorted) t: targets[t]},
-    }),
-  );
 }
 
 /// The one `flutter_assets` tree of an AAR, the first of [perAbi], checked
@@ -225,7 +192,7 @@ Map<String, File> sameFlutterAssets(List<(String, String)> perAbi) {
         );
       }
       if (name != _kernel &&
-          name != nativeAssetsManifest &&
+          name != nativeAssetsManifestName &&
           !_sameBytes(a.readAsBytesSync(), b.readAsBytesSync())) {
         throw AarException(
           'flutter_assets/$name differs between the $firstAbi and $abi builds; '
@@ -312,7 +279,7 @@ List<ZipEntry> aarEntries(AarSpec spec) {
   ).entries) {
     add(
       'assets/flutter_assets/$key',
-      key == nativeAssetsManifest ? manifest! : value.readAsBytesSync(),
+      key == nativeAssetsManifestName ? manifest! : value.readAsBytesSync(),
     );
   }
   for (final (abi, library) in spec.jni) {

@@ -76,6 +76,47 @@ void main() {
     expect(read('out/keep'), 'kept');
   });
 
+  test(
+    'never copies a file of the tree that an added one replaces',
+    () {
+      write('tree/NativeAssetsManifest.json', 'one ABI');
+      write('tree/keep', 'kept');
+      // Unreadable, so copying it fails: the replaced file must not be
+      // copied, as on Windows a read-only copy of it could not be deleted.
+      Process.runSync('chmod', [
+        '000',
+        '${dir.path}/tree/NativeAssetsManifest.json',
+      ]);
+      addTearDown(
+        () => Process.runSync('chmod', [
+          '644',
+          '${dir.path}/tree/NativeAssetsManifest.json',
+        ]),
+      );
+      final merged = write('merged.json', 'every ABI');
+      expect(
+        assemble([
+          '--add-tree',
+          '.',
+          '${dir.path}/tree',
+          '--add',
+          'NativeAssetsManifest.json',
+          merged,
+        ]),
+        0,
+      );
+      expect(read('out/NativeAssetsManifest.json'), 'every ABI');
+      expect(read('out/keep'), 'kept');
+    },
+    testOn: '!windows',
+  );
+
+  test('keeps an empty directory of a tree', () {
+    Directory('${dir.path}/tree/empty').createSync(recursive: true);
+    expect(assemble(['--add-tree', '.', '${dir.path}/tree']), 0);
+    expect(Directory('${dir.path}/out/empty').existsSync(), isTrue);
+  });
+
   test('builds a directory from added files alone, creating parents', () {
     final file = write('prebuilt.dart', 'const prebuilt = 1;\n');
     expect(assemble(['--add', 'lib/prebuilt.dart', file]), 0);

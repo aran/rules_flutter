@@ -52,9 +52,11 @@ def _flutter_android_bundle_parts_aspect_impl(target, ctx):
     # application is also reached by the registrant and by plugin libraries,
     # which would otherwise contribute the same files from other nodes.
     if ctx.rule.kind == "flutter_android_bundle":
-        app = ctx.rule.attr.application
-        if type(app) == "Target" and FlutterApplicationInfo in app:
-            assets.append(depset([app[FlutterApplicationInfo].flutter_assets]))
+        # Built for each ABI of the APK, one in each configuration below
+        # `android_binary`'s native code.
+        for app in ctx.rule.attr.application:
+            if FlutterApplicationInfo in app:
+                assets.append(depset([app[FlutterApplicationInfo].flutter_assets]))
 
     # What `android_binary` links and packages: cc dependencies' own libraries,
     # and the libraries AARs and Android libraries carry (already transitive).

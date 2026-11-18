@@ -9,6 +9,7 @@ load(
     "@rules_flutter//flutter:android.bzl",
     "flutter_android_aar",
     "flutter_android_app",
+    "flutter_android_build",
     "flutter_android_bundle",
     "flutter_android_engine",
     "flutter_android_manifest_gen",
@@ -513,6 +514,27 @@ dart_test(
     ],
     env = {"ZIPPER_RUNFILE": "$(rlocationpath @bazel_tools//tools/zip:zipper)"},
     main = "test/verify_android_apk_test.dart",
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
+# `:app` for two ABIs: its one flutter_assets names each ABI's code assets.
+flutter_android_build(
+    name = "app_two_abis",
+    android_platforms = [
+        "@rules_android//:arm64-v8a",
+        "@rules_android//:armeabi-v7a",
+    ],
+    targets = [":app"],
+)
+
+dart_test(
+    name = "verify_android_multi_abi_test",
+    data = [
+        ":app_two_abis",
+        "@bazel_tools//tools/zip:zipper",
+    ],
+    env = {"ZIPPER_RUNFILE": "$(rlocationpath @bazel_tools//tools/zip:zipper)"},
+    main = "test/verify_android_multi_abi_test.dart",
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 

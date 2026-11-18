@@ -38,6 +38,10 @@
 ///   dart code_assets.dart manifest --program-assets=<file> --os <os>
 ///       [--target <os>_<arch>] --output <file>
 ///     Writes the app's native-assets manifest (`nativeAssetsManifest`).
+///   dart code_assets.dart merge-manifests --output <file>
+///       (--manifest <abi> <file>)...
+///     Writes the one native-assets manifest of an APK of several ABIs, each
+///     ABI's build's under its own target (`mergeNativeAssetsManifests`).
 ///   dart code_assets.dart xcframeworks --output <dir>
 ///       (--slice <id> --program-assets=<file>)...
 ///       (--candidate <file name> <xcframework>)... [--always <xcframework>]...
@@ -57,6 +61,8 @@ import 'dart:io';
 import 'apple_frameworks.dart' show copyBundle;
 import 'assemble_directory.dart' show copyFile;
 import 'elf_runpath.dart' show ElfDynamic, bundledRunpath;
+import 'native_assets_manifests.dart'
+    show ManifestMergeException, mergeNativeAssetsManifests;
 import 'zip_archive.dart' show ZipEntry, writeZip;
 
 /// The name and version of the program-assets line format this reads.
@@ -690,6 +696,17 @@ int _run(List<String> args) {
           _flag(rest, '--target', optional: true),
         ),
       );
+    case 'merge-manifests':
+      // `--manifest <abi> <file>`, one for each ABI's build.
+      final manifests = <(String, String)>[];
+      for (var i = 0; i < rest.length - 2; i++) {
+        if (rest[i] == '--manifest') {
+          manifests.add((rest[i + 1], File(rest[i + 2]).readAsStringSync()));
+        }
+      }
+      File(
+        _flag(rest, '--output'),
+      ).writeAsStringSync(mergeNativeAssetsManifests(manifests));
     case 'package-swift':
       const suffix = '.xcframework';
       File(_flag(rest, '--output')).writeAsStringSync(
@@ -717,6 +734,9 @@ void main(List<String> args) {
     stderr.writeln('code_assets.dart: ${e.message}');
     exitCode = 1;
   } on StateError catch (e) {
+    stderr.writeln('code_assets.dart: ${e.message}');
+    exitCode = 1;
+  } on ManifestMergeException catch (e) {
     stderr.writeln('code_assets.dart: ${e.message}');
     exitCode = 1;
   } on ArgumentError catch (e) {

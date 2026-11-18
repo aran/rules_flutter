@@ -7,9 +7,14 @@
 /// * `--add <name> <file>` copies `<file>` to `<name>`, replacing a file of
 ///   that name an earlier argument put there.
 ///
-/// Directories in a `<name>` are created. A Bazel tree artifact cannot be
-/// extended in place, and an action can only name its contents by running
-/// something over them, so this is that something.
+/// Directories in a `<name>` are created. Each file is copied once, from the
+/// last argument that places it: a file an earlier tree has and a later
+/// `--add` replaces is never copied. A copy of a Bazel output is read-only on
+/// Windows, where a read-only file cannot be deleted to replace it.
+///
+/// A Bazel tree artifact cannot be extended in place, and an action can only
+/// name its contents by running something over them, so this is that
+/// something.
 ///
 /// The tool has no package dependencies and runs with the bare Dart SDK, so it
 /// runs on any host.
@@ -48,6 +53,29 @@ void copyFile(File source, String target) {
   File(source.resolveSymbolicLinksSync()).copySync(target);
 }
 
+/// Adds the directories and files of [source], following symlinks, to
+/// [directories] and [files] at [target].
+void _planTree(
+  Directory source,
+  String target,
+  List<String> directories,
+  Map<String, File> files,
+) {
+  directories.add(target);
+  for (final entry in source.listSync(followLinks: false)) {
+    final name = entry.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    final path = '$target/$name';
+    switch (FileSystemEntity.typeSync(entry.path)) {
+      case FileSystemEntityType.directory:
+        _planTree(Directory(entry.path), path, directories, files);
+      case FileSystemEntityType.file:
+        files[path] = File(entry.path);
+      case _:
+        throw FileSystemException('cannot copy', entry.path);
+    }
+  }
+}
+
 /// Runs the tool over [args] (the command line) and returns the exit code.
 int run(List<String> args) {
   String? output;
@@ -74,14 +102,21 @@ int run(List<String> args) {
     return 64;
   }
   final destination = Directory(output)..createSync(recursive: true);
+  // The directories to create and the file at each path, the last argument's.
+  final directories = <String>[];
+  final files = <String, File>{};
   for (final (isTree, name, source) in steps) {
     final target = name == '.' ? destination.path : '${destination.path}/$name';
     if (isTree) {
-      copyTree(Directory(source), Directory(target));
+      _planTree(Directory(source), target, directories, files);
     } else {
-      copyFile(File(source), target);
+      files[target] = File(source);
     }
   }
+  for (final directory in directories) {
+    Directory(directory).createSync(recursive: true);
+  }
+  files.forEach((target, source) => copyFile(source, target));
   return 0;
 }
 

@@ -57,6 +57,7 @@ building it there fails as incompatible, and `bazel build //...` skips it.
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_android//providers:providers.bzl", "AndroidNativeLibsInfo")
+load("@rules_android//rules:utils.bzl", android_utils = "utils")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
@@ -224,6 +225,74 @@ def _package_native_libs(ctx, tools, app_info, abi):
     )
     return zip, validated
 
+# -- The configurations of an APK's ABIs ---------------------------------------
+
+def _abi_split_impl(settings, _attr):
+    """The configurations `android_binary` builds its native code in, one for each ABI.
+
+    Exactly the settings rules_android's `android_split_transition` changes
+    (`rules/android_split_transition.bzl`, private to rules_android): each
+    platform of `--@rules_android//flags:android_platforms` (or of Bazel's
+    native `--android_platforms`) as the only one, those flags cleared, and
+    `--dynamic_mode=off`. With none, the one platform of `--platforms`. So the
+    application is built in the configurations the APK's native libraries
+    already are, and not again.
+
+    rules_android's transition also sets its `//rules/flags:bytecode_transformer`
+    from a `bytecode_transformer` attribute of the rule it is on. None of its
+    rules has one (through 0.8.1), so its split leaves the flag as it is, and
+    so does this one.
+    """
+    platforms = android_utils.get_android_platforms({
+        android_utils.ANDROID_PLATFORMS_SETTING: settings[_ANDROID_PLATFORMS_SETTING],
+        android_utils.add_cls_prefix("android_platforms"): settings[android_utils.add_cls_prefix("android_platforms")],
+    })
+    if not platforms:
+        platforms = [android_utils.only(android_utils.get_cls(settings, "platforms"))]
+    result = {}
+    for platform in platforms:
+        split = dict(settings)
+        split[android_utils.add_cls_prefix("android_platforms")] = []
+        split[_ANDROID_PLATFORMS_SETTING] = []
+        split[android_utils.add_cls_prefix("platforms")] = [platform]
+        split[android_utils.add_cls_prefix("dynamic_mode")] = "off"
+        result[platform.name] = split
+    return result
+
+# rules_android's flag, which its own transitions name relative to rules_android.
+_ANDROID_PLATFORMS_SETTING = str(Label("@rules_android//flags:android_platforms"))
+
+_SPLIT_SETTINGS = [
+    "//command_line_option:android_platforms",
+    _ANDROID_PLATFORMS_SETTING,
+    "//command_line_option:dynamic_mode",
+    "//command_line_option:platforms",
+]
+
+_abi_split = transition(
+    implementation = _abi_split_impl,
+    inputs = _SPLIT_SETTINGS,
+    outputs = _SPLIT_SETTINGS,
+)
+
+def _own_split(ctx):
+    """The key of the split of `application` built for this bundle's own platform.
+
+    `android_binary` builds itself, and so its `assets`, for the first
+    platform of its ABIs, and each of its native-code dependencies for one
+    ABI. Either way that is a key of the split. Built any other way, the
+    bundle is for no ABI the split has, and fails.
+    """
+    splits = ctx.split_attr.application
+    own = ctx.fragments.platform.platform
+    if own.name in splits:
+        return own.name
+    fail((
+        "{label} is built for {platform}, which is none of the Android platforms its application " +
+        "is split for ({splits}). Build it through an android_binary, or for one Android platform " +
+        "of --@rules_android//flags:android_platforms."
+    ).format(label = ctx.label, platform = own, splits = ", ".join(sorted(splits.keys()))))
+
 def _apk_assets(ctx, tools, flutter_assets, additions):
     """The flutter_assets tree at `<name>/assets/flutter_assets/`, as an APK holds it.
 
@@ -248,9 +317,40 @@ def _apk_assets(ctx, tools, flutter_assets, additions):
     )
     return out
 
+def _merged_manifest(ctx):
+    """The native-assets manifest of every ABI the APK has, or None for one ABI.
+
+    Each ABI's build names its own target alone, and an APK has one
+    `flutter_assets` for all of them, so it carries one manifest naming each
+    ABI's code assets under its target, as flutter_tools writes it.
+    """
+    splits = ctx.split_attr.application
+    if len(splits) < 2:
+        return None
+    merged = ctx.actions.declare_file(ctx.label.name + "_native_assets/NativeAssetsManifest.json")
+    args = ctx.actions.args()
+    args.add("--output", merged)
+    inputs = []
+    for key, app in splits.items():
+        info = app[FlutterApplicationInfo]
+        args.add("--manifest", key)
+        args.add(info.native_assets_manifest)
+        inputs.append(info.native_assets_manifest)
+    run_code_assets_tool(
+        ctx,
+        "merge-manifests",
+        [args],
+        depset(inputs),
+        [merged],
+        mnemonic = "FlutterNativeAssetsManifestMerge",
+        progress_message = "Merging the native-assets manifests of %{label}",
+    )
+    return merged
+
 def _flutter_android_bundle_impl(ctx):
     """Bundles Flutter compilation outputs for Android packaging."""
-    app_info = ctx.attr.application[FlutterApplicationInfo]
+    application = ctx.split_attr.application[_own_split(ctx)]
+    app_info = application[FlutterApplicationInfo]
     tools = portable_tools(ctx)
     abi = _android_abi(ctx)
 
@@ -272,6 +372,9 @@ def _flutter_android_bundle_impl(ctx):
         ]
     if sdk_record.record:
         additions.append(("flutter_sdk.json", sdk_record.record))
+    merged = _merged_manifest(ctx)
+    if merged:
+        additions.append(("NativeAssetsManifest.json", merged))
     flutter_assets = _apk_assets(ctx, tools, app_info.flutter_assets, additions)
 
     packaged, validated = _package_native_libs(ctx, tools, app_info, abi)
@@ -294,7 +397,7 @@ def _flutter_android_bundle_impl(ctx):
         # The application's `debug_info` group, built for this ABI: the
         # `.symbols` of the `libapp.so` above, for what packages the bundle
         # to pass on (`android_binary` passes on no group of its deps').
-        bundled_program_info(ctx.attr.application)
+        bundled_program_info(application)
     )
 
 flutter_android_bundle = rule(
@@ -304,10 +407,14 @@ flutter_android_bundle = rule(
             doc = "A flutter_application target providing the compiled artifacts.",
             mandatory = True,
             providers = [FlutterApplicationInfo],
+            cfg = _abi_split,
         ),
         "_sdk_record": attr.label(
             default = "//flutter/private:sdk_record",
             providers = [FlutterSdkRecordInfo],
+        ),
+        "_allowlist_function_transition": attr.label(
+            default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     } | ANDROID_NATIVE_LIBS_ATTRS | ASSEMBLE_DIRECTORY_ATTRS | CODE_ASSETS_TOOL_ATTRS,
     # Packaging copies and checks what the application built, the same bytes on
@@ -322,7 +429,10 @@ Put it in an `android_binary`'s `deps`: it provides the app's native libraries
 `aar_import` does; the zip is also its `native_libs` output group. Its
 `flutter_assets` output group is the app's flutter_assets tree, at
 `<name>/assets/flutter_assets/` as an APK holds it: give it to the
-`android_binary`'s `assets`, with `assets_dir = "assets"`.
+`android_binary`'s `assets`, with `assets_dir = "assets"`. Built there, in
+the `android_binary`'s own configuration, its native-assets manifest names
+the code assets of every ABI of the APK, each built in the configuration the
+APK's native libraries of that ABI are.
 
 The bundle is built for the Android platform `android_binary` builds it for,
 one for each of `--@rules_android//flags:android_platforms`, and takes its ABI from that platform;

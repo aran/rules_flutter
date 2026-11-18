@@ -61,9 +61,22 @@ FlutterAndroidAarInfo = provider(
 
 _PLATFORMS = "//command_line_option:platforms"
 
+# What else the configurations of an APK's native code set: rules_android's
+# split clears the APK's ABIs and turns off dynamic linking, and so does a
+# `flutter_android_bundle`'s.
+_ANDROID_PLATFORMS = "//command_line_option:android_platforms"
+_STARLARK_ANDROID_PLATFORMS = str(Label("@rules_android//flags:android_platforms"))
+_DYNAMIC_MODE = "//command_line_option:dynamic_mode"
+_SETTINGS = [_PLATFORMS, _ANDROID_PLATFORMS, _STARLARK_ANDROID_PLATFORMS, _DYNAMIC_MODE]
+
 def _android_settings(abi):
-    """The configuration of an Android app's code for `abi`: its platform."""
-    return {_PLATFORMS: [str(android_platform_for_abi(abi))]}
+    """The configuration of an Android app's code for `abi`: the one an APK of that ABI builds it in."""
+    return {
+        _PLATFORMS: [str(android_platform_for_abi(abi))],
+        _ANDROID_PLATFORMS: [],
+        _STARLARK_ANDROID_PLATFORMS: [],
+        _DYNAMIC_MODE: "off",
+    }
 
 # The ABI whose configuration compiles what is the same for every ABI: Java
 # and Kotlin, and the AAR's one `flutter_assets`.
@@ -76,7 +89,7 @@ def _abi_split_impl(_settings, attr):
 _abi_split = transition(
     implementation = _abi_split_impl,
     inputs = [],
-    outputs = [_PLATFORMS],
+    outputs = _SETTINGS,
 )
 
 def _classes_impl(_settings, _attr):
@@ -88,7 +101,7 @@ def _classes_impl(_settings, _attr):
 _classes_transition = transition(
     implementation = _classes_impl,
     inputs = [],
-    outputs = [_PLATFORMS],
+    outputs = _SETTINGS,
 )
 
 def _check_abis(label, abis):
@@ -183,6 +196,10 @@ _AAR_ATTRS = {
         default = "//flutter/private/tools:zip_archive.dart",
         allow_single_file = True,
     ),
+    "_native_assets_manifests": attr.label(
+        default = "//flutter/private/tools:native_assets_manifests.dart",
+        allow_single_file = True,
+    ),
     "_allowlist_function_transition": attr.label(
         default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
     ),
@@ -198,7 +215,7 @@ def _assemble_aar(ctx, out, args, inputs, what):
         executable = tools.dart,
         arguments = [command, args],
         inputs = depset(
-            direct = [ctx.file._tool, ctx.file._zip_archive],
+            direct = [ctx.file._tool, ctx.file._zip_archive, ctx.file._native_assets_manifests],
             transitive = [inputs, tools.sdk_files.run],
         ),
         outputs = [out],
