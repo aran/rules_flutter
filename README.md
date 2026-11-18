@@ -1037,6 +1037,22 @@ flutter_pub.from_lock(
 
 Then write the file with `bazel run @swift_package//:update` and commit both. rules_swift_package_manager declares a repository for each package the file pins, named `swiftpkg_` and its identity with `-` as `_`. A plugin reaches a repository only through `inject_repo`, which names the packages the plugins depend on directly. The packages those depend on need no line.
 
+To build a package your own way (a fork, a patched target, a prebuilt framework), give the pub extension your repository under the name the plugins use. `inject_repo` takes it as a keyword argument, the plugins' name first:
+
+```starlark
+local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+
+local_repository(
+    name = "my_firebase",
+    path = "third_party/firebase",
+)
+
+# In place of inject_repo(flutter_pub, "swiftpkg_firebase_ios_sdk"):
+inject_repo(flutter_pub, swiftpkg_firebase_ios_sdk = "my_firebase")
+```
+
+Its `BUILD.bazel` declares a target for each product the plugins use, named after the product and providing the module they import: `FirebaseCore` for `.product(name: "FirebaseCore", package: "firebase-ios-sdk")`, a `swift_library` or `objc_library` with `module_name = "FirebaseCore"`, say. Your own Swift code depends on the same targets. Keep the package in your `Package.swift` and `Package.resolved`: rules_flutter still checks the plugins' requirements against its pin, which should be the version your targets build.
+
 An iOS or macOS app that links such a plugin fails at analysis when something is missing, and the message says what to add:
 
 - a package the file doesn't pin, with its `.package(...)` line and `inject_repo` entry;
