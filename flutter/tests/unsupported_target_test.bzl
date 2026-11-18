@@ -13,7 +13,7 @@ load("//flutter/private:toolchains_repo.bzl", "toolchains_build_content")
 
 def _registered_impl(ctx):
     env = unittest.begin(ctx)
-    content = toolchains_build_content(["flutter"])
+    content = toolchains_build_content(["flutter"], "flutter")
     at = content.find('name = "ios_x86_64_unsupported_toolchain"')
     asserts.true(env, at >= 0, content)
     toolchain = content[at:content.find(")", at)]

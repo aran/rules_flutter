@@ -48,8 +48,12 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
      `flutter.custom_framework` or `flutter.checkout`.
 
    A custom SDK can't be named `flutter`, the release every module may ask
-   a version of. To build with one by default, give it another name and set
-   `--@rules_flutter//flutter:sdk=<name>` in `.bazelrc`. See
+   a version of. To build with one by default, give it another name and
+   choose it with `flutter.use_sdk(name = "<name>")` in `MODULE.bazel`,
+   which replaces setting `--@rules_flutter//flutter:sdk=<name>` in
+   `.bazelrc`; the flag still overrides it. The flag's default is now empty,
+   meaning that choice, so a `config_setting` matching the flag to `flutter`
+   no longer matches a build that does not set it. See
    [Custom engines and frameworks](#custom-engines-and-frameworks).
 4. Every file in the `srcs` of a `flutter_application`,
    `flutter_application_variant` or `flutter_test` must be loaded from its
@@ -2990,20 +2994,22 @@ Build the engine in the checkout as usual, with `engine/src/flutter/tools/gn` an
 ```starlark
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 
-# The release: what a build gets when it names no SDK.
+# The release.
 flutter.toolchain(flutter_version = "3.50.0")
 
 # The checkout's framework and the engine built in it, as the SDK named "local".
 flutter.checkout(name = "local")
+
+# What the project builds with. Without this line, the release.
+flutter.use_sdk(name = "local")
 ```
 
 `flutter.checkout` gives the SDK both halves of one checkout: the framework from its `packages/`, and the engine from the out dirs of its `engine/src`. That is the pairing `flutter run --local-engine` makes, and the only one that is sure to compile, since a checkout's framework is written against its own engine's `dart:ui`. To pair a checkout's framework or engine with something else, declare the halves apart (see [Replacing one half](#replacing-one-half)).
 
-The checkout's path is specific to your machine, so it never appears in `MODULE.bazel`. The path, and the choice to use the SDK, go in your untracked `.bazelrc.user`:
+The checkout's path is specific to your machine, so it never appears in `MODULE.bazel`. It goes in your untracked `.bazelrc.user`:
 
 ```bazelrc
 common --repo_env=FLUTTER_CHECKOUT=/Users/me/src/flutter
-common --@rules_flutter//flutter:sdk=local
 ```
 
 `FLUTTER_CHECKOUT` is the flutter/flutter checkout. The engine is always read from its `engine/src/out`, and never from `FLUTTER_ENGINE`. To declare a second checkout, give its tag another variable with `path_env`, as in `flutter.checkout(name = "other", path_env = "OTHER_FLUTTER_CHECKOUT")`. A checkout whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
@@ -3058,17 +3064,21 @@ common --repo_env=FLUTTER_ENGINE=/Users/me/src/engine/src
 
 To replace only one half, keep the other a release's: `flutter.custom_engine(name, engine, flutter_version)` puts the release's framework over your engine, and `flutter.custom_framework(name, framework, flutter_version)` your framework over the release's engine. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, use `flutter.checkout`, which gives its framework too. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 
-### Choosing the SDK per build
+### Choosing the SDK
 
-`--@rules_flutter//flutter:sdk=<name>` picks the SDK. Without it you get the release, which is named `flutter`. Put the flag in `.bazelrc.user` to make the checkout your default on one machine, or pass it for one build:
+A build uses one SDK. `flutter.use_sdk(name = ...)` in the root module's `MODULE.bazel` chooses it for the project, and without it a build uses the release, which is named `flutter`. Only the root module may use the tag, once, and a name no tag declares fails, listing the names that are.
+
+`--@rules_flutter//flutter:sdk=<name>` overrides that choice. Pass it for one build, or put it in `.bazelrc.user` to build with another SDK on one machine:
 
 ```sh
-bazel build //:app --@rules_flutter//flutter:sdk=local
+bazel build //:app --@rules_flutter//flutter:sdk=flutter
 ```
 
-An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` works. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` lines to add. A name no tag declares fails, listing the names that are declared. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of. To build with one by default, set the flag in `.bazelrc`.
+A name the flag gives that no tag declares fails too, listing the declared names.
 
-All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package, and gives the command that resolves the lock again against that SDK:
+An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` works. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` line to add. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of.
+
+All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package, and gives the command that resolves the lock again against that SDK, naming it whichever SDK the project chooses:
 
 ```sh
 bazel run --@rules_flutter//flutter:sdk=local @rules_flutter//flutter/pub -- get

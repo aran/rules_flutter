@@ -1,4 +1,4 @@
-"""Which SDKs the root module declares with the tags that replace part of a release, or all of it."""
+"""Which SDKs the root module declares with the tags that replace part of a release, or all of it, and which one it builds with."""
 
 visibility("//flutter/...")
 
@@ -13,18 +13,19 @@ def checkout_repo_names(name):
     )
 
 def custom_sdks(modules, release_names, default_name):
-    """The custom SDKs the modules declare, or why the module graph cannot have them.
+    """The custom SDKs the modules declare and the SDK the root chooses, or why the module graph cannot have them.
 
     Args:
         modules: The modules, as `module_ctx.modules` gives them: each with
-            `name`, `is_root` and a `tags` list for each of `CUSTOM_SDK_TAGS`.
+            `name`, `is_root` and a `tags` list for `use_sdk` and for each of
+            `CUSTOM_SDK_TAGS`.
         release_names: The names a `flutter.toolchain` declares, in any module.
         default_name: The name of the release every module may ask a version of.
 
     Returns:
         A struct: `sdks`, each name's `struct(kind, tag)`, where `kind` is the
-        tag's name in `CUSTOM_SDK_TAGS`; and `error`, None or why the tags
-        cannot stand.
+        tag's name in `CUSTOM_SDK_TAGS`; `use`, the name `flutter.use_sdk`
+        gives, or None; and `error`, None or why the tags cannot stand.
     """
     sdks = {}
     for mod in modules:
@@ -39,8 +40,7 @@ def custom_sdks(modules, release_names, default_name):
                 if tag.name == default_name:
                     return _error((
                         "{} takes the name of the release every module may ask a version of. " +
-                        "Give it another name; to build with it by default, set " +
-                        "`common --@rules_flutter//flutter:sdk=<name>` in .bazelrc."
+                        "Give it another name; to build with it, add flutter.use_sdk(name = ...)."
                     ).format(declared))
                 if tag.name in sdks:
                     return _error("\"{}\" is declared twice: by flutter.{}() and by flutter.{}().".format(
@@ -54,7 +54,27 @@ def custom_sdks(modules, release_names, default_name):
                         "An SDK is one or the other: give one of them another name."
                     ).format(tag.name, declared))
                 sdks[tag.name] = struct(kind = kind, tag = tag)
-    return struct(sdks = sdks, error = None)
+
+    use = None
+    for mod in modules:
+        for tag in mod.tags.use_sdk:
+            if not mod.is_root:
+                return _error((
+                    "flutter.use_sdk(name = \"{}\") in module {} chooses the Flutter SDK. Only the root " +
+                    "module may: a library module must not decide the SDK of the apps that use it."
+                ).format(tag.name, mod.name))
+            if use != None:
+                return _error(
+                    "The root module chooses two Flutter SDKs: flutter.use_sdk(name = \"{}\") and flutter.use_sdk(name = \"{}\"). Keep one.".format(use, tag.name),
+                )
+            use = tag.name
+    declared_names = sorted(list(release_names) + sdks.keys())
+    if use != None and use not in declared_names:
+        return _error("flutter.use_sdk(name = \"{}\") names no declared Flutter SDK. The declared SDKs are: {}.".format(
+            use,
+            ", ".join(declared_names),
+        ))
+    return struct(sdks = sdks, use = use, error = None)
 
 def _error(message):
-    return struct(sdks = {}, error = message)
+    return struct(sdks = {}, use = None, error = message)

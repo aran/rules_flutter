@@ -7,9 +7,29 @@ load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
+load("@rules_flutter//tools/e2e_testing:sdk_choice_test.bzl", "flutter_sdk_default_test", "flutter_sdk_flag_release_test", "flutter_sdk_probe")
 load(":aar_test.bzl", "aar_of_local_engine_refused_test")
 
 exports_files(["pubspec.lock"])
+
+# Which SDK a build resolves: without the flag, the one MODULE.bazel's
+# flutter.use_sdk chooses; with it, the one it names.
+flutter_sdk_probe(
+    name = "sdk_probe",
+    tags = ["manual"],
+)
+
+flutter_sdk_default_test(
+    name = "sdk_default_test",
+    sdk = "local",
+    target_under_test = ":sdk_probe",
+)
+
+flutter_sdk_flag_release_test(
+    name = "sdk_flag_release_test",
+    sdk = "flutter",
+    target_under_test = ":sdk_probe",
+)
 
 dart_package_metadata(
     name = "pubspec-metadata",
@@ -23,8 +43,8 @@ flutter_application(
     deps = ["@deps//:flutter"],
 )
 
-# Built with the release by default; with a stand-in checkout's engine and
-# framework under --@rules_flutter//flutter:sdk=local (see MODULE.bazel).
+# Built with the stand-in checkout's engine and framework, which MODULE.bazel
+# chooses; with the release under --@rules_flutter//flutter:sdk=flutter.
 flutter_macos_app(
     name = "app",
     app_name = "Custom Engine",
@@ -120,8 +140,8 @@ flutter_windows_app(
 )
 
 # The web bundle, and the render check that runs it in the pinned headless
-# Chrome. Built with the release by default, with the stand-in checkout's web
-# SDK under --@rules_flutter//flutter:sdk=local.
+# Chrome. Built with the stand-in checkout's web SDK, which MODULE.bazel
+# chooses; with the release's under --@rules_flutter//flutter:sdk=flutter.
 flutter_web_app(
     name = "web_app",
     app_name = "Custom Engine",

@@ -86,17 +86,17 @@ string_flag(
     visibility = ["//visibility:public"],
 )
 
-# The Flutter SDK a build uses: the name of one SDK the root module declares,
-# with `flutter.toolchain()` or a tag for an SDK that is not a release. The
-# default is the stock release, `flutter`.
+# The Flutter SDK this build uses, by the name the root module declares it
+# under (`flutter.toolchain()` or a tag for an SDK that is not a release).
+# Unset, the build uses the one `flutter.use_sdk` chooses, or else the stock
+# release, `flutter`:
 #
 #   bazel build --@rules_flutter//flutter:sdk=local //app
 #
-# A name that no tag declares resolves no toolchain, and the
-# build fails saying so.
+# A name that no tag declares fails the build, listing the declared names.
 string_flag(
     name = "sdk",
-    build_setting_default = "flutter",
+    build_setting_default = "",
     # The SDK decides how every Flutter compile is done, a build tool's in the
     # exec configuration included, so the exec configuration keeps it even
     # where a build excludes Starlark flags from it.

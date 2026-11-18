@@ -16,11 +16,10 @@ visibility("//flutter/...")
 _ENGINE_LOAD = 'load("@rules_flutter//flutter:engine.bzl", "flutter_android_engine_slice", "flutter_gen_snapshot", "flutter_host_tools", "flutter_ios_engine_slice", "flutter_linux_engine_slice", "flutter_macos_engine_slice", "flutter_missing_slice", "flutter_platform_kernel", "flutter_web_sdk", "flutter_windows_engine_slice")\n'
 
 def unset_message(env, what, example):
-    """What a source whose environment variable is not set says: the `.bazelrc.user` lines to add."""
+    """What a source whose environment variable is not set says, when the build uses its SDK: the `.bazelrc.user` line to add."""
     return (
-        "{env} is not set. Point it at {what}, and select the SDK, in .bazelrc.user:\n" +
-        "    common --repo_env={env}={example}\n" +
-        "    common --@rules_flutter//flutter:sdk=<the SDK's name>"
+        "{env} is not set. Point it at {what}, in .bazelrc.user:\n" +
+        "    common --repo_env={env}={example}"
     ).format(env = env, what = what, example = example)
 
 def _missing(name, message):

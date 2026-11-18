@@ -35,17 +35,19 @@ local_path_override(
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 
-# The release: what a build gets when it names no SDK.
+# The release, which a build gets with --@rules_flutter//flutter:sdk=flutter.
 flutter.toolchain(flutter_version = "3.50.0")
 
-# SDKs whose checkout is the stand-in below. Chosen per build with
-# --@rules_flutter//flutter:sdk=<name>. The checkout's framework and the engine
-# built in it, as README.md declares a local checkout.
+# The checkout's framework and the engine built in it, as README.md declares a
+# local checkout; the checkout is the stand-in below. What a build gets when it
+# names no SDK.
 flutter.checkout(
     name = "local",
     checkout = "@fake_checkout//:checkout/CHECKOUT",
 )
+flutter.use_sdk(name = "local")
 
+# The SDKs below are chosen per build with --@rules_flutter//flutter:sdk=<name>.
 # A checkout given the way a developer gives it, with
 # --repo_env=FLUTTER_CHECKOUT. Not set, the repositories still load.
 flutter.checkout(name = "env_checkout")

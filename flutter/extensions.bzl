@@ -10,14 +10,18 @@ Every module can ask for a toolchain version under the default name, "flutter",
 which rules_flutter always registers. The root module's version is the one
 used; without one, the highest version any module asks for is used.
 
-The root module can declare more toolchains under other names (each name
-resolved the same way) and register them as it sees fit, overriding the default
-one by toolchain resolution precedence. The root module can also declare SDKs
+The root module can declare more releases under other names, each name's
+version resolved the same way. rules_flutter registers the toolchains of every
+declared SDK. The root module can also declare SDKs
 that are not releases, each form its own tag: `flutter.custom_framework` (a
 release's engine under another framework), `flutter.custom_engine` (a release's
 framework over another engine), `flutter.custom_sdk` (both halves given) and
 `flutter.checkout` (a flutter/flutter checkout, its framework and the engine
 built in it).
+
+A build uses one SDK. `flutter.use_sdk` in the root module says which, and
+without it the build uses `flutter`. `--@rules_flutter//flutter:sdk=<name>`
+overrides that choice for one build, or for one machine in `.bazelrc.user`.
 """
 
 load("@rules_dart//dart:repositories.bzl", "dart_kernel_source")
@@ -50,8 +54,8 @@ A Flutter release. Any module may ask for a version of the default one,
     attrs = {
         "name": attr.string(doc = """\
 The name of the SDK this declares. `flutter` is the default; any other name is
-another SDK, which a build chooses with `--@rules_flutter//flutter:sdk=<name>`.
-A name other than the default is only permitted in the root module.
+another SDK, which `flutter.use_sdk` or `--@rules_flutter//flutter:sdk`
+chooses. A name other than the default is only permitted in the root module.
 """, default = DEFAULT_SDK_NAME),
         "flutter_version": attr.string(doc = """\
 Version of the Flutter release. Some module must give one for each name.
@@ -66,10 +70,9 @@ of the same name.
 )
 
 _SDK_NAME_DOC = """\
-The name of the SDK this declares, which a build chooses with
-`--@rules_flutter//flutter:sdk=<name>`. Not `flutter`, the release every module
-may ask a version of; to build with this SDK by default, set the flag in
-`.bazelrc`.
+The name of the SDK this declares: what `flutter.use_sdk` and
+`--@rules_flutter//flutter:sdk` choose it by. Not `flutter`, the release every
+module may ask a version of.
 """
 
 _FRAMEWORK_DOC = """\
@@ -156,6 +159,18 @@ the stand-in a test builds from the official artifacts.
     },
 )
 
+flutter_use_sdk = tag_class(
+    doc = """\
+Chooses the Flutter SDK the build uses, from those declared. Root module only, once.
+
+Without it the build uses `flutter`. `--@rules_flutter//flutter:sdk=<name>`, when
+given, overrides this for that build.
+""",
+    attrs = {
+        "name": attr.string(doc = "The name of a declared SDK.", mandatory = True),
+    },
+)
+
 def _label_prefix(label):
     """A label's repository, as a prefix any repository can name it by."""
     return "@@" + label.repo_name
@@ -216,7 +231,7 @@ _CUSTOM_SDK = {
 }
 
 def _declared_sdks(module_ctx):
-    """The SDKs the modules declare: a struct for each, by name."""
+    """The SDKs the modules declare, a struct for each by name, and the one the root module chooses."""
 
     # The root module's version for a name is used exactly; a dependency asking
     # for newer fails, unless the root sets `allow_upgrade_by_dependencies`.
@@ -266,7 +281,7 @@ def _declared_sdks(module_ctx):
         sdks[name] = _CUSTOM_SDK[custom.kind](custom.tag)
     if DEFAULT_SDK_NAME not in sdks:
         fail("A flutter.toolchain() is required: the default SDK, named \"{}\".".format(DEFAULT_SDK_NAME))
-    return sdks
+    return struct(sdks = sdks, use = customs.use or DEFAULT_SDK_NAME)
 
 def _register_sdk(sdk, host):
     """Declares the repositories of one SDK; returns the label prefix of its engine source."""
@@ -329,7 +344,8 @@ def _register_sdk(sdk, host):
     return sdk.engine
 
 def _toolchain_extension(module_ctx):
-    sdks = _declared_sdks(module_ctx)
+    declared = _declared_sdks(module_ctx)
+    sdks = declared.sdks
 
     # The web SDK repository holds the Dart SDK of the machine Bazel runs on,
     # so the extension's repositories depend on its OS and CPU.
@@ -413,10 +429,13 @@ def _toolchain_extension(module_ctx):
         frameworks = {name: _framework_json(sdk) for name, sdk in sdks.items() if sdk.framework},
     )
 
-    # Every SDK's toolchains, chosen among by `--@rules_flutter//flutter:sdk`.
+    # Every SDK's toolchains, and the settings that say which one the build
+    # uses: the one `--@rules_flutter//flutter:sdk` names, or without the flag
+    # the one `flutter.use_sdk` chooses.
     flutter_toolchains_repo(
         name = "flutter_toolchains",
         sdks = sorted(sdks.keys()),
+        default_sdk = declared.use,
     )
 
     # The browser web integration tests run in, one repository per host it is
@@ -481,8 +500,9 @@ flutter = module_extension(
         "custom_engine": flutter_custom_engine,
         "custom_sdk": flutter_custom_sdk,
         "checkout": flutter_checkout,
+        "use_sdk": flutter_use_sdk,
     },
     os_dependent = True,
     arch_dependent = True,
-    doc = "Installs the Flutter SDKs and their toolchains.",
+    doc = "Installs the Flutter SDKs and their toolchains. The module docstring says which SDKs exist and which a build uses.",
 )

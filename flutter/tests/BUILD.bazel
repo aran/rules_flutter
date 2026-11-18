@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_test")
 load("//flutter:defs.bzl", "dart_package_metadata")
+load("//tools/e2e_testing:sdk_choice_test.bzl", "flutter_sdk_default_test", "flutter_sdk_flag_release_test", "flutter_sdk_flag_undeclared_test", "flutter_sdk_probe")
 load(":android_arm_test.bzl", "android_arm_test_suite")
 load(":android_build_config_test.bzl", "android_build_config_test_suite")
 load(":android_build_transition_test.bzl", "android_build_transition_test_suite")
@@ -202,6 +203,31 @@ pub_settings_test_suite(name = "pub_settings_test")
 toolchain_version_test_suite(name = "toolchain_version_test")
 
 custom_sdks_test_suite(name = "custom_sdks_test")
+
+# Which SDK a build resolves. This module declares only the release and
+# chooses none, so the release, with or without the flag naming it.
+flutter_sdk_probe(
+    name = "sdk_probe",
+    tags = ["manual"],
+)
+
+flutter_sdk_default_test(
+    name = "sdk_default_test",
+    sdk = "flutter",
+    target_under_test = ":sdk_probe",
+)
+
+flutter_sdk_flag_release_test(
+    name = "sdk_flag_release_test",
+    sdk = "flutter",
+    target_under_test = ":sdk_probe",
+)
+
+flutter_sdk_flag_undeclared_test(
+    name = "sdk_flag_undeclared_test",
+    declared = "flutter",
+    target_under_test = "@flutter_toolchains//:undeclared_sdk",
+)
 
 flutter_pub_package_test_suite(name = "flutter_pub_package_test")
 

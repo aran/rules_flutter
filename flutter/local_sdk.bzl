@@ -14,16 +14,15 @@ pair them with anything else: `flutter.checkout(name = "local")` in
 `@rules_flutter//flutter:extensions.bzl`.
 
 The paths are machine-local, so they never appear in MODULE.bazel. The
-committed MODULE.bazel declares the SDK without a path; the paths and the choice
-to use the SDK live in the untracked `.bazelrc.user`. `FLUTTER_CHECKOUT` is the
-flutter/flutter checkout, and `FLUTTER_ENGINE` is the engine's source directory,
-as flutter_tools reads it (the default of `--local-engine-src-path`), usually
-`<checkout>/engine/src`:
+committed MODULE.bazel declares the SDK without a path, and chooses it with
+`flutter.use_sdk` when the project builds with it; the paths live in the
+untracked `.bazelrc.user`. `FLUTTER_CHECKOUT` is the flutter/flutter checkout,
+and `FLUTTER_ENGINE` is the engine's source directory, as flutter_tools reads
+it (the default of `--local-engine-src-path`), usually `<checkout>/engine/src`:
 
 ```
 common --repo_env=FLUTTER_CHECKOUT=/Users/me/src/flutter
 common --repo_env=FLUTTER_ENGINE=/Users/me/src/flutter/engine/src
-common --@rules_flutter//flutter:sdk=local
 ```
 
 MODULE.bazel:
@@ -36,7 +35,12 @@ local_engine(name = "flutter_local_engine")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
 flutter.custom_sdk(name = "local", framework = "@flutter_local_framework", engine = "@flutter_local_engine")
+flutter.use_sdk(name = "local")
 ```
+
+To build with the SDK on one machine only, leave out `flutter.use_sdk` and
+put `common --@rules_flutter//flutter:sdk=local` in that machine's
+`.bazelrc.user`.
 
 Nothing is read until a build selects the SDK. Where a variable is not set the
 repositories still load, with targets that fail when something uses them, so

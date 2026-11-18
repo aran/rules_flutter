@@ -5,7 +5,8 @@ matching toolchains found", which names the toolchain type and not the cause.
 Registered after every real toolchain, it is chosen only where none applies.
 """
 
-visibility("//flutter/...")
+# The generated `@flutter_toolchains` repository loads it too.
+visibility("public")
 
 def _flutter_unsupported_toolchain_impl(ctx):
     fail(ctx.attr.message)

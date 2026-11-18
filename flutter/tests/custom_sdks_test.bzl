@@ -2,13 +2,18 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:custom_sdks.bzl", "CUSTOM_SDK_TAGS", "checkout_repo_names", "custom_sdks")
+load("//flutter/private:toolchains_repo.bzl", "toolchains_build_content")
 
-def _module(name, is_root, **tags):
-    """A module whose tags are, for each kind given, the names it declares."""
-    return struct(name = name, is_root = is_root, tags = struct(**{
+def _module(name, is_root, use_sdk = [], **tags):
+    """A module whose tags are, for each kind given, the names it declares, and the names `use_sdk` gives."""
+    kinds = {
         kind: [struct(name = n) for n in tags.get(kind, [])]
         for kind in CUSTOM_SDK_TAGS
-    }))
+    }
+    return struct(name = name, is_root = is_root, tags = struct(
+        use_sdk = [struct(name = n) for n in use_sdk],
+        **kinds
+    ))
 
 def _sdks(*modules):
     return custom_sdks(list(modules), ["flutter"], "flutter")
@@ -37,7 +42,7 @@ def _default_name_is_the_release_test_impl(ctx):
     env = unittest.begin(ctx)
     result = _sdks(_module("app", True, custom_sdk = ["flutter"]))
     asserts.true(env, "flutter.custom_sdk(name = \"flutter\") takes the name of the release" in result.error, result.error)
-    asserts.true(env, "--@rules_flutter//flutter:sdk=<name>" in result.error, result.error)
+    asserts.true(env, "flutter.use_sdk(name = ...)" in result.error, result.error)
     return unittest.end(env)
 
 def _name_declared_twice_test_impl(ctx):
@@ -59,6 +64,99 @@ def _repositories_are_the_checkouts_own_test_impl(ctx):
     asserts.equals(env, "local_checkout_engine", repos.engine)
     return unittest.end(env)
 
+def _refused(env, result, *fragments):
+    asserts.true(env, result.error != None, "expected a refusal")
+    for fragment in fragments:
+        asserts.true(env, fragment in result.error, "expected {} in:\n{}".format(repr(fragment), result.error))
+
+def _without_use_sdk_the_release_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(env, None, _sdks(_module("app", True, checkout = ["local"])).use)
+    return unittest.end(env)
+
+def _use_sdk_chooses_a_declared_sdk_test_impl(ctx):
+    env = unittest.begin(ctx)
+    result = _sdks(_module("app", True, checkout = ["local"], use_sdk = ["local"]))
+    asserts.equals(env, None, result.error)
+    asserts.equals(env, "local", result.use)
+    asserts.equals(env, "flutter", _sdks(_module("app", True, use_sdk = ["flutter"])).use)
+    return unittest.end(env)
+
+def _use_sdk_of_an_undeclared_name_test_impl(ctx):
+    env = unittest.begin(ctx)
+    _refused(
+        env,
+        _sdks(_module("app", True, checkout = ["local"], use_sdk = ["nope"])),
+        'flutter.use_sdk(name = "nope") names no declared Flutter SDK',
+        "The declared SDKs are: flutter, local.",
+    )
+    return unittest.end(env)
+
+def _use_sdk_outside_the_root_test_impl(ctx):
+    env = unittest.begin(ctx)
+    _refused(
+        env,
+        _sdks(_module("app", True, checkout = ["local"]), _module("lib", False, use_sdk = ["flutter"])),
+        'flutter.use_sdk(name = "flutter") in module lib',
+        "Only the root module may",
+    )
+    return unittest.end(env)
+
+def _use_sdk_twice_test_impl(ctx):
+    env = unittest.begin(ctx)
+    _refused(env, _sdks(_module("app", True, checkout = ["local"], use_sdk = ["local", "flutter"])), "two Flutter SDKs")
+    return unittest.end(env)
+
+def _setting(build, sdk):
+    """The targets that make `sdk_<sdk>`: from its first `config_setting` to the toolchains after it."""
+    named = build.index('name = "sdk_{}"'.format(sdk))
+    start = build.rfind("config_setting(", 0, named)
+    return build[start:build.index("toolchain(", named)]
+
+def _settings_follow_the_choice_test_impl(ctx):
+    env = unittest.begin(ctx)
+    build = toolchains_build_content(["flutter", "local", "other"], "local")
+
+    # Unset, the flag means the root module's choice, and only that SDK.
+    asserts.true(env, '"@rules_flutter//flutter:sdk": ""' in build, build)
+    chosen = _setting(build, "local")
+    asserts.true(env, '"@rules_flutter//flutter:sdk": "local"' in chosen, chosen)
+    asserts.true(env, "selects.config_setting_group(" in chosen, chosen)
+    asserts.true(env, '":flag_unset"' in chosen, chosen)
+    for sdk in ["flutter", "other"]:
+        setting = _setting(build, sdk)
+        asserts.true(env, '"@rules_flutter//flutter:sdk": "{}"'.format(sdk) in setting, setting)
+        asserts.false(env, "flag_unset" in setting, setting)
+
+    # A name no tag declares resolves the toolchain that fails listing those
+    # that are; unset or naming one, it resolves no such toolchain.
+    undeclared = build[build.index('name = "uses_undeclared_sdk"'):build.index('name = "undeclared_sdk"')]
+    for setting in ["flag_unset", "flag_is_flutter", "flag_is_local", "flag_is_other"]:
+        asserts.true(env, '":{}": "@rules_flutter//flutter/private:never"'.format(setting) in undeclared, undeclared)
+    asserts.true(env, '"//conditions:default": "@rules_flutter//flutter/private:always"' in undeclared, undeclared)
+    asserts.true(env, "The declared SDKs are: flutter, local, other." in build, build)
+    for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
+        asserts.true(env, 'name = "undeclared_sdk_{}"'.format(toolchain_type) in build, build)
+
+    # The release's toolchains keep their names whichever SDK is chosen.
+    asserts.true(env, 'name = "darwin-arm64_toolchain"' in build, build)
+    asserts.true(env, 'name = "local__darwin-arm64_toolchain"' in build, build)
+    return unittest.end(env)
+
+def _without_a_choice_the_release_test_impl(ctx):
+    env = unittest.begin(ctx)
+    build = toolchains_build_content(["flutter", "local"], "flutter")
+    asserts.true(env, '":flag_unset"' in _setting(build, "flutter"), build)
+    asserts.false(env, "flag_unset" in _setting(build, "local"), build)
+    return unittest.end(env)
+
+_without_use_sdk_the_release_test = unittest.make(_without_use_sdk_the_release_test_impl)
+_use_sdk_chooses_a_declared_sdk_test = unittest.make(_use_sdk_chooses_a_declared_sdk_test_impl)
+_use_sdk_of_an_undeclared_name_test = unittest.make(_use_sdk_of_an_undeclared_name_test_impl)
+_use_sdk_outside_the_root_test = unittest.make(_use_sdk_outside_the_root_test_impl)
+_use_sdk_twice_test = unittest.make(_use_sdk_twice_test_impl)
+_settings_follow_the_choice_test = unittest.make(_settings_follow_the_choice_test_impl)
+_without_a_choice_the_release_test = unittest.make(_without_a_choice_the_release_test_impl)
 _root_declares_each_form_test = unittest.make(_root_declares_each_form_test_impl)
 _dependency_may_not_declare_test = unittest.make(_dependency_may_not_declare_test_impl)
 _default_name_is_the_release_test = unittest.make(_default_name_is_the_release_test_impl)
@@ -75,4 +173,11 @@ def custom_sdks_test_suite(name):
         _name_declared_twice_test,
         _name_of_a_release_test,
         _repositories_are_the_checkouts_own_test,
+        _without_use_sdk_the_release_test,
+        _use_sdk_chooses_a_declared_sdk_test,
+        _use_sdk_of_an_undeclared_name_test,
+        _use_sdk_outside_the_root_test,
+        _use_sdk_twice_test,
+        _settings_follow_the_choice_test,
+        _without_a_choice_the_release_test,
     )

@@ -116,9 +116,13 @@ def link_framework_package(ctx, package_name, written = []):
         elif child.basename not in NEVER_LINKED + written:
             ctx.symlink(child, child.basename)
 
-def _resolve_commands(sdk, default_sdk, verb, locks):
-    """One command per lock, each run from the root of the workspace that holds the lock."""
-    flag = "" if sdk == default_sdk else "--@rules_flutter//flutter:sdk={} ".format(sdk)
+def _resolve_commands(sdk, verb, locks):
+    """One command per lock, each run from the root of the workspace that holds the lock.
+
+    Each names the SDK: which one a build uses without the flag is the
+    `flutter` extension's to say (`flutter.use_sdk`), not the hub's.
+    """
+    flag = "--@rules_flutter//flutter:sdk={} ".format(sdk)
     commands = []
     for lock in locks:
         lock_dir = lock_directory(Label(lock))
@@ -126,7 +130,7 @@ def _resolve_commands(sdk, default_sdk, verb, locks):
         commands.append("bazel run {}@rules_flutter//flutter/pub -- {}".format(flag, args))
     return "\n    ".join(commands)
 
-def check_lock_floor(index, sdk, framework_version, default_sdk = "flutter"):
+def check_lock_floor(index, sdk, framework_version):
     """Fails when the lock needs a newer Flutter than the SDK's framework.
 
     Pub does not record the resolver's version, but it does record the floor
@@ -137,7 +141,6 @@ def check_lock_floor(index, sdk, framework_version, default_sdk = "flutter"):
         index: The hub's index (`read_index`).
         sdk: The SDK's name.
         framework_version: The framework's version.
-        default_sdk: The stock SDK's name.
     """
     for lock, constraint in sorted(index.flutter_constraints.items()):
         if constraint and version_below_lower_bound(framework_version, constraint):
@@ -152,10 +155,10 @@ def check_lock_floor(index, sdk, framework_version, default_sdk = "flutter"):
                 sdk = sdk,
                 constraint = constraint,
                 version = framework_version,
-                command = _resolve_commands(sdk, default_sdk, "get", [lock]),
+                command = _resolve_commands(sdk, "get", [lock]),
             ))
 
-def check_dependency_constraints(index, sdk, package, pubspec_fields, default_sdk = "flutter"):
+def check_dependency_constraints(index, sdk, package, pubspec_fields):
     """Fails when a Flutter SDK package needs a version of a locked package the lock does not hold.
 
     The SDK packages are recorded in the lock at `0.0.0`, so their own version
@@ -167,7 +170,6 @@ def check_dependency_constraints(index, sdk, package, pubspec_fields, default_sd
         sdk: The SDK's name.
         package: The SDK package whose pubspec this is.
         pubspec_fields: The pubspec as decoded JSON (`read_pubspec(...).fields`).
-        default_sdk: The stock SDK's name.
     """
     problems = []
     dependencies = pubspec_fields.get("dependencies") or {}
@@ -194,5 +196,5 @@ def check_dependency_constraints(index, sdk, package, pubspec_fields, default_sd
         ).format(
             sdk = sdk,
             problems = "\n".join(problems),
-            command = _resolve_commands(sdk, default_sdk, "get", index.locks),
+            command = _resolve_commands(sdk, "get", index.locks),
         ))
