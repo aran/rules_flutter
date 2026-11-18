@@ -42,6 +42,7 @@ load("@rules_flutter//flutter/tests:purls.bzl", "package_metadata_files")
 load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "one_application_configuration_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
+load(":add_to_app_app_settings_test.bzl", "add_to_app_configured_environment_test", "add_to_app_module_settings_test")
 load(":android_apk.bzl", "android_apk")
 load(":desktop_link_libraries_test.bzl", "linux_link_libraries_test", "windows_link_libraries_test")
 load(":gradle_host.bzl", "gradle_host_config")
@@ -1177,6 +1178,22 @@ flutter_macos_xcframeworks(
     codesign_identity = "-",
     tags = ["manual"],
 )
+
+# audio_session's Package.swift reads AUDIO_SESSION_MICROPHONE. Its add-to-app
+# framework is built for the module, which sets none, so it takes the
+# manifest's default; given the variable, the evaluation sees it.
+[
+    test(
+        name = "module_%s_audio_session_%s_test" % (platform, kind),
+        target_compatible_with = ["@platforms//os:macos"],
+        target_under_test = ":module_" + platform,
+    )
+    for platform in ("ios", "macos")
+    for kind, test in [
+        ("module_settings", add_to_app_module_settings_test),
+        ("configured_environment", add_to_app_configured_environment_test),
+    ]
+]
 
 _ADD_TO_APP_PLATFORMS = [
     "ios",

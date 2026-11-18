@@ -41,6 +41,11 @@ configurations fails. The app macros build the whole bundle there
 `flutter_application` in one configuration; the runner's own transition is
 then the configuration it is already in. In a build with no such plugin the
 transition changes nothing, and apps share their plugins' builds.
+
+Add-to-app's plugin xcframeworks (`flutter_apple_plugin_xcframeworks.bzl`)
+depend on the list in each slice's configuration, the one the module is built
+in, and package the library of each marker from there: the module's plugins
+are built as for an app that sets neither an Info.plist nor an environment.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
@@ -56,6 +61,7 @@ load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo", "swift_clang_module_aspect")
 load(":apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "run_xcode_tool")
 load(":exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+load(":flutter_apple_plugin_library.bzl", "FlutterAppleModuleHeadersInfo", "module_headers_aspect")
 load(":unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
 visibility("//flutter/...")
@@ -184,7 +190,7 @@ flutter_swiftpm_app_library = rule(
 FlutterSwiftPMAppLibrariesInfo = provider(
     doc = "The build's plugin libraries whose defines come from the app, built for one app.",
     fields = {
-        "libraries": "dict of `str(Label)` to a struct with `cc_info`, `swift_info`, `resource_info` and `unbuilt_native_code` (each None when absent).",
+        "libraries": "dict of `str(Label)` to a struct with `cc_info`, `swift_info`, `module_headers`, `resource_info` and `unbuilt_native_code` (each None when absent).",
     },
 )
 
@@ -195,6 +201,7 @@ def _flutter_swiftpm_app_libraries_impl(ctx):
         libraries[str(dep.label)] = struct(
             cc_info = dep[CcInfo] if CcInfo in dep else None,
             swift_info = dep[SwiftInfo] if SwiftInfo in dep else None,
+            module_headers = dep[FlutterAppleModuleHeadersInfo].headers if FlutterAppleModuleHeadersInfo in dep else None,
             resource_info = dep[AppleResourceInfo] if AppleResourceInfo in dep else None,
             unbuilt_native_code = unbuilt.message if unbuilt else None,
         )
@@ -205,12 +212,42 @@ flutter_swiftpm_app_libraries = rule(
     attrs = {
         "deps": attr.label_list(
             doc = "The libraries, each `flutter_apple_plugin_library` or the stand-in that fails its build.",
-            # And the module of an Objective-C library as Swift sees it.
-            aspects = [apple_resource_aspect, swift_clang_module_aspect],
+            # And the module of an Objective-C library as Swift sees it, and its
+            # public headers, which an add-to-app framework holds.
+            aspects = [apple_resource_aspect, module_headers_aspect, swift_clang_module_aspect],
         ),
     },
     doc = "The build's plugin libraries whose defines come from the app: `@flutter_pub_apple_app_settings//:libraries`.",
 )
+
+def app_library_entry(entry, libraries):
+    """An `apple_plugin_libraries` entry, with its library built for the app if a marker names it.
+
+    Args:
+        entry: The entry, from `FlutterApplicationInfo.apple_plugin_libraries`.
+        libraries: A `FlutterSwiftPMAppLibrariesInfo`, built in the app's
+            configuration.
+
+    Returns:
+        `entry`, or the entry of the library built for the app.
+    """
+    library = getattr(entry, "app_library", None)
+    if not library:
+        return entry
+    found = libraries.libraries.get(str(library))
+    if not found:
+        fail("{} is not in @flutter_pub_apple_app_settings//:libraries, the build's plugin libraries whose Package.swift decides its defines from the app".format(library))
+    return struct(
+        platform = entry.platform,
+        label = library,
+        cc_info = found.cc_info,
+        swift_info = found.swift_info,
+        module_headers = found.module_headers,
+        resource_info = found.resource_info,
+        unbuilt_native_code = found.unbuilt_native_code,
+        package = entry.package,
+        privacy_manifests = getattr(entry, "privacy_manifests", ()),
+    )
 
 def defines_header_name(name):
     """The header a `flutter_swiftpm_app_settings` named `name` writes, for `-include`."""

@@ -135,7 +135,8 @@ def plugin_contributions(ctx, package_name, package_root, declares_plugin):
                 # of the plugin carries.
                 privacy_manifests = tuple(ctx.files.apple_privacy_files),
                 # A library its Package.swift gives defines from the app, which
-                # the app's aggregator builds for itself (`swiftpm_app_settings.bzl`).
+                # the app's aggregator, or add-to-app's plugin xcframeworks,
+                # build for the app (`swiftpm_app_settings.bzl`).
                 app_library = lib[FlutterSwiftPMAppLibraryInfo].library if FlutterSwiftPMAppLibraryInfo in lib else None,
             ))
             continue

@@ -31,7 +31,7 @@ load("@rules_apple//apple/internal:resources.bzl", "resources")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "swift_package_environment_problems", "swiftpm_app_transition")
+load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry", "swift_package_environment_problems", "swiftpm_app_transition")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -56,8 +56,8 @@ def _flutter_apple_plugins_aggregator_impl(ctx):
     # The libraries whose Package.swift decides its defines from the app,
     # built for this one.
     if [e for e in entries if getattr(e, "app_library", None)]:
-        built = ctx.attr._app_settings_libraries[0][FlutterSwiftPMAppLibrariesInfo].libraries
-        entries = [_for_app(e, built) for e in entries]
+        built = ctx.attr._app_settings_libraries[0][FlutterSwiftPMAppLibrariesInfo]
+        entries = [app_library_entry(e, built) for e in entries]
 
     # A plugin whose library for this platform its podspec builds by other
     # means (cargokit, a script phase, `ffiPlugin`) would link without it.
@@ -93,24 +93,6 @@ def _flutter_apple_plugins_aggregator_impl(ctx):
     if resource_infos:
         providers.append(resources.merge_providers(providers = resource_infos, default_owner = str(ctx.label)))
     return providers
-
-def _for_app(entry, built):
-    """`entry`, or the library built for the app that its marker names."""
-    library = getattr(entry, "app_library", None)
-    if not library:
-        return entry
-    found = built.get(str(library))
-    if not found:
-        fail("{} is not in @flutter_pub_apple_app_settings//:libraries, the build's plugin libraries whose Package.swift decides its defines from the app".format(library))
-    return struct(
-        platform = entry.platform,
-        label = library,
-        cc_info = found.cc_info,
-        swift_info = found.swift_info,
-        resource_info = found.resource_info,
-        unbuilt_native_code = found.unbuilt_native_code,
-        package = entry.package,
-    )
 
 flutter_apple_plugins_aggregator = rule(
     implementation = _flutter_apple_plugins_aggregator_impl,

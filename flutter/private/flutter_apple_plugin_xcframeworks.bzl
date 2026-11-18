@@ -35,6 +35,7 @@ load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_ios_framework_names", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:native_libraries.bzl", "native_library_files")
+load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -275,15 +276,20 @@ def _dsym(ctx, slice, module, binary):
     )
     return [plist, dwarf]
 
-def _slice_plugins(ctx, slice, app_info, toolchain, debug):
+def _slice_plugins(ctx, slice, app_info, app_libraries, toolchain, debug):
     """The plugin frameworks of one slice: a dict from module name to its steps."""
     platform = slice.platform_type
-    entries = [e for e in app_info.apple_plugin_libraries.to_list() if e.platform == platform]
+
+    # A plugin whose Package.swift decides its defines from the app is built
+    # for the module, in the slice's configuration, as an app builds it for
+    # itself (`swiftpm_app_settings.bzl`).
+    entries = [
+        app_library_entry(e, app_libraries)
+        for e in app_info.apple_plugin_libraries.to_list()
+        if e.platform == platform
+    ]
     fail_on_unbuilt_native_code(entries)
     for e in entries:
-        if getattr(e, "app_library", None):
-            fail(("%s: the plugin %s decides its build from the app's Info.plist or environment " +
-                  "(its Package.swift reads them), which add-to-app does not support yet.") % (e.label, e.package))
         if not e.cc_info:
             fail("%s: the plugin %s has no C-family or Swift library" % (e.label, e.package))
 
@@ -459,7 +465,8 @@ def _plugin_xcframeworks_impl(ctx):
     for slice in slices:
         app_info = ctx.split_attr.application[slice.id][FlutterApplicationInfo]
         debug = slice.debug or app_info.is_debug
-        for package, framework in _slice_plugins(ctx, slice, app_info, ctx.split_attr._cc_toolchain[slice.id], debug).items():
+        app_libraries = ctx.split_attr._app_settings_libraries[slice.id][FlutterSwiftPMAppLibrariesInfo]
+        for package, framework in _slice_plugins(ctx, slice, app_info, app_libraries, ctx.split_attr._cc_toolchain[slice.id], debug).items():
             per_package.setdefault(package, {})[slice.id] = framework
 
     outputs = []
@@ -510,6 +517,14 @@ def _plugin_xcframeworks_rule(platform):
                     doc = "Static frameworks, each binary an archive of the plugin's objects, as " +
                           "`flutter build %s-framework --static` makes them. Link them; do not " % platform +
                           "embed them.",
+                ),
+                # The plugins whose Package.swift decides its defines from the
+                # app, built in each slice's configuration, so for the module:
+                # its environment and Info.plist are an app's that sets none.
+                "_app_settings_libraries": attr.label(
+                    default = SWIFTPM_APP_LIBRARIES,
+                    cfg = SLICES_TRANSITION[platform],
+                    providers = [FlutterSwiftPMAppLibrariesInfo],
                 ),
                 "_cc_toolchain": attr.label(
                     default = "@rules_cc//cc:current_cc_toolchain",

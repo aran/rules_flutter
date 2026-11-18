@@ -1,0 +1,79 @@
+"""Add-to-app builds a plugin whose Package.swift reads the app, for the module.
+
+audio_session 0.1.x reads `AUDIO_SESSION_MICROPHONE` from its manifest's
+environment. An app evaluates the manifest with its `swift_package_environment`;
+the add-to-app plugin xcframeworks evaluate it in the configuration of each
+slice, which is the module's. An aspect over the target under test finds that
+evaluation and the environment it runs with.
+"""
+
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+
+_EvaluationsInfo = provider(
+    doc = "The Package.swift evaluations under a target.",
+    fields = {"evaluations": "depset of structs of `label` and `environment` (`(name, value)` pairs)"},
+)
+
+_EVALUATION_MNEMONIC = "FlutterSwiftPMAppManifest"
+
+def _evaluations_aspect_impl(target, ctx):
+    direct = []
+    for action in target.actions:
+        if action.mnemonic != _EVALUATION_MNEMONIC:
+            continue
+        direct.append(struct(
+            label = str(target.label),
+            environment = tuple(sorted(action.env.items())),
+        ))
+    transitive = []
+    for name in ("xcframeworks", "_app_settings_libraries", "deps"):
+        value = getattr(ctx.rule.attr, name, None)
+        if value == None:
+            continue
+        for dep in (value if type(value) == "list" else [value]):
+            if _EvaluationsInfo in dep:
+                transitive.append(dep[_EvaluationsInfo].evaluations)
+    return [_EvaluationsInfo(evaluations = depset(direct, transitive = transitive))]
+
+_evaluations_aspect = aspect(
+    implementation = _evaluations_aspect_impl,
+    attr_aspects = ["xcframeworks", "_app_settings_libraries", "deps"],
+)
+
+def _audio_session(env):
+    evaluations = [
+        e
+        for e in analysistest.target_under_test(env)[_EvaluationsInfo].evaluations.to_list()
+        if "audio_session" in e.label
+    ]
+    asserts.true(env, len(evaluations) > 0, "no evaluation of audio_session's Package.swift")
+    return evaluations
+
+def _module_settings_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    for evaluation in _audio_session(env):
+        # The module sets no variable, so the manifest takes its own default.
+        asserts.false(env, "AUDIO_SESSION_MICROPHONE" in dict(evaluation.environment), evaluation)
+    return analysistest.end(env)
+
+def _configured_environment_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    for evaluation in _audio_session(env):
+        asserts.equals(env, "0", dict(evaluation.environment).get("AUDIO_SESSION_MICROPHONE"), evaluation)
+    return analysistest.end(env)
+
+# The add-to-app slice evaluates the manifest with the module's settings: none.
+add_to_app_module_settings_test = analysistest.make(
+    _module_settings_test_impl,
+    extra_target_under_test_aspects = [_evaluations_aspect],
+)
+
+# And with what the configuration of the slice gives, the same setting an
+# app's `swift_package_environment` sets: here AUDIO_SESSION_MICROPHONE=0.
+add_to_app_configured_environment_test = analysistest.make(
+    _configured_environment_test_impl,
+    extra_target_under_test_aspects = [_evaluations_aspect],
+    config_settings = {
+        str(Label("@rules_flutter//flutter/private:swiftpm_app_environment")): ["AUDIO_SESSION_MICROPHONE=0"],
+    },
+)

@@ -2999,7 +2999,9 @@ Other attributes:
 - `static_plugins = True` makes them static frameworks to link and not embed, as `--static` does.
 - `minimum_os_version` defaults to `"15.0"` on iOS and `"12.0"` on macOS.
 
-Two kinds of plugin fail the build with a message. One is a plugin whose library depends on something that isn't a plugin, such as a product of a remote Swift package. Upstream makes such a dependency an xcframework of its own, which these rules don't do yet. The other is a plugin whose `Package.swift` reads the app's settings.
+A plugin whose library depends on something that isn't a plugin, such as a product of a remote Swift package, fails the build with a message. Upstream makes such a dependency an xcframework of its own, which these rules don't do yet.
+
+A plugin whose `Package.swift` reads the app's settings ([above](#plugins-whose-packageswift-reads-the-app)) is built for the module, which has no Info.plist and no `swift_package_environment`. Its manifest sees an empty Info.plist and an empty environment, and takes its own defaults: `audio_session` compiles in its microphone code, and `permission_handler_apple` no permission's. The host app's Info.plist can't be read here, since the frameworks are built before the host. Upstream's command builds plugins through CocoaPods and never evaluates their `Package.swift`.
 
 The pieces are Tier 2 rules of their own, each building the configuration's mode: `flutter_ios_app_xcframework`, `flutter_ios_engine_xcframework`, `flutter_ios_plugin_xcframeworks`, `flutter_ios_code_asset_xcframeworks` and `flutter_ios_registrant_xcframework`, and their `flutter_macos_*` counterparts except the registrant. Bazel can't keep a symlink to a directory inside a directory artifact, so in `bazel-bin` a macOS framework is its `Versions/A/` alone. `bazel run` makes the links a versioned framework has.
 
