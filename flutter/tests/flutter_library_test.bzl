@@ -23,7 +23,7 @@ def _package_name_falls_back_to_label_name_test_impl(ctx):
     asserts.equals(env, "my_target", result)
     return unittest.end(env)
 
-def _package_root_workspace_root_and_package_test_impl(ctx):
+def _package_root_repo_root_and_package_test_impl(ctx):
     env = unittest.begin(ctx)
 
     # derive_package_root converts external/X -> ../X (short_path convention)
@@ -129,7 +129,7 @@ _t7_test = unittest.make(_ships_in_truth_table_test_impl)
 _t0_test = unittest.make(_package_name_explicit_attr_wins_test_impl)
 _t1_test = unittest.make(_package_name_falls_back_to_label_package_test_impl)
 _t2_test = unittest.make(_package_name_falls_back_to_label_name_test_impl)
-_t3_test = unittest.make(_package_root_workspace_root_and_package_test_impl)
+_t3_test = unittest.make(_package_root_repo_root_and_package_test_impl)
 _t4_test = unittest.make(_package_root_strips_trailing_lib_test_impl)
 _t5_test = unittest.make(_dedup_plugins_removes_duplicates_test_impl)
 _t6_test = unittest.make(_dedup_plugins_preserves_order_test_impl)

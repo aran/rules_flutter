@@ -21,7 +21,7 @@ def package_root_of(owner):
     """
     if type(owner) == "struct" and hasattr(owner, "package_root"):
         return owner.package_root
-    return derive_package_root(owner.label.workspace_root, owner.label.package)
+    return derive_package_root(owner.label.repo_root, owner.label.package)
 
 def path_in_package(label, root, f):
     """The path of `f` from the root of its Dart package.
