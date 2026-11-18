@@ -24,7 +24,7 @@ load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_imp
 load("@rules_cc//cc:find_cc_toolchain.bzl", "use_cc_toolchain")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
-load("//flutter/private:apple_xcode.bzl", "declare_dsym", "run_xcode_tool", "split_and_strip_aot_binary")
+load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "declare_dsym", "declare_library_dsym", "native_library_symbols", "process_native_library", "run_xcode_tool", "split_and_strip_aot_binary")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
@@ -335,7 +335,9 @@ def _flutter_ios_native_frameworks_impl(ctx):
     }.keys())
     minimum_os_version = ctx.attr.minimum_os_version
 
+    symbols = native_library_symbols(ctx)
     framework_files = []
+    dsym_files = []
     for dylib in dylibs:
         name = native_asset_framework_name(dylib.basename)
 
@@ -344,20 +346,19 @@ def _flutter_ios_native_frameworks_impl(ctx):
 
         # Copy the dylib into the framework and rewrite its install name so the
         # dynamic linker resolves it from the embedded framework via @rpath.
-        run_xcode_tool(
+        # Its dSYM is `<name>.framework.dSYM`, as `flutter build ios` names it.
+        dsym = declare_library_dsym(ctx, ctx.label.name, name + ".framework", name) if symbols.dsym else None
+        process_native_library(
             ctx,
-            command = 'cp "$1" "$2" && xcrun install_name_tool -id "$3" "$2"',
-            arguments = [ctx.actions.args().add_all([
-                dylib,
-                binary,
-                "@rpath/%s.framework/%s" % (name, name),
-            ])],
-            inputs = [dylib],
-            outputs = [binary],
+            library = dylib,
+            output = binary,
+            symbols = symbols,
             mnemonic = "FlutterIOSNativeAssetFramework",
-            execution_requirements = PATH_MAPPING,
-            progress_message = "Wrapping %s into %s.framework" % (dylib.basename, name),
+            dsym = dsym,
+            install_name = "@rpath/%s.framework/%s" % (name, name),
         )
+        if dsym:
+            dsym_files.extend(dsym.files)
 
         ctx.actions.write(plist, _NATIVE_ASSET_FRAMEWORK_INFO_PLIST.format(
             name = name,
@@ -374,6 +375,8 @@ def _flutter_ios_native_frameworks_impl(ctx):
             build_archs = [apple_support.target_arch_from_rule_ctx(ctx)],
             deps = [],
             framework_imports = framework_files,
+            # rules_apple puts them in the app's `dsyms` output group.
+            dsyms = dsym_files,
         ),
         # For the app to pass on to analysis (`flutter_apple_app`).
     ] + bundled_program_info(ctx.attr.application)
@@ -383,6 +386,7 @@ flutter_ios_native_frameworks = rule(
     attrs = dicts.add(
         apple_support.action_required_attrs(),
         apple_support.platform_constraint_attrs(),
+        NATIVE_LIBRARY_SYMBOLS_ATTRS,
         {
             "application": attr.label(
                 doc = "A flutter_application target providing FlutterApplicationInfo.",
@@ -396,9 +400,14 @@ flutter_ios_native_frameworks = rule(
         },
     ),
     # install_name_tool runs where the Apple C++ toolchain does.
-    fragments = ["apple"],
+    fragments = ["apple", "cpp"],
     toolchains = use_cc_toolchain(mandatory = True),
-    doc = "Wraps native plugin/native-asset dylibs in signed .frameworks for iOS bundling.",
+    doc = """Wraps native plugin/native-asset dylibs in signed .frameworks for iOS bundling.
+
+Each binary is stripped of its local symbols and debugging map with
+`--objc_enable_binary_stripping` in `-c opt`, and its dSYM made with
+`--apple_generate_dsym`, as rules_apple treats the app's own binary. The dSYMs
+are in the `dsyms` output group of the app that bundles them.""",
 )
 
 # -- flutter_ios_dropped_frameworks (code assets a link hook dropped) ----------

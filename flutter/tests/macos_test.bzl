@@ -4,7 +4,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//flutter/private:flutter_macos_application.bzl", "flutter_macos_app_framework", "flutter_macos_native_libs")
 load("//flutter/private:validation.bzl", "is_valid_bundle_id", "minimum_os_version_is_below")
-load(":apple_bundling.bzl", "fake_application", "outputs_under_target_dir_test", "strip_step_test")
+load(":apple_bundling.bzl", "fake_application", "native_library_symbols_test", "native_library_untouched_test", "outputs_under_target_dir_test", "strip_step_test")
 
 def _valid_bundle_id_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -209,6 +209,26 @@ def _bundling_tests(name):
         expected_inputs = ["libadd.dylib", "vendor/lib/libsub.dylib", "assets/libasset.dylib", "assets/libdropped.dylib"],
     )
 
+    # The libraries the bundle carries beside its binary, stripped and with a
+    # dSYM each, as rules_apple treats the binary; every candidate, since
+    # which ship is known only once the app is built.
+    native_library_symbols_test(
+        name = name + "_native_libs_symbols",
+        target_under_test = name + "_native_libs",
+        mnemonic = "FlutterMacOSNativeLibrary",
+        expected_dsyms = [
+            "libadd.dylib.dSYM/libadd.dylib",
+            "libsub.dylib.dSYM/libsub.dylib",
+            "libasset.dylib.dSYM/libasset.dylib",
+            "libdropped.dylib.dSYM/libdropped.dylib",
+        ],
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    native_library_untouched_test(
+        name = name + "_native_libs_untouched",
+        target_under_test = name + "_native_libs",
+    )
+
     fake_application(
         name = name + "_fake_app_empty",
         tags = ["manual"],
@@ -284,6 +304,8 @@ def _bundling_tests(name):
     return [
         name + "_framework_outputs_under_target_dir",
         name + "_native_libs_staged",
+        name + "_native_libs_symbols",
+        name + "_native_libs_untouched",
         name + "_native_libs_nothing_to_bundle",
         name + "_two_apps_one_package",
         name + "_release_framework_stripped_test",

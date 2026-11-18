@@ -6,6 +6,7 @@ per fixture would cost minutes and need a device SDK.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartProgramAssetsInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 
@@ -176,3 +177,54 @@ strip_step_test = analysistest.make(
     _strip_step_test_impl,
     attrs = {"expect_strip": attr.bool(mandatory = True)},
 )
+
+def _native_library_symbols_impl(ctx):
+    """Each bundled native library is prepared as rules_apple treats the app's binary.
+
+    With `--objc_enable_binary_stripping` in `-c opt` and
+    `--apple_generate_dsym`, one action a library strips it and makes its
+    dSYM, which the rule hands rules_apple's `dsyms` output group.
+    """
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = [a for a in analysistest.target_actions(env) if a.mnemonic == ctx.attr.mnemonic]
+    asserts.equals(env, len(ctx.attr.expected_dsyms), len(actions), "one action a library: %s" % [a.argv for a in actions])
+    for action in actions:
+        script = "\n".join(action.argv)
+        asserts.true(env, "dsymutil" in script, "the dSYM is made: %s" % script)
+        asserts.true(env, "strip -x -S" in script, "the library is stripped: %s" % script)
+    dsyms = target[AppleFrameworkImportInfo].dsym_imports.to_list() if AppleFrameworkImportInfo in target else []
+    asserts.equals(
+        env,
+        sorted(ctx.attr.expected_dsyms),
+        sorted([f.path.split("/")[-5] + "/" + f.basename for f in dsyms if "/Resources/DWARF/" in f.path]),
+        "the dSYMs rules_apple puts in the app's `dsyms` group",
+    )
+    return analysistest.end(env)
+
+native_library_symbols_test = analysistest.make(
+    _native_library_symbols_impl,
+    attrs = {
+        "expected_dsyms": attr.string_list(doc = "`<bundle>.dSYM/<binary>` of each library."),
+        "mnemonic": attr.string(mandatory = True, doc = "The mnemonic of the action that prepares each library."),
+    },
+    config_settings = {
+        "//command_line_option:apple_generate_dsym": True,
+        "//command_line_option:compilation_mode": "opt",
+        "//command_line_option:objc_enable_binary_stripping": True,
+    },
+)
+
+def _native_library_untouched_impl(ctx):
+    """Without the flags, no library is stripped and none has a dSYM."""
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    for action in analysistest.target_actions(env):
+        # A file write has no command line.
+        script = "\n".join(action.argv or [])
+        asserts.false(env, "dsymutil" in script or "strip -x" in script, "%s: %s" % (action.mnemonic, script))
+    dsyms = target[AppleFrameworkImportInfo].dsym_imports.to_list() if AppleFrameworkImportInfo in target else []
+    asserts.equals(env, [], [f.path for f in dsyms])
+    return analysistest.end(env)
+
+native_library_untouched_test = analysistest.make(_native_library_untouched_impl)

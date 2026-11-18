@@ -2,6 +2,7 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@bazel_skylib//rules:common_settings.bzl", "string_list_flag")
 load("@rules_java//java:java_library.bzl", "java_library")
 load(":apple_engine.bzl", "flutter_macos_engine_dsym")
+load(":apple_xcode.bzl", "apple_binary_stripping")
 load(":flutter_module.bzl", "flutter_kernel_sdk")
 load(":flutter_sdk_record.bzl", "flutter_sdk_record", "flutter_web_sdk_record")
 load(":unsupported_toolchain.bzl", "flutter_unsupported_toolchain")
@@ -81,6 +82,25 @@ config_setting(
 config_setting(
     name = "apple_generate_dsym",
     values = {"apple_generate_dsym": "true"},
+    visibility = ["//visibility:public"],
+)
+
+# `--objc_enable_binary_stripping` in `-c opt`: rules_apple strips an app's
+# binary, and the native libraries the app bundles beside it are stripped too.
+config_setting(
+    name = "objc_binary_stripping",
+    values = {
+        "compilation_mode": "opt",
+        "objc_enable_binary_stripping": "true",
+    },
+)
+
+apple_binary_stripping(
+    name = "apple_binary_stripping",
+    strip = select({
+        ":objc_binary_stripping": True,
+        "//conditions:default": False,
+    }),
     visibility = ["//visibility:public"],
 )
 

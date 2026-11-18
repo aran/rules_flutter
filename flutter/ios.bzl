@@ -226,8 +226,18 @@ def flutter_ios_app_framework_gen(name, application, minimum_os_version = IOS_MI
         tags = tags,
     )
 
+    # The dSYM of the stripped release App binary, for rules_apple to carry
+    # in the `dsyms` output group of the app (`--apple_generate_dsym`).
+    native.filegroup(
+        name = "__%s_dsym" % name,
+        srcs = ["__%s_framework" % name],
+        output_group = "dsym",
+        tags = tags,
+    )
+
     apple_dynamic_framework_import(
         name = name,
+        dsym_imports = ["__%s_dsym" % name],
         framework_imports = ["__%s_framework" % name],
         bundle_only = select({
             Label("@rules_flutter//flutter/private:dbg"): True,

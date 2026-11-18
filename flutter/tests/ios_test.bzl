@@ -2,9 +2,9 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//flutter/private:flutter_ios_application.bzl", "flutter_ios_app_framework")
+load("//flutter/private:flutter_ios_application.bzl", "flutter_ios_app_framework", "flutter_ios_native_frameworks")
 load("//flutter/private:ios_entitlements.bzl", "resolve_ios_entitlements")
-load(":apple_bundling.bzl", "fake_application", "outputs_under_target_dir_test", "strip_step_test")
+load(":apple_bundling.bzl", "fake_application", "native_library_symbols_test", "native_library_untouched_test", "outputs_under_target_dir_test", "strip_step_test")
 
 _DISCOVERED = "ios/Runner/Runner.entitlements"
 
@@ -129,8 +129,40 @@ def _bundling_tests(name):
             target_compatible_with = ["@platforms//os:macos"],
         )
 
+    # Each native library's framework, stripped and with a
+    # `<name>.framework.dSYM`, as rules_apple treats the app's binary and
+    # `flutter build ios` names the dSYM.
+    fake_application(
+        name = name + "_fake_native",
+        native_libs = ["libadd.dylib"],
+        code_assets = ["assets/libasset.dylib"],
+        tags = ["manual"],
+    )
+    flutter_ios_native_frameworks(
+        name = name + "_native_frameworks",
+        application = name + "_fake_native",
+        tags = ["manual"],
+    )
+    native_library_symbols_test(
+        name = name + "_native_frameworks_symbols",
+        target_under_test = name + "_native_frameworks",
+        mnemonic = "FlutterIOSNativeAssetFramework",
+        expected_dsyms = [
+            "add.framework.dSYM/add",
+            "asset.framework.dSYM/asset",
+        ],
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    native_library_untouched_test(
+        name = name + "_native_frameworks_untouched",
+        target_under_test = name + "_native_frameworks",
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+
     return [
         name + "_framework_outputs_under_target_dir",
+        name + "_native_frameworks_symbols",
+        name + "_native_frameworks_untouched",
         name + "_two_apps_one_package",
         name + "_release_framework_stripped_test",
         name + "_release_framework_unstripped_test",

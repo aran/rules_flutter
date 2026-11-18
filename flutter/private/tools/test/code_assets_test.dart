@@ -161,6 +161,29 @@ void main() {
       expect(linux, ['libadd.so', 'libnative.so', 'libtrim.so']);
     });
 
+    test('places a library that ships from its copy of the same name', () {
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final params = fixture('program.params');
+      final program = ProgramCodeAssets.read(
+        params,
+        base: File(params).parent.path,
+      );
+      final copy = File('${dir.path}/stripped/libadd.so')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('stripped');
+      final out = '${dir.path}/out';
+      place(
+        program,
+        CodeAssetPlacement('linux'),
+        out,
+        [],
+        copies: [copy.path],
+      );
+      expect(File('$out/libadd.so').readAsStringSync(), 'stripped');
+      expect(File('$out/libtrim.so').existsSync(), isTrue);
+    });
+
     test('refuses a file that holds the code assets by name', () {
       final dir = Directory.systemTemp.createTempSync('code_assets');
       addTearDown(() => dir.deleteSync(recursive: true));

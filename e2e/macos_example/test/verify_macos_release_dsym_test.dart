@@ -1,6 +1,7 @@
 /// Property: a release macOS build leaves dSYMs that symbolicate the shipped
-/// `App.framework/App` and the engine, `FlutterMacOS.framework`, as
-/// `flutter build macos --release` does.
+/// `App.framework/App`, the engine, `FlutterMacOS.framework`, and a native
+/// library bundled beside them, `libsub.dylib`, as `flutter build macos
+/// --release` does.
 ///
 /// Built with `--apple_generate_dsym`, the flag a Bazel Apple developer turns
 /// on to get dSYMs, the outputs hold a `.dSYM` whose UUID is each binary's. A
@@ -27,7 +28,10 @@ void main() {
       '${bundle.frameworks}/FlutterMacOS.framework/Versions/A/FlutterMacOS',
       dsyms,
     );
-    bundle.finish('dSYMs match the App and FlutterMacOS binaries.');
+    checkDsymMatches(bundle.check, '${bundle.frameworks}/libsub.dylib', dsyms);
+    bundle.finish(
+      'dSYMs match the App, FlutterMacOS and libsub.dylib binaries.',
+    );
   } finally {
     bundle.dispose();
   }

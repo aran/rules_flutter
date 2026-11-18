@@ -128,3 +128,132 @@ def split_and_strip_aot_binary(
         execution_requirements = PATH_MAPPING,
         progress_message = "Extracting the dSYM of %s%s" % (binary.short_path, " and stripping it" if strip else ""),
     )
+
+AppleBinaryStrippingInfo = provider(
+    doc = "Whether the build strips an Apple app's binary, as rules_apple does.",
+    fields = {"strip": "True with `--objc_enable_binary_stripping` in `-c opt`."},
+)
+
+def _apple_binary_stripping_impl(ctx):
+    return [AppleBinaryStrippingInfo(strip = ctx.attr.strip)]
+
+# The command line's stripping, which Bazel keeps from Starlark rules: a
+# `config_setting` reads it, and this target hands it on.
+apple_binary_stripping = rule(
+    implementation = _apple_binary_stripping_impl,
+    attrs = {"strip": attr.bool(mandatory = True)},
+    doc = "Provides `AppleBinaryStrippingInfo`: a `select` on the stripping flags sets `strip`.",
+)
+
+# The attribute `native_library_symbols` reads, beside `XCODE_TOOL_ATTRS`.
+NATIVE_LIBRARY_SYMBOLS_ATTRS = {
+    "_apple_binary_stripping": attr.label(
+        default = Label("//flutter/private:apple_binary_stripping"),
+        providers = [AppleBinaryStrippingInfo],
+    ),
+}
+
+def native_library_symbols(ctx):
+    """What the build asks of a native library an Apple app bundles beside its binary.
+
+    The conditions rules_apple applies to the app's own binary, so a library
+    the bundle carries is treated as the binary it is linked beside:
+    `--apple_generate_dsym` makes its dSYM, and `--objc_enable_binary_stripping`
+    in `-c opt` strips its local symbols and debugging map. `flutter build`
+    does both in every release build, upstream's one way to build one.
+
+    Args:
+      ctx: A rule context with the `cpp` fragment and `NATIVE_LIBRARY_SYMBOLS_ATTRS`.
+
+    Returns:
+      A struct of `dsym` and `strip`, booleans.
+    """
+    return struct(
+        dsym = ctx.fragments.cpp.apple_generate_dsym,
+        strip = ctx.attr._apple_binary_stripping[AppleBinaryStrippingInfo].strip,
+    )
+
+def declare_library_dsym(ctx, directory, bundle, binary_name):
+    """Declares the files of the dSYM bundle `<directory>/<bundle>.dSYM` of `binary_name`.
+
+    Args:
+      ctx: A rule context.
+      directory: The package-relative directory the bundle is declared in.
+      bundle: The name the bundle is for: `libfoo.dylib`, `foo.framework`.
+      binary_name: The binary's file name, which names its DWARF file.
+
+    Returns:
+      A struct of `plist`, `dwarf` and `files`, as `declare_dsym`.
+    """
+    path = "%s/%s.dSYM" % (directory, bundle)
+    plist = ctx.actions.declare_file(path + "/Contents/Info.plist")
+    dwarf = ctx.actions.declare_file(path + "/Contents/Resources/DWARF/" + binary_name)
+    return struct(plist = plist, dwarf = dwarf, files = [plist, dwarf])
+
+def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None, install_name = None):
+    """Registers the action that makes the copy of `library` an Apple app bundles.
+
+    As `flutter build` treats a native asset (`native_assets_host.dart`):
+    `dsymutil` reads the dSYM out of the copy first, then `strip -x -S`
+    removes its local symbols and debugging map. The UUID is unchanged, so a
+    crash in the shipped library symbolicates against the dSYM.
+
+    The library's debugging map is dropped before the dSYM is made: it names
+    object files that are not inputs of this action (a pub package's build
+    hook compiled them in an action of its own), so `dsymutil` would read them
+    when it ran unsandboxed and not otherwise. The dSYM holds the library's
+    symbol table, which names every function a crash report can land in.
+
+    Args:
+      ctx: A rule context with `XCODE_TOOL_ATTRS`.
+      library: The library File.
+      output: The File to write.
+      symbols: A `native_library_symbols` struct.
+      mnemonic: The action's mnemonic.
+      dsym: A `declare_library_dsym` struct, when `symbols.dsym`.
+      install_name: None, or the install name to give the copy.
+    """
+
+    # $1 the library, $2 the copy, $3 its install name, $4 its dSYM's plist.
+    args = ctx.actions.args().add_all([library, output])
+    args.add(install_name or "")
+    args.add_all([dsym.plist] if dsym else [""])
+    commands = [
+        "set -e",
+        'cp "$1" "$2"',
+        'chmod u+w "$2"',
+    ]
+    outputs = [output]
+    if install_name:
+        commands.append('xcrun install_name_tool -id "$3" "$2"')
+    if dsym:
+        # dsymutil reads a copy without the debugging map (the stabs `strip -S`
+        # removes), named as the shipped binary is, as its DWARF file is.
+        commands.extend([
+            'bundle="$(dirname "$(dirname "$4")")"',
+            'scratch="$bundle.input"',
+            'mkdir -p "$scratch"',
+            'xcrun strip -S "$2" -o "$scratch/$(basename "$2")"',
+            # It warns that the copy has no debugging map, which it has not
+            # by design; anything else it says is passed on.
+            'out="$(xcrun dsymutil -o "$bundle" "$scratch/$(basename "$2")" 2>&1)" || { echo "$out" >&2; exit 1; }',
+            'out="$(echo "$out" | grep -v "no debug symbols in executable" || true)"',
+            '[ -z "$out" ] || echo "$out" >&2',
+            'rm -rf "$scratch"',
+        ])
+        outputs.extend(dsym.files)
+    if symbols.strip:
+        commands.append('xcrun strip -x -S "$2" -o "$2"')
+    run_xcode_tool(
+        ctx,
+        command = "\n".join(commands),
+        arguments = [args],
+        inputs = [library],
+        outputs = outputs,
+        mnemonic = mnemonic,
+        execution_requirements = PATH_MAPPING,
+        progress_message = "Preparing %s for the bundle%s" % (
+            library.basename,
+            " with its dSYM" if dsym else "",
+        ),
+    )

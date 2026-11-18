@@ -24,7 +24,7 @@ load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@rules_apple//apple/internal:framework_import_support.bzl", "framework_import_support")
 load("@rules_dart//dart:utils.bzl", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
-load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "declare_dsym", "split_and_strip_aot_binary")
+load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "declare_dsym", "declare_library_dsym", "native_library_symbols", "process_native_library", "split_and_strip_aot_binary")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "run_code_assets_tool")
@@ -241,34 +241,79 @@ def _flutter_macos_native_libs_impl(ctx):
     if not app_info.native_libs and not candidate_code_asset_libraries(app_info.program_assets):
         return [DefaultInfo(files = depset())]
 
+    # Each candidate is prepared as the app's own binary is (stripped, with a
+    # dSYM) before the staging action, which runs anywhere, picks the ones
+    # that ship: which do is known only once the link hooks have run.
+    symbols = native_library_symbols(ctx)
+    native_libs = app_info.native_libs
+    copies = []
+    dsym_files = []
+    if symbols.dsym or symbols.strip:
+        prepared = {}
+        for library in list(native_libs) + candidate_code_asset_libraries(app_info.program_assets):
+            if library in prepared:
+                continue
+            copy = ctx.actions.declare_file("%s_libraries/%s" % (ctx.label.name, library.basename))
+            dsym = declare_library_dsym(ctx, ctx.label.name + "_dsyms", library.basename, library.basename) if symbols.dsym else None
+            process_native_library(ctx, library = library, output = copy, symbols = symbols, mnemonic = "FlutterMacOSNativeLibrary", dsym = dsym)
+            prepared[library] = copy
+            if dsym:
+                dsym_files.extend(dsym.files)
+        native_libs = [prepared[library] for library in native_libs]
+        copies = [copy for library, copy in prepared.items() if library not in app_info.native_libs]
+
     staged = ctx.actions.declare_directory(ctx.label.name)
     code_assets = program_assets_action_args(ctx.actions, app_info.program_assets, data = False)
     args = ctx.actions.args()
     args.add("--os", "macos")
     args.add_all("--output", [staged], expand_directories = False)
-    args.add_all(app_info.native_libs, before_each = "--library")
+    args.add_all(native_libs, before_each = "--library")
+    args.add_all(copies, before_each = "--copy")
     run_code_assets_tool(
         ctx,
         "place",
         [args, code_assets.args],
-        depset(app_info.native_libs, transitive = [code_assets.inputs]),
+        depset(native_libs + copies, transitive = [code_assets.inputs]),
         [staged],
         mnemonic = "FlutterMacOSNativeLibs",
         progress_message = "Staging native libraries for %{label}",
     )
-    return [DefaultInfo(files = depset([staged]))]
+    providers = [DefaultInfo(files = depset([staged]))]
+    if dsym_files:
+        # A framework import that imports no framework: all it carries is the
+        # dSYMs, which rules_apple puts in the app's `dsyms` output group.
+        providers.append(framework_import_support.framework_import_info_with_dependencies(
+            build_archs = [apple_support.target_arch_from_rule_ctx(ctx)],
+            deps = [],
+            dsyms = dsym_files,
+        ))
+    return providers
 
 flutter_macos_native_libs = rule(
     implementation = _flutter_macos_native_libs_impl,
-    attrs = {
-        "application": attr.label(
-            doc = "A flutter_application target providing FlutterApplicationInfo.",
-            mandatory = True,
-            providers = [FlutterApplicationInfo],
-        ),
-    } | CODE_ASSETS_TOOL_ATTRS,
+    attrs = dicts.add(
+        XCODE_TOOL_ATTRS,
+        NATIVE_LIBRARY_SYMBOLS_ATTRS,
+        {
+            "application": attr.label(
+                doc = "A flutter_application target providing FlutterApplicationInfo.",
+                mandatory = True,
+                providers = [FlutterApplicationInfo],
+            ),
+        },
+        CODE_ASSETS_TOOL_ATTRS,
+    ),
+    # The staging runs anywhere; stripping and dSYMs run Xcode's tools.
     exec_groups = PORTABLE_EXEC_GROUPS,
-    doc = "Stages the native .dylib files that ship under their basenames for macOS bundling via additional_contents.",
+    fragments = XCODE_TOOL_FRAGMENTS + ["cpp"],
+    toolchains = XCODE_TOOL_TOOLCHAINS,
+    doc = """Stages the native .dylib files that ship under their basenames for macOS bundling via additional_contents.
+
+Each is stripped of its local symbols and debugging map with
+`--objc_enable_binary_stripping` in `-c opt`, and its dSYM
+(`<basename>.dSYM`) made with `--apple_generate_dsym`, as rules_apple treats
+the app's own binary. The dSYMs are in the `dsyms` output group of the app
+that bundles them.""",
 )
 
 # -- flutter_macos_privacy_manifests (xcprivacy bundling) ---------------------

@@ -16,9 +16,11 @@
 ///
 /// Usage:
 ///   dart code_assets.dart place --program-assets=<file> --os <os>
-///       [--abi <abi>] --output <dir> [--library <file>]...
+///       [--abi <abi>] --output <dir> [--library <file>]... [--copy <file>]...
 ///     Copies each shipped library, and each `--library` (which always ships),
-///     into `<dir>`, at its path in the platform's code-asset directory.
+///     into `<dir>`, at its path in the platform's code-asset directory. A
+///     shipped library with a `--copy` of the same file name (one stripped
+///     for the bundle) is placed from the copy.
 ///   dart code_assets.dart android-libs --program-assets=<file> --abi <abi>
 ///       --output <zip> [--library <file>]... [--library-as <name> <file>]...
 ///     Writes the APK's native libraries, `lib/<abi>/<name>` entries stored
@@ -397,8 +399,12 @@ void place(
   ProgramCodeAssets program,
   CodeAssetPlacement placement,
   String output,
-  List<String> always,
-) {
+  List<String> always, {
+  List<String> copies = const [],
+}) {
+  final copyOf = {
+    for (final copy in copies) copy.substring(copy.lastIndexOf('/') + 1): copy,
+  };
   Directory(output).createSync(recursive: true);
   final placed = <String, String>{};
   void copy(String source, String fileName) {
@@ -422,7 +428,7 @@ void place(
         '`libraries` view',
       );
     }
-    copy(asset.file!, asset.fileName!);
+    copy(copyOf[asset.fileName!] ?? asset.file!, asset.fileName!);
   }
   for (final library in always) {
     copy(library, library.substring(library.lastIndexOf('/') + 1));
@@ -577,6 +583,7 @@ int _run(List<String> args) {
         ),
         _flag(rest, '--output'),
         _all(rest, '--library'),
+        copies: _all(rest, '--copy'),
       );
     case 'xcframeworks':
       final slices = <String, ProgramCodeAssets>{};

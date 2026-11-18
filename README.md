@@ -601,6 +601,8 @@ bazel build -c opt //:my_app_macos --output_groups=+dsyms
 
 With `--apple_generate_dsym`, the group also holds the runner's dSYM and the engine's: `Flutter.framework.dSYM` on iOS, and on macOS `FlutterMacOS.framework.dSYM` in a release build, the one mode Flutter ships it for. Only that flag downloads the macOS engine's dSYM, which comes in a 165 MB archive.
 
+The native libraries the app bundles beside its binary (a `native_deps` library, a code asset) are treated as rules_apple treats the runner's binary. With `--apple_generate_dsym` each has a dSYM in the group, `<name>.framework.dSYM` on iOS and `<library>.dylib.dSYM` on macOS. With `--objc_enable_binary_stripping` in `-c opt`, each is shipped without its local symbols and debugging map. A library's dSYM holds its symbol table, so a crash in it symbolicates to the function; it has no line tables, because the object files it was linked from are not inputs of the build step that makes it.
+
 `extra_gen_snapshot_options = ["--no-strip"]` on the `flutter_application` keeps the symbols in the binary, as it does for `flutter build`. The dSYM is still made. A `flutter_aot_snapshot` on its own isn't stripped, and its object file is in the `macho_object` output group.
 
 **Obfuscation and split debug info** work as `flutter build --obfuscate --split-debug-info=<dir>` does, through two build flags that apply to every app in the build:
