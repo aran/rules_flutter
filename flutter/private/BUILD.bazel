@@ -1,14 +1,14 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_setting", "string_list_flag")
 load("@rules_java//java:java_library.bzl", "java_library")
+load("//flutter:engine.bzl", "flutter_missing_slice")
 load(":apple_engine.bzl", "flutter_macos_engine_dsym")
 load(":apple_xcode.bzl", "apple_binary_stripping")
 load(":flutter_module.bzl", "flutter_kernel_sdk")
 load(":flutter_sdk_record.bzl", "flutter_sdk_record", "flutter_web_sdk_record")
-load(":unsupported_toolchain.bzl", "flutter_unsupported_toolchain")
 
 # Resolved for an x86_64 iOS simulator build (toolchains_repo.bzl).
-flutter_unsupported_toolchain(
+flutter_missing_slice(
     name = "ios_x86_64_unsupported",
     message = "rules_flutter builds iOS for arm64 only: devices, and the Apple " +
               "Silicon simulator (--ios_multi_cpus=sim_arm64). An x86_64 " +
@@ -1339,6 +1339,7 @@ bzl_library(
     name = "flutter_unsupported_package",
     srcs = ["flutter_unsupported_package.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = [":failing_targets"],
 )
 
 # Every .bzl in this package, for //tools/download_guard, which reads them for

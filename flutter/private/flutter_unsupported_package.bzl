@@ -13,18 +13,9 @@ where the lock got it from, and what to do. Nothing that does not depend on it i
 affected.
 """
 
+load("//flutter/private:failing_targets.bzl", "write_failing_build")
+
 visibility("//flutter/...")
-
-def _unsupported_package_impl(ctx):
-    fail(ctx.attr.message)
-
-unsupported_package = rule(
-    implementation = _unsupported_package_impl,
-    attrs = {
-        "message": attr.string(mandatory = True),
-    },
-    doc = "A package target that fails analysis with `message`. See the file docstring.",
-)
 
 def unsupported_package_message(lock, package, source):
     """Why rules_flutter cannot provide a lock entry, and what to do about it.
@@ -69,16 +60,7 @@ def ignored_package_message(package, ignorings):
             "`ignored`.").format("\n".join(said))
 
 def _flutter_unsupported_package_impl(repository_ctx):
-    package = repository_ctx.attr.package_name
-    repository_ctx.file("BUILD.bazel", """\
-load("@rules_flutter//flutter/private:generated_repos.bzl", "unsupported_package")
-
-unsupported_package(
-    name = {name},
-    message = {message},
-    visibility = ["//visibility:public"],
-)
-""".format(name = repr(package), message = repr(repository_ctx.attr.message)))
+    write_failing_build(repository_ctx, [repository_ctx.attr.package_name], repository_ctx.attr.message)
 
 flutter_unsupported_package = repository_rule(
     implementation = _flutter_unsupported_package_impl,

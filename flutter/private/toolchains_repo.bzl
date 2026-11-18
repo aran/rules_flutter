@@ -201,7 +201,7 @@ alias(
     }}),
 )
 
-flutter_unsupported_toolchain(
+flutter_missing_slice(
     name = "undeclared_sdk",
     message = {message},
     # Analysed only through toolchain resolution: built on its own, it fails.
@@ -247,7 +247,7 @@ def toolchains_build_content(sdks, default_sdk):
 # or without the flag the one the root module chooses, "{default_sdk}".
 
 load("@bazel_skylib//lib:selects.bzl", "selects")
-load("@rules_flutter//flutter/private:unsupported_toolchain.bzl", "flutter_unsupported_toolchain")
+load("@rules_flutter//flutter:engine.bzl", "flutter_missing_slice")
 
 config_setting(
     name = "flag_unset",

@@ -91,7 +91,8 @@ flutter_missing_slice = rule(
         ),
     },
     doc = "A slice the engine source does not provide. A build that needs it fails at analysis with `message`; " +
-          "one that does not is unaffected.",
+          "one that does not is unaffected. rules_flutter declares one wherever a build could ask for " +
+          "something it cannot provide: a package it cannot build, a toolchain for a target it does not support.",
 )
 
 def _shader_include_dir(ctx):
