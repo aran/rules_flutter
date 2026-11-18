@@ -17,6 +17,7 @@ load(
     "flutter_ios_privacy_manifests_gen",
     "flutter_ios_registrant_gen",
     "flutter_ios_runner_lib_gen",
+    "flutter_ios_simulator_build",
     "flutter_ios_simulator_build_test",
     "flutter_ios_xcframeworks",
 )
@@ -570,12 +571,6 @@ build_test(
     targets = [":plugin_macos"],
 )
 
-flutter_ios_simulator_build_test(
-    name = "ios_bundle_build_test",
-    target_compatible_with = ["@platforms//os:macos"],
-    targets = [":plugin_ios"],
-)
-
 # The iOS app that depends on `package:integration_test` builds: the plugin's
 # ObjC compiles and links.
 flutter_ios_simulator_build_test(
@@ -1048,7 +1043,7 @@ flutter_library(
 # real artifacts instead: the APK and runtime verifiers above.
 
 # =============================================================================
-# A plugin whose Package.swift decides its defines from the app, on macOS
+# Plugins whose Package.swift decides their defines from the app
 # =============================================================================
 
 # geolocator_apple leaves out its check for an "always" location description
@@ -1084,6 +1079,47 @@ dart_test(
     name = "verify_macos_app_settings_test",
     data = [":location_macos"],
     main = "test/verify_macos_app_settings_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = ["@rules_flutter//tools/e2e_testing"],
+)
+
+# audio_session 0.1.x compiles in its record permission code unless its
+# manifest's environment has AUDIO_SESSION_MICROPHONE=0, which this app sets
+# and :plugin_ios does not: :verify_ios_app_test.
+flutter_application(
+    name = "audio_session_app",
+    main = "lib/audio_session_main.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:audio_session",
+        "@deps//:flutter",
+    ],
+)
+
+flutter_ios_app(
+    name = "no_microphone_ios",
+    application = ":audio_session_app",
+    bundle_id = "com.example.plugin.nomicrophone",
+    swift_package_environment = {"AUDIO_SESSION_MICROPHONE": "0"},
+    tags = ["manual"],
+)
+
+flutter_ios_simulator_build(
+    name = "ios_simulator_apps",
+    testonly = True,
+    target_compatible_with = ["@platforms//os:macos"],
+    targets = [
+        ":no_microphone_ios",
+        ":plugin_ios",
+    ],
+)
+
+# The iOS apps build, and audio_session carries the code its manifest selects
+# for each.
+dart_test(
+    name = "verify_ios_app_test",
+    data = [":ios_simulator_apps"],
+    main = "test/verify_ios_app_test.dart",
     target_compatible_with = ["@platforms//os:macos"],
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
