@@ -28,6 +28,12 @@ MACOS_MINIMUM_OS_VERSION = "12.0"
 ANDROID_MIN_SDK_VERSION = "24"
 ANDROID_TARGET_SDK_VERSION = "36"
 
+# The Java level the generated plugin registrant compiles at, as
+# `kt_kotlinc_options.jvm_target`: `flutter create`'s app and module templates
+# compile their Java (where Flutter's Gradle plugin puts the registrant) at
+# `JavaVersion.VERSION_17`.
+ANDROID_REGISTRANT_JVM_TARGET = "17"
+
 # Android ABI directory name for each engine architecture this ruleset builds.
 ANDROID_ABI_FOR_ARCH = {
     "arm": "armeabi-v7a",

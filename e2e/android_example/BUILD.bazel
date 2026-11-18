@@ -18,6 +18,7 @@ load(
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_library")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
 load("@rules_flutter//tools/e2e_testing:android_analysis_test.bzl", "android_split_debug_info_test")
+load("@rules_flutter//tools/e2e_testing:javacopt_build.bzl", "javacopt_build")
 load("@rules_flutter//tools/e2e_testing:version_build.bzl", "version_build")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 load(":aar.bzl", "android_archive")
@@ -433,6 +434,23 @@ flutter_web_bundle(
 build_test(
     name = "android_app_build_test",
     targets = [":app"],
+)
+
+# Property: an app builds under `-Xlint:all -Werror`, so a project that fails
+# on javac warnings can build it: the Java rules_flutter generates for it (the
+# plugin registrant) compiles without warnings.
+javacopt_build(
+    name = "lint_clean_android",
+    javacopts = [
+        "-Xlint:all",
+        "-Werror",
+    ],
+    targets = [":app"],
+)
+
+build_test(
+    name = "android_lint_clean_build_test",
+    targets = [":lint_clean_android"],
 )
 
 # Property: an add-to-app module's `.symbols`, which read its stack traces
