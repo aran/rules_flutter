@@ -94,7 +94,8 @@ FlutterAppleLinkedTargetsInfo = provider(
           "add-to-app makes frameworks of: the plugins' own, and those of the Swift packages they " +
           "depend on.",
     fields = {
-        "targets": "depset of structs: `label`, `cc_info` (CcInfo), `swift_info` (SwiftInfo or None).",
+        "targets": "depset of structs: `label`, `cc_info` (CcInfo), `swift_info` (SwiftInfo or None), " +
+                   "`xcframework_files` (every file of a prebuilt xcframework it imports, or None).",
     },
 )
 
@@ -116,6 +117,9 @@ def _linked_targets_aspect_impl(target, ctx):
             label = target.label,
             cc_info = target[CcInfo],
             swift_info = target[SwiftInfo] if SwiftInfo in target else None,
+            # An `apple_dynamic_xcframework_import`'s, which add-to-app
+            # copies into the layout.
+            xcframework_files = getattr(ctx.rule.files, "xcframework_imports", None),
         ))
     return [FlutterAppleLinkedTargetsInfo(targets = depset(direct, transitive = transitive))]
 

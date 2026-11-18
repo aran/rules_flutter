@@ -228,6 +228,67 @@ def _dependency_units(entries, linked_targets):
         ))
     return units
 
+def _vendored_xcframeworks(entries, linked_targets):
+    """The prebuilt dynamic xcframeworks the plugins link: a dict from a slice's binary path to its xcframework.
+
+    A Swift package's `binaryTarget` of a dynamic framework, which
+    rules_swift_package_manager imports with `apple_dynamic_xcframework_import`,
+    as a pod's `vendored_frameworks` is one. `flutter build ios-framework`
+    copies a vendored xcframework into the layout as it is, and so does
+    add-to-app: the plugin's framework links the slice's framework.
+
+    Returns:
+        A dict from the path of a binary in an xcframework to a struct of
+        `name` (the xcframework's, without the extension), `root` (its
+        path) and `files` (every file of it).
+    """
+    linked = {}
+    for e in entries:
+        for linker_input in e.cc_info.linking_context.linker_inputs.to_list():
+            linked[str(linker_input.owner)] = True
+    vendored = {}
+    for record in linked_targets.to_list():
+        if not record.xcframework_files or str(record.label) not in linked:
+            continue
+        for linker_input in record.cc_info.linking_context.linker_inputs.to_list():
+            if linker_input.owner != record.label:
+                continue
+            for lib in linker_input.libraries:
+                binary = lib.resolved_symlink_dynamic_library or lib.dynamic_library
+                if not binary or ".xcframework/" not in binary.path:
+                    continue
+                root = binary.path[:binary.path.index(".xcframework/") + len(".xcframework")]
+                vendored[binary.path] = struct(
+                    name = root.rsplit("/", 1)[-1][:-len(".xcframework")],
+                    root = root,
+                    files = [f for f in record.xcframework_files if f.path.startswith(root + "/")],
+                )
+    return vendored
+
+def _vendored_steps(prebuilt):
+    """The steps that copy a prebuilt xcframework's files into its copy.
+
+    A versioned (macOS) framework's links arrive as files, since a glob
+    follows them: `Versions/Current/` and the entries at its top. These rules
+    keep a versioned framework as its version directory alone, whose links the
+    export makes (`framework_root`), so those copies are left out, and the
+    exported framework has the links it was signed with.
+    """
+    paths = [(f.path[len(prebuilt.root) + 1:], f) for f in prebuilt.files]
+    versioned = {
+        path.split(".framework/", 1)[0]: True
+        for path, _ in paths
+        if ".framework/Versions/" in path
+    }
+    steps = []
+    for path, f in paths:
+        if ".framework/" in path:
+            framework, inside = path.split(".framework/", 1)
+            if framework in versioned and (not inside.startswith("Versions/") or inside.startswith("Versions/Current/")):
+                continue
+        steps.append(("file", path, f))
+    return steps
+
 def _dependency_module(unit):
     """`_plugin_module` of a Swift package's module."""
     swift = unit.swift_module
@@ -384,7 +445,12 @@ def _dsym(ctx, slice, module, binary):
     return [plist, dwarf]
 
 def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchain, debug):
-    """The plugin frameworks of one slice: a dict from module name to its steps."""
+    """The frameworks of one slice.
+
+    Returns:
+        A struct of `built` (a dict from module name to its framework's
+        steps) and `vendored` (the prebuilt xcframeworks they link, by name).
+    """
     platform = slice.platform_type
 
     # A plugin whose Package.swift decides its defines from the app is built
@@ -401,6 +467,8 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
             fail("%s: the plugin %s has no C-family or Swift library" % (e.label, e.package))
 
     modules = {e.package: _plugin_module(e) for e in entries}
+    vendored = _vendored_xcframeworks(entries, linked_targets)
+    used_vendored = {}
     dependencies = _dependency_units(entries, linked_targets)
     for d in dependencies:
         if d.package in modules:
@@ -440,7 +508,7 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
         libraries = []
         flags = []
         additional = []
-        engine = []
+        frameworks = []
         uses = {}
         foreign = {}
         for linker_input in entry.cc_info.linking_context.linker_inputs.to_list():
@@ -452,12 +520,20 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
                 if lib.dynamic_library and not (lib.static_library or lib.pic_static_library)
             ]
             for real in dynamics:
+                # The engine's framework, or a prebuilt xcframework's, which
+                # the layout carries as it is.
                 marker = "/%s.framework/" % _FLUTTER[platform]
-                if marker not in real.path:
+                if marker in real.path:
+                    framework = (real.path[:real.path.index(marker)], _FLUTTER[platform])
+                elif real.path in vendored:
+                    framework_path = real.path[:real.path.rindex(".framework/") + len(".framework")]
+                    directory, framework_name = framework_path.rsplit("/", 1)
+                    framework = (directory, framework_name[:-len(".framework")])
+                    used_vendored[vendored[real.path].name] = vendored[real.path]
+                else:
                     fail("%s: %s links the dynamic library %s, which add-to-app does not package yet" % (entry.label, package, real.path))
-                framework_dir = real.path[:real.path.index(marker)]
-                if framework_dir not in engine:
-                    engine.append(framework_dir)
+                if framework not in frameworks:
+                    frameworks.append(framework)
                 additional.append(real)
             if statics:
                 lib_owner = owner_of.get(statics[0].path)
@@ -486,7 +562,7 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
             libraries = libraries,
             flags = flags,
             additional = additional,
-            engine = engine,
+            frameworks = frameworks,
             uses = sorted(uses.keys()),
         )
 
@@ -508,7 +584,7 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
         entry = by_package[package]
         module = modules[package]
         plan = plans[package]
-        dependencies = [(d, _FLUTTER[platform]) for d in plan.engine]
+        dependencies = list(plan.frameworks)
         additional = list(plan.additional)
         for other in plan.uses:
             dependencies.append((built[other].binary_dir, other))
@@ -536,7 +612,10 @@ def _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, toolchai
             binary_dir = binary.dirname.rsplit("/", 1)[0],
             has_dsym = bool(dsym_files),
         )
-    return built
+    for name in used_vendored:
+        if name in built:
+            fail("The prebuilt %s.xcframework has the name of a framework built from %s" % (name, by_package[name].label))
+    return struct(built = built, vendored = used_vendored)
 
 def _framework_steps(ctx, slice, entry, module, binary, resource_files):
     name = module.name
@@ -589,6 +668,7 @@ def _plugin_xcframeworks_impl(ctx):
     platform = ctx.attr._platform
     slices = SLICES[platform]
     per_package = {}
+    vendored = {}
     for slice in slices:
         app_info = ctx.split_attr.application[slice.id][FlutterApplicationInfo]
         debug = slice.debug or app_info.is_debug
@@ -597,8 +677,11 @@ def _plugin_xcframeworks_impl(ctx):
             ctx.split_attr.application[slice.id][FlutterAppleLinkedTargetsInfo].targets,
             ctx.split_attr._app_settings_libraries[slice.id][FlutterAppleLinkedTargetsInfo].targets,
         ])
-        for package, framework in _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, ctx.split_attr._cc_toolchain[slice.id], debug).items():
+        result = _slice_plugins(ctx, slice, app_info, app_libraries, linked_targets, ctx.split_attr._cc_toolchain[slice.id], debug)
+        for package, framework in result.built.items():
             per_package.setdefault(package, {})[slice.id] = framework
+        for name, xcframework in result.vendored.items():
+            vendored.setdefault(name, xcframework)
 
     outputs = []
     for package, frameworks in sorted(per_package.items()):
@@ -623,6 +706,19 @@ def _plugin_xcframeworks_impl(ctx):
             steps,
             mnemonic = "FlutterPluginXCFramework",
             progress_message = "Assembling %s.xcframework for %%{label}" % package,
+        )
+        outputs.append(xcframework)
+
+    # A prebuilt xcframework, copied as it is, as upstream copies a pod's
+    # vendored one, with every slice it has and its own signature.
+    for name, prebuilt in sorted(vendored.items()):
+        xcframework = ctx.actions.declare_directory("%s/%s.xcframework" % (ctx.label.name, name))
+        assemble_bundle(
+            ctx,
+            xcframework,
+            _vendored_steps(prebuilt),
+            mnemonic = "FlutterVendoredXCFramework",
+            progress_message = "Copying %s.xcframework for %%{label}" % name,
         )
         outputs.append(xcframework)
     return [DefaultInfo(files = depset(outputs))]

@@ -1,0 +1,126 @@
+load("@rules_apple//apple:apple.bzl", "apple_dynamic_xcframework_import", "apple_xcframework")
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
+load(":unpacked_xcframework.bzl", "unpacked_xcframework")
+
+# rules_apple resolves its toolchains on a macOS execution platform, and
+# objc_library needs the Apple C++ toolchain, so neither can be analysed
+# elsewhere. The plugin's library builds them for the Apple platform it is
+# built for.
+_APPLE_ONLY = select({
+    "@platforms//os:ios": [],
+    "@platforms//os:macos": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "vendored_plugin",
+)
+
+# A plugin whose Apple code links a prebuilt dynamic framework, as a pod's
+# `vendored_frameworks` or a Swift package's `binaryTarget` is one:
+# VendoredGreeting.xcframework, of a C function that returns a greeting.
+# Add-to-app copies it into the layout as it is (//:vendored_module_*).
+flutter_plugin(
+    name = "vendored_plugin",
+    srcs = ["lib/vendored_plugin.dart"],
+    package = ":pubspec-metadata",
+    platforms = [
+        ":ios",
+        ":macos",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@deps//:flutter"],
+)
+
+flutter_plugin_platform(
+    name = "ios",
+    lib = ":vendored_plugin_apple",
+    platform = "ios",
+    plugin_class = "VGPVendoredPlugin",
+)
+
+flutter_plugin_platform(
+    name = "macos",
+    lib = ":vendored_plugin_apple",
+    platform = "macos",
+    plugin_class = "VGPVendoredPlugin",
+)
+
+flutter_apple_plugin_library(
+    name = "vendored_plugin_apple",
+    srcs = glob(["darwin/Classes/*"]),
+    module_name = "vendored_plugin",
+    platform = "darwin",
+    deps = [":vendored_greeting"],
+)
+
+apple_dynamic_xcframework_import(
+    name = "vendored_greeting",
+    target_compatible_with = _APPLE_ONLY,
+    xcframework_imports = [":vendored_greeting_files"],
+)
+
+# The xcframework, built here from its source so no binary is checked in.
+objc_library(
+    name = "greeting_lib",
+    srcs = ["greeting/VendoredGreeting.c"],
+    hdrs = ["greeting/VendoredGreeting.h"],
+    target_compatible_with = _APPLE_ONLY,
+    # Its function is the framework's API, which nothing in it calls.
+    alwayslink = True,
+)
+
+apple_xcframework(
+    name = "VendoredGreeting",
+    bundle_id = "dev.rulesflutter.VendoredGreeting",
+    infoplists = ["greeting/Info.plist"],
+    ios = {
+        "device": ["arm64"],
+        "simulator": ["arm64"],
+    },
+    macos = ["arm64"],
+    minimum_os_versions = {
+        "ios": "15.0",
+        "macos": "12.0",
+    },
+    public_hdrs = ["greeting/VendoredGreeting.h"],
+    target_compatible_with = _APPLE_ONLY,
+    deps = [":greeting_lib"],
+)
+
+_FRAMEWORK_FILES = [
+    "VendoredGreeting",
+    "Headers/VendoredGreeting.h",
+    "Modules/module.modulemap",
+]
+
+# Its files as a glob of a vendored one lists them, a macOS framework's links
+# included, which //:add_to_app_vendored_*_test compares the layout's copy with.
+unpacked_xcframework(
+    name = "vendored_greeting_files",
+    archive = ":VendoredGreeting.xcframework.zip",
+    files = ["Info.plist"] + [
+        "%s/VendoredGreeting.framework/%s" % (slice, f)
+        for slice in [
+            "ios-arm64",
+            "ios-arm64-simulator",
+        ]
+        for f in _FRAMEWORK_FILES + ["Info.plist"]
+    ] + [
+        "macos-arm64/VendoredGreeting.framework/Versions/A/" + f
+        for f in _FRAMEWORK_FILES + ["Resources/Info.plist"]
+    ],
+    links = {
+        "macos-arm64/VendoredGreeting.framework/%s%s" % (prefix, f): "macos-arm64/VendoredGreeting.framework/Versions/A/" + f
+        for prefix in [
+            "",
+            "Versions/Current/",
+        ]
+        for f in _FRAMEWORK_FILES + ["Resources/Info.plist"]
+    },
+    visibility = ["//:__pkg__"],
+    xcframework = "VendoredGreeting",
+)

@@ -80,7 +80,7 @@ flutter_apple_xcframeworks_codesign = rule(
     exec_groups = PORTABLE_EXEC_GROUPS,
     doc = """Signs the xcframeworks of an add-to-app build with `identity`, as `flutter build
 ios-framework` and `macos-framework` sign theirs: each xcframework with `codesign --force
---sign`, `--timestamp=none` but in release, and Flutter's engine xcframework left with
-Flutter's signature. Built and run as the layout it wraps: `bazel run` writes the signed
+--sign`, `--timestamp=none` but in release, and an xcframework already signed (Flutter's
+engine, a prebuilt one a plugin links) left with its signature. Built and run as the layout it wraps: `bazel run` writes the signed
 xcframeworks to `build/<platform>/framework/`.""",
 )

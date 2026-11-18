@@ -7,8 +7,9 @@
 ///
 /// Each `<Mode>/<name>.xcframework` is signed with `codesign --force --sign
 /// <identity>`, with `--timestamp=none` but in release, as upstream signs it.
-/// An xcframework already signed, Flutter's own engine, keeps its signature:
-/// upstream re-signs it only when it is unsigned. The identity `-` signs ad
+/// An xcframework already signed keeps its signature: Flutter's own engine,
+/// which upstream re-signs only when it is unsigned, and a prebuilt one a
+/// plugin links, which upstream copies as it is. The identity `-` signs ad
 /// hoc; any other must be a valid code-signing identity in the keychain.
 ///
 /// A versioned (macOS) framework is signed with its links, made here, and
@@ -93,11 +94,9 @@ int run(List<String> args) {
         in modeDirectory.listSync()..sort((a, b) => a.path.compareTo(b.path))) {
       if (!xcframework.path.endsWith('.xcframework')) continue;
       final name = xcframework.path.split('/').last;
-      if ((name == 'Flutter.xcframework' ||
-              name == 'FlutterMacOS.xcframework') &&
-          isSigned(xcframework.path)) {
-        continue;
-      }
+      // The xcframeworks these rules build are unsigned, so one already
+      // signed came prebuilt: Flutter's engine, or a plugin's vendored one.
+      if (isSigned(xcframework.path)) continue;
       // Copies are read-only, as Bazel's outputs are.
       Process.runSync('chmod', ['-R', 'u+w', xcframework.path]);
       final result = Process.runSync(

@@ -1019,6 +1019,7 @@ flutter_library(
         "//greeting_plugin",
         "//mixed_plugin",
         "//pick",
+        "//vendored_plugin",
         "@deps//:audio_session",
         "@deps//:cloud_firestore",
         "@deps//:firebase_core",
@@ -1286,6 +1287,63 @@ _ADD_TO_APP_MODES = {
     for platform in _ADD_TO_APP_PLATFORMS
     for mode in _ADD_TO_APP_MODES
     for variant in _ADD_TO_APP_VARIANTS
+]
+
+# A module whose plugin links a prebuilt dynamic framework, as a pod's
+# `vendored_frameworks` or a Swift package's `binaryTarget` is one: the layout
+# carries VendoredGreeting.xcframework as it is, as `flutter build
+# ios-framework` and `macos-framework` copy a vendored one, and the plugin's
+# framework links it.
+flutter_application(
+    name = "vendored_module",
+    main = "lib/vendored_module_main.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "//vendored_plugin",
+        "@deps//:flutter",
+    ],
+)
+
+flutter_ios_xcframeworks(
+    name = "vendored_module_ios",
+    application = ":vendored_module",
+    tags = ["manual"],
+)
+
+flutter_macos_xcframeworks(
+    name = "vendored_module_macos",
+    application = ":vendored_module",
+    tags = ["manual"],
+)
+
+[
+    apple_release_build(
+        name = "add_to_app_vendored_%s_release" % platform,
+        compilation_mode = "fastbuild",
+        sign = False,
+        tags = ["manual"],
+        targets = [":vendored_module_" + platform],
+    )
+    for platform in _ADD_TO_APP_PLATFORMS
+]
+
+[
+    dart_test(
+        name = "add_to_app_vendored_%s_test" % platform,
+        args = [
+            "--platform=" + platform,
+            "vendored_module_" + platform,
+            "vendored_plugin/vendored_greeting_files/VendoredGreeting.xcframework",
+        ],
+        data = [
+            ":add_to_app_vendored_%s_release" % platform,
+            "//vendored_plugin:vendored_greeting_files",
+        ],
+        main = "test/add_to_app_vendored_test.dart",
+        target_compatible_with = ["@platforms//os:macos"],
+        deps = ["@rules_flutter//tools/e2e_testing"],
+    )
+    for platform in _ADD_TO_APP_PLATFORMS
 ]
 
 # Native hosts built by Xcode (`xcodebuild`), taking the module through its

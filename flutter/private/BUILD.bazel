@@ -1692,6 +1692,7 @@ bzl_library(
         ":apple_xcode",
         ":constants",
         ":exec_groups",
+        ":flutter_apple_plugin_library",
         ":flutter_native_assets",
         ":native_libraries",
         ":swiftpm_app_settings",
