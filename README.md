@@ -1039,6 +1039,37 @@ rules_flutter's own `maven.install` passes Coursier `--reconciliation *:*:relaxe
 
 Don't set `resolver = "gradle"` or `"maven"` to get this. The Gradle resolver picks the JVM or desktop variant of Kotlin Multiplatform libraries (for example `androidx.lifecycle:lifecycle-runtime-desktop`) instead of the Android one. The Maven resolver reports the same conflict as Coursier.
 
+#### An AAR that a POM asks for as a jar
+
+With the FlutterFire plugins in an app, the re-pin can lock `androidx.datastore:datastore-preferences` wrongly, and the build then fails to fetch it:
+
+```
+Download from https://maven.google.com/.../datastore-preferences-1.2.1.jar failed:
+  Checksum was 4cc64370… but wanted ae206842…
+```
+
+`firebase-common`'s POM asks for that artifact as `<type>jar</type>`, although it is an Android library published as an AAR (with a small jar beside it). rules_jvm_external then records a single jar entry carrying the AAR's checksum. Gradle reads the artifact's Gradle module metadata instead and uses the AAR. Until rules_jvm_external fixes this, name the AAR yourself and drop the jar-typed edge, then re-pin:
+
+```starlark
+maven.install(
+    name = "rules_flutter_maven",
+    artifacts = [
+        "androidx.datastore:datastore-preferences:aar:1.2.1",
+        # ...
+    ],
+    # ...
+)
+
+maven.artifact(
+    name = "rules_flutter_maven",
+    group = "com.google.firebase",
+    artifact = "firebase-common",
+    exclusions = ["androidx.datastore:datastore-preferences"],
+)
+```
+
+Use the version your lock already resolves for `datastore-preferences`. The AAR you list provides the classes `firebase-common` needs. `e2e/plugin_example` builds a Firebase app this way.
+
 #### Permissions in plugin manifests
 
 Permissions a plugin declares in its own manifest, such as `record_android`'s `RECORD_AUDIO`, reach the app's manifest as they do under Gradle. You don't need `--merge_android_manifest_permissions`.
