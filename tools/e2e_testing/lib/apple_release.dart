@@ -141,3 +141,40 @@ void checkDsymMatches(BundleCheck check, String path, List<String> dsyms) {
         : 'dSYMs found: $found',
   );
 }
+
+/// Checks that each dSYM of the binary at [path] among [dsyms], matched by
+/// UUID, has the line table of [symbol]: its first instruction is at one of
+/// [lines] of a file named [file] (an optimized function has no prologue, so
+/// its first instruction can be a line of its body). A dSYM read from the binary alone has its symbol
+/// table and no lines; the lines are in the object files it was linked from.
+void checkDsymSourceLine(
+  BundleCheck check,
+  String path,
+  List<String> dsyms, {
+  required String symbol,
+  required String file,
+  required Set<int> lines,
+}) {
+  final binaryUuids = MachO(path).uuids();
+  final matching = [
+    for (final dsym in dsyms)
+      if (MachO(dsym).uuids().containsAll(binaryUuids)) dsym,
+  ];
+  if (matching.isEmpty) {
+    check.fail('no dSYM of $path among $dsyms');
+    return;
+  }
+  for (final dsym in matching) {
+    final found = MachO(dsym).sourceLineOf(symbol);
+    check.expect(
+      '${dsym.split('/').last} puts $symbol at $file:${lines.join('|')}',
+      condition:
+          found != null &&
+          found.file.split('/').last == file &&
+          lines.contains(found.line),
+      detail: found == null
+          ? '$dsym has no line table row for $symbol'
+          : 'it puts it at ${found.file}:${found.line}',
+    );
+  }
+}

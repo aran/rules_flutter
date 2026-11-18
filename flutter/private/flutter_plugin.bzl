@@ -33,6 +33,7 @@ load("//flutter/private:flutter_library.bzl", "ADDITIONAL_LICENSES_ATTR", "ASSET
 load("//flutter/private:flutter_plugin_platform.bzl", "apple_resource_info", "plugin_platforms_of")
 load("//flutter/private:native_libraries.bzl", "native_library_records")
 load("//flutter/private:native_library_aspect.bzl", "native_library_aspect")
+load("//flutter/private:native_link_aspect.bzl", "native_link_aspect")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
@@ -257,7 +258,7 @@ PLUGIN_PACKAGE_ATTRS = package_identity_attrs() | {
     ),
     "native_deps": attr.label_list(
         doc = "Native dependencies. Use select() for platform-conditional deps.",
-        aspects = [native_library_aspect],
+        aspects = [native_library_aspect, native_link_aspect],
     ),
     "exports": attr.label_list(
         doc = "The plugin's Android libraries: a `flutter_android_plugin_library` or a `kt_android_library`, anything with `JavaInfo`. Its registration is the `android` entry of `platforms`. An Android app links the libraries of the plugins it depends on, and no others. Set this with `select()` on `@platforms//os:android`, with an empty list as the default, so that only an Android build loads and analyses it: `select({\"@platforms//os:android\": [\"//android:lib\"], \"//conditions:default\": []})`. Named `exports`, as a Java library's re-exported dependencies are, because rules_android dexes an APK's libraries one at a time by an aspect that follows `deps`, `exports` and `runtime_deps` and nothing else, so only an `exports` edge makes the library visible to it.",

@@ -41,7 +41,7 @@ test's assets directory, which flutter_tester reads.
 """
 
 load("@rules_dart//dart:providers.bzl", "DartInfo")
-load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "dart_program_assets_actions", "program_kernel_code_assets")
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "dart_program_assets_actions", "program_assets_action_args", "program_kernel_code_assets")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "portable_tools")
 
@@ -348,6 +348,60 @@ def candidate_code_asset_libraries(program_assets):
         if asset.link_mode == "dynamic_loading_bundle" and asset.file != None
     }.keys())
 
+def bundled_library_debug_info(application):
+    """What the dSYM of each library an application bundles is made from.
+
+    Its `native_libraries` and every code-asset candidate's library (see
+    `candidate_code_asset_libraries`). A library whose link made its dSYM
+    (rustc's, of a `rust_shared_library`) has that dSYM; any other has what
+    it was linked from, which `dsymutil` reads the dSYM out of. A library with
+    neither fails the build, saying why: its dSYM would silently lack the
+    lines of whatever it was linked from.
+
+    Args:
+      application: The application Target, with `FlutterApplicationInfo`.
+
+    Returns:
+      dict[File, struct(link_inputs, dsym)]: `link_inputs` a depset[File],
+      empty for a prebuilt library, which was linked from nothing in the
+      build; `dsym` the `.dSYM` directory to use as it is, or None.
+    """
+    app_info = application[FlutterApplicationInfo]
+    link_inputs = {}
+    dsyms = {}
+    for record in app_info.native_libraries:
+        if record.dsym != None:
+            dsyms[record.library] = record.dsym
+            continue
+        if record.link_inputs == None:
+            fail("%s bundles %s, and what it was linked from, which its dSYM is read from, is unknown: %s" % (
+                application.label,
+                record.library.short_path,
+                record.link_inputs_unset_reason,
+            ))
+        link_inputs[record.library] = [record.link_inputs]
+    for asset in code_asset_candidates(app_info.program_assets):
+        if asset.link_mode != "dynamic_loading_bundle" or asset.file == None or asset.file in dsyms:
+            continue
+
+        # rules_dart gives None when the build cannot see the link, and says
+        # why.
+        if asset.link_inputs == None:
+            fail("%s bundles %s for the code asset %s, and what it was linked from, which its dSYM is read from, is unknown: %s" % (
+                application.label,
+                asset.file.short_path,
+                asset.asset_id,
+                asset.link_inputs_unset_reason,
+            ))
+        link_inputs.setdefault(asset.file, []).append(asset.link_inputs)
+    return {
+        lib: struct(link_inputs = depset(transitive = inputs), dsym = None)
+        for lib, inputs in link_inputs.items()
+    } | {
+        lib: struct(link_inputs = None, dsym = dsym)
+        for lib, dsym in dsyms.items()
+    }
+
 def check_bundled_library_names(label, libraries):
     """Fails when two of an app's bundled libraries have one file name.
 
@@ -548,6 +602,51 @@ def run_code_assets_tool(ctx, command, arguments, inputs, outputs, mnemonic, pro
         execution_requirements = PATH_MAPPING,
         progress_message = progress_message,
     )
+
+def shipped_dsyms(ctx, program_assets, always, candidates):
+    """The dSYMs of the libraries an Apple app bundles, less those of the code assets it drops.
+
+    Every candidate's library is prepared, with its dSYM, before anything
+    knows which ship: a release build's link hooks choose. `flutter build`
+    makes a dSYM only for a code asset it bundles, so this directory holds the
+    dSYM bundles of those that ship, each under its own name, for rules_apple's
+    `dsyms` output group, as rules_apple hands on an imported xcframework's
+    dSYMs as a directory.
+
+    Args:
+      ctx: Rule context with `CODE_ASSETS_TOOL_ATTRS` and `PORTABLE_EXEC_GROUPS`.
+      program_assets: The program's `DartProgramAssetsInfo`.
+      always: The `declare_library_dsym` structs of the libraries that always
+        ship, the `native_deps` ones.
+      candidates: Pairs of a code-asset library's file name and its
+        `declare_library_dsym` struct.
+
+    Returns:
+      The directory, or None when there is no dSYM.
+    """
+    if not always and not candidates:
+        return None
+    output = ctx.actions.declare_directory(ctx.label.name + "_shipped_dsyms")
+    code_assets = program_assets_action_args(ctx.actions, program_assets, data = False, code = "names")
+    args = ctx.actions.args()
+    args.add_all("--output", [output], expand_directories = False)
+    args.add_all([d.plist for d in always], before_each = "--always")
+    for file_name, dsym in candidates:
+        args.add("--candidate-dsym", file_name)
+        args.add(dsym.plist)
+    run_code_assets_tool(
+        ctx,
+        "dsyms",
+        [args, code_assets.args],
+        depset(
+            [f for d in always for f in d.files] + [f for _, d in candidates for f in d.files],
+            transitive = [code_assets.inputs],
+        ),
+        [output],
+        mnemonic = "FlutterShippedDsyms",
+        progress_message = "Collecting the dSYMs of the libraries %{label} ships",
+    )
+    return output
 
 # -- Tier 2 standalone rule ----------------------------------------------------
 

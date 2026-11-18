@@ -211,7 +211,9 @@ def _bundling_tests(name):
 
     # The libraries the bundle carries beside its binary, stripped and with a
     # dSYM each, as rules_apple treats the binary; every candidate, since
-    # which ship is known only once the app is built.
+    # which ship is known only once the app is built. The app's `dsyms` group
+    # has those that ship: `libdropped`'s is a candidate, which the action
+    # collecting them leaves out.
     native_library_symbols_test(
         name = name + "_native_libs_symbols",
         target_under_test = name + "_native_libs",
@@ -222,6 +224,8 @@ def _bundling_tests(name):
             "libasset.dylib.dSYM/libasset.dylib",
             "libdropped.dylib.dSYM/libdropped.dylib",
         ],
+        expected_always = ["libadd.dylib.dSYM", "libsub.dylib.dSYM"],
+        expected_candidates = ["libasset.dylib.dSYM", "libdropped.dylib.dSYM"],
         target_compatible_with = ["@platforms//os:macos"],
     )
     native_library_untouched_test(

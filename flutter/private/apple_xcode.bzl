@@ -256,12 +256,12 @@ def rewrite_install_names(ctx, directory, libraries):
     return struct(inputs = inputs, pairs = pairs)
 
 # Sets $2's install name to $3, and changes its links to the libraries named in
-# the files of `rewrite_install_names` from $5 on, each followed by the
+# the files of `rewrite_install_names` from $6 on, each followed by the
 # install name it moves to.
 _INSTALL_NAME_TOOL = """\
 changes=()
 seen=$'\\n'
-for ((i = 5; i < $#; i += 2)); do
+for ((i = 6; i < $#; i += 2)); do
   j=$((i + 1))
   new="${!j}"
   while IFS= read -r old; do
@@ -279,7 +279,7 @@ done
 xcrun install_name_tool -id "$3" "${changes[@]}" "$2"
 """
 
-def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None, install_name = None, install_name_changes = None):
+def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None, debug_info = None, install_name = None, install_name_changes = None):
     """Registers the action that makes the copy of `library` an Apple app bundles.
 
     As `flutter build` treats a native asset (`native_assets_host.dart`):
@@ -287,11 +287,25 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
     removes its local symbols and debugging map. The UUID is unchanged, so a
     crash in the shipped library symbolicates against the dSYM.
 
-    The library's debugging map is dropped before the dSYM is made: it names
-    object files that are not inputs of this action (a pub package's build
-    hook compiled them in an action of its own), so `dsymutil` would read them
-    when it ran unsandboxed and not otherwise. The dSYM holds the library's
-    symbol table, which names every function a crash report can land in.
+    A library holds no DWARF of its own. Its debugging map names the object
+    files and static archives it was linked from, and `dsymutil` reads the
+    DWARF out of those, so they are inputs of the action, `link_inputs`: the
+    dSYM then has the line tables a crash report's `file:line` comes from. A
+    debugging map naming a file that is not among them fails the action,
+    because the dSYM would silently lack that file's lines.
+
+    A library whose link made its dSYM, as rustc makes a `rust_shared_library`'s
+    from objects it deletes in the same action, has that dSYM copied, named
+    as the shipped binary is. Its UUID must be the library's. An empty one,
+    from a compile without debug information, leaves the symbol table's.
+
+    A prebuilt library, one whose `link_inputs` are empty, was linked
+    somewhere else, and the files its debugging map names are not in the
+    build. Its map is dropped first, and its dSYM holds its symbol table,
+    which names every function a crash report can land in.
+
+    The dSYM is read from the copy before anything strips it: `strip -S` or
+    `strip -x` leaves a binary no line table can be read from.
 
     Args:
       ctx: A rule context with `XCODE_TOOL_ATTRS`.
@@ -300,6 +314,11 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
       symbols: A `native_library_symbols` struct.
       mnemonic: The action's mnemonic.
       dsym: A `declare_library_dsym` struct, when `symbols.dsym`.
+      debug_info: With `dsym`, what it is made from, as
+        `bundled_library_debug_info` gives it: `link_inputs`, a depset of what
+        `library` was linked from (`DartCodeAssetInfo.link_inputs`, or a
+        `native_deps` library's, `native_link_aspect.bzl`), empty for a
+        prebuilt library; or `dsym`, the dSYM its link made.
       install_name: None, or the install name to give the copy.
       install_name_changes: None, or a `rewrite_install_names` struct of the
         libraries bundled with this one, whose links to them the copy has
@@ -307,17 +326,27 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
     """
 
     # $1 the library, $2 the copy, $3 its install name, $4 its dSYM's plist,
-    # and from $5 the install-name changes.
+    # $5 the dSYM its link made, and from $6 the install-name changes.
+    if dsym and debug_info == None:
+        fail("%s: the dSYM of %s needs what it was linked from" % (ctx.label, library.short_path))
+    prebuilt_dsym = debug_info.dsym if dsym else None
+    link_inputs = debug_info.link_inputs if dsym else None
     args = ctx.actions.args().add_all([library, output])
     args.add(install_name or "")
     args.add_all([dsym.plist] if dsym else [""])
+    args.add_all([prebuilt_dsym] if prebuilt_dsym else [""], expand_directories = False)
     commands = [
         "set -e",
         'cp "$1" "$2"',
         'chmod u+w "$2"',
     ]
     inputs = [library]
+    transitive_inputs = []
     outputs = [output]
+
+    # Path mapping would move the files the debugging map names away from the
+    # paths it names them by.
+    execution_requirements = PATH_MAPPING
     if install_name_changes:
         if not install_name:
             fail("install_name_changes needs an install_name")
@@ -325,20 +354,61 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
         inputs.extend(install_name_changes.inputs)
     if install_name:
         commands.append(_INSTALL_NAME_TOOL)
-    if dsym:
-        # dsymutil reads a copy without the debugging map (the stabs `strip -S`
-        # removes), named as the shipped binary is, as its DWARF file is.
+
+    # dsymutil reads a copy without the debugging map (the stabs `strip -S`
+    # removes), named as the shipped binary is, as its DWARF file is.
+    symbol_table_dsym = [
+        'bundle="$(dirname "$(dirname "$4")")"',
+        'scratch="$bundle.input"',
+        'mkdir -p "$scratch"',
+        'xcrun strip -S "$2" -o "$scratch/$(basename "$2")"',
+        # It warns that the copy has no debugging map, which it has not by
+        # design; anything else it says is passed on.
+        'out="$(xcrun dsymutil -o "$bundle" "$scratch/$(basename "$2")" 2>&1)" || { echo "$out" >&2; exit 1; }',
+        'out="$(echo "$out" | grep -v "no debug symbols in executable" || true)"',
+        '[ -z "$out" ] || echo "$out" >&2',
+        'rm -rf "$scratch"',
+    ]
+    if prebuilt_dsym:
+        inputs.append(prebuilt_dsym)
+
+        # rustc leaves its dSYM empty when it compiled with no debug
+        # information, as rules_rust does outside `-c dbg`: the library's
+        # dSYM is then its symbol table's, as a prebuilt's is.
         commands.extend([
-            'bundle="$(dirname "$(dirname "$4")")"',
-            'scratch="$bundle.input"',
-            'mkdir -p "$scratch"',
-            'xcrun strip -S "$2" -o "$scratch/$(basename "$2")"',
-            # It warns that the copy has no debugging map, which it has not
-            # by design; anything else it says is passed on.
-            'out="$(xcrun dsymutil -o "$bundle" "$scratch/$(basename "$2")" 2>&1)" || { echo "$out" >&2; exit 1; }',
+            'if [ -z "$(ls -A "$5")" ]; then',
+        ] + ["  " + c for c in symbol_table_dsym] + [
+            "else",
+            '  dwarf=("$5"/Contents/Resources/DWARF/*)',
+            '  [ "${#dwarf[@]}" -eq 1 ] && [ -f "${dwarf[0]}" ] || { echo "$5 holds no single DWARF file" >&2; exit 1; }',
+            '  want="$(xcrun dwarfdump --uuid "$2" | cut -d" " -f2 | sort)"',
+            '  have="$(xcrun dwarfdump --uuid "${dwarf[0]}" | cut -d" " -f2 | sort)"',
+            '  [ -n "$want" ] && [ "$want" = "$have" ] || { echo "$5 (UUID $have) is not the dSYM of $(basename "$1") (UUID $want)" >&2; exit 1; }',
+            '  mkdir -p "$(dirname "$4")/Resources/DWARF"',
+            '  cp "$5/Contents/Info.plist" "$4"',
+            '  cp "${dwarf[0]}" "$(dirname "$4")/Resources/DWARF/$(basename "$2")"',
+            "fi",
+        ])
+        outputs.extend(dsym.files)
+    elif dsym and not link_inputs:
+        commands.extend(symbol_table_dsym)
+        outputs.extend(dsym.files)
+    elif dsym:
+        transitive_inputs.append(link_inputs)
+        execution_requirements = {}
+
+        # Its DWARF file is named for the file it is read from, the copy,
+        # named as the shipped binary is. A library compiled without debug
+        # information has no debugging map, which it says, and that is all it
+        # may say: a file of the map it cannot read is a missing input.
+        commands.extend([
+            'out="$(xcrun dsymutil -o "$(dirname "$(dirname "$4")")" "$2" 2>&1)" || { echo "$out" >&2; exit 1; }',
             'out="$(echo "$out" | grep -v "no debug symbols in executable" || true)"',
-            '[ -z "$out" ] || echo "$out" >&2',
-            'rm -rf "$scratch"',
+            'if [ -n "$out" ]; then',
+            '  echo "$out" >&2',
+            '  echo "dsymutil could not read all of $(basename "$1")\'s debug information: the files its debugging map names must be inputs of this action." >&2',
+            "  exit 1",
+            "fi",
         ])
         outputs.extend(dsym.files)
     if symbols.strip:
@@ -347,10 +417,10 @@ def process_native_library(ctx, library, output, symbols, mnemonic, dsym = None,
         ctx,
         command = "\n".join(commands),
         arguments = [args],
-        inputs = inputs,
+        inputs = depset(inputs, transitive = transitive_inputs),
         outputs = outputs,
         mnemonic = mnemonic,
-        execution_requirements = PATH_MAPPING,
+        execution_requirements = execution_requirements,
         progress_message = "Preparing %s for the bundle%s" % (
             library.basename,
             " with its dSYM" if dsym else "",

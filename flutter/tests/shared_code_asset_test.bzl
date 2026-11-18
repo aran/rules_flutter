@@ -8,6 +8,7 @@ own static state. Over `//flutter/tests/shared_code_asset_fixture`.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@rules_apple//apple:providers.bzl", "AppleFrameworkImportInfo")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartPackageInfo", "DartPackageMetadataInfo")
 load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "package_info_from_metadata", "program_assets_attrs")
 load("//flutter:native_hot_patch.bzl", "HOT_PATCH_OUTPUT_GROUP", "flutter_native_hot_patch_aspect")
@@ -346,6 +347,30 @@ def _renamed_framework_bundle_impl(ctx):
     return analysistest.end(env)
 
 _renamed_framework_bundle_ios_arm64_test = analysistest.make(_renamed_framework_bundle_impl, config_settings = _platform("ios_arm64"))
+
+def _renamed_framework_dsym_impl(ctx):
+    # Each framework's dSYM is named for the framework, as `flutter build ios`
+    # names it, so a crash in `combined1` finds `combined1.framework.dSYM`.
+    # They reach rules_apple through the action that collects those that
+    # ship, whose inputs they are.
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    dsyms = target[AppleFrameworkImportInfo].dsym_imports.to_list()
+    collect = [a for a in analysistest.target_actions(env) if a.outputs.to_list() == dsyms]
+    asserts.equals(env, 1, len(collect), "one action makes the dSYMs rules_apple hands on")
+    dwarf = sorted([
+        "/".join([f.path.split("/")[-5], f.basename])
+        for a in collect
+        for f in a.inputs.to_list()
+        if "/Resources/DWARF/" in f.path
+    ])
+    asserts.equals(env, ["combined.framework.dSYM/combined", "combined1.framework.dSYM/combined1"], dwarf)
+    return analysistest.end(env)
+
+_renamed_framework_dsym_ios_arm64_test = analysistest.make(
+    _renamed_framework_dsym_impl,
+    config_settings = _platform("ios_arm64") | {"//command_line_option:apple_generate_dsym": True},
+)
 _refuses_linux_x64_test = analysistest.make(_refuses_impl, attrs = _REFUSES_ATTRS, expect_failure = True, config_settings = _platform("linux_x64") | _DBG)
 _refuses_macos_arm64_test = analysistest.make(_refuses_impl, attrs = _REFUSES_ATTRS, expect_failure = True, config_settings = _platform("macos_arm64"))
 _builds_macos_arm64_test = analysistest.make(_builds_impl, config_settings = _platform("macos_arm64"))
@@ -563,6 +588,12 @@ def shared_code_asset_test_suite(name):
         target_compatible_with = ["@platforms//os:macos"],
     )
     tests.append(name + "_framework_renamed_in_the_ios_bundle")
+    _renamed_framework_dsym_ios_arm64_test(
+        name = name + "_framework_renamed_in_its_dsym",
+        target_under_test = _FIXTURE + "app_same_framework_name_ios_frameworks",
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    tests.append(name + "_framework_renamed_in_its_dsym")
     _BUILDS_ON["macos_arm64"](
         name = name + "_framework_names_matter_on_ios_only",
         target_under_test = _FIXTURE + "app_same_framework_name",

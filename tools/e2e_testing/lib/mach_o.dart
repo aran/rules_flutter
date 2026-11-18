@@ -114,6 +114,40 @@ extension MachOInspection on MachO {
     };
   }
 
+  /// Where the line table of this `.dSYM` bundle puts the first instruction
+  /// of the function [symbol] (as the symbol table names it, `_sub` for C's
+  /// `sub`): the source file, as the compiler named it, and the line. That
+  /// is what a crash report's `file:line` is read from. Null when the line
+  /// table has no row for it, as in a dSYM holding only a symbol table.
+  ///
+  /// Throws a [StateError] if the bundle has no single DWARF file, or the
+  /// symbol table does not define [symbol].
+  ({String file, int line})? sourceLineOf(String symbol) {
+    final dwarf = Directory('$path/Contents/Resources/DWARF').listSync();
+    if (dwarf.length != 1) {
+      throw StateError('$path holds ${dwarf.length} DWARF files');
+    }
+    final nm = Process.runSync('nm', ['-U', dwarf.single.path]);
+    final address = RegExp(
+      '^([0-9a-f]+) [A-Za-z] ${RegExp.escape(symbol)}\$',
+      multiLine: true,
+    ).firstMatch(nm.stdout.toString())?.group(1);
+    if (nm.exitCode != 0 || address == null) {
+      throw StateError('$path defines no $symbol: ${nm.stderr}');
+    }
+    final lookup = Process.runSync('xcrun', [
+      'dwarfdump',
+      '--lookup=0x$address',
+      path,
+    ]);
+    final match = RegExp(
+      r"^Line info: file '([^']+)', line (\d+)",
+      multiLine: true,
+    ).firstMatch(lookup.stdout.toString());
+    if (match == null) return null;
+    return (file: match.group(1)!, line: int.parse(match.group(2)!));
+  }
+
   /// The binary's install name (`LC_ID_DYLIB`), which a binary that links the
   /// dylib records and the dynamic linker looks it up by.
   ///

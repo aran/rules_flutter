@@ -10,20 +10,32 @@ _B = struct(short_path = "b.c")
 _CONTRACT = struct(short_path = "foo.h")
 _OTHER_CONTRACT = struct(short_path = "bar.h")
 
-def _record(sources, contract):
-    return struct(library = _LIB, package = "foo", sources = sources, contract = contract)
+_LINKED = depset([struct(short_path = "foo.o")])
+
+def _record(sources, contract, link_inputs = None):
+    return struct(
+        library = _LIB,
+        package = "foo",
+        sources = sources,
+        contract = contract,
+        link_inputs = link_inputs,
+        dsym = None,
+        link_inputs_unset_reason = None if link_inputs != None else "unseen",
+    )
 
 def _one_record_per_library_impl(ctx):
     # The app's own `native_deps` and a plugin's bring one library; only the
-    # wrapper in one of them states its contract.
+    # wrapper in one of them states its contract, and only the other sees the
+    # link.
     env = unittest.begin(ctx)
     merged = merge_native_libraries(ctx.label, [
-        _record((_A,), ()),
+        _record((_A,), (), _LINKED),
         _record((_B, _A), (_CONTRACT,)),
     ])
     asserts.equals(env, [_LIB], merged.keys())
     asserts.equals(env, (_A, _B), merged[_LIB].sources, "every route's sources, each once, first seen first")
     asserts.equals(env, (_CONTRACT,), merged[_LIB].contract, "no contract yields to a stated one")
+    asserts.equals(env, _LINKED, merged[_LIB].link_inputs, "an unseen link yields to a seen one")
     return unittest.end(env)
 
 _one_record_per_library_test = unittest.make(_one_record_per_library_impl)

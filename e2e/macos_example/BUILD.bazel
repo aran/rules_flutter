@@ -684,6 +684,9 @@ flutter_macos_app(
 [
     dart_test(
         name = "verify_macos_release_%s_%s_test" % (what, mode),
+        # The link keeps a library's debugging map, which its dSYM's line
+        # tables are read through, in `opt` (see the test).
+        args = ["--line-tables"] if what == "dsym" and mode == "opt" else [],
         data = [":release_%s" % mode] + ([":release_obfuscated_%s" % mode] if what == "obfuscated" else []),
         main = "test/verify_macos_release_%s_test.dart" % what,
         target_compatible_with = ["@platforms//os:macos"],

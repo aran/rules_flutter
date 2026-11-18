@@ -1,15 +1,21 @@
 /// Verifies a release iOS app for a device carries the framework of the code
 /// asset `pick`'s link hook kept and not the one it dropped, which its
-/// post-processor removed with the list it read, and that the app's
-/// `NativeAssetsManifest.json` names the same.
+/// post-processor removed with the list it read, that the app's
+/// `NativeAssetsManifest.json` names the same, and that its `dsyms` output
+/// group holds the dSYM of the one it kept and not of the one it dropped.
 library;
 
 import 'package:rules_flutter_e2e_testing/ios_bundle.dart';
+import 'package:rules_flutter_e2e_testing/runfiles_paths.dart';
 
 void main() {
   final bundle = IosBundle.fromRunfiles(
     'ffi_ios_device.ipa',
     appName: 'ffi_ios_device',
+  );
+  final dsyms = requireRunfile(
+    'ffi_ios_native_frameworks_shipped_dsyms',
+    what: 'The dSYMs of the libraries the app ships',
   );
   bundle.check
     ..exists(
@@ -27,6 +33,14 @@ void main() {
     ..absent(
       'the list of frameworks to remove',
       '${bundle.path}/rules_flutter_dropped_frameworks.txt',
+    )
+    ..exists(
+      'the dSYM of the kept pick_kept.framework',
+      '$dsyms/pick_kept.framework.dSYM/Contents/Resources/DWARF/pick_kept',
+    )
+    ..absent(
+      'the dSYM of the dropped pick_dropped.framework',
+      '$dsyms/pick_dropped.framework.dSYM',
     )
     ..nativeAssetsManifest(
       '${bundle.path}/Frameworks/App.framework/flutter_assets',

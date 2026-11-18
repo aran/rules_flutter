@@ -18,6 +18,7 @@ load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_a
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "bundle_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
 load("//flutter/private:native_library_aspect.bzl", "native_library_aspect")
+load("//flutter/private:native_link_aspect.bzl", "native_link_aspect")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant", "generate_dev_plugin_registrants")
 load("//flutter/private:plugin_resolution.bzl", "PLUGIN_WARNINGS_TOOL_ATTR", "application_plugins", "plugin_warnings_validation")
@@ -1431,7 +1432,7 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
     ),
     "native_deps": attr.label_list(
         doc = "cc_library targets providing shared libraries for dart:ffi. A web app built over the application bundles none of them, as `flutter build web` builds no native code.",
-        aspects = [native_library_aspect],
+        aspects = [native_library_aspect, native_link_aspect],
         # Built for the platform the build had before any web app's
         # transition: no C++ toolchain targets a web platform.
         cfg = runtime_reset,

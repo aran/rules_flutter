@@ -508,6 +508,33 @@ void place(
   }
 }
 
+/// Copies into [output] the dSYM bundles of the libraries that ship: each of
+/// [always], and each of [candidates] (a library's file name to its
+/// bundle) whose library [program] ships. Each bundle is named by its
+/// `Contents/Info.plist`, two directories under it, and keeps its name.
+///
+/// As `flutter build` makes a dSYM only for a code asset it bundles, the
+/// dSYM of one a link hook dropped is left out.
+void shippedDsyms(
+  ProgramCodeAssets program,
+  String output,
+  List<String> always,
+  Map<String, String> candidates,
+) {
+  Directory(output).createSync(recursive: true);
+  final shipped = program.shippedFileNames;
+  final bundles = {
+    ...always,
+    for (final MapEntry(key: fileName, value: plist) in candidates.entries)
+      if (shipped.contains(fileName)) plist,
+  };
+  for (final plist in bundles) {
+    final bundle = File(plist).parent.parent;
+    final name = bundle.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    copyBundle(bundle, Directory('$output/$name'));
+  }
+}
+
 /// The name of the file an iOS app carries listing the frameworks to remove
 /// from it before it is signed: `iosDroppedFrameworks`, read by
 /// `ios_code_asset_post_processor.dart`.
@@ -702,6 +729,21 @@ int _run(List<String> args) {
         final base = xcframework.substring(xcframework.lastIndexOf('/') + 1);
         copyBundle(Directory(xcframework), Directory('$output/$base'));
       }
+    case 'dsyms':
+      // `--candidate-dsym <file name> <plist>`, one for each code asset that
+      // could ship; `--always <plist>`, one for each library that does.
+      final candidates = <String, String>{};
+      for (var i = 0; i < rest.length - 2; i++) {
+        if (rest[i] == '--candidate-dsym') {
+          candidates[rest[i + 1]] = rest[i + 2];
+        }
+      }
+      shippedDsyms(
+        ProgramCodeAssets.read(_programAssets(rest)),
+        _flag(rest, '--output'),
+        _all(rest, '--always'),
+        candidates,
+      );
     case 'android-libs':
       final always = <String, String>{
         for (final library in _all(rest, '--library'))

@@ -94,6 +94,13 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
 8. Rule authors: `const_finder` is removed from `flutter_host_tools`,
    `FlutterHostToolsInfo` and `FlutterSdkInfo`. Icon tree shaking reads the
    icons the compiler records instead.
+9. With `--apple_generate_dsym`, an Apple app makes a dSYM of each native
+   library it bundles, read from what the library was linked from, and fails
+   when the build can't see that: a library a genrule writes, or a code asset
+   whose `file` is a `filegroup` or a `rust_shared_library`. Name the target
+   that links the library instead, or have the rule that provides it return
+   rules_dart's `DartLinkInputsInfo` (empty `inputs` for a library linked
+   outside the build). See [dSYMs on iOS and macOS](#build-modes).
 
 ## Road to 1.0
 
@@ -431,7 +438,7 @@ bazel build -c opt //:my_app_macos --output_groups=+dsyms
 
 With `--apple_generate_dsym`, the group also holds the runner's dSYM and the engine's: `Flutter.framework.dSYM` on iOS, and on macOS `FlutterMacOS.framework.dSYM` in a release build, the one mode Flutter ships it for. Only that flag downloads the macOS engine's dSYM, which comes in a 165 MB archive.
 
-The native libraries the app bundles beside its binary (a `native_deps` library, a code asset) are treated as rules_apple treats the runner's binary. With `--apple_generate_dsym` each has a dSYM in the group, `<name>.framework.dSYM` on iOS and `<library>.dylib.dSYM` on macOS. With `--objc_enable_binary_stripping` in `-c opt`, each is shipped without its local symbols and debugging map. A library's dSYM holds its symbol table, so a crash in it symbolicates to the function; it has no line tables, because the object files it was linked from are not inputs of the build step that makes it.
+The native libraries the app bundles beside its binary (a `native_deps` library, a code asset) are treated as rules_apple treats the runner's binary. With `--apple_generate_dsym` each has a dSYM in the group, `<name>.framework.dSYM` on iOS and `<library>.dylib.dSYM` on macOS. With `--objc_enable_binary_stripping` in `-c opt`, each is shipped without its local symbols and debugging map. A library's dSYM is read from the object files and static archives it was linked from, as `flutter build` reads it, so a crash in it symbolicates to the file and line. That takes the library's debugging map, which the link keeps in `-c opt` and Bazel's default `--strip=sometimes` removes in `fastbuild`, where the dSYM holds the library's symbol table, as a prebuilt library's does: a crash in it symbolicates to the function. The build has to see the link: a `native_deps` entry or a `dart_code_asset` `file` that is the `cc_shared_library` (or `cc_binary`) linking the library, or a `copy_file` or `filegroup` of one in `native_deps`. A `rust_shared_library` in `native_deps` is linked by rustc from objects it deletes, so its dSYM is the one rustc writes beside it on macOS. It has line tables when rustc compiled with debug information, which rules_rust turns on in `-c dbg` only; pass `--@rules_rust//rust/settings:extra_rustc_flag=-Cdebuginfo=2` for them in `-c opt`. Without debug information, and on iOS, where rules_rust keeps no dSYM, the library's dSYM holds its symbol table. A library another action wrote, a genrule that renames or strips one say, or a code asset whose `file` is a `filegroup`, fails a build with `--apple_generate_dsym`, saying why, unless the rule that provides it states what the library was linked from in rules_dart's `DartLinkInputsInfo`: empty `inputs` for a library linked outside the build.
 
 `extra_gen_snapshot_options = ["--no-strip"]` on the `flutter_application` keeps the symbols in the binary, as it does for `flutter build`. The dSYM is still made. A `flutter_aot_snapshot` on its own isn't stripped, and its object file is in the `macho_object` output group.
 
@@ -4315,7 +4322,7 @@ An action whose output doesn't depend on the target platform, such as a kernel c
 | `pub_assets` | `depset[struct]` | Each package's asset files: `package_name`, `package_root`, `asset_path` (the path from the package root), `file`, and the `platforms` and `flavors` it is limited to. |
 | `pub_fonts`, `pub_shaders` | `depset[struct]` | Each package's font families and shaders, in the same shape. |
 | `plugins` | `list[struct]` | The plugins, each with `name` and `platforms`. |
-| `native_libraries` | `depset[struct]` | The shared libraries of plugins' `native_deps`, one record each: `library`, the `package` whose `native_deps` brought it, the first-party `sources` it is built from, and the `contract` its bindings were generated from. |
+| `native_libraries` | `depset[struct]` | The shared libraries of plugins' `native_deps`, one record each: `library`, the `package` whose `native_deps` brought it, the first-party `sources` it is built from, the `contract` its bindings were generated from, the `link_inputs` it was linked from, or the `dsym` its link made (with `link_inputs_unset_reason` when the build cannot see either). |
 
 **`FlutterFontFamilyInfo`** is provided by `flutter_font_family`: its `family`, and its `fonts`, each a **`FlutterFontInfo`** with `file`, `weight`, `style` and `asset`, as on `flutter_font`.
 

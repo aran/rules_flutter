@@ -53,6 +53,7 @@ load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release
 load(":c_hot_patch.bzl", "c_hot_patch")
 load(":code_asset.bzl", "stand_in_code_asset")
 load(":ios_sim_debug.bzl", "ios_sim_debug_app")
+load(":prebuilt_library.bzl", "prebuilt_library")
 
 exports_files(["pubspec.lock"])
 
@@ -221,9 +222,10 @@ flutter_native_library(
     visibility = ["//sub_asset:__pkg__"],
 )
 
-# A prebuilt library: a plain file with no `CcSharedLibraryInfo`, as a vendored
-# `.so`/`.dylib`/`.dll` or an `http_file` is. Taken from a `cc_shared_library`
-# so it is built for whichever platform the app is, with no checked-in binary.
+# A prebuilt library: a plain file with no `CcSharedLibraryInfo`, linked from
+# nothing the build knows, as a vendored `.so`/`.dylib`/`.dll` or an
+# `http_file` is (`prebuilt_library.bzl`). Taken from a `cc_shared_library` so
+# it is built for whichever platform the app is, with no checked-in binary.
 # It reaches the app as the code asset of `//prebuilt_asset`.
 cc_library(
     name = "negate_cc",
@@ -235,10 +237,9 @@ cc_shared_library(
     deps = [":negate_cc"],
 )
 
-filegroup(
+prebuilt_library(
     name = "negate_prebuilt",
-    srcs = [":negate"],
-    output_group = "main_shared_library_output",
+    library = ":negate",
 )
 
 dart_code_asset(
@@ -693,10 +694,12 @@ dart_analysis_test(
 )
 
 # A release iOS app for a device, unsigned: its link hook drops `pick_dropped`,
-# whose framework the post-processor removes, with the list it read.
+# whose framework the post-processor removes, with the list it read, and whose
+# dSYM the `dsyms` output group leaves out.
 apple_release_build(
     name = "ios_device_release",
     compilation_mode = "fastbuild",
+    generate_dsym = True,
     ios_device = True,
     sign = False,
     tags = ["manual"],

@@ -27,7 +27,7 @@ load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo"
 load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "declare_dsym", "declare_library_dsym", "native_library_symbols", "process_native_library", "split_and_strip_aot_binary")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "run_code_assets_tool")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "bundled_library_debug_info", "candidate_code_asset_libraries", "run_code_assets_tool", "shipped_dsyms")
 load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
@@ -250,18 +250,22 @@ def _flutter_macos_native_libs_impl(ctx):
     symbols = native_library_symbols(ctx)
     native_libs = native_library_files(app_info)
     copies = []
-    dsym_files = []
+    always_dsyms = []
+    candidate_dsyms = []
     if symbols.dsym or symbols.strip:
         prepared = {}
+        debug_info = bundled_library_debug_info(ctx.attr.application) if symbols.dsym else {}
         for library in list(native_libs) + candidate_code_asset_libraries(app_info.program_assets):
             if library in prepared:
                 continue
             copy = ctx.actions.declare_file("%s_libraries/%s" % (ctx.label.name, library.basename))
             dsym = declare_library_dsym(ctx, ctx.label.name + "_dsyms", library.basename, library.basename) if symbols.dsym else None
-            process_native_library(ctx, library = library, output = copy, symbols = symbols, mnemonic = "FlutterMacOSNativeLibrary", dsym = dsym)
+            process_native_library(ctx, library = library, output = copy, symbols = symbols, mnemonic = "FlutterMacOSNativeLibrary", dsym = dsym, debug_info = debug_info.get(library))
             prepared[library] = copy
-            if dsym:
-                dsym_files.extend(dsym.files)
+            if dsym and library in native_libs:
+                always_dsyms.append(dsym)
+            elif dsym:
+                candidate_dsyms.append((library.basename, dsym))
         native_libs = [prepared[library] for library in native_libs]
         copies = [copy for library, copy in prepared.items() if library not in native_library_files(app_info)]
 
@@ -282,13 +286,15 @@ def _flutter_macos_native_libs_impl(ctx):
         progress_message = "Staging native libraries for %{label}",
     )
     providers = [DefaultInfo(files = depset([staged]))]
-    if dsym_files:
+    dsyms = shipped_dsyms(ctx, app_info.program_assets, always_dsyms, candidate_dsyms)
+    if dsyms:
         # A framework import that imports no framework: all it carries is the
-        # dSYMs, which rules_apple puts in the app's `dsyms` output group.
+        # dSYMs of the libraries that ship, which rules_apple puts in the
+        # app's `dsyms` output group.
         providers.append(framework_import_support.framework_import_info_with_dependencies(
             build_archs = [apple_support.target_arch_from_rule_ctx(ctx)],
             deps = [],
-            dsyms = dsym_files,
+            dsyms = [dsyms],
         ))
     return providers
 

@@ -478,6 +478,54 @@ void main() {
     });
   });
 
+  test('shippedDsyms copies the dSYMs of what ships, none of what dropped', () {
+    final dir = Directory.systemTemp.createTempSync('code_assets');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final params = fixture('code_names.params');
+    final program = ProgramCodeAssets.read(
+      params,
+      base: File(params).parent.path,
+    );
+    String dsym(String bundle) {
+      final plist = File('${dir.path}/in/$bundle.dSYM/Contents/Info.plist')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(bundle);
+      File('${dir.path}/in/$bundle.dSYM/Contents/Resources/DWARF/$bundle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('dwarf');
+      return plist.path;
+    }
+
+    final shipped = program.shippedFileNames.first;
+    final out = '${dir.path}/out';
+    shippedDsyms(
+      program,
+      out,
+      [dsym('libnative.dylib')],
+      {
+        shipped: dsym(shipped),
+        'libmul.so': dsym('libmul.so'),
+      },
+    );
+    // Each one's place in the bundle, `/`-separated whatever the host's.
+    final copied = [
+      for (final f in Directory(out).listSync(recursive: true))
+        if (f is File)
+          f.path
+              .substring(out.length + 1)
+              .replaceAll(Platform.pathSeparator, '/'),
+    ]..sort();
+    expect(
+      copied,
+      [
+        'libnative.dylib.dSYM/Contents/Info.plist',
+        'libnative.dylib.dSYM/Contents/Resources/DWARF/libnative.dylib',
+        '$shipped.dSYM/Contents/Info.plist',
+        '$shipped.dSYM/Contents/Resources/DWARF/$shipped',
+      ]..sort(),
+    );
+  });
+
   test('iosDroppedFrameworks lists the framework of each dropped library', () {
     final params = fixture('code_names.params');
     final program = ProgramCodeAssets.read(

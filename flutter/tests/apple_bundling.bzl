@@ -20,14 +20,17 @@ def _fake_application_impl(ctx):
     of one library arriving by both routes. `code_assets` ship, each as the
     asset `package:fake/<path>`; `dropped_code_assets` are code assets of a
     package `pick` whose link hook dropped them, and `data_assets` data assets
-    that ship.
+    that ship. Each library was linked from one object, `<path>.o`.
     """
     libs = {}
+    objects = {}
     for path in ctx.attr.native_libs + ctx.attr.code_assets + ctx.attr.dropped_code_assets + ctx.attr.data_assets:
         if path not in libs:
             lib = ctx.actions.declare_file("%s/%s" % (ctx.label.name, path))
             ctx.actions.write(lib, "%s %s" % (ctx.label, path))
             libs[path] = lib
+            objects[path] = ctx.actions.declare_file("%s/%s.o" % (ctx.label.name, path))
+            ctx.actions.write(objects[path], "%s %s" % (ctx.label, path))
 
     def code_asset(package, path):
         return DartCodeAssetInfo(
@@ -35,6 +38,7 @@ def _fake_application_impl(ctx):
             link_mode = "dynamic_loading_bundle",
             file = libs[path],
             uri = "",
+            link_inputs = depset([objects[path]]),
         )
 
     link_outputs = ()
@@ -100,7 +104,15 @@ def _fake_application_impl(ctx):
         is_debug = ctx.attr.debug,
         flutter_assets = flutter_assets,
         native_libraries = [
-            struct(library = libs[path], package = "app", sources = (), contract = ())
+            struct(
+                library = libs[path],
+                package = "app",
+                sources = (),
+                contract = (),
+                link_inputs = depset([objects[path]]),
+                dsym = None,
+                link_inputs_unset_reason = None,
+            )
             for path in ctx.attr.native_libs
         ],
         program_assets = program_assets,
@@ -190,7 +202,9 @@ def _native_library_symbols_impl(ctx):
 
     With `--objc_enable_binary_stripping` in `-c opt` and
     `--apple_generate_dsym`, one action a library strips it and makes its
-    dSYM, which the rule hands rules_apple's `dsyms` output group.
+    dSYM, which the rule hands rules_apple's `dsyms` output group. The dSYM is
+    read through the library's debugging map from the files it was linked
+    from, so they are inputs, and the map is kept until it is.
     """
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -200,18 +214,53 @@ def _native_library_symbols_impl(ctx):
         script = "\n".join(action.argv)
         asserts.true(env, "dsymutil" in script, "the dSYM is made: %s" % script)
         asserts.true(env, "strip -x -S" in script, "the library is stripped: %s" % script)
-    dsyms = target[AppleFrameworkImportInfo].dsym_imports.to_list() if AppleFrameworkImportInfo in target else []
+        asserts.false(env, "strip -S" in script.split("dsymutil")[0], "the debugging map is kept for dsymutil: %s" % script)
+        inputs = action.inputs.to_list()
+        asserts.equals(
+            env,
+            sorted([f.basename + ".o" for f in inputs if f.extension in ("dylib", "so")]),
+            sorted([f.basename for f in inputs if f.extension == "o"]),
+            "what each library was linked from is an input: %s" % [f.short_path for f in inputs],
+        )
     asserts.equals(
         env,
         sorted(ctx.attr.expected_dsyms),
-        sorted([f.path.split("/")[-5] + "/" + f.basename for f in dsyms if "/Resources/DWARF/" in f.path]),
-        "the dSYMs rules_apple puts in the app's `dsyms` group",
+        sorted([f.path.split("/")[-5] + "/" + f.basename for a in actions for f in a.outputs.to_list() if "/Resources/DWARF/" in f.path]),
+        "the dSYM each library's action makes",
     )
+
+    # rules_apple's `dsyms` group gets one directory, of the dSYMs of the
+    # libraries that ship, which an action picks from every candidate's once
+    # the link hooks have chosen (`code_assets.dart dsyms`).
+    collect = [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterShippedDsyms"]
+    asserts.equals(env, 1, len(collect), "one action collects the dSYMs that ship")
+    dsyms = target[AppleFrameworkImportInfo].dsym_imports.to_list() if AppleFrameworkImportInfo in target else []
+    asserts.equals(
+        env,
+        [f.path for f in collect[0].outputs.to_list()] if collect else [],
+        [f.path for f in dsyms],
+        "the dSYMs rules_apple puts in the app's `dsyms` group are those that ship",
+    )
+    if collect:
+        argv = collect[0].argv
+        always = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--always"]
+        candidates = [argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "--candidate-dsym"]
+        bundle = lambda plist: plist.split("/")[-3]
+        asserts.equals(env, sorted(ctx.attr.expected_always), sorted([bundle(p) for p in always]), "the dSYMs that always ship")
+        asserts.equals(env, sorted(ctx.attr.expected_candidates), sorted([bundle(p) for p in candidates]), "the dSYMs of the code assets a link hook chooses among")
+        asserts.equals(
+            env,
+            sorted(ctx.attr.expected_always + ctx.attr.expected_candidates),
+            sorted([f.path.split("/")[-5] for f in collect[0].inputs.to_list() if "/Resources/DWARF/" in f.path]),
+            "every candidate's dSYM is an input",
+        )
     return analysistest.end(env)
 
 native_library_symbols_test = analysistest.make(
     _native_library_symbols_impl,
     attrs = {
+        "expected_always": attr.string_list(doc = "`<bundle>.dSYM` of each library that always ships."),
+        "expected_candidates": attr.string_list(doc = "`<bundle>.dSYM` of each code asset a link hook chooses among."),
         "expected_dsyms": attr.string_list(doc = "`<bundle>.dSYM/<binary>` of each library."),
         "mnemonic": attr.string(mandatory = True, doc = "The mnemonic of the action that prepares each library."),
     },

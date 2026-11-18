@@ -1,13 +1,15 @@
 """Sources for `native_sources_test`: a native library built from checked-in
 files, one of its dependencies, one generated file the aspect must leave out,
 and the library again behind a wrapper that moves it and as a Dart code
-asset."""
+asset. `native_link_test` reads the same library's link through those
+wrappers and others."""
 
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_code_asset")
+load(":rust_stand_in.bzl", "rust_stand_in")
 
 package(default_visibility = [
     "//flutter/tests:__pkg__",
@@ -60,4 +62,34 @@ dart_code_asset(
     name = "bridge_code_asset",
     asset_id = "package:native_sources_fixture/bridge",
     file = ":bridge",
+)
+
+# For `native_link_test`: the wrappers a library's link is followed through,
+# one it is not followed through, and a Rust library's link.
+
+# A filegroup over the copy: two wrappers between the entry and the link.
+filegroup(
+    name = "bridge_files",
+    srcs = [":vendored_bridge"],
+)
+
+# A genrule that writes a library from the one it reads: its output need not
+# carry the debugging map of what it read, so the link is unknown.
+genrule(
+    name = "renamed_bridge",
+    srcs = [":bridge"],
+    outs = ["renamed/libbridge.dylib"],
+    cmd = "touch $@",
+)
+
+rust_stand_in(
+    name = "rust_bridge",
+    src = "bridge.c",
+    dsym = True,
+)
+
+rust_stand_in(
+    name = "rust_bridge_without_dsym",
+    src = "bridge.c",
+    dsym = False,
 )

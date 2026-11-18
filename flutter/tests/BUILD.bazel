@@ -64,6 +64,7 @@ load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
 load(":native_assets_test.bzl", "bridge_probe", "native_assets_test_suite")
 load(":native_hot_patch_test.bzl", "native_hot_patch_test_suite")
 load(":native_libraries_test.bzl", "native_libraries_test_suite")
+load(":native_link_test.bzl", "native_link_test_suite")
 load(":native_sources_test.bzl", "native_sources_test_suite")
 load(":notices_test.bzl", "notices_test_suite")
 load(":package_identity_test.bzl", "package_identity_test_suite")
@@ -351,6 +352,8 @@ native_assets_test_suite(name = "native_assets_test")
 native_hot_patch_test_suite(name = "native_hot_patch_test")
 
 native_sources_test_suite(name = "native_sources_test")
+
+native_link_test_suite(name = "native_link_test")
 
 code_asset_native_library_test_suite(name = "code_asset_native_library_test")
 

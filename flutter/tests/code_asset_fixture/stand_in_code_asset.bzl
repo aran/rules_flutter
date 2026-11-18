@@ -23,6 +23,10 @@ def _stand_in_code_asset_impl(ctx):
             link_mode = ctx.attr.link_mode,
             file = library,
             uri = ctx.attr.uri,
+            # The fixtures' libraries are placeholder files, linked from
+            # nothing; a rule of a bridge generator says what its library was
+            # linked from here.
+            link_inputs = depset(),
         ),
     ]
 

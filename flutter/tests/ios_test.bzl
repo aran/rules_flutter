@@ -151,6 +151,8 @@ def _bundling_tests(name):
             "add.framework.dSYM/add",
             "asset.framework.dSYM/asset",
         ],
+        expected_always = ["add.framework.dSYM"],
+        expected_candidates = ["asset.framework.dSYM"],
         target_compatible_with = ["@platforms//os:macos"],
     )
     native_library_untouched_test(
