@@ -252,8 +252,8 @@ against the tree.
 
 **Trigger**: Periodic (monthly) or when a managed tool releases a version we need.
 
-**Files**: none in this repository. `git-cliff`, `prek`, `typos` and `yamlfmt`
-are pinned in rules_dart's `overhead/multitool.lock.json`, which every
+**Files**: none in this repository. `actionlint`, `buildifier`, `git-cliff`, `prek`, `shellcheck`, `typos` and
+`yamlfmt` are pinned in rules_dart's `overhead/multitool.lock.json`, which every
 repository that takes overhead as a dev dependency shares. Bump them there
 (rules_dart's CHORES.md has the procedure), then bump the `commit` of the
 `overhead` `git_override` in `MODULE.bazel` and the `uses:` refs in
@@ -267,7 +267,7 @@ fails if they differ. A new overhead commit can change `tools/preset.bazelrc`
 
 ## Git Hook Bumps
 
-**Trigger**: New versions of the git hooks (buildifier, etc.).
+**Trigger**: New versions of the git hooks (prettier, the pre-commit-hooks set).
 
 **Files**: `.pre-commit-config.yaml`
 
@@ -276,11 +276,8 @@ manual until you have actually seen a Renovate PR land here.
 
 Reconcile the revs that track something else in this repo:
 
-- `keith/pre-commit-buildifier` is the only buildifier in this repository; pick
-  the newest tag of the mirror. The fourth component is the mirror's own
-  packaging revision and it tags only some of them.
-- The commit-message, yamlfmt and typos hooks are local hooks that run
-  overhead's pinned tools (see § "Tool Version Bumps").
+- The commit-message, buildifier, yamlfmt, typos and actionlint hooks are local
+  hooks that run overhead's pinned tools (see § "Tool Version Bumps").
 - `pre-commit/mirrors-prettier` is archived upstream; `v3.1.0` is the last
   stable tag and is expected to stay pinned.
 

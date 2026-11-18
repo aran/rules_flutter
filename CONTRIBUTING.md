@@ -19,8 +19,8 @@ at `~/.local/bin/prek`, which stays put across `uv tool upgrade prek` and
 `bazel clean`. Set `PREK_QUIET=1` in your shell profile for hooks that print
 nothing unless one fails.
 
-The commit message, yamlfmt and typos hooks run overhead's tools from
-`.bazel_env/bin`, without Bazel. Set that up in the main checkout, and again
+The commit message, buildifier, yamlfmt, typos and actionlint hooks run
+overhead's tools from `.bazel_env/bin`, without Bazel. Set that up in the main checkout, and again
 after any `bazel clean` or bump of overhead's pin:
 
 ```shell
@@ -39,11 +39,11 @@ CI builds `.bazel_env` and runs the hooks from it. To run every check through
 bazel run --enable_runfiles @overhead//lint:prek -- run --all-files --hook-stage manual
 ```
 
-On Windows, where bazel_env does not run, install the hooks without the three
+On Windows, where bazel_env does not run, install the hooks without the ones
 that need it and run that command before you push:
 
 ```shell
-prek install -f --skip commit-message --skip yamlfmt --skip typos
+prek install -f --skip commit-message --skip buildifier --skip buildifier-lint --skip yamlfmt --skip typos --skip actionlint
 ```
 
 ## Commit messages
