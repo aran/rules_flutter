@@ -19,6 +19,18 @@ common:macos --experimental_output_paths=strip
 common --features=swift.emit_c_module --host_features=swift.emit_c_module
 common --features=swift.use_c_modules --host_features=swift.use_c_modules
 
+# Builds tools without the target configuration's Starlark flags, as a
+# downstream workspace may.
+common --incompatible_exclude_starlark_flags_from_exec_config
+
+# Bazel 10's default: another repository's source files are private unless it
+# exports them, so the pinned Bazel tests the rules under it.
+common --incompatible_no_implicit_file_export
+
+# A future Bazel release will no longer let an external repository's source
+# directory cross a package boundary, so the rules are tested with that on.
+common --incompatible_check_external_repo_source_dir_package_boundary
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart

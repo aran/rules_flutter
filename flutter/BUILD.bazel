@@ -97,8 +97,10 @@ string_flag(
 string_flag(
     name = "sdk",
     build_setting_default = "flutter",
-    # No `scope = "target"`: the SDK decides how every Flutter compile is
-    # done, a build tool's in the exec configuration included.
+    # The SDK decides how every Flutter compile is done, a build tool's in the
+    # exec configuration included, so the exec configuration keeps it even
+    # where a build excludes Starlark flags from it.
+    scope = "universal",
     visibility = ["//visibility:public"],
 )
 

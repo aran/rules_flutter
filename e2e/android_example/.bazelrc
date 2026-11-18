@@ -42,6 +42,18 @@ common --@rules_android//flags:android_platforms=@rules_android//:arm64-v8a
 # whole, unshrunk desugar_jdk_libs runtime into every APK.
 common --@rules_android//flags:desugar_java8_libs=false
 
+# Builds tools without the target configuration's Starlark flags, as a
+# downstream workspace may.
+common --incompatible_exclude_starlark_flags_from_exec_config
+
+# Bazel 10's default: another repository's source files are private unless it
+# exports them, so the pinned Bazel tests the rules under it.
+common --incompatible_no_implicit_file_export
+
+# A future Bazel release will no longer let an external repository's source
+# directory cross a package boundary, so the rules are tested with that on.
+common --incompatible_check_external_repo_source_dir_package_boundary
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect over every Dart
