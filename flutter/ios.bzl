@@ -907,7 +907,7 @@ def flutter_ios_app(
     flutter_ios_signing_check(
         name = "__%s_signing_check" % name,
         app_label = str(native.package_relative_label(name)),
-        provisioning_profile_set = provisioning_profile != None,
+        provisioning_profile = provisioning_profile,
         tags = tags,
         testonly = testonly,
     )
