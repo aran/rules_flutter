@@ -342,7 +342,7 @@ me so we can collaborate.
 
 ### Requirements
 
-You need Bazel 9.2 or newer. rules_flutter downloads Flutter itself, so you don't install Flutter, and this release builds with Flutter 3.50.0.
+You need Bazel 9.3 or newer. rules_flutter downloads Flutter itself, so you don't install Flutter, and this release builds with Flutter 3.50.0.
 
 What else you need depends on what you build for:
 

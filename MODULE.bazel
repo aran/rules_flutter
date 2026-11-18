@@ -22,7 +22,7 @@
 
 module(
     name = "rules_flutter",
-    bazel_compatibility = [">=9.2.0"],
+    bazel_compatibility = [">=9.3.0"],
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
