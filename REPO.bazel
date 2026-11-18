@@ -7,7 +7,8 @@ repo(
 )
 
 # Not packages of this module, here or in a consumer's copy of it: the
-# end-to-end workspaces, each its own Bazel project; the checkout's own state,
+# end-to-end workspaces, each its own Bazel project; the fixtures
+# `@fetched_fixtures` serves; the checkout's own state,
 # `.bazel_env` included, which in a worktree links to the main checkout's tools
 # in another output base, so Bazel would read their runfiles as packages.
 ignore_directories([
@@ -15,5 +16,6 @@ ignore_directories([
     ".bazel_env",
     ".claude",
     "e2e",
+    "flutter/tests/fetched_fixtures",
     "references",
 ])

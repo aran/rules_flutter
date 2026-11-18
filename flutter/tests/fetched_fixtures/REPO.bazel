@@ -1,0 +1,5 @@
+"""`@fetched_fixtures`: packages declared as a fetcher declares them, for the tests in `//flutter/tests`.
+
+`fetched_package_metadata` refuses a target of the main repository, so these
+stand in for a fetcher's repositories from a repository of their own.
+"""

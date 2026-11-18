@@ -10,10 +10,6 @@ own static state. Over `//flutter/tests/shared_code_asset_fixture`.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo", "DartPackageInfo", "DartPackageMetadataInfo")
 load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "package_info_from_metadata", "program_assets_attrs")
-
-# A fetcher's declaration, as a pub hub's generated BUILD file loads it.
-# buildifier: disable=bzl-visibility
-load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
 load("//flutter:native_hot_patch.bzl", "HOT_PATCH_OUTPUT_GROUP", "flutter_native_hot_patch_aspect")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
@@ -431,18 +427,10 @@ def shared_code_asset_test_suite(name):
     # Two packages claiming one id with different libraries is refused, as in
     # rules_dart, unless the target names the one to use.
     # Two pub hubs' copies of one package, fetched alike.
-    for claim, asset in [("own", "a_own"), ("combined", "a_combined_asset")]:
-        fetched_package_metadata(
-            name = "%s_claims_a_%s_metadata" % (name, claim),
-            package_name = "shared_a",
-            code_assets = [_FIXTURE + asset],
-            fetched_identity = "pkg:pub/shared_a@1.0.0",
-            version = "1.0.0",
-            tags = ["manual"],
-        )
+    for claim in ["own", "combined"]:
         fake_package(
             name = "%s_claims_a_%s" % (name, claim),
-            package = "%s_claims_a_%s_metadata" % (name, claim),
+            package = "@fetched_fixtures//shared_code_asset/claims:" + claim,
             tags = ["manual"],
         )
     claims = [name + "_claims_a_own", name + "_claims_a_combined"]

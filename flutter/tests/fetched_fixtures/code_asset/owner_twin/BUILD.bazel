@@ -8,12 +8,12 @@ load("@rules_dart//dart:defs.bzl", "dart_library")
 # buildifier: disable=bzl-visibility
 load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
 
-package(default_visibility = ["//flutter/tests/code_asset_fixture:__pkg__"])
+package(default_visibility = ["@rules_flutter//flutter/tests/code_asset_fixture:__pkg__"])
 
 fetched_package_metadata(
     name = "pubspec-metadata",
     package_name = "code_asset_owner",
-    code_assets = ["//flutter/tests/code_asset_fixture:code_asset"],
+    code_assets = ["@rules_flutter//flutter/tests/code_asset_fixture:code_asset"],
     # Fetched alike, as two pub hubs each fetch one package, so this and
     # `owner/` are one package.
     fetched_identity = "pkg:pub/code_asset_owner@1.0.0",

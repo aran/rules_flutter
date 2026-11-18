@@ -2,28 +2,29 @@
 Flutter package rule and by a Dart package rule that knows nothing of Flutter,
 a rule that forwards a package under an attribute of its own name, and one that
 makes its asset with no target of its own. Each reaches its own application
-only, so sharing a root is not a conflict. `bare_owner/` is the bare control,
-and `owner_twin/` the first package again, its asset bare."""
+only, so sharing a root is not a conflict.
+`//flutter/tests/code_asset_fixture/bare_owner` is the bare control, and
+`owner_twin/` the first package again, its asset bare."""
 
 load("@rules_dart//dart:defs.bzl", "dart_library")
 
 # A fetcher's declaration, as a pub hub's generated BUILD file loads it.
 # buildifier: disable=bzl-visibility
 load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
-load("//flutter:defs.bzl", "flutter_plugin")
-load("//flutter/tests/code_asset_fixture:forwarding_package.bzl", "forwarding_package")
-load("//flutter/tests/code_asset_fixture:inline_asset_package.bzl", "inline_asset_package")
-load("//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")
+load("@rules_flutter//flutter:defs.bzl", "flutter_plugin")
+load("@rules_flutter//flutter/tests/code_asset_fixture:forwarding_package.bzl", "forwarding_package")
+load("@rules_flutter//flutter/tests/code_asset_fixture:inline_asset_package.bzl", "inline_asset_package")
+load("@rules_flutter//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")
 
 package(default_visibility = [
-    "//flutter/tests/code_asset_fixture:__pkg__",
-    "//flutter/tests/code_asset_fixture/test:__pkg__",
+    "@rules_flutter//flutter/tests/code_asset_fixture:__pkg__",
+    "@rules_flutter//flutter/tests/code_asset_fixture/test:__pkg__",
 ])
 
 fetched_package_metadata(
     name = "pubspec-metadata",
     package_name = "code_asset_owner",
-    code_assets = ["//flutter/tests/code_asset_fixture:wrapped"],
+    code_assets = ["@rules_flutter//flutter/tests/code_asset_fixture:wrapped"],
     # Fetched alike, as two pub hubs each fetch one package, so `owner_twin/`
     # is this package too.
     fetched_identity = "pkg:pub/code_asset_owner@1.0.0",
@@ -50,7 +51,7 @@ forwarding_package(
 stand_in_code_asset(
     name = "inline_asset",
     asset_id = "package:inline_owner/bridge",
-    library = "//flutter/tests/code_asset_fixture:library",
+    library = "@rules_flutter//flutter/tests/code_asset_fixture:library",
 )
 
 inline_asset_package(

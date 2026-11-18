@@ -16,7 +16,10 @@ load("//flutter:macos.bzl", "flutter_macos_native_libs_gen")
 load("//flutter/private:flutter_android_application.bzl", _flutter_android_bundle = "flutter_android_bundle")
 load("//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")
 
-package(default_visibility = ["//flutter/tests:__subpackages__"])
+package(default_visibility = [
+    "//flutter/tests:__subpackages__",
+    "@fetched_fixtures//shared_code_asset:__subpackages__",
+])
 
 dart_package_metadata(
     name = "pubspec-metadata",
@@ -130,7 +133,7 @@ flutter_native_library(
 )
 
 _DEPS = [
-    "//flutter/tests/shared_code_asset_fixture/a",
+    "@fetched_fixtures//shared_code_asset/a",
     "//flutter/tests/shared_code_asset_fixture/b",
 ]
 
@@ -227,7 +230,7 @@ flutter_application(
     package = ":pubspec-metadata",
     tags = ["manual"],
     deps = [
-        "//flutter/tests/shared_code_asset_fixture/a",
-        "//flutter/tests/shared_code_asset_fixture/a_again",
+        "@fetched_fixtures//shared_code_asset/a",
+        "@fetched_fixtures//shared_code_asset/a_again",
     ],
 )

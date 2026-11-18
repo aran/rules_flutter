@@ -1,0 +1,24 @@
+"""Package `shared_a` as two pub hubs' copies of it, fetched alike, each
+claiming its id with a different library, for `//flutter/tests:shared_code_asset_test`
+to root apart."""
+
+# A fetcher's declaration, as a pub hub's generated BUILD file loads it.
+# buildifier: disable=bzl-visibility
+load("@rules_dart//dart/private:fetched_package_metadata.bzl", "fetched_package_metadata")
+
+package(default_visibility = ["@rules_flutter//flutter/tests:__pkg__"])
+
+[
+    fetched_package_metadata(
+        name = claim,
+        package_name = "shared_a",
+        code_assets = ["@rules_flutter//flutter/tests/shared_code_asset_fixture:" + asset],
+        fetched_identity = "pkg:pub/shared_a@1.0.0",
+        tags = ["manual"],
+        version = "1.0.0",
+    )
+    for claim, asset in [
+        ("own", "a_own"),
+        ("combined", "a_combined_asset"),
+    ]
+]

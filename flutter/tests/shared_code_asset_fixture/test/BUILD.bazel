@@ -20,7 +20,7 @@ flutter_test(
     visibility = ["//flutter/tests:__pkg__"],
     deps = [
         "//flutter/tests/flutter_test_analyze_fixture/fake_test_api",
-        "//flutter/tests/shared_code_asset_fixture/a",
         "//flutter/tests/shared_code_asset_fixture/b",
+        "@fetched_fixtures//shared_code_asset/a",
     ],
 )
