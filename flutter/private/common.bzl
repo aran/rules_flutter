@@ -11,6 +11,7 @@ load("@rules_dart//dart:utils.bzl", "KERNEL_TOOL_ATTR", "collect_packages", "col
 load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "app_main_location", "app_scheme_files", "app_scheme_location", "app_scheme_sources", "synthesize_app_package", "with_root")
 load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "program_version")
+load("//flutter/private:constants.bzl", "SHARED_LIBRARY_EXTENSIONS")
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
@@ -163,7 +164,7 @@ def collect_native_libs(native_deps):
     libs = []
     for dep in native_deps:
         for f in dep[DefaultInfo].files.to_list():
-            if f.extension in ("so", "dylib", "dll"):
+            if f.extension in SHARED_LIBRARY_EXTENSIONS:
                 libs.append(f)
     return libs
 
@@ -216,7 +217,7 @@ def collect_binding_contracts(native_deps):
                 pairs.append(struct(library = lib, contract = contract))
         else:
             for f in dep[DefaultInfo].files.to_list():
-                if f.extension in ("so", "dylib", "dll"):
+                if f.extension in SHARED_LIBRARY_EXTENSIONS:
                     pairs.append(struct(library = f, contract = ()))
     return pairs
 

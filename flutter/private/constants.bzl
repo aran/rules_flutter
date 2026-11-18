@@ -50,3 +50,8 @@ OTHER_PACKAGES_ASSETS = "_assets_of_other_packages"
 # The platforms of a pubspec's `flutter: plugin: platforms:`, each a
 # `flutter_plugin_platform`.
 PLUGIN_PLATFORMS = ["android", "ios", "linux", "macos", "web", "windows"]
+
+# The file extensions of a shared library a `native_deps` entry or a code asset
+# brings, on each platform a native app runs on: what the bundlers place and
+# the app loads.
+SHARED_LIBRARY_EXTENSIONS = ("so", "dylib", "dll")

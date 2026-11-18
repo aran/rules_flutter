@@ -22,6 +22,7 @@ nothing about the others. Answering for all of them would withhold a reload over
 a library nobody touched, which is what a shared list did when it was tried.
 """
 
+load("//flutter/private:constants.bzl", "SHARED_LIBRARY_EXTENSIONS")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 
 visibility("//flutter/...")
@@ -92,10 +93,6 @@ def collect_native_sources(targets):
         if NativeSourcesInfo in target
     ])
 
-# Mirrors `_NATIVE_LIBRARY_EXTENSIONS` in `flutter_native_library.bzl`: the
-# files a `native_deps` entry contributes to a bundle.
-_LIBRARY_EXTENSIONS = ("so", "dylib", "dll")
-
 def collect_native_source_pairs(native_deps):
     """Pair each `native_deps` entry's libraries with the sources they are built from.
 
@@ -112,6 +109,6 @@ def collect_native_source_pairs(native_deps):
     for dep in native_deps:
         sources = tuple(collect_native_sources([dep]).to_list())
         for f in dep[DefaultInfo].files.to_list():
-            if f.extension in _LIBRARY_EXTENSIONS:
+            if f.extension in SHARED_LIBRARY_EXTENSIONS:
                 pairs.append(struct(library = f, sources = sources))
     return pairs
