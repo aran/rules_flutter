@@ -1,4 +1,4 @@
-"""Repository rule for Chrome for Testing's headless shell, the browser web integration tests run in.
+"""The repository of Chrome for Testing's headless shell, the browser web integration tests run in.
 
 One repository per host the shell is built for, named for it
 (`flutter_chrome_for_testing_<platform>`). Each holds that host's archive
@@ -11,25 +11,11 @@ web integration test's runner is analysed: the `chrome` runner of
 `//flutter/integration_test` selects on the host's operating system and CPU.
 """
 
-load("//flutter/private:artifact_urls.bzl", "chrome_for_testing_url")
-load("//flutter/private:pinned.bzl", "pinned")
+load(":archives.bzl", "archive", "archive_repo")
+load(":artifact_urls.bzl", "chrome_for_testing_url")
 
 def _executable(platform):
     return "chrome-headless-shell.exe" if platform.startswith("win") else "chrome-headless-shell"
-
-def _flutter_chrome_for_testing_impl(repository_ctx):
-    platform = repository_ctx.attr.platform
-    repository_ctx.download_and_extract(
-        url = chrome_for_testing_url(repository_ctx.attr.version, platform),
-        sha256 = pinned("chrome-headless-shell-%s.zip" % platform, repository_ctx.attr.sha256),
-        # The archive's one directory, so the executable is at the root.
-        stripPrefix = "chrome-headless-shell-" + platform,
-    )
-    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(executable = _executable(platform)))
-
-    # Pinned downloads and files written from the attributes alone, so Bazel
-    # keeps one copy in its repository contents cache for every output base.
-    return repository_ctx.repo_metadata(reproducible = True)
 
 # `data` carries everything the executable needs beside itself: only `srcs` is
 # what a rule sees as the file to run, and the rest rides along as runfiles.
@@ -46,15 +32,24 @@ filegroup(
 )
 """
 
-flutter_chrome_for_testing = repository_rule(
-    _flutter_chrome_for_testing_impl,
-    doc = "Downloads the Chrome for Testing headless shell of one host platform.",
-    attrs = {
-        "platform": attr.string(
-            doc = "Chrome for Testing's name for the host: `mac-arm64`, `mac-x64`, `linux64`, `linux-arm64` or `win64`.",
-            mandatory = True,
-        ),
-        "sha256": attr.string(doc = "Expected SHA-256 of the archive."),
-        "version": attr.string(doc = "The Chrome version.", mandatory = True),
-    },
-)
+def flutter_chrome_for_testing(name, platform, version, sha256 = ""):
+    """Declares the repository of the Chrome for Testing headless shell of one host platform.
+
+    Args:
+        name: The repository's name.
+        platform: Chrome for Testing's name for the host: `mac-arm64`,
+            `mac-x64`, `linux64`, `linux-arm64` or `win64`.
+        version: The Chrome version.
+        sha256: Expected SHA-256 of the archive.
+    """
+    archive_repo(
+        name = name,
+        archives = [archive(
+            "chrome-headless-shell-%s.zip" % platform,
+            chrome_for_testing_url(version, platform),
+            sha256,
+            # The archive's one directory, so the executable is at the root.
+            strip_prefix = "chrome-headless-shell-" + platform,
+        )],
+        files = {"BUILD.bazel": _BUILD_TEMPLATE.format(executable = _executable(platform))},
+    )

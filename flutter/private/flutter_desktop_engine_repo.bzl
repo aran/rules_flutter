@@ -1,4 +1,4 @@
-"""Repository rule for downloading a desktop Flutter engine library.
+"""The repository of a desktop Flutter engine library.
 
 Downloads the engine shared library for a specific desktop target platform
 (e.g. libflutter_linux_gtk.so for Linux x64). This is a separate lazy repo
@@ -10,45 +10,41 @@ filegroup is named for the mode (`engine_release_library`,
 `engine_debug_library` or `engine_profile_library`).
 """
 
-load("//flutter/private:pinned.bzl", "pinned")
+load(":archives.bzl", "archive", "archive_repo")
 load(":artifact_urls.bzl", "cpp_client_wrapper_artifact_path", "desktop_engine_artifact_path", "engine_artifact_url")
-load(":engine_helpers.bzl", "engine_filegroup_for_os", "extract_macos_inner_framework")
+load(":engine_helpers.bzl", "engine_filegroup_for_os", "macos_inner_framework")
 
-def _flutter_desktop_engine_repo_impl(repository_ctx):
-    engine_revision = repository_ctx.attr.engine_revision
-    target_os = repository_ctx.attr.target_os
-    target_arch = repository_ctx.attr.target_arch
-    mode = repository_ctx.attr.mode
+def flutter_desktop_engine_repo(name, engine_revision, target_os, target_arch, mode = "release", sha256 = "", cpp_wrapper_sha256 = ""):
+    """Declares the repository of a desktop Flutter engine library.
 
+    Args:
+        name: The repository's name.
+        engine_revision: The engine commit the artifacts are published under.
+        target_os: Target OS: macos, linux, or windows.
+        target_arch: Target architecture: x64 or arm64.
+        mode: Build mode: debug, profile, or release.
+        sha256: Expected SHA-256 of the engine archive.
+        cpp_wrapper_sha256: Expected SHA-256 of the C++ client wrapper archive (Windows only).
+    """
     artifact_path = desktop_engine_artifact_path(target_os, target_arch, mode)
     if not artifact_path:
         fail("No desktop engine artifact for {}-{}-{}".format(target_os, target_arch, mode))
-
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, artifact_path),
-        sha256 = pinned(artifact_path, repository_ctx.attr.sha256),
-        output = "engine",
-    )
-
-    if target_os == "macos":
-        extract_macos_inner_framework(repository_ctx)
+    archives = [archive(artifact_path, engine_artifact_url(engine_revision, artifact_path), sha256, output = "engine")]
 
     # The Windows engine filegroup lists the C++ client wrapper, which is not
     # in the engine archive.
     if target_os == "windows":
-        repository_ctx.download_and_extract(
-            url = engine_artifact_url(engine_revision, cpp_client_wrapper_artifact_path("windows-" + target_arch)),
-            sha256 = pinned(cpp_client_wrapper_artifact_path("windows-" + target_arch), repository_ctx.attr.cpp_wrapper_sha256),
-            output = "cpp-client-wrapper",
-        )
+        wrapper_path = cpp_client_wrapper_artifact_path("windows-" + target_arch)
+        archives.append(archive(wrapper_path, engine_artifact_url(engine_revision, wrapper_path), cpp_wrapper_sha256, output = "cpp-client-wrapper"))
 
-    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
-        engine_filegroup = engine_filegroup_for_os(target_os, mode),
-    ))
-
-    # Pinned downloads and files written from the attributes alone, so Bazel
-    # keeps one copy in its repository contents cache for every output base.
-    return repository_ctx.repo_metadata(reproducible = True)
+    archive_repo(
+        name = name,
+        archives = archives,
+        nested_archives = macos_inner_framework() if target_os == "macos" else {},
+        files = {"BUILD.bazel": _BUILD_TEMPLATE.format(
+            engine_filegroup = engine_filegroup_for_os(target_os, mode),
+        )},
+    )
 
 # The files a slice names besides the engine's filegroup: the binary whose
 # snapshot hash is read, and the gen_snapshot an archive bundles (only the
@@ -69,16 +65,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 """
-
-flutter_desktop_engine_repo = repository_rule(
-    _flutter_desktop_engine_repo_impl,
-    doc = "Downloads a desktop Flutter engine library for cross-platform builds.",
-    attrs = {
-        "engine_revision": attr.string(mandatory = True),
-        "target_os": attr.string(mandatory = True, doc = "Target OS: macos, linux, or windows."),
-        "target_arch": attr.string(mandatory = True, doc = "Target architecture: x64 or arm64."),
-        "mode": attr.string(default = "release", doc = "Build mode: debug, profile, or release."),
-        "sha256": attr.string(doc = "Expected SHA-256 of the engine archive."),
-        "cpp_wrapper_sha256": attr.string(doc = "Expected SHA-256 of the C++ client wrapper archive (Windows only)."),
-    },
-)

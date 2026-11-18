@@ -1,9 +1,8 @@
 """Shared engine helpers for Flutter repository rules.
 
 Centralizes engine filegroup templates, binary name detection, platform
-mapping, and macOS double-zip extraction used by repositories.bzl,
-flutter_desktop_engine_repo.bzl, flutter_cross_repo.bzl, and
-flutter_desktop_cross_repo.bzl.
+mapping, and the macOS double zip, used by the repositories of the engine
+artifacts.
 """
 
 # -- Engine filegroup templates ------------------------------------------------
@@ -206,22 +205,20 @@ def engine_arch_for_os(os_name, arch):
 
 # -- macOS double-zip extraction -----------------------------------------------
 
-def extract_macos_inner_framework(repository_ctx, base_dir = "engine"):
-    """Extract the inner FlutterMacOS.framework.zip from a macOS engine download.
+def macos_inner_framework(base_dir = "engine"):
+    """The inner FlutterMacOS.framework.zip of a macOS engine download.
 
     macOS engine artifacts are double-zipped: the outer zip contains
-    FlutterMacOS.framework.zip which must be extracted to get the actual
-    .framework directory.
+    FlutterMacOS.framework.zip, which is extracted in its place to get the
+    actual .framework directory.
 
     Args:
-        repository_ctx: The repository_rule context.
         base_dir: Directory where the outer zip was extracted (default "engine").
+
+    Returns:
+        A `nested_archives` entry of `archive_repo`.
     """
-    repository_ctx.extract(
-        archive = base_dir + "/FlutterMacOS.framework.zip",
-        output = base_dir + "/FlutterMacOS.framework",
-    )
-    repository_ctx.delete(base_dir + "/FlutterMacOS.framework.zip")
+    return {base_dir + "/FlutterMacOS.framework.zip": base_dir + "/FlutterMacOS.framework"}
 
 # -- Engine file discovery helpers for desktop rules --------------------------
 

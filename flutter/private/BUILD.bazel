@@ -263,6 +263,7 @@ bzl_library(
     srcs = ["repositories.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
         ":engine_helpers",
         ":flutter_android_engine_repo",
@@ -275,7 +276,6 @@ bzl_library(
         ":flutter_sky_engine_repo",
         ":flutter_stock_engine_repo",
         ":flutter_web_sdk_repo",
-        ":pinned",
         ":toolchains_repo",
         ":versions",
     ],
@@ -306,9 +306,9 @@ bzl_library(
     srcs = ["flutter_cross_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
         ":engine_helpers",
-        ":pinned",
     ],
 )
 
@@ -327,8 +327,8 @@ bzl_library(
     srcs = ["flutter_sky_engine_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":package_metadata_content",
-        ":pinned",
     ],
 )
 
@@ -920,8 +920,8 @@ bzl_library(
     srcs = ["flutter_android_engine_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
-        ":pinned",
     ],
 )
 
@@ -930,8 +930,8 @@ bzl_library(
     srcs = ["flutter_ios_engine_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
-        ":pinned",
     ],
 )
 
@@ -940,9 +940,8 @@ bzl_library(
     srcs = ["flutter_profile_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
-        ":engine_helpers",
-        ":pinned",
     ],
 )
 
@@ -951,9 +950,9 @@ bzl_library(
     srcs = ["flutter_desktop_engine_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
         ":engine_helpers",
-        ":pinned",
     ],
 )
 
@@ -1075,6 +1074,20 @@ bzl_library(
     name = "toolchain_version",
     srcs = ["toolchain_version.bzl"],
     visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
+    name = "archive_repo",
+    srcs = ["archive_repo.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [":pinned"],
+)
+
+bzl_library(
+    name = "archives",
+    srcs = ["archives.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [":archive_repo"],
 )
 
 bzl_library(

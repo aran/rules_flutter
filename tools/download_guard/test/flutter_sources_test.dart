@@ -44,13 +44,13 @@ void main() {
     expect(
       files,
       containsAll([
-        'flutter/private/repositories.bzl',
+        'flutter/private/archive_repo.bzl',
         'flutter/private/flutter_web_sdk_repo.bzl',
         'flutter/private/flutter_source_files.bzl',
         'flutter/private/flutter_framework_package.bzl',
       ]),
     );
-    expect(sites.length, greaterThan(15));
+    expect(sites.length, greaterThan(10));
   });
 
   test('every download site checks the bytes against a non-empty digest', () {

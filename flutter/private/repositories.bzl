@@ -4,6 +4,7 @@ The `flutter` module extension declares them, once for each SDK a
 `flutter.toolchain()` names.
 """
 
+load("//flutter/private:archives.bzl", "archive", "archive_repo")
 load("//flutter/private:artifact_urls.bzl", "android_engine_artifact_path", "cpp_client_wrapper_artifact_path", "dart_sdk_artifact_path", "desktop_engine_artifact_path", "engine_artifact_url", "gen_snapshot_cross_artifact_path", "host_artifacts_path", "ios_engine_artifact_path", "macos_xcframework_artifact_path")
 load("//flutter/private:engine_helpers.bzl", "ENGINE_MODES", "PLATFORM_PREFIX_TO_OS", "engine_arch_for_os", "gen_snapshot_binary_name", "gen_snapshot_host_platform")
 load("//flutter/private:flutter_android_engine_repo.bzl", "flutter_android_engine_repo")
@@ -18,7 +19,6 @@ load("//flutter/private:flutter_sky_engine_repo.bzl", "flutter_sky_engine_repo")
 load("//flutter/private:flutter_stock_engine_repo.bzl", "flutter_stock_engine_repo")
 load("//flutter/private:flutter_version_pin_repo.bzl", "flutter_version_pin_repo")
 load("//flutter/private:flutter_web_sdk_repo.bzl", "flutter_web_sdk_repo")
-load("//flutter/private:pinned.bzl", "pinned")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "DESKTOP_ENGINE_PLATFORMS", "HOST_PLATFORMS", "sdk_repo_name")
 load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS", "LINUX_SYSROOT_CHECKSUMS")
 
@@ -27,75 +27,6 @@ load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS",
 _ANDROID_PROFILE_ENGINE_BUILD = """\
 exports_files(["flutter.jar"], visibility = ["//visibility:public"])
 """
-
-def _flutter_engine_artifacts_impl(repository_ctx):
-    """Downloads the Flutter engine host tools for a given host platform."""
-    flutter_version = repository_ctx.attr.flutter_version
-    platform = repository_ctx.attr.platform
-    meta = FLUTTER_VERSIONS[flutter_version]
-    engine_revision = meta.engine_revision
-    checksums = ARTIFACT_CHECKSUMS.get(flutter_version, {})
-
-    # 1. Download the Flutter-bundled Dart SDK for this host.
-    dart_sdk_path = dart_sdk_artifact_path(platform)
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, dart_sdk_path),
-        sha256 = pinned(dart_sdk_path, checksums.get(dart_sdk_path, "")),
-        stripPrefix = "dart-sdk",
-        output = "dart-sdk",
-    )
-
-    # `FLUTTER_DART_VERSION` is read from versions.bzl; the SDK it describes
-    # is this one.
-    dart_version = repository_ctx.read("dart-sdk/version").strip()
-    if dart_version != meta.dart_version:
-        fail((
-            "Flutter {flutter} bundles Dart {actual}, and versions.bzl records {recorded}. " +
-            "Set dart_version in its entry: programs built with this release " +
-            "report it as FlutterVersion.dartVersion."
-        ).format(flutter = flutter_version, actual = dart_version, recorded = meta.dart_version))
-
-    # 2. Download host tools (flutter_tester, impellerc, icudtl.dat, snapshots, gen_snapshot for debug).
-    host_tools_path = host_artifacts_path(platform)
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, host_tools_path),
-        sha256 = pinned(host_tools_path, checksums.get(host_tools_path, "")),
-        output = "host-tools",
-    )
-
-    # 3. Download the release gen_snapshot (product mode, matches the release engine).
-    # Only macOS publishes a separate release host tools archive.  On Linux and
-    # Windows the release gen_snapshot is bundled inside the desktop engine
-    # archive, which the desktop engine repository holds.
-    os_part = platform.split("-")[0]  # "darwin", "linux", "windows"
-    if os_part == "darwin":
-        release_tools_path = host_artifacts_path(platform, mode = "release")
-        repository_ctx.download_and_extract(
-            url = engine_artifact_url(engine_revision, release_tools_path),
-            sha256 = pinned(release_tools_path, checksums.get(release_tools_path, "")),
-            output = "host-tools-release",
-        )
-
-    # 4. Download the font-subset tool.
-    font_subset_path = "{platform}/font-subset.zip".format(platform = platform)
-    repository_ctx.download_and_extract(
-        url = engine_artifact_url(engine_revision, font_subset_path),
-        sha256 = pinned(font_subset_path, checksums.get(font_subset_path, "")),
-        output = "font-subset-tools",
-    )
-
-    # 5. Download material design fonts (MaterialIcons, Roboto family).
-    repository_ctx.download_and_extract(
-        url = "https://storage.googleapis.com/" + meta.material_fonts_url,
-        sha256 = pinned("material_fonts.zip", checksums.get("material_fonts.zip", "")),
-        output = "material-fonts",
-    )
-
-    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE)
-
-    # Pinned downloads and files written from the attributes alone, so Bazel
-    # keeps one copy in its repository contents cache for every output base.
-    return repository_ctx.repo_metadata(reproducible = True)
 
 _BUILD_TEMPLATE = """# Generated by flutter/private/repositories.bzl
 load("@rules_dart//dart:toolchain.bzl", "dart_sdk_files")
@@ -117,22 +48,54 @@ filegroup(
 )
 """
 
-flutter_engine_artifacts = repository_rule(
-    _flutter_engine_artifacts_impl,
-    doc = "Downloads the Flutter host tools (Dart SDK, flutter_tester, impellerc, font-subset) for a given host platform.",
-    attrs = {
-        "flutter_version": attr.string(
-            doc = "The Flutter SDK version (e.g. `3.47.2`). Must be listed in versions.bzl.",
-            mandatory = True,
-            values = FLUTTER_VERSIONS.keys(),
-        ),
-        "platform": attr.string(
-            doc = "The host platform (e.g. `darwin-arm64`). Must match a key in HOST_PLATFORMS.",
-            mandatory = True,
-            values = HOST_PLATFORMS.keys(),
-        ),
-    },
-)
+def _flutter_engine_artifacts(name, flutter_version, platform):
+    """Declares the repository of the Flutter host tools (Dart SDK, flutter_tester, impellerc, font-subset) of a host platform."""
+    meta = FLUTTER_VERSIONS[flutter_version]
+    checksums = ARTIFACT_CHECKSUMS.get(flutter_version, {})
+
+    def engine_archive(path, **kwargs):
+        return archive(path, engine_artifact_url(meta.engine_revision, path), checksums.get(path, ""), **kwargs)
+
+    # 1. The Flutter-bundled Dart SDK for this host.
+    archives = [engine_archive(dart_sdk_artifact_path(platform), strip_prefix = "dart-sdk", output = "dart-sdk")]
+
+    # 2. Host tools (flutter_tester, impellerc, icudtl.dat, snapshots, gen_snapshot for debug).
+    archives.append(engine_archive(host_artifacts_path(platform), output = "host-tools"))
+
+    # 3. The release gen_snapshot (product mode, matches the release engine).
+    # Only macOS publishes a separate release host tools archive.  On Linux and
+    # Windows the release gen_snapshot is bundled inside the desktop engine
+    # archive, which the desktop engine repository holds.
+    if platform.split("-")[0] == "darwin":
+        archives.append(engine_archive(host_artifacts_path(platform, mode = "release"), output = "host-tools-release"))
+
+    # 4. The font-subset tool.
+    archives.append(engine_archive("{platform}/font-subset.zip".format(platform = platform), output = "font-subset-tools"))
+
+    # 5. Material design fonts (MaterialIcons, Roboto family).
+    archives.append(archive(
+        "material_fonts.zip",
+        "https://storage.googleapis.com/" + meta.material_fonts_url,
+        checksums.get("material_fonts.zip", ""),
+        output = "material-fonts",
+    ))
+
+    archive_repo(
+        name = name,
+        archives = archives,
+        # `FLUTTER_DART_VERSION` is read from versions.bzl; the SDK it
+        # describes is this one.
+        checks = [{
+            "path": "dart-sdk/version",
+            "content": meta.dart_version,
+            "message": (
+                "Flutter {flutter} bundles Dart {{actual}}, and versions.bzl records {recorded}. " +
+                "Set dart_version in its entry: programs built with this release " +
+                "report it as FlutterVersion.dartVersion."
+            ).format(flutter = flutter_version, recorded = meta.dart_version),
+        }],
+        files = {"BUILD.bazel": _BUILD_TEMPLATE},
+    )
 
 def _host_profile_repo(name, platform, engine_revision, checksums):
     """Declares the profile gen_snapshot of a macOS host, in a repo of its own.
@@ -183,7 +146,7 @@ def flutter_register_toolchains(name, flutter_version, framework_json = "", fram
     # Host platform repos: the host tools. macOS also has a profile repo for
     # its profile gen_snapshot.
     for platform, host_meta in HOST_PLATFORMS.items():
-        flutter_engine_artifacts(
+        _flutter_engine_artifacts(
             name = name + "_" + platform,
             platform = platform,
             flutter_version = flutter_version,

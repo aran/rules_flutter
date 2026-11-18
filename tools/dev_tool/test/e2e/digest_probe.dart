@@ -3,9 +3,9 @@
 ///
 /// ## The contract
 ///
-/// **Input:** a list of [ProbeRepo]s — a repository rule of rules_flutter and
-/// the attributes to declare it with — and the bytes of the archives the
-/// fetches may use.
+/// **Input:** a list of [ProbeRepo]s — a repository rule of rules_flutter (or
+/// the function that declares one) and the attributes to declare it with — and
+/// the bytes of the archives the fetches may use.
 ///
 /// **Output:** a [Probe] whose [Probe.fetch] runs `bazel fetch --repo=@name`
 /// and reports the exit code and Bazel's output.
@@ -53,7 +53,8 @@ class ProbeRepo {
   /// The apparent name, as given to `--repo=@name`.
   final String name;
 
-  /// The repository rule's symbol.
+  /// The symbol that declares the repository: a repository rule, or a
+  /// function that calls one.
   final String rule;
 
   /// The file under `//flutter/private` that defines [rule], without `.bzl`,
@@ -211,21 +212,34 @@ Future<Probe> probe({
     ..writeln('module(name = "fetch_probe")')
     ..writeln('bazel_dep(name = "rules_flutter", version = "0.0.0")')
     ..writeln('bazel_dep(name = "rules_dart", version = "${rulesDart[1]}")');
+  // Declared by an extension of the probe's own, which can call both a
+  // repository rule and a function that declares one, as rules_flutter's own
+  // extensions do.
+  final declarations = StringBuffer();
   for (final repo in {for (final r in repos) r.rule: r}.values) {
-    module.writeln(
-      '${repo.rule} = use_repo_rule("${repo.bzlLabel}", "${repo.rule}")',
+    declarations.writeln('load("${repo.bzlLabel}", "${repo.rule}")');
+  }
+  declarations
+    ..writeln('\ndef _declare(module_ctx):')
+    ..writeln('    pass');
+  for (final repo in repos) {
+    final attrs = repo.attrs.entries.map((e) => '${e.key} = ${e.value}');
+    declarations.writeln(
+      '    ${repo.rule}(name = ${str(repo.name)}, ${attrs.join(', ')})',
     );
   }
+  declarations.writeln('\nprobe_repos = module_extension(_declare)');
+  module
+    ..writeln(
+      'probe_repos = use_extension("//:probe_repos.bzl", "probe_repos")',
+    )
+    ..writeln(
+      'use_repo(probe_repos, ${repos.map((r) => str(r.name)).join(', ')})',
+    );
   if (extension != null) {
     module
       ..writeln('probe = use_extension("//:probe_extension.bzl", "probe")')
       ..writeln('use_repo(probe, ${extensionRepos.map(str).join(', ')})');
-  }
-  for (final repo in repos) {
-    final attrs = repo.attrs.entries.map((e) => '${e.key} = ${e.value}');
-    module.writeln(
-      '${repo.rule}(name = ${str(repo.name)}, ${attrs.join(', ')})',
-    );
   }
 
   // The repo's own .bazelrc.user carries a developer's overrides (on this
@@ -235,6 +249,7 @@ Future<Probe> probe({
   final workspace = await generatedWorkspace('fetch_probe', {
     'MODULE.bazel': module.toString(),
     'BUILD.bazel': '',
+    'probe_repos.bzl': declarations.toString(),
     if (extension != null) 'probe_extension.bzl': extension,
     if (userConfig != null) '.bazelrc.user': userConfig,
     '.bazelrc': [
