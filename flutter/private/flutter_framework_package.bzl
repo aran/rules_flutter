@@ -114,8 +114,7 @@ def _flutter_framework_package_impl(repository_ctx):
     # to. Checked here, where only the selected SDK's spoke is fetched, so a
     # lock resolved for one SDK does not stop a build of another.
     check_lock_floor(index, repository_ctx.attr.sdk, flutter_version)
-    if repository_ctx.attr.framework_json:
-        check_dependency_constraints(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.fields)
+    check_dependency_constraints(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.fields)
     bazel_deps = sorted([d for d in pubspec.dependencies if d in index.built or d in index.other])
     language_version = pubspec.language_version
 

@@ -47,25 +47,6 @@ FLUTTER_VERSIONS = {
     ),
 }
 
-# The hosted packages the Flutter SDK's own packages depend on at exactly one
-# version, per Flutter version and SDK package (the `dependencies:` of
-# `packages/*/pubspec.yaml`, `flutter_tools` aside). pub resolves any app that
-# uses an SDK package to those versions, so a build with one copy of each
-# package must not move a package past one: `flutter_pub.from_lock` fails when a
-# lock would. `bazel run //tools/update_flutter_version -- <version>` prints the
-# entry.
-FLUTTER_SDK_EXACT_PINS = {
-    "3.50.0": {
-        "flutter": {
-            "material_color_utilities": "0.13.0",
-        },
-        "flutter_test": {
-            "matcher": "0.12.20",
-            "test_api": "0.7.14",
-        },
-    },
-}
-
 # The packages of each Flutter version's source: the directories of its
 # `packages/` with a pubspec. A Flutter SDK package of a lock is extracted from
 # that source's `packages/<name>` alone, and a name not listed fails its fetch,
@@ -116,27 +97,6 @@ def require_supported_flutter_version(flutter_version):
             "Flutter {v} is not supported. Supported versions: {supported}.\n" +
             "Set flutter.toolchain(flutter_version = ...) to one of them."
         ).format(v = flutter_version, supported = ", ".join(FLUTTER_VERSIONS.keys())))
-
-def flutter_sdk_exact_pins(flutter_version):
-    """Returns the exact pins of a release's SDK packages.
-
-    Args:
-        flutter_version: Flutter release tag (e.g. "3.50.0"). Must be a key of
-            FLUTTER_VERSIONS.
-
-    Returns:
-        A dict of SDK package name to a dict of the packages it depends on
-        exactly and the versions it pins.
-    """
-    pins = FLUTTER_SDK_EXACT_PINS.get(flutter_version)
-    if pins == None:
-        fail((
-            "No exact SDK pins recorded for Flutter {v}.\n" +
-            "Add its entry to FLUTTER_SDK_EXACT_PINS in " +
-            "//flutter/private:versions.bzl; " +
-            "`bazel run //tools/update_flutter_version -- {v}` prints it."
-        ).format(v = flutter_version))
-    return pins
 
 def flutter_source_sha256(flutter_version):
     """Returns the recorded sha256 of a release's GitHub source tarball.

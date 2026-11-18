@@ -176,51 +176,6 @@ def reconcile_package(name, entries, check = "warning"):
         return struct(entry = None, errors = errors, warnings = [])
     return struct(entry = entries[0], errors = [], warnings = [])
 
-def sdk_pin_errors(flutter_version, sdk_pins, chosen, entries):
-    """The places a build would use a package outside an SDK package's exact pin.
-
-    Flutter's own packages depend on a few hosted packages at exactly one version
-    (`flutter_test` on `test_api 0.7.12`). pub honours that for any app that uses
-    them, but the build has one copy of each package and takes the highest any
-    lock records, so a lock that brings a higher one would build the SDK
-    package against a version it forbids.
-
-    Args:
-        flutter_version: The Flutter version that builds the SDK packages.
-        sdk_pins: Its exact pins: SDK package name to a dict of package name
-            to pinned version.
-        chosen: Package name to the entry the build uses.
-        entries: Package name to the entries of every lock that lists it.
-
-    Returns:
-        The messages, in a stable order; empty when every pin holds.
-    """
-    errors = []
-    for sdk_package in sorted(sdk_pins.keys()):
-        if sdk_package not in chosen:
-            continue
-        for package, pin in sorted(sdk_pins[sdk_package].items()):
-            winner = chosen.get(package)
-            if winner == None or winner.kind != HOSTED or winner.version == pin:
-                continue
-            bringing = [e for e in entries[package] if e.version == winner.version]
-            errors.append((
-                "The Flutter SDK package \"{sdk}\" (Flutter {flutter}) depends on \"{package}\" at exactly {pin}, " +
-                "but this build would use {version}, which {where} records.\n" +
-                "rules_flutter builds one version of each package and the SDK's pin is not negotiable: " +
-                "re-resolve {that} so it holds \"{package}\" at {pin}, " +
-                "for example by adding `{package}: {pin}` to its pubspec's dependencies."
-            ).format(
-                sdk = sdk_package,
-                flutter = flutter_version,
-                package = package,
-                pin = pin,
-                version = winner.version,
-                where = " and ".join(sorted({"hub \"{}\", {}".format(e.hub, e.lock_label): True for e in bringing}.keys())),
-                that = "that lock" if len(bringing) == 1 else "those locks",
-            ))
-    return errors
-
 def unsupported_locks(entries):
     """The locks that list an unsupported package, for its one stub's message.
 

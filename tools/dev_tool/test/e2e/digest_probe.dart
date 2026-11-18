@@ -99,12 +99,14 @@ List<ProbeRepo> hostedPubPackage(
 /// A Flutter SDK package's source repository [name] and the repository its
 /// files are extracted into from the Flutter source tarball of
 /// [fakeFlutterVersion], checked against [sha256], as `flutter_pub.from_lock()`
-/// declares the two. [packages] are those the release's source has.
+/// declares the two. [packages] are those the release's source has; [attrs]
+/// are more attributes of the package's repository (its `sdk`, say).
 List<ProbeRepo> sdkSourcePackage(
   String name, {
   required String package,
   required String sha256,
   required List<String> packages,
+  Map<String, String> attrs = const {},
 }) => [
   ProbeRepo('${name}_files', 'flutter_source_files', {
     'package_name': str(package),
@@ -116,6 +118,7 @@ List<ProbeRepo> sdkSourcePackage(
     'files': str('@${name}_files//:BUILD.bazel'),
     'package_name': str(package),
     'version': str('0.0.0'),
+    ...attrs,
   }),
 ];
 

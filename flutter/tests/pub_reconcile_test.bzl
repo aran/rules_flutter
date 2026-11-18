@@ -8,7 +8,7 @@ winning, and a raised lock of the root module is reported at the root's level.
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:lock_entry_kind.bzl", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "UNSUPPORTED")
-load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "sdk_pin_errors", "unsupported_locks")
+load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
 
 def _dir(lock):
     return lock.split("//")[1].split(":")[0]
@@ -224,54 +224,6 @@ def _unsupported_entries_name_every_lock_test_impl(ctx):
 
 unsupported_entries_name_every_lock_test = unittest.make(_unsupported_entries_name_every_lock_test_impl)
 
-_PINS = {"flutter_test": {"test_api": "0.7.12", "matcher": "0.12.20"}}
-
-def _sdk_pins_hold_test_impl(ctx):
-    env = unittest.begin(ctx)
-
-    entries = {
-        "flutter_test": [struct(kind = FLUTTER_SOURCE, hub = "deps", lock_label = "//app:pubspec.lock")],
-        "test_api": [_hosted("0.7.12"), _tools("0.7.12")],
-        "matcher": [_hosted("0.12.20")],
-    }
-    chosen = {name: es[0] for name, es in entries.items()}
-    asserts.equals(env, [], sdk_pin_errors("3.47.9", _PINS, chosen, entries))
-
-    # An SDK package no lock lists pins nothing, and a pinned package no lock
-    # lists is not this check's concern.
-    asserts.equals(env, [], sdk_pin_errors("3.47.9", _PINS, {"test_api": _hosted("0.7.13")}, {"test_api": [_hosted("0.7.13")]}))
-    asserts.equals(env, [], sdk_pin_errors("3.47.9", _PINS, {"flutter_test": entries["flutter_test"][0]}, entries))
-
-    return unittest.end(env)
-
-sdk_pins_hold_test = unittest.make(_sdk_pins_hold_test_impl)
-
-def _a_lock_cannot_move_a_package_past_an_sdk_pin_test_impl(ctx):
-    env = unittest.begin(ctx)
-
-    tool = _hosted("0.7.13", hub = "dev_tool_deps", lock = "@rules_flutter//:pubspec.lock")
-    app = _hosted("0.7.12")
-    entries = {
-        "flutter_test": [struct(kind = FLUTTER_SOURCE, hub = "deps", lock_label = "//app:pubspec.lock")],
-        "test_api": [app, tool],
-        "matcher": [_hosted("0.12.20")],
-    }
-    chosen = {"flutter_test": entries["flutter_test"][0], "test_api": tool, "matcher": entries["matcher"][0]}
-    errors = sdk_pin_errors("3.47.9", _PINS, chosen, entries)
-    asserts.equals(env, 1, len(errors))
-    _mentions(env, errors[0], [
-        "\"flutter_test\" (Flutter 3.47.9)",
-        "\"test_api\" at exactly 0.7.12",
-        "would use 0.7.13",
-        "hub \"dev_tool_deps\", @rules_flutter//:pubspec.lock",
-        "re-resolve that lock",
-    ])
-    asserts.false(env, "matcher" in errors[0], errors[0])
-
-    return unittest.end(env)
-
-a_lock_cannot_move_a_package_past_an_sdk_pin_test = unittest.make(_a_lock_cannot_move_a_package_past_an_sdk_pin_test_impl)
-
 def _one_directory_is_one_package_test_impl(ctx):
     env = unittest.begin(ctx)
 
@@ -315,8 +267,6 @@ def pub_reconcile_test_suite(name):
         different_sources_are_refused_test,
         different_commits_are_refused_test,
         unsupported_entries_name_every_lock_test,
-        sdk_pins_hold_test,
-        a_lock_cannot_move_a_package_past_an_sdk_pin_test,
         one_directory_is_one_package_test,
         two_directories_are_refused_test,
     )

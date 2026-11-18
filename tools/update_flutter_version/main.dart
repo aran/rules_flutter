@@ -10,11 +10,10 @@
 ///   1. Looks up the engine revision from the Flutter tag
 ///   2. Downloads each artifact and computes SHA-256 (archives already pinned
 ///      in versions.bzl for this version are reused, not downloaded again)
-///   3. Prints the Starlark snippet to add to versions.bzl, with the exact
-///      version pins of the SDK's own packages (`FLUTTER_SDK_EXACT_PINS`) and
-///      the packages there are (`FLUTTER_SDK_PACKAGES`)
+///   3. Prints the Starlark snippet to add to versions.bzl, with the packages
+///      of the SDK's source (`FLUTTER_SDK_PACKAGES`)
 ///
-/// `--sdk-pins-only <version>` prints just those two entries.
+/// `--sdk-packages-only <version>` prints just that entry.
 library;
 
 import 'dart:convert';
@@ -22,7 +21,7 @@ import 'dart:io';
 
 import 'artifact_list.dart';
 import 'pinned_checksums.dart';
-import 'sdk_pins.dart';
+import 'sdk_packages.dart';
 import 'shader_flags.dart';
 
 const gcsBase = 'https://storage.googleapis.com/flutter_infra_release/flutter';
@@ -35,12 +34,12 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  final pinsOnly = args[0] == '--sdk-pins-only';
-  if (pinsOnly && args.length < 2) {
-    stderr.writeln('Usage: --sdk-pins-only <flutter-version>');
+  final packagesOnly = args[0] == '--sdk-packages-only';
+  if (packagesOnly && args.length < 2) {
+    stderr.writeln('Usage: --sdk-packages-only <flutter-version>');
     exit(1);
   }
-  final version = pinsOnly ? args[1] : args[0];
+  final version = packagesOnly ? args[1] : args[0];
 
   // Locate the Flutter repo. BUILD_WORKSPACE_DIRECTORY is set by `bazel run`.
   final workspaceDir =
@@ -61,7 +60,7 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  if (pinsOnly) {
+  if (packagesOnly) {
     print(_sdkPackageEntries(version, flutterRepo));
     return;
   }
@@ -538,9 +537,9 @@ void _checkShaderFlags(String version, String flutterRepo, String workspace) {
   }
 }
 
-/// The `pubspec.yaml` of each package of `packages/` at the Flutter tag
-/// [version], by package name, read from the clone at [flutterRepo].
-Map<String, String> _sdkPubspecs(String version, String flutterRepo) {
+/// The packages of `packages/` at the Flutter tag [version]: its directories
+/// with a pubspec, read from the clone at [flutterRepo].
+List<String> _sdkPackages(String version, String flutterRepo) {
   String git(List<String> args) {
     final result = Process.runSync(
       'git',
@@ -554,7 +553,7 @@ Map<String, String> _sdkPubspecs(String version, String flutterRepo) {
     return result.stdout as String;
   }
 
-  final pubspecs = <String, String>{};
+  final packages = <String>[];
   for (final line in git([
     'ls-tree',
     '--name-only',
@@ -562,26 +561,20 @@ Map<String, String> _sdkPubspecs(String version, String flutterRepo) {
   ]).split('\n')) {
     final package = line.trim();
     if (package.isEmpty) continue;
-    final show = Process.runSync(
+    final pubspec = Process.runSync(
       'git',
-      ['show', '$version:packages/$package/pubspec.yaml'],
+      ['cat-file', '-e', '$version:packages/$package/pubspec.yaml'],
       workingDirectory: flutterRepo,
     );
     // A directory of packages/ with no pubspec is not a package.
-    if (show.exitCode == 0) pubspecs[package] = show.stdout as String;
+    if (pubspec.exitCode == 0) packages.add(package);
   }
-  return pubspecs;
+  return packages;
 }
 
 /// What versions.bzl records of the SDK packages at the Flutter tag
-/// [version]: their exact pins, then the packages there are.
-String _sdkPackageEntries(String version, String flutterRepo) {
-  final pubspecs = _sdkPubspecs(version, flutterRepo);
-  return '=== Add to FLUTTER_SDK_EXACT_PINS in flutter/private/versions.bzl ===\n'
-      '\n'
-      '${renderPins(version, exactPins(pubspecs))}'
-      '\n'
-      '=== Add to FLUTTER_SDK_PACKAGES in flutter/private/versions.bzl ===\n'
-      '\n'
-      '${renderPackages(version, pubspecs.keys)}';
-}
+/// [version]: the packages there are.
+String _sdkPackageEntries(String version, String flutterRepo) =>
+    '=== Add to FLUTTER_SDK_PACKAGES in flutter/private/versions.bzl ===\n'
+    '\n'
+    '${renderPackages(version, _sdkPackages(version, flutterRepo))}';

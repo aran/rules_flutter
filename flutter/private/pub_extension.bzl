@@ -32,11 +32,11 @@ load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_p
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
 load("//flutter/private:pub_lock_sdks.bzl", "parse_lock_sdk_constraints")
-load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "sdk_pin_errors", "unsupported_locks")
+load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
 load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
 load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settings", "unknown_annotation")
 load("//flutter/private:swift_packages.bzl", "declare_swift_packages")
-load("//flutter/private:versions.bzl", "flutter_sdk_exact_pins", "flutter_sdk_packages", "flutter_source_sha256")
+load("//flutter/private:versions.bzl", "flutter_sdk_packages", "flutter_source_sha256")
 
 visibility("//flutter/...")
 
@@ -578,13 +578,10 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     if unknown:
         fail(unknown)
 
-    # A release's packages are held to the pins it records; another framework
-    # has its constraints checked against the locks when its spokes are fetched.
-    default_sdk = sdks[DEFAULT_SDK_NAME]
-    if not default_sdk.framework:
-        pin_problems = sdk_pin_errors(default_sdk.version, flutter_sdk_exact_pins(default_sdk.version), chosen, entries)
-        if pin_problems:
-            fail("\n\n".join(pin_problems))
+    # What each SDK's packages need of the locked packages is checked when
+    # its spokes are fetched, which only a build that uses that SDK does: this
+    # extension cannot know which SDK that is, since a flag can override the
+    # root module's `flutter.use_sdk`.
 
     built = {name: e for name, e in chosen.items() if e.kind in [HOSTED, GIT, LOCAL, FLUTTER_SOURCE]}
     other = sorted(
@@ -616,7 +613,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     # The SDKs whose frameworks differ have Flutter SDK packages of their own
     # (a framework's packages are one repository each, shared by every SDK with
     # that framework): an index per prefix, over the same locks. Which package a
-    # build uses is chosen by the hubs' aliases, on `--@rules_flutter//flutter:sdk`.
+    # build uses is chosen by the hubs' aliases, on the SDK the build uses.
     sdk_packages = sorted([n for n, e in chosen.items() if e.kind in [FLUTTER_FRAMEWORK, FLUTTER_SOURCE]])
     prefixes = _framework_variants(sdks)
     multi = len({p: True for p in prefixes.values()}) > 1
@@ -625,6 +622,11 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
         other = other,
         sdk_packages = sdk_packages,
         versions = {n: e.version for n, e in chosen.items() if e.kind in [HOSTED, GIT, LOCAL] and e.version},
+        version_locks = {
+            n: sorted({x.lock_label: True for x in entries[n] if x.version == e.version}.keys())
+            for n, e in chosen.items()
+            if e.kind in [HOSTED, GIT, LOCAL] and e.version
+        },
         locks = sorted({str(t.tag.lock): True for t in tags}.keys()),
         flutter_constraints = {str(t.tag.lock): t.flutter_constraint for t in tags if t.flutter_constraint},
         cycles = [" ".join(c) for c in planned.declared],

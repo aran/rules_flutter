@@ -2659,11 +2659,10 @@ def _flutter_pub_package_impl(ctx):
     # YAML, a `name` that is not this package's, a dependency or constraint of
     # the wrong type) fails the fetch, naming the package.
     pubspec = read_pubspec(ctx, ctx.attr.package_name, version)
-    if ctx.attr.framework_json:
-        # What a Flutter SDK package of a framework other than the release
-        # needs of the hosted packages must be what the locks hold. (A
-        # release's are not held to it here: its pins are checked when the
-        # module is read.)
+    if ctx.attr.sdk:
+        # What a Flutter SDK package needs of the hosted packages must be what
+        # the build uses. Checked here, where only the SDK a build uses has
+        # its packages fetched.
         check_dependency_constraints(read_index(ctx, ctx.attr.prefix), ctx.attr.sdk, ctx.attr.package_name, pubspec.fields)
     pubspec_dependencies = pubspec.dependencies
     language_version = pubspec.language_version
@@ -3101,8 +3100,8 @@ flutter_pub_package = repository_rule(
             allow_single_file = True,
         ),
         "sdk": attr.string(
-            doc = "For a Flutter SDK package, the SDK whose framework it is from, for messages.",
-            default = "flutter",
+            doc = "For a Flutter SDK package, the SDK whose framework it is from, whose " +
+                  "needs of the locked packages it checks; empty for any other package.",
         ),
         "prefix": attr.string(
             doc = "The prefix of the index the package is planned against: the build's, or another SDK framework's.",

@@ -53,6 +53,7 @@ load(":flutter_test_bootstrap_test.bzl", "flutter_test_bootstrap_test_suite")
 load(":flutter_test_flavor_test.bzl", "flutter_test_flavor_test_suite")
 load(":flutter_test_runfiles_test.bzl", "flutter_test_runfiles_test_suite")
 load(":flutter_test_tags_test.bzl", "flutter_test_tags_test_suite")
+load(":framework_source_test.bzl", "framework_source_test_suite")
 load(":gradle_dependency_forms_test.bzl", "gradle_dependency_forms_test_suite")
 load(":gradle_dependency_gaps_test.bzl", "gradle_dependency_gaps_test_suite")
 load(":gradle_script_test.bzl", "gradle_script_test_suite")
@@ -193,6 +194,8 @@ flutter_framework_package_test_suite(name = "flutter_framework_package_test")
 flutter_pub_package_sdk_source_test_suite(name = "flutter_pub_package_sdk_source_test")
 
 pub_reconcile_test_suite(name = "pub_reconcile_test")
+
+framework_source_test_suite(name = "framework_source_test")
 
 pub_cycles_test_suite(name = "pub_cycles_test")
 

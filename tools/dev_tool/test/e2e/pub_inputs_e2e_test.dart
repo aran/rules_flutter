@@ -114,6 +114,42 @@ void main() {
         expect(result.stdout, contains('@pubhub//:$name'));
       }
     });
+
+    /// What an SDK package needs of the locked packages depends on the SDK
+    /// the build uses, which `flutter.use_sdk` or the flag chooses and the
+    /// lock's reader cannot know. So a lock that holds `test_api` at another
+    /// version than the release's `flutter_test` pins (right for another SDK)
+    /// loads. Fetching that release's `flutter_test` is what refuses it
+    /// (`sdk_source_e2e_test.dart`).
+    ///
+    /// `test_api` is pub.dev's, as in rules_flutter's own lock, which the
+    /// build reads too: one package comes from one registry. Loading the hub
+    /// fetches no archive, so the digest only has to be well formed.
+    test('is not held to the release\'s pins when the lock is read', () async {
+      final ws = await PubInputsFixture(
+        hosted: [HostedPackage('good')],
+        extraLockEntries:
+            '''
+  test_api:
+    dependency: "direct dev"
+    description:
+      name: test_api
+      sha256: "${'0' * 64}"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.99"
+  flutter_test:
+    dependency: "direct dev"
+    description: flutter
+    source: sdk
+    version: "0.0.0"
+''',
+      ).materialize();
+      final result = await ws.query('@pubhub//:all');
+      expect(result.succeeded, isTrue, reason: '$result');
+      expect(result.stdout, contains('@pubhub//:test_api'));
+      expect(result.stdout, contains('@pubhub//:flutter_test'));
+    });
   });
 
   group('a plugin overlay', () {

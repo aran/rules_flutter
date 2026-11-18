@@ -158,20 +158,27 @@ def check_lock_floor(index, sdk, framework_version):
                 command = _resolve_commands(sdk, "get", [lock]),
             ))
 
-def check_dependency_constraints(index, sdk, package, pubspec_fields):
-    """Fails when a Flutter SDK package needs a version of a locked package the lock does not hold.
+def dependency_constraint_message(index, sdk, package, pubspec_fields):
+    """Why a Flutter SDK package does not fit the versions the build uses of the locked packages, or None.
 
     The SDK packages are recorded in the lock at `0.0.0`, so their own version
     never mismatches. What can is what their pubspecs require of the hosted
-    packages the lock pins.
+    packages the locks pin (`flutter_test` holds `test_api` at exactly one
+    version): the build has one version of each package, the highest any lock
+    records, and that one must be one the SDK package allows.
 
     Args:
         index: The hub's index (`read_index`).
         sdk: The SDK's name.
         package: The SDK package whose pubspec this is.
         pubspec_fields: The pubspec as decoded JSON (`read_pubspec(...).fields`).
+
+    Returns:
+        The message, or None when every constraint holds.
     """
     problems = []
+    culprits = {}
+    example = None
     dependencies = pubspec_fields.get("dependencies") or {}
     for dep in sorted(dependencies.keys()):
         locked = index.versions.get(dep)
@@ -181,20 +188,35 @@ def check_dependency_constraints(index, sdk, package, pubspec_fields):
         if locked == None or type(spec) != "string" or index.sdk_packages.get(dep):
             continue
         if not allows(spec, locked):
-            problems.append("  package:{pkg} needs {dep} {constraint}, and {lock} locks {dep} {locked}".format(
+            locks = index.version_locks.get(dep) or index.locks
+            for lock in locks:
+                culprits[lock] = True
+            if example == None:
+                example = "`{}: {}`".format(dep, spec)
+            problems.append("  package:{pkg} needs {dep} {constraint}, and the build uses {dep} {locked}, which {locks} records".format(
                 pkg = package,
                 dep = dep,
                 constraint = spec,
-                lock = ", ".join(index.locks),
+                locks = " and ".join(locks),
                 locked = locked,
             ))
-    if problems:
-        fail((
-            "The lock does not fit the \"{sdk}\" Flutter SDK's framework:\n{problems}\n" +
-            "Re-resolve the locks against this SDK, from the root of the workspace that " +
-            "holds each:\n    {command}"
-        ).format(
-            sdk = sdk,
-            problems = "\n".join(problems),
-            command = _resolve_commands(sdk, "get", index.locks),
-        ))
+    if not problems:
+        return None
+    return (
+        "The locks do not fit the \"{sdk}\" Flutter SDK's framework:\n{problems}\n" +
+        "The build uses one version of each package, the highest any lock records. " +
+        "Re-resolve each lock named against this SDK so that it holds a version the SDK " +
+        "package allows (for example, with {example} in its pubspec's dependencies), from " +
+        "the root of the workspace that holds it:\n    {command}"
+    ).format(
+        sdk = sdk,
+        problems = "\n".join(problems),
+        example = example,
+        command = _resolve_commands(sdk, "get", sorted(culprits.keys())),
+    )
+
+def check_dependency_constraints(index, sdk, package, pubspec_fields):
+    """Fails with `dependency_constraint_message` when a Flutter SDK package does not fit the locks."""
+    message = dependency_constraint_message(index, sdk, package, pubspec_fields)
+    if message:
+        fail(message)

@@ -5,11 +5,10 @@ dart_binary(
     srcs = [
         "artifact_list.dart",
         "pinned_checksums.dart",
-        "sdk_pins.dart",
+        "sdk_packages.dart",
         "shader_flags.dart",
     ],
     main = "main.dart",
-    deps = ["@dev_tool_deps//:yaml"],
 )
 
 dart_test(
@@ -30,11 +29,8 @@ dart_test(
 )
 
 dart_test(
-    name = "sdk_pins_test",
-    srcs = ["sdk_pins.dart"],
-    main = "test/sdk_pins_test.dart",
-    deps = [
-        "@dev_tool_deps//:test",
-        "@dev_tool_deps//:yaml",
-    ],
+    name = "sdk_packages_test",
+    srcs = ["sdk_packages.dart"],
+    main = "test/sdk_packages_test.dart",
+    deps = ["@dev_tool_deps//:test"],
 )

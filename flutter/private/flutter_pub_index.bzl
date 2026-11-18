@@ -128,7 +128,7 @@ def read_index(ctx, prefix = SPOKE_PREFIX):
       prefix: The prefix of the index to read.
 
     Returns:
-      `struct(built, other, sdk_packages, main_prefix, sdk_prefix, via_hub, versions, locks, flutter_constraints, cycles, advisory_cycles)`:
+      `struct(built, other, sdk_packages, main_prefix, sdk_prefix, via_hub, versions, version_locks, locks, flutter_constraints, cycles, advisory_cycles)`:
       `built`, a dict of the names of the built
       packages (hosted ones and Flutter SDK ones built from the Flutter
       source; each has a library repository); `other`, a dict of the names of
@@ -140,7 +140,8 @@ def read_index(ctx, prefix = SPOKE_PREFIX):
       of another SDK's framework. `via_hub` says that a package depending on an
       SDK package reaches it through the main hub's alias, which follows the
       selected SDK (`sdk_hubs`: a hub that lists each). `versions` is the version the build uses of
-      each package the locks list, `locks` their labels, and
+      each package the locks list, `version_locks` the locks that record it,
+      `locks` the labels of all of them, and
       `flutter_constraints` the `sdks: flutter` constraint of each.
       `cycles` are the root module's `flutter_pub.cycle()` declarations and
       `advisory_cycles` every other declaration that may apply (`pub_cycles.bzl`),
@@ -156,6 +157,7 @@ def read_index(ctx, prefix = SPOKE_PREFIX):
         via_hub = index.get("via_hub", False),
         sdk_hubs = index.get("sdk_hubs", {}),
         versions = index.get("versions", {}),
+        version_locks = index.get("version_locks", {}),
         locks = index.get("locks", []),
         flutter_constraints = index.get("flutter_constraints", {}),
         cycles = index.get("cycles", []),
@@ -193,6 +195,7 @@ def _flutter_pub_index_impl(ctx):
         "via_hub": ctx.attr.via_hub,
         "sdk_hubs": ctx.attr.sdk_hubs,
         "versions": ctx.attr.versions,
+        "version_locks": ctx.attr.version_locks,
         "locks": ctx.attr.locks,
         "flutter_constraints": ctx.attr.flutter_constraints,
         "cycles": [c.split(" ") for c in ctx.attr.cycles],
@@ -211,6 +214,7 @@ flutter_pub_index = repository_rule(
         "via_hub": attr.bool(doc = "Whether a dependency on an SDK package reaches it through the main hub's alias."),
         "sdk_hubs": attr.string_dict(doc = "For each SDK package, a hub that lists it, whose alias follows the selected SDK, for `via_hub`."),
         "versions": attr.string_dict(doc = "The version the build uses of each package the locks list."),
+        "version_locks": attr.string_list_dict(doc = "For each package of `versions`, the labels of the locks that record that version, for messages."),
         "locks": attr.string_list(doc = "The locks' labels, for messages."),
         "flutter_constraints": attr.string_dict(doc = "The `sdks: flutter` constraint of each lock, by its label."),
         "cycles": attr.string_list(doc = "The root module's `flutter_pub.cycle()` declarations, each its packages joined by spaces: each must be exactly a cycle."),

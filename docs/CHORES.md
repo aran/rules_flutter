@@ -29,8 +29,8 @@ The latest tag is the current stable release.
 
 **Files**:
 
-- `flutter/private/versions.bzl` — `FLUTTER_VERSIONS`, `FLUTTER_SDK_EXACT_PINS`,
-  `FLUTTER_SDK_PACKAGES` and `ARTIFACT_CHECKSUMS`
+- `flutter/private/versions.bzl` — `FLUTTER_VERSIONS`, `FLUTTER_SDK_PACKAGES`
+  and `ARTIFACT_CHECKSUMS`
 - `MODULE.bazel` — `flutter_version` in the `flutter.toolchain()` call, and the
   `flutter_outline.toolchain()` calls below it (see step 5)
 - Every `e2e/*/MODULE.bazel` — their own `flutter.toolchain()` calls, and the
@@ -49,7 +49,7 @@ The latest tag is the current stable release.
 2. Run `bazel run //tools/update_flutter_version -- <new-version>`. It looks up
    the engine revision from the tag, downloads and hashes each artifact, and
    prints the Starlark to put in `flutter/private/versions.bzl`, including the
-   exact pins of the SDK's own packages and the list of those packages.
+   list of the SDK's own packages.
 3. Copy the printed snippets into `flutter/private/versions.bzl`.
 4. Update `flutter_version` in `MODULE.bazel`, the e2e workspaces and the
    README.
