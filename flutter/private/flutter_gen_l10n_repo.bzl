@@ -58,7 +58,7 @@ rewrite would quietly drift.
 
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:flutter_pub_index.bzl", "library_label", "read_index")
-load("//flutter/private:framework_source.bzl", "framework_root", "read_framework", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "framework_root", "read_framework", "unusable_message", "write_failing_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME")
 load("//flutter/private:pinned.bzl", "pinned")
 
@@ -108,9 +108,9 @@ def _flutter_gen_l10n_repo_impl(repository_ctx):
     version = repository_ctx.attr.flutter_version
 
     if repository_ctx.attr.framework_json:
-        unset = unset_message(repository_ctx)
-        if unset:
-            write_unset_stub(repository_ctx, ["gen_l10n"], unset)
+        unusable = unusable_message(repository_ctx)
+        if unusable:
+            write_failing_stub(repository_ctx, ["gen_l10n"], unusable)
             return
 
         # A framework source: the files of the subset, copied (the patches

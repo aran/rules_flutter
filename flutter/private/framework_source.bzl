@@ -14,8 +14,9 @@ as an attribute, so Bazel fetches the source before they run.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "write_pubspec_dependencies")
+load("//flutter/private:failing_targets.bzl", "write_failing_build")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
-load("//flutter/private:pub_constraint.bzl", "allows")
+load("//flutter/private:pub_constraint.bzl", "allows", "constraint_problem")
 load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
 load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
@@ -38,24 +39,28 @@ def read_framework(ctx):
     """The decoded `flutter_framework.json` of the framework source a repository rule was given."""
     return json.decode(ctx.read(ctx.attr.framework_json))
 
-def unset_message(ctx):
-    """Why the framework source a repository rule was given is not there, or None.
+def unusable_message(ctx):
+    """Why the framework source a repository rule was given cannot be used, or None.
 
     A source that needs a path of the machine it runs on (a local checkout)
-    still loads where the path is not set, so that `bazel query` works for
-    everyone: its `flutter_framework.json` then holds `unset`, and the
-    repositories built from it hold targets that fail when something uses them.
+    still fetches where the path is not set, or does not hold a checkout, so
+    that `bazel fetch --all` and `bazel query` work for everyone: its
+    `flutter_framework.json` then holds `unusable`, and the repositories built
+    from it hold targets that fail when something uses them.
 
     Args:
         ctx: A `repository_ctx` whose rule has a `framework_json` label attribute.
 
     Returns:
-        The message, or None when the framework source is there.
+        The message, or None when the framework source can be used.
     """
-    return read_framework(ctx).get("unset")
+    return read_framework(ctx).get("unusable")
 
-def write_unset_stub(ctx, names, message, member = False):
+def write_failing_stub(ctx, names, message, member = False):
     """Writes a repository whose targets fail with [message] when something uses them.
+
+    For a repository whose SDK cannot be used, or does not fit the build's
+    locks: only a build that uses the SDK fails.
 
     Args:
         ctx: The `repository_ctx`.
@@ -64,16 +69,7 @@ def write_unset_stub(ctx, names, message, member = False):
         member: Whether the repository is an SDK package's source, which the
             hub's libraries plan against.
     """
-    ctx.file("BUILD.bazel", 'load("@rules_flutter//flutter:engine.bzl", "flutter_missing_slice")\n' + "".join([
-        """
-flutter_missing_slice(
-    name = {name},
-    message = {message},
-    visibility = ["//visibility:public"],
-)
-""".format(name = json.encode(name), message = json.encode(message))
-        for name in names
-    ]))
+    write_failing_build(ctx, names, message)
     if member:
         ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_OVERLAY, "material_icons": False, "android_lib": False}))
         write_pubspec_dependencies(ctx, [])
@@ -100,13 +96,20 @@ def link_framework_package(ctx, package_name, written = []):
         written: Root names the repository writes, which are not linked, as
             Bazel's files (`NEVER_LINKED`) are not: a write would land in the
             checkout.
+
+    Returns:
+        None, or why the package cannot be linked: the framework source does
+        not have it. Nothing is linked then; the package's absence is watched,
+        so that a checkout that gains it refetches the repository.
     """
     package_dir = framework_root(ctx).get_child("packages").get_child(package_name)
-    if not package_dir.get_child("pubspec.yaml").exists:
-        fail((
+    pubspec = package_dir.get_child("pubspec.yaml")
+    ctx.watch(pubspec)
+    if not pubspec.exists:
+        return (
             "pubspec.lock lists `{name}` from the Flutter SDK, but the framework source {source} " +
             "has no packages/{name}; re-resolve the lock against that SDK."
-        ).format(name = package_name, source = str(ctx.attr.framework_json)))
+        ).format(name = package_name, source = str(ctx.attr.framework_json))
     ctx.watch_tree(package_dir)
     for child in package_dir.readdir():
         if child.basename == "android" and child.is_dir:
@@ -115,6 +118,7 @@ def link_framework_package(ctx, package_name, written = []):
                     ctx.symlink(entry, "android/" + entry.basename)
         elif child.basename not in NEVER_LINKED + written:
             ctx.symlink(child, child.basename)
+    return None
 
 def _resolve_commands(sdk, verb, locks):
     """One command per lock, each run from the root of the workspace that holds the lock.
@@ -130,8 +134,8 @@ def _resolve_commands(sdk, verb, locks):
         commands.append("bazel run {}@rules_flutter//flutter/pub -- {}".format(flag, args))
     return "\n    ".join(commands)
 
-def check_lock_floor(index, sdk, framework_version):
-    """Fails when the lock needs a newer Flutter than the SDK's framework.
+def lock_floor_message(index, sdk, framework_version):
+    """Why the locks need a newer Flutter than the SDK's framework, or None.
 
     Pub does not record the resolver's version, but it does record the floor
     its solution needs; a framework below that floor cannot compile what the
@@ -141,10 +145,13 @@ def check_lock_floor(index, sdk, framework_version):
         index: The hub's index (`read_index`).
         sdk: The SDK's name.
         framework_version: The framework's version.
+
+    Returns:
+        The message for the first lock that needs a newer one, or None.
     """
     for lock, constraint in sorted(index.flutter_constraints.items()):
         if constraint and version_below_lower_bound(framework_version, constraint):
-            fail((
+            return (
                 "{lock} was resolved against a newer Flutter than the \"{sdk}\" SDK has: the lock " +
                 "requires flutter {constraint}, and the SDK's framework is {version}.\n" +
                 "Either use a newer framework or re-resolve against this SDK, from the " +
@@ -156,7 +163,8 @@ def check_lock_floor(index, sdk, framework_version):
                 constraint = constraint,
                 version = framework_version,
                 command = _resolve_commands(sdk, "get", [lock]),
-            ))
+            )
+    return None
 
 def dependency_constraint_message(index, sdk, package, pubspec_fields):
     """Why a Flutter SDK package does not fit the versions the build uses of the locked packages, or None.
@@ -187,6 +195,14 @@ def dependency_constraint_message(index, sdk, package, pubspec_fields):
             spec = spec.get("version")
         if locked == None or type(spec) != "string" or index.sdk_packages.get(dep):
             continue
+        unreadable = constraint_problem(spec)
+        if unreadable:
+            return "package:{pkg} of the \"{sdk}\" Flutter SDK depends on {dep} with a constraint pub cannot read: {problem}".format(
+                pkg = package,
+                sdk = sdk,
+                dep = dep,
+                problem = unreadable,
+            )
         if not allows(spec, locked):
             locks = index.version_locks.get(dep) or index.locks
             for lock in locks:
@@ -214,9 +230,3 @@ def dependency_constraint_message(index, sdk, package, pubspec_fields):
         example = example,
         command = _resolve_commands(sdk, "get", sorted(culprits.keys())),
     )
-
-def check_dependency_constraints(index, sdk, package, pubspec_fields):
-    """Fails with `dependency_constraint_message` when a Flutter SDK package does not fit the locks."""
-    message = dependency_constraint_message(index, sdk, package, pubspec_fields)
-    if message:
-        fail(message)

@@ -22,7 +22,7 @@ load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:flutter_pub_index.bzl", "library_label", "read_index")
-load("//flutter/private:framework_source.bzl", "check_dependency_constraints", "check_lock_floor", "link_framework_package", "read_framework", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "link_framework_package", "lock_floor_message", "read_framework", "unusable_message", "write_failing_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:pinned.bzl", "pinned")
 
@@ -91,14 +91,17 @@ def _flutter_framework_package_impl(repository_ctx):
     flutter_version = repository_ctx.attr.flutter_version
 
     if repository_ctx.attr.framework_json:
-        unset = unset_message(repository_ctx)
-        if unset:
-            write_unset_stub(repository_ctx, [_PACKAGE], unset)
+        unusable = unusable_message(repository_ctx)
+        if unusable:
+            write_failing_stub(repository_ctx, [_PACKAGE], unusable)
             return
 
         # A framework source of the root module's choosing: its package.
         flutter_version = read_framework(repository_ctx)["version"]
-        link_framework_package(repository_ctx, _PACKAGE)
+        missing = link_framework_package(repository_ctx, _PACKAGE)
+        if missing:
+            write_failing_stub(repository_ctx, [_PACKAGE], missing)
+            return
     else:
         _download_framework(repository_ctx, flutter_version)
 
@@ -111,10 +114,16 @@ def _flutter_framework_package_impl(repository_ctx):
     pubspec = read_pubspec(repository_ctx, _PACKAGE, flutter_version)
 
     # What the locks were resolved against must fit the SDK this spoke belongs
-    # to. Checked here, where only the selected SDK's spoke is fetched, so a
-    # lock resolved for one SDK does not stop a build of another.
-    check_lock_floor(index, repository_ctx.attr.sdk, flutter_version)
-    check_dependency_constraints(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.fields)
+    # to. A lock that does not leaves the package's target failing, so that
+    # only a build of this SDK fails, and every SDK's spokes still fetch
+    # (`bazel fetch --all`).
+    misfit = (
+        lock_floor_message(index, repository_ctx.attr.sdk, flutter_version) or
+        dependency_constraint_message(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.fields)
+    )
+    if misfit:
+        write_failing_stub(repository_ctx, [_PACKAGE], misfit)
+        return
     bazel_deps = sorted([d for d in pubspec.dependencies if d in index.built or d in index.other])
     language_version = pubspec.language_version
 

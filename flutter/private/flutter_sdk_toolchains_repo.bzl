@@ -160,14 +160,14 @@ def _sdk_defines(repository_ctx):
 
     The release's pieces are versions.bzl's; a framework or engine of the
     root module's choosing says what it is in `flutter_framework.json` and
-    `flutter_engine.json`. Where its path is not set there is nothing to say,
-    and the toolchain fails when used.
+    `flutter_engine.json`. Where the framework cannot be used there is
+    nothing to say, and the toolchain fails when used.
     """
     version = repository_ctx.attr.version
     meta = FLUTTER_VERSIONS.get(version) if version else None
     framework = _read_json(repository_ctx, repository_ctx.attr.framework_json_file)
     engine = _read_json(repository_ctx, repository_ctx.attr.engine_json_file)
-    if framework.get("unset") or engine.get("unset"):
+    if framework.get("unusable"):
         return []
     if not framework and not engine:
         return sdk_dart_defines(version)

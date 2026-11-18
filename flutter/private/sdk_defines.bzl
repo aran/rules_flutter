@@ -93,11 +93,8 @@ def sdk_engine_revision(engine, version):
             from, or empty.
 
     Returns:
-        What the engine's record says; nothing for an engine whose path is
-        not set; else the release's.
+        What the engine's record says, else the release's.
     """
-    if engine.get("unset"):
-        return ""
     if "engine_revision" in engine:
         return engine["engine_revision"]
     meta = FLUTTER_VERSIONS.get(version) if version else None

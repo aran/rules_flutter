@@ -63,7 +63,7 @@ load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFORMS")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
-load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "check_dependency_constraints", "link_framework_package", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "unusable_message", "write_failing_stub")
 load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements", "parse_gradle_properties")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
@@ -2636,12 +2636,14 @@ def write_android_build(ctx, prelude, content):
 def _flutter_pub_package_impl(ctx):
     build_prelude = ""
     fetched = None
+    if ctx.attr.unusable:
+        write_failing_stub(ctx, [ctx.attr.package_name], ctx.attr.unusable, member = True)
+        return ctx.repo_metadata(reproducible = True)
     if ctx.attr.framework_json:
-        unset = unset_message(ctx)
-        if unset:
-            write_unset_stub(ctx, [ctx.attr.package_name], unset, member = True)
-            return ctx.repo_metadata(reproducible = True)
-        link_framework_package(ctx, ctx.attr.package_name, written = _WRITTEN)
+        unusable = unusable_message(ctx) or link_framework_package(ctx, ctx.attr.package_name, written = _WRITTEN)
+        if unusable:
+            write_failing_stub(ctx, [ctx.attr.package_name], unusable, member = True)
+            return _linked_repo_metadata(ctx)
     elif ctx.attr.directory:
         fetch_local_package(ctx, ctx.attr.directory)
     else:
@@ -2661,9 +2663,12 @@ def _flutter_pub_package_impl(ctx):
     pubspec = read_pubspec(ctx, ctx.attr.package_name, version)
     if ctx.attr.sdk:
         # What a Flutter SDK package needs of the hosted packages must be what
-        # the build uses. Checked here, where only the SDK a build uses has
-        # its packages fetched.
-        check_dependency_constraints(read_index(ctx, ctx.attr.prefix), ctx.attr.sdk, ctx.attr.package_name, pubspec.fields)
+        # the build uses. A package that does not fit fails only a build of
+        # its SDK, when something uses it: every SDK's packages still fetch.
+        misfit = dependency_constraint_message(read_index(ctx, ctx.attr.prefix), ctx.attr.sdk, ctx.attr.package_name, pubspec.fields)
+        if misfit:
+            write_failing_stub(ctx, [ctx.attr.package_name], misfit, member = True)
+            return _linked_repo_metadata(ctx)
     pubspec_dependencies = pubspec.dependencies
     language_version = pubspec.language_version
     plugin_block = flutter_plugin_block(pubspec.fields)
@@ -3098,6 +3103,10 @@ flutter_pub_package = repository_rule(
             doc = "The `flutter_framework.json` of a framework source holding this package as `packages/<package_name>`, " +
                   "for a Flutter SDK package of an SDK whose framework is not the release.",
             allow_single_file = True,
+        ),
+        "unusable": attr.string(
+            doc = "Why the package cannot be built, for a Flutter SDK package its SDK does not have: " +
+                  "the package's target then fails with it when something uses it.",
         ),
         "sdk": attr.string(
             doc = "For a Flutter SDK package, the SDK whose framework it is from, whose " +

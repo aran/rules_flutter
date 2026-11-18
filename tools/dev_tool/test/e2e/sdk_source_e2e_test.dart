@@ -14,17 +14,19 @@ import 'digest_probe.dart';
 /// package out of `packages/<name>` of the Flutter source tarball, and
 /// the package's files are at the repository's root as a hosted package's are.
 /// Only that package is extracted: nothing else of `packages/` is in the
-/// repository. A lock that lists an `sdk: flutter` package the release's
-/// source does not have (one not in `packages`, the list
-/// versions.bzl records per release) fails the fetch, naming the package, the
-/// Flutter version and the command that re-resolves the lock, instead of
-/// Bazel's message about archive prefixes.
+/// repository. A files repository of an `sdk: flutter` package the release's
+/// source does not have (one not in `packages`, the list versions.bzl records
+/// per release) fails the fetch, naming the package, the Flutter version and
+/// the command that re-resolves the lock, instead of Bazel's message about
+/// archive prefixes. The pub extension declares none for such a package: its
+/// target fails with that message when a build of that release uses it.
 ///
 /// What a release's SDK package needs of the locked packages is checked when
-/// it is fetched, which only a build that uses that release does: a version the
-/// build uses that the package's pubspec does not allow (`flutter_test` holds
-/// `test_api` at exactly one version) fails the fetch, naming the SDK, the
-/// lock that brings the version and the command that re-resolves it.
+/// it is fetched: a version the build uses that the package's pubspec does not
+/// allow (`flutter_test` holds `test_api` at exactly one version) leaves the
+/// repository fetching, as every SDK's must for `bazel fetch --all`, and its
+/// target failing at analysis, naming the SDK, the lock that brings the
+/// version and the command that re-resolves it.
 ///
 /// The tarball is served from a distdir, as in `digest_probe.dart`, under the
 /// name GitHub's tag archive has, so no network is involved.
@@ -199,11 +201,17 @@ void main() {
   );
 
   test(
-    'a release\'s package that forbids the version the build uses fails the '
-    'fetch, naming the SDK, the lock and the command',
+    'a release\'s package that forbids the version the build uses fetches, '
+    'and its target fails naming the SDK, the lock and the command',
     () async {
-      final result = await fetcher.fetch('raised_flutter_test');
-      expect(result.succeeded, isFalse, reason: 'fetched past the pin');
+      final fetched = await fetcher.fetch('raised_flutter_test');
+      expect(fetched.succeeded, isTrue, reason: '$fetched');
+      final result = await fetcher.bazel([
+        'build',
+        '--nobuild',
+        '@raised_flutter_test//:flutter_test',
+      ]);
+      expect(result.succeeded, isFalse, reason: 'built past the pin');
       expect(
         result.output,
         allOf(

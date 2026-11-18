@@ -78,7 +78,6 @@ def _engine_revision_test_impl(ctx):
     asserts.equals(env, release, sdk_engine_revision({}, FLUTTER_VERSION))
     asserts.equals(env, release, sdk_engine_revision({"dart_version": "3.12.0"}, FLUTTER_VERSION))
     asserts.equals(env, "", sdk_engine_revision({}, ""))
-    asserts.equals(env, "", sdk_engine_revision({"unset": "Set FLUTTER_ENGINE."}, FLUTTER_VERSION))
     return unittest.end(env)
 
 _engine_revision_test = unittest.make(_engine_revision_test_impl)

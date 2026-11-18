@@ -10,7 +10,7 @@ it; a path no release names fails, naming it and the attribute that pins it
 (`material_fonts_sha256` of the tag that declares the SDK).
 """
 
-load("//flutter/private:framework_source.bzl", "framework_root", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "framework_root", "unusable_message", "write_failing_stub")
 load("//flutter/private:pinned.bzl", "pinned")
 load("//flutter/private:versions.bzl", "ARTIFACT_CHECKSUMS", "FLUTTER_VERSIONS")
 
@@ -28,20 +28,21 @@ def _known_archives():
 def _flutter_material_fonts_repo_impl(repository_ctx):
     known = _known_archives()
     if repository_ctx.attr.framework_json:
-        unset = unset_message(repository_ctx)
-        if unset:
-            write_unset_stub(repository_ctx, ["material-fonts/MaterialIcons-Regular.otf"], unset)
+        unusable = unusable_message(repository_ctx)
+        if unusable:
+            write_failing_stub(repository_ctx, ["material-fonts/MaterialIcons-Regular.otf"], unusable)
             return
         version_file = framework_root(repository_ctx).get_child("bin").get_child("internal").get_child("material_fonts.version")
         archive = repository_ctx.read(version_file).strip()
         sha256 = repository_ctx.attr.sha256 or known.get(archive, "")
         if not sha256:
-            fail((
+            write_failing_stub(repository_ctx, ["material-fonts/MaterialIcons-Regular.otf"], (
                 "The framework expects the Material fonts archive {archive} " +
                 "(bin/internal/material_fonts.version), which no pinned Flutter release names. " +
                 "Pin its digest with material_fonts_sha256 = \"<sha256 of {url}>\" on the " +
                 "flutter.custom_framework, flutter.custom_sdk or flutter.checkout that declares the SDK."
             ).format(archive = archive, url = _STORAGE + archive))
+            return
     else:
         archive = FLUTTER_VERSIONS[repository_ctx.attr.flutter_version].material_fonts_url
         sha256 = known[archive]

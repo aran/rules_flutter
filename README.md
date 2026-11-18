@@ -622,7 +622,7 @@ exports = select({
 }),
 ```
 
-The Flutter SDK packages a lock lists with `source: sdk`, such as `flutter_test`, `integration_test` and `flutter_driver`, build too. Name whichever ones your lock lists, as `@deps//:integration_test`. `package:flutter` has a rule of its own. The others are built from `packages/<name>` of the Flutter source the toolchain pins, a tarball checked against the digest recorded for that version. If the pinned release doesn't have a package the lock names, the fetch fails, naming the package and the command that re-resolves the lock. An SDK package's own pubspec must allow the version the build uses of each package it depends on (`flutter_test` holds `test_api` at exactly one version). The build uses one version of each package, the highest any lock records, so a lock that raises one past what the SDK the build uses allows fails that SDK package's fetch, naming the lock and the command that re-resolves it against that SDK.
+The Flutter SDK packages a lock lists with `source: sdk`, such as `flutter_test`, `integration_test` and `flutter_driver`, build too. Name whichever ones your lock lists, as `@deps//:integration_test`. `package:flutter` has a rule of its own. The others are built from `packages/<name>` of the Flutter source the toolchain pins, a tarball checked against the digest recorded for that version. If the pinned release doesn't have a package the lock names, a build that uses the package fails, naming it and the command that re-resolves the lock. An SDK package's own pubspec must allow the version the build uses of each package it depends on (`flutter_test` holds `test_api` at exactly one version). The build uses one version of each package, the highest any lock records, so a lock that raises one past what the SDK the build uses allows fails the build at that SDK package, naming the lock and the command that re-resolves it against that SDK. Another SDK's packages are not checked until a build uses that SDK, and every SDK's repositories still fetch, so `bazel fetch --all` works with a lock that fits only one of them.
 
 An SDK package's Android library links into the apps that depend on the package, like a plugin's. `integration_test`'s needs `androidx.test:runner`, `androidx.test:rules`, `androidx.test.espresso:espresso-core` and `com.google.guava:guava` in your `maven.install`. An app that doesn't depend on `integration_test` doesn't need them.
 
@@ -3112,7 +3112,7 @@ bazel build //:app --@rules_flutter//flutter:sdk=flutter
 
 A name the flag gives that no tag declares fails too, listing the declared names.
 
-An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` works. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` line to add. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of.
+An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` and `bazel fetch --all` work. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` line to add. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of.
 
 All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package, and gives the command that resolves the lock again against that SDK, naming it whichever SDK the project chooses:
 
@@ -3193,7 +3193,7 @@ An engine only runs code compiled by a gen_snapshot from the same Dart. Rebuild 
 
 A web SDK has no engine binary or `gen_snapshot`, so a web build checks only the kernel: each of the web SDK's platform dills against the Dart SDK. A web app built with a custom engine loads its renderer from the web SDK rather than the CDN, which has nothing for an engine that isn't a release. So a web SDK without `canvaskit/` fails too.
 
-**A checkout that isn't one.** A `FLUTTER_CHECKOUT` without `packages/flutter/pubspec.yaml`, a `flutter.checkout` whose checkout has no `engine/src/out/`, or a `FLUTTER_ENGINE` without `out/`, fails when the repository is fetched, naming what is missing.
+**A checkout that isn't one.** A `FLUTTER_CHECKOUT` without `packages/flutter/pubspec.yaml`, a `flutter.checkout` whose checkout has no `engine/src/out/`, a `FLUTTER_ENGINE` without `out/`, or a `FLUTTER_LOCAL_ENGINES` naming an out dir that isn't there, fails a build that selects the SDK, at analysis, naming what is missing. The repositories still fetch, so `bazel fetch --all` and `bazel query` work on a machine whose checkout is elsewhere or unbuilt.
 
 ### Writing an engine source
 

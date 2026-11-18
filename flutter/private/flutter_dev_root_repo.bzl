@@ -34,7 +34,7 @@ beside a manifest of its own.
 
 load("//flutter/private:archives.bzl", "archive", "archive_repo")
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
-load("//flutter/private:framework_source.bzl", "framework_root", "read_framework", "unset_message", "write_unset_stub")
+load("//flutter/private:framework_source.bzl", "framework_root", "read_framework", "unusable_message", "write_failing_stub")
 load("//flutter/private:sdk_defines.bzl", "sdk_engine_revision")
 
 visibility("//flutter/...")
@@ -75,24 +75,26 @@ def _engine_revision(repository_ctx):
     return sdk_engine_revision(engine, repository_ctx.attr.version)
 
 def _flutter_dev_root_framework_repo_impl(repository_ctx):
-    unset = unset_message(repository_ctx)
-    if unset:
-        write_unset_stub(repository_ctx, ["dev_root", "version_manifest"], unset)
+    unusable = unusable_message(repository_ctx)
+    if unusable:
+        write_failing_stub(repository_ctx, ["dev_root", "version_manifest"], unusable)
         return
 
-    # A framework source: its own tree, linked.
     flutter_version = read_framework(repository_ctx)["version"]
     root = framework_root(repository_ctx)
-    repository_ctx.symlink(root.get_child("packages"), "packages")
 
     # The engine's package, as flutter_tools takes it for any engine that
     # is not the release's.
     pubspec = repository_ctx.path(repository_ctx.attr.sky_engine)
     if not pubspec.exists:
-        fail((
+        write_failing_stub(repository_ctx, ["dev_root", "version_manifest"], (
             "The engine has no `sky_engine` package: {} does not exist. " +
             "A local engine's host debug out dir holds it at gen/dart-pkg/sky_engine once built."
         ).format(repository_ctx.attr.sky_engine))
+        return
+
+    # A framework source: its own tree, linked.
+    repository_ctx.symlink(root.get_child("packages"), "packages")
     repository_ctx.symlink(pubspec.dirname, "bin/cache/pkg/sky_engine")
 
     repository_ctx.file(

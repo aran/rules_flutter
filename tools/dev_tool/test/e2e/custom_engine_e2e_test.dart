@@ -851,20 +851,30 @@ void main() {
     final engineSrc = await _fakeCheckoutDir(
       'checkout/engine/src/ENGINE_SRC',
     );
-    Future<ProcessResult> kind(String pins) => _bazel([
-      'query',
-      '@env_engine//kernel/release:platform',
-      '--output=label_kind',
+    const slot = '@env_engine//kernel/release:platform';
+    List<String> env(String pins) => [
       '--repo_env=FLUTTER_ENGINE=$engineSrc',
       '--repo_env=FLUTTER_LOCAL_ENGINES=$pins',
-    ]);
+    ];
+    Future<ProcessResult> kind(String pins) =>
+        _bazel(['query', slot, '--output=label_kind', ...env(pins)]);
 
     // A pin of the debug slot leaves the release slot its one out dir.
     final pinned = await kind(_host('debug'));
     expect(pinned.exitCode, 0, reason: '${pinned.stderr}');
     expect('${pinned.stdout}', startsWith('flutter_platform_kernel rule'));
 
-    final unknown = await kind('host_debug_nonesuch');
+    // A pin of no out dir still fetches, so that a build not using the engine
+    // is unaffected; a build of its slot fails, naming the pin.
+    const nonesuch = 'host_debug_nonesuch';
+    final fetched = await kind(nonesuch);
+    expect(fetched.exitCode, 0, reason: '${fetched.stderr}');
+    final unknown = await _bazel([
+      'build',
+      '--nobuild',
+      slot,
+      ...env(nonesuch),
+    ]);
     expect(unknown.exitCode, isNot(0));
     expect(
       '${unknown.stderr}',

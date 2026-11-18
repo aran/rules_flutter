@@ -7,6 +7,7 @@ links what each slice of the engine contract needs out of `<engine/src>/out`.
 load("@rules_dart//dart:repositories.bzl", "fetch_dart_kernel_source")
 load("//flutter/private:engine_labels.bzl", "contract_slices", "native_target")
 load("//flutter/private:engine_out_dirs.bzl", "dict_text", "effective_cpu", "first_existing", "link_files_into", "link_into", "machine_of", "out_dir_provenance", "parse_args_gn", "parse_out_dir_name", "select_out_dir")
+load("//flutter/private:failing_targets.bzl", "failing_targets")
 load("//flutter/private:out_dir_desktop.bzl", "desktop_slices")
 load("//flutter/private:out_dir_mobile.bzl", "mobile_slices")
 load("//flutter/private:out_dir_web.bzl", "web_slices")
@@ -22,12 +23,6 @@ def unset_message(env, what, example):
         "    common --repo_env={env}={example}"
     ).format(env = env, what = what, example = example)
 
-def _missing(name, message):
-    return "\nflutter_missing_slice(\n    name = {name},\n    message = {message},\n    visibility = [\"//visibility:public\"],\n)\n".format(
-        name = json.encode(name),
-        message = json.encode(message),
-    )
-
 def _gen_snapshot_file(out, cpu):
     """flutter_tools' `_genSnapshotPath`: the first of these directories holding the name."""
     names = ["gen_snapshot_" + cpu, "gen_snapshot"]
@@ -37,6 +32,42 @@ def _gen_snapshot_file(out, cpu):
         if found:
             return found
     return None
+
+def _scan_out_dirs(repository_ctx, out_root):
+    """The out dirs under `out_root`: the directories whose name `tools/gn` could have produced and that hold an args.gn, which says what they are.
+
+    Returns:
+        A struct: `candidates`, a struct per out dir; `args_of`, each out
+        dir's parsed args.gn by name; `found`, what the out dirs are, for
+        messages.
+    """
+    candidates = []
+    args_of = {}
+    ignored = []
+    for entry in out_root.readdir():
+        parsed = parse_out_dir_name(entry.basename)
+        if parsed == None or not entry.is_dir:
+            continue
+        args_file = entry.get_child("args.gn")
+        if not args_file.exists:
+            ignored.append(entry.basename + " (no args.gn)")
+            continue
+        repository_ctx.watch(args_file)
+        args = parse_args_gn(repository_ctx.read(args_file))
+        args_of[entry.basename] = args
+        candidates.append(struct(
+            name = parsed.name,
+            os = parsed.os,
+            mode = parsed.mode,
+            sim = parsed.sim,
+            unopt = parsed.unopt,
+            cpu = effective_cpu(parsed, args),
+        ))
+    return struct(
+        candidates = candidates,
+        args_of = args_of,
+        found = ", ".join([c.name for c in candidates] + ignored) or "nothing",
+    )
 
 def read_engine_out_dirs(repository_ctx, engine_src, named, unset, engines_env):
     """Writes an engine source over the out dirs of `engine_src`.
@@ -66,56 +97,43 @@ def read_engine_out_dirs(repository_ctx, engine_src, named, unset, engines_env):
     root_build = ""
 
     machine = machine_of(repository_ctx)
+    src = None
+    out_root = None
+    scan = None
+    unknown = []
+    if engine_src and machine != None:
+        src = repository_ctx.path(engine_src)
+        out_root = src.get_child("out")
+        repository_ctx.watch(out_root)
+        if out_root.exists:
+            scan = _scan_out_dirs(repository_ctx, out_root)
+            unknown = [p for p in pins if p not in scan.args_of]
+
+    # What stops the engine being read at all fails every slice, when a
+    # build uses one: the engine repository still fetches.
     if not engine_src:
         default_reason = unset
     elif machine == None:
         default_reason = "The engine out dirs are read on macOS, Linux and Windows machines; this one is {} on {}.".format(repository_ctx.os.name, repository_ctx.os.arch)
+    elif scan == None:
+        default_reason = "{} has no out: build the engine in it first.".format(named)
+    elif unknown:
+        default_reason = "{}={} names {}, which {} no out dir under {}. Found: {}.".format(
+            engines_env,
+            ",".join(pins),
+            ", ".join(unknown),
+            "is" if len(unknown) == 1 else "are",
+            out_root,
+            scan.found,
+        )
     else:
         arch = machine.arch
         cpu = arch
         host = machine.key
         os_label = {"macos": "macOS", "linux": "Linux", "windows": "Windows"}[machine.os]
-        src = repository_ctx.path(engine_src)
-        out_root = src.get_child("out")
-        if not out_root.exists:
-            fail("{} has no out: build the engine in it first.".format(named))
-        repository_ctx.watch(out_root)
-
-        # Candidates: the directories whose name `tools/gn` could have produced
-        # and that hold an args.gn, which says what they are.
-        candidates = []
-        args_of = {}
-        ignored = []
-        for entry in out_root.readdir():
-            parsed = parse_out_dir_name(entry.basename)
-            if parsed == None or not entry.is_dir:
-                continue
-            args_file = entry.get_child("args.gn")
-            if not args_file.exists:
-                ignored.append(entry.basename + " (no args.gn)")
-                continue
-            repository_ctx.watch(args_file)
-            args = parse_args_gn(repository_ctx.read(args_file))
-            args_of[entry.basename] = args
-            candidates.append(struct(
-                name = parsed.name,
-                os = parsed.os,
-                mode = parsed.mode,
-                sim = parsed.sim,
-                unopt = parsed.unopt,
-                cpu = effective_cpu(parsed, args),
-            ))
-        found = ", ".join([c.name for c in candidates] + ignored) or "nothing"
-        unknown = [p for p in pins if p not in args_of]
-        if unknown:
-            fail("{}={} names {}, which {} no out dir under {}. Found: {}.".format(
-                engines_env,
-                ",".join(pins),
-                ", ".join(unknown),
-                "is" if len(unknown) == 1 else "are",
-                out_root,
-                found,
-            ))
+        candidates = scan.candidates
+        args_of = scan.args_of
+        found = scan.found
 
         def advice(mode):
             return (
@@ -234,7 +252,6 @@ flutter_host_tools(
                 repository_ctx.watch_tree(sky_engine)
                 for entry in sky_engine.readdir():
                     repository_ctx.symlink(entry, "sky_engine/" + entry.basename)
-            repository_ctx.file("sky_engine/BUILD.bazel", 'exports_files(["pubspec.yaml"], visibility = ["//visibility:public"])\n')
 
             patched = tools.get_child("flutter_patched_sdk")
             if patched.exists:
@@ -375,6 +392,11 @@ alias(
     # and for the rest a missing slice that says why.
     repository_ctx.file("flutter_engine.json", json.encode_indent(engine_json) + "\n")
     repository_ctx.file("BUILD.bazel", root_build + root_exports + 'exports_files(["flutter_engine.json"], visibility = ["//visibility:public"])\n')
+
+    # The `sky_engine` package, whether or not an out dir holds it: a
+    # framework source's pub tree names its `pubspec.yaml`, and says what is
+    # missing when the file is not there.
+    repository_ctx.file("sky_engine/BUILD.bazel", 'exports_files(["pubspec.yaml"], visibility = ["//visibility:public"])\n')
     for package, targets in contract_slices().items():
         content = _ENGINE_LOAD
         for target in targets:
@@ -382,7 +404,7 @@ alias(
             if key in provided:
                 content += provided[key]
             else:
-                content += _missing(target, reasons.get(key) or default_reason or (
+                content += failing_targets([target], reasons.get(key) or default_reason or (
                     "The engine out dirs have no out dir that provides {}.".format(package + ":" + target)
                 ))
         repository_ctx.file(package + "/BUILD.bazel", content)

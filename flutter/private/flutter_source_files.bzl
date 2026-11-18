@@ -21,6 +21,14 @@ load("//flutter/private:pinned.bzl", "pinned")
 
 visibility("//flutter/...")
 
+def missing_sdk_package_message(name, version):
+    """What a build of a Flutter release says of a lock's SDK package the release does not have."""
+    return (
+        "pubspec.lock lists `{name}` from the Flutter SDK, but Flutter {version}'s " +
+        "source has no packages/{name}; re-resolve the lock with the pinned " +
+        "toolchain (`bazel run @rules_flutter//flutter/pub -- get`)."
+    ).format(name = name, version = version)
+
 def _flutter_source_files_impl(rctx):
     # The tarball is the one every consumer of the framework source fetches,
     # pinned to the same digest, so Bazel's repository cache serves it to all
@@ -37,11 +45,9 @@ def _flutter_source_files_impl(rctx):
             "but no `packages`, so it cannot tell whether the source has packages/{name}."
         ).format(name = name, version = version))
     if name not in rctx.attr.packages:
-        fail((
-            "pubspec.lock lists `{name}` from the Flutter SDK, but Flutter {version}'s " +
-            "source has no packages/{name}; re-resolve the lock with the pinned " +
-            "toolchain (`bazel run @rules_flutter//flutter/pub -- get`)."
-        ).format(name = name, version = version))
+        # The pub extension declares no files repository for a package its
+        # SDK does not have, so that only a build of that SDK fails.
+        fail(missing_sdk_package_message(name, version))
     rctx.download_and_extract(
         url = flutter_source_tarball_url(version),
         sha256 = pinned(version + ".tar.gz", rctx.attr.sha256),

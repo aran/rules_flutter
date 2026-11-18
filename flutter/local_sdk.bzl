@@ -42,9 +42,10 @@ To build with the SDK on one machine only, leave out `flutter.use_sdk` and
 put `common --@rules_flutter//flutter:sdk=local` in that machine's
 `.bazelrc.user`.
 
-Nothing is read until a build selects the SDK. Where a variable is not set the
-repositories still load, with targets that fail when something uses them, so
-`bazel query` works on a machine without a checkout.
+Nothing is read until a build selects the SDK. Where a variable is not set,
+or names no checkout or no built engine, the repositories still fetch, with
+targets that fail when something uses them, so `bazel query` and
+`bazel fetch --all` work on a machine without a checkout.
 
 When the out dirs of a slot are ambiguous (both `host_debug_arm64` and
 `host_debug_unopt_arm64`), pin one with `--repo_env=FLUTTER_LOCAL_ENGINES=host_debug_unopt_arm64`.
@@ -60,17 +61,28 @@ def _source_path(repository_ctx, env, label):
         return str(repository_ctx.path(label).dirname)
     return repository_ctx.getenv(env)
 
+def _write_unusable(repository_ctx, message):
+    """Writes a framework source that cannot be used, saying why.
+
+    It still fetches, so that `bazel fetch --all` and `bazel query` work on a
+    machine without the checkout: the repositories built from it hold targets
+    that fail with `message` when a build uses the SDK.
+    """
+    repository_ctx.file(FRAMEWORK_JSON, json.encode({"unusable": message}) + "\n")
+
 def _local_framework_impl(repository_ctx):
     env = repository_ctx.attr.path_env
     repository_ctx.file("BUILD.bazel", 'exports_files(["%s"], visibility = ["//visibility:public"])\n' % FRAMEWORK_JSON)
     checkout = _source_path(repository_ctx, env, repository_ctx.attr.checkout)
     if not checkout:
-        unset = unset_message(env, "a flutter/flutter checkout", "/path/to/flutter")
-        repository_ctx.file(FRAMEWORK_JSON, json.encode({"unset": unset}) + "\n")
+        _write_unusable(repository_ctx, unset_message(env, "a flutter/flutter checkout", "/path/to/flutter"))
         return
     root = repository_ctx.path(checkout)
-    if not root.get_child("packages").get_child("flutter").get_child("pubspec.yaml").exists:
-        fail("{}={} is not a flutter/flutter checkout: it has no packages/flutter/pubspec.yaml.".format(env, checkout))
+    framework_pubspec = root.get_child("packages").get_child("flutter").get_child("pubspec.yaml")
+    repository_ctx.watch(framework_pubspec)
+    if not framework_pubspec.exists:
+        _write_unusable(repository_ctx, "{}={} is not a flutter/flutter checkout: it has no packages/flutter/pubspec.yaml.".format(env, checkout))
+        return
 
     # The packages and the files the framework expects of its tree, linked so
     # that an edit to the checkout is seen. The `sky_engine` package is the
@@ -79,7 +91,9 @@ def _local_framework_impl(repository_ctx):
     repository_ctx.watch_tree(root.get_child("packages"))
     internal = root.get_child("bin").get_child("internal")
     if not internal.exists:
-        fail("{}={} has no bin/internal.".format(env, checkout))
+        repository_ctx.watch(internal)
+        _write_unusable(repository_ctx, "{}={} has no bin/internal.".format(env, checkout))
+        return
     repository_ctx.symlink(internal, "bin/internal")
     repository_ctx.watch_tree(internal)
 
@@ -107,7 +121,8 @@ def _local_framework_impl(repository_ctx):
     else:
         describe = repository_ctx.execute(["git", "-C", checkout, "describe", "--tags"])
         if describe.return_code != 0:
-            fail("Cannot tell which Flutter version {} is: it has no bin/cache/flutter.version.json and `git describe --tags` fails.".format(checkout))
+            _write_unusable(repository_ctx, "Cannot tell which Flutter version {} is: it has no bin/cache/flutter.version.json and `git describe --tags` fails.".format(checkout))
+            return
         version = describe.stdout.strip()
 
     repository_ctx.file(FRAMEWORK_JSON, json.encode_indent({

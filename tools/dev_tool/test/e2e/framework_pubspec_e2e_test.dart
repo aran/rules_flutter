@@ -12,7 +12,9 @@
 ///  3. A pubspec pub refuses, or none, fails the fetch naming the package.
 ///  4. A release's `package:flutter` whose pubspec forbids the version the
 ///     build uses of a locked package (it holds `material_color_utilities` at
-///     exactly one version) fails the fetch, naming the lock that brings it.
+///     exactly one version) still fetches, so that every SDK's packages do
+///     (`bazel fetch --all`); its target fails at analysis, naming the lock
+///     that brings the version.
 ///
 /// The Flutter source tarball is served from a distdir, as in
 /// `digest_probe.dart`, so no network is involved.
@@ -232,11 +234,18 @@ probe = module_extension(implementation = _impl)
   });
 
   test(
-    'a release\'s pubspec that forbids the version the build uses fails the '
-    'fetch, naming the lock that brings it',
+    'a release\'s pubspec that forbids the version the build uses fetches, '
+    'and its target fails naming the lock that brings it',
     () async {
-      final result = await fetcher.fetch(releases['raised']!.repo);
-      expect(result.succeeded, isFalse, reason: 'fetched past the pin');
+      final repo = releases['raised']!.repo;
+      final fetched = await fetcher.fetch(repo);
+      expect(fetched.succeeded, isTrue, reason: '$fetched');
+      final result = await fetcher.bazel([
+        'build',
+        '--nobuild',
+        '@$repo//:flutter',
+      ]);
+      expect(result.succeeded, isFalse, reason: 'built past the pin');
       expect(
         result.output,
         allOf(

@@ -2,13 +2,17 @@
 
 The build has one version of each package, the highest any lock records. A
 Flutter SDK package's pubspec constrains some of them (`flutter_test` holds
-`test_api` at exactly one version), and the package's fetch fails when the
+`test_api` at exactly one version), and the package's target fails when the
 version the build uses is one it does not allow, naming the SDK, the lock that
-brings the version and the command that re-resolves it against that SDK.
+brings the version and the command that re-resolves it against that SDK. The
+repository still fetches: every SDK's packages do, under `bazel fetch --all`,
+and a lock may fit only the SDK the build uses.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:framework_source.bzl", "dependency_constraint_message")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
+load("//flutter:engine.bzl", "flutter_missing_slice")
+load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
+load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "lock_floor_message", "write_failing_stub")
 
 _APP = "@@//app:pubspec.lock"
 _TOOLS = "@@rules_flutter+//:pubspec.lock"
@@ -88,10 +92,84 @@ def _a_version_outside_a_range_is_refused_test_impl(ctx):
 
 a_version_outside_a_range_is_refused_test = unittest.make(_a_version_outside_a_range_is_refused_test_impl)
 
+def _an_unreadable_constraint_is_refused_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    pubspec = {"name": "flutter_test", "dependencies": {"path": ">=1.9.0 <<2.0.0"}}
+    message = dependency_constraint_message(_index({"path": "1.9.1"}), "local", "flutter_test", pubspec)
+    asserts.true(env, message != None, "an unreadable constraint passed")
+    for fragment in ["package:flutter_test of the \"local\" Flutter SDK", "depends on path"]:
+        asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
+
+    return unittest.end(env)
+
+an_unreadable_constraint_is_refused_test = unittest.make(_an_unreadable_constraint_is_refused_test_impl)
+
+def _a_lock_above_the_framework_is_refused_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    index = struct(flutter_constraints = {_APP: ">=3.40.0", _TOOLS: ""})
+    asserts.equals(env, None, lock_floor_message(index, "beta", "3.40.1"))
+    message = lock_floor_message(index, "beta", "3.38.0")
+    asserts.true(env, message != None, "a lock above the framework passed")
+    for fragment in [
+        "{} was resolved against a newer Flutter than the \"beta\" SDK has".format(_APP),
+        "requires flutter >=3.40.0, and the SDK's framework is 3.38.0",
+        "bazel run --@rules_flutter//flutter:sdk=beta @rules_flutter//flutter/pub -- get --directory=app",
+    ]:
+        asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
+
+    return unittest.end(env)
+
+a_lock_above_the_framework_is_refused_test = unittest.make(_a_lock_above_the_framework_is_refused_test_impl)
+
+def _a_failing_stub_declares_each_target_test_impl(ctx):
+    """The stub's targets carry the message as written, and a member's plans as an overlay with no dependencies."""
+    env = unittest.begin(ctx)
+
+    written = {}
+    fake = struct(file = lambda path, content: written.update({path: content}))
+    message = 'FLUTTER_CHECKOUT=/x "y" is not a flutter/flutter checkout'
+    write_failing_stub(fake, ["flutter_test", "other"], message, member = True)
+    build = written["BUILD.bazel"]
+    for name in ["flutter_test", "other"]:
+        asserts.true(env, "name = %s,\n    message = %s," % (repr(name), repr(message)) in build, build)
+    asserts.equals(env, MEMBER_OVERLAY, json.decode(written[MEMBER_FILE])["kind"])
+
+    return unittest.end(env)
+
+a_failing_stub_declares_each_target_test = unittest.make(_a_failing_stub_declares_each_target_test_impl)
+
+_STUB_MESSAGE = 'FLUTTER_ENGINE=/nowhere has no out: build the engine in it first. ("quoted")'
+
+def _a_failing_target_fails_with_its_message_impl(ctx):
+    """What a stub declares fails at analysis, when something uses it, saying why."""
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, _STUB_MESSAGE)
+    return analysistest.end(env)
+
+_a_failing_target_fails_with_its_message_test = analysistest.make(_a_failing_target_fails_with_its_message_impl, expect_failure = True)
+
 def framework_source_test_suite(name):
+    flutter_missing_slice(
+        name = name + "_stubbed",
+        message = _STUB_MESSAGE,
+        tags = ["manual"],
+    )
+    _a_failing_target_fails_with_its_message_test(
+        name = name + "_a_failing_target_fails_with_its_message",
+        target_under_test = ":" + name + "_stubbed",
+    )
     unittest.suite(
-        name,
+        name + "_units",
         a_fitting_lock_says_nothing_test,
         a_version_past_an_exact_pin_is_refused_test,
         a_version_outside_a_range_is_refused_test,
+        an_unreadable_constraint_is_refused_test,
+        a_lock_above_the_framework_is_refused_test,
+        a_failing_stub_declares_each_target_test,
+    )
+    native.test_suite(
+        name = name,
+        tests = [name + "_units", name + "_a_failing_target_fails_with_its_message"],
     )

@@ -456,6 +456,7 @@ bzl_library(
     srcs = ["framework_source.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":failing_targets",
         ":flutter_pub_index",
         ":pub_constraint",
         ":pub_lock_sdks",
@@ -1323,6 +1324,12 @@ bzl_library(
 )
 
 bzl_library(
+    name = "failing_targets",
+    srcs = ["failing_targets.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "pinned",
     srcs = ["pinned.bzl"],
     visibility = ["//flutter:__subpackages__"],
@@ -1999,6 +2006,7 @@ bzl_library(
     deps = [
         ":engine_labels",
         ":engine_out_dirs",
+        ":failing_targets",
         ":out_dir_desktop",
         ":out_dir_mobile",
         ":out_dir_web",

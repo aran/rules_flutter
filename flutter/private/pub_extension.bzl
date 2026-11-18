@@ -27,7 +27,7 @@ load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
 load("//flutter/private:flutter_resolved_package.bzl", "flutter_resolved_package")
 load("//flutter/private:flutter_sdks_repo.bzl", "SDKS_FILE", "decode_sdks")
-load("//flutter/private:flutter_source_files.bzl", "flutter_source_files")
+load("//flutter/private:flutter_source_files.bzl", "flutter_source_files", "missing_sdk_package_message")
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
@@ -783,18 +783,26 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 if prefix == SPOKE_PREFIX:
                     apple_repos[name] = apple_repo(name)
                 files = None
+                unusable = ""
                 if sdk.version and not sdk.framework:
-                    flutter_source_files(
-                        name = files_repo(name, prefix),
-                        package_name = name,
-                        flutter_version = sdk.version,
-                        sha256 = flutter_source_sha256(sdk.version),
-                        packages = flutter_sdk_packages(sdk.version),
-                    )
-                    files = pub_files_label(files_repo(name, prefix))
+                    packages = flutter_sdk_packages(sdk.version)
+                    if name in packages:
+                        flutter_source_files(
+                            name = files_repo(name, prefix),
+                            package_name = name,
+                            flutter_version = sdk.version,
+                            sha256 = flutter_source_sha256(sdk.version),
+                            packages = packages,
+                        )
+                        files = pub_files_label(files_repo(name, prefix))
+                    else:
+                        # Only a build of this SDK fails: another SDK may
+                        # have the package.
+                        unusable = missing_sdk_package_message(name, sdk.version)
                 flutter_pub_package(
                     name = source_repo(name, prefix),
                     files = files,
+                    unusable = unusable,
                     package_name = name,
                     version = e.version,
                     framework_json = framework_json(sdk.framework) if sdk.framework else None,
