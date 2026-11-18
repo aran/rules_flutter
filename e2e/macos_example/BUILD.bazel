@@ -315,6 +315,66 @@ flutter_macos_app(
     version = ":app_version",
 )
 
+# What a signed app's entitlements say, as rules_apple hands them to codesign,
+# against a Mac team wildcard development profile (profiles/) and a Mac App
+# Store profile that lists no devices. Against the first, one app has no
+# entitlements of its own and the other the sandbox, as `flutter create`
+# leaves Release.entitlements.
+flutter_macos_app(
+    name = "signing_plain_app",
+    app_name = "Signing Plain",
+    application = ":app_flutter",
+    bundle_id = "com.example.flutterapp.signing",
+    entitlements = "signing/None.entitlements",
+    provisioning_profile = "profiles/team_wildcard.provisionprofile",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":app_version",
+)
+
+flutter_macos_app(
+    name = "signing_sandbox_app",
+    app_name = "Signing Sandbox",
+    application = ":app_flutter",
+    bundle_id = "com.example.flutterapp.signing.sandbox",
+    provisioning_profile = "profiles/team_wildcard.provisionprofile",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":app_version",
+)
+
+flutter_macos_app(
+    name = "signing_store_app",
+    app_name = "Signing Store",
+    application = ":app_flutter",
+    bundle_id = "com.example.flutterapp.signing.store",
+    provisioning_profile = "profiles/store.provisionprofile",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":app_version",
+)
+
+apple_release_build(
+    name = "signing_entitlements",
+    compilation_mode = "opt",
+    entitlements = True,
+    sign = False,
+    targets = [
+        ":signing_plain_app",
+        ":signing_sandbox_app",
+        ":signing_store_app",
+    ],
+)
+
+dart_test(
+    name = "verify_macos_signing_entitlements_test",
+    args = ["$(rlocationpaths :signing_entitlements)"],
+    data = [":signing_entitlements"],
+    main = "test/verify_macos_signing_entitlements_test.dart",
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = [
+        "@rules_dart//dart/runfiles",
+        "@rules_flutter//tools/e2e_testing",
+    ],
+)
+
 # =============================================================================
 # Approach 2: Bazel-generated runner (flutter_macos_runner_lib_gen)
 #

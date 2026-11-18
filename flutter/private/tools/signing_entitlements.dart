@@ -20,7 +20,12 @@
 ///   `beta-reports-active`: the profile's value. An App Store profile grants
 ///       it, and App Store Connect needs it for TestFlight.
 ///
-/// `get-task-allow` is the profile's too, and rules_apple adds it already.
+/// `get-task-allow` is the profile's too, and rules_apple adds it already on
+/// iOS. On macOS it does not, and a Mac development profile does not grant it:
+/// Xcode adds `com.apple.security.get-task-allow` to a build signed for
+/// development, so this does too, for a Mac profile that lists devices (a Mac
+/// App Store or Developer ID profile lists none), unless the profile grants it
+/// or the bundle's own entitlements set it.
 ///
 /// A profile is a CMS (PKCS #7) signed message whose content is an XML
 /// property list. Its signature is not checked here, as rules_apple does not
@@ -57,15 +62,19 @@ const _profileKeys = [
 const _identifier =
     r'<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>';
 
+const _macTaskAllow = 'com.apple.security.get-task-allow';
+
 // The DER encodings of the object identifiers of CMS signed data
 // (1.2.840.113549.1.7.2) and of data (1.2.840.113549.1.7.1).
 const _signedDataOid = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02];
 const _dataOid = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
 
-/// One DER element: its tag and where its contents lie in the bytes.
-typedef _Element = ({int tag, int start, int end});
+/// One element: its tag, where its contents lie in the bytes, and where the
+/// element after it starts.
+typedef _Element = ({int tag, int start, int end, int next});
 
-/// Reads DER elements from a profile's bytes.
+/// Reads the elements of a profile's bytes: DER, or BER with indefinite
+/// lengths, which older profiles are signed in and `security cms` reads.
 class _Der {
   final Uint8List bytes;
   final String path;
@@ -85,10 +94,30 @@ class _Der {
         'expected 0x${tag.toRadixString(16)}.',
       );
     }
+    return _element(offset, limit, what);
+  }
+
+  /// The element at [offset], whatever its tag, inside [what].
+  _Element _element(int offset, int limit, String what) {
+    if (offset + 2 > limit) _fail('it ends inside its $what.');
+    final tag = bytes[offset];
+    if (tag & 0x1f == 0x1f) _fail('its $what has a multi-byte tag.');
     var at = offset + 1;
     var length = bytes[at++];
     if (length == 0x80) {
-      _fail('its $what has an indefinite length, which DER does not allow.');
+      // An indefinite length: the contents, which only a constructed element
+      // may have so, are elements up to the end-of-contents octets `00 00`.
+      if (tag & 0x20 == 0) {
+        _fail('its $what is primitive and has an indefinite length.');
+      }
+      var child = at;
+      while (true) {
+        if (child + 2 > limit) _fail('its $what has no end of contents.');
+        if (bytes[child] == 0 && bytes[child + 1] == 0) {
+          return (tag: tag, start: at, end: child, next: child + 2);
+        }
+        child = _element(child, limit, what).next;
+      }
     }
     if (length > 0x80) {
       final count = length - 0x80;
@@ -99,7 +128,7 @@ class _Der {
       }
     }
     if (at + length > limit) _fail('its $what runs past its end.');
-    return (tag: tag, start: at, end: at + length);
+    return (tag: tag, start: at, end: at + length, next: at + length);
   }
 
   void expectOid(_Element oid, List<int> expected, String what) {
@@ -133,7 +162,7 @@ String profilePlist(Uint8List bytes, String path) {
   final info = der.read(0, bytes.length, 0x30, 'content info');
   final type = der.read(info.start, info.end, 0x06, 'content type');
   der.expectOid(type, _signedDataOid, 'content type');
-  final explicit = der.read(type.end, info.end, 0xa0, 'signed data');
+  final explicit = der.read(type.next, info.end, 0xa0, 'signed data');
   final signedData = der.read(
     explicit.start,
     explicit.end,
@@ -142,12 +171,12 @@ String profilePlist(Uint8List bytes, String path) {
   );
   final version = der.read(signedData.start, signedData.end, 0x02, 'version');
   final digests = der.read(
-    version.end,
+    version.next,
     signedData.end,
     0x31,
     'digest algorithms',
   );
-  final content = der.read(digests.end, signedData.end, 0x30, 'content');
+  final content = der.read(digests.next, signedData.end, 0x30, 'content');
   final contentType = der.read(
     content.start,
     content.end,
@@ -156,13 +185,22 @@ String profilePlist(Uint8List bytes, String path) {
   );
   der.expectOid(contentType, _dataOid, 'signed content type');
   final wrapped = der.read(
-    contentType.end,
+    contentType.next,
     content.end,
     0xa0,
     'signed content',
   );
   final plist = der.read(wrapped.start, wrapped.end, 0x04, 'signed content');
   return utf8.decode(bytes.sublist(plist.start, plist.end));
+}
+
+/// Whether the profile whose top-level entries are [root] is a Mac
+/// development profile: for macOS, and listing the devices it is for.
+bool _signedForDevelopmentOnMac(List<PlistEntry> root) {
+  final platform = root.where((e) => e.key == 'Platform').firstOrNull;
+  return platform != null &&
+      platform.rawValue.contains('<string>OSX</string>') &&
+      root.any((e) => e.key == 'ProvisionedDevices');
 }
 
 /// The entitlements a bundle with [own] entitlements (none when null) is
@@ -190,6 +228,8 @@ String signingEntitlements({
       if (grants.containsKey(key)) PlistEntry(key, _identifier),
     for (final key in _profileKeys)
       if (grants[key] case final value?) PlistEntry(key, value),
+    if (_signedForDevelopmentOnMac(root) && !grants.containsKey(_macTaskAllow))
+      PlistEntry(_macTaskAllow, '<true/>'),
   ];
   return renderPlist(
     mergeEntries(

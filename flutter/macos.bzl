@@ -76,7 +76,7 @@ load("//flutter/private:flutter_apple_registrant.bzl", _flutter_apple_swift_pack
 load("//flutter/private:flutter_apple_xcframeworks.bzl", _flutter_macos_app_xcframework = "flutter_macos_app_xcframework", _flutter_macos_engine_xcframework = "flutter_macos_engine_xcframework")
 load("//flutter/private:flutter_macos_application.bzl", _flutter_macos_app_framework_rule = "flutter_macos_app_framework", _flutter_macos_native_libs_rule = "flutter_macos_native_libs", _flutter_macos_privacy_manifests_rule = "flutter_macos_privacy_manifests")
 load("//flutter/private:flutter_macos_registrant.bzl", _flutter_macos_registrant_rule = "flutter_macos_registrant")
-load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge")
+load("//flutter/private:flutter_plist_merge.bzl", _flutter_entitlements_merge = "flutter_entitlements_merge", _flutter_plist_merge = "flutter_plist_merge", _flutter_signing_entitlements = "flutter_signing_entitlements")
 load("//flutter/private:runner_module.bzl", "runner_module_name")
 load("//flutter/private:swiftpm_app_settings.bzl", _flutter_apple_app_runner = "flutter_apple_app_runner")
 load("//flutter/private:validation.bzl", "validate_minimum_os_version")
@@ -462,7 +462,11 @@ def flutter_macos_app(
             `tags` defaults to `["manual"]`, so `bazel build //...` skips
             the app and every target the macro declares for it; pass `tags`
             to replace that on all of them. The macro sets `app_icons`
-            itself, so pass the named parameter instead.
+            itself, so pass the named parameter instead. With a
+            `provisioning_profile`, the app is signed with the entitlements
+            Xcode gives it: its own, its `com.apple.application-identifier`,
+            the profile's team identifier, and `get-task-allow` for a
+            development profile; nothing else the profile grants.
     """
     display_name = app_name or name
     tags = kwargs.pop("tags", ["manual"])
@@ -547,6 +551,24 @@ def flutter_macos_app(
             testonly = testonly,
         )
         entitlements = "__%s_entitlements" % name
+
+    # A signed app gets the entitlements Xcode signs it with: its own, its
+    # `com.apple.application-identifier`, the profile's team identifier, and
+    # `com.apple.security.get-task-allow` for a development profile.
+    # rules_apple adds neither identifier, so the wildcard profile's
+    # `<team>.*` would stand in for the first, and the team would be missing.
+    # A `select()` of a profile is resolved by the rule, which passes the
+    # app's own entitlements through where it gives `None`.
+    provisioning_profile = kwargs.get("provisioning_profile")
+    if provisioning_profile != None:
+        _flutter_signing_entitlements(
+            name = "__%s_signing_entitlements" % name,
+            entitlements = entitlements,
+            provisioning_profile = provisioning_profile,
+            tags = tags,
+            testonly = testonly,
+        )
+        entitlements = "__%s_signing_entitlements" % name
 
     # -- Internal targets (all __{name}_ prefixed) --
 

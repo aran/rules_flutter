@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Not a real provisioning profile: the entitlements a Mac App Store
+  distribution profile for one App ID grants, with a placeholder team. It
+  lists no devices. For :verify_macos_signing_entitlements_test, which checks
+  that an app signed against it is not given get-task-allow.
+-->
+<plist version="1.0">
+<dict>
+	<key>AppIDName</key>
+	<string>Unsigned</string>
+	<key>ApplicationIdentifierPrefix</key>
+	<array>
+		<string>UNSIGNED00</string>
+	</array>
+	<key>CreationDate</key>
+	<date>2026-01-01T00:00:00Z</date>
+	<key>Entitlements</key>
+	<dict>
+		<key>com.apple.application-identifier</key>
+		<string>UNSIGNED00.com.example.flutterapp.signing.store</string>
+		<key>com.apple.developer.team-identifier</key>
+		<string>UNSIGNED00</string>
+		<key>keychain-access-groups</key>
+		<array>
+			<string>UNSIGNED00.*</string>
+		</array>
+	</dict>
+	<key>ExpirationDate</key>
+	<date>2099-01-01T00:00:00Z</date>
+	<key>Name</key>
+	<string>Unsigned</string>
+	<key>Platform</key>
+	<array>
+		<string>OSX</string>
+	</array>
+	<key>TeamIdentifier</key>
+	<array>
+		<string>UNSIGNED00</string>
+	</array>
+	<key>TeamName</key>
+	<string>Unsigned</string>
+	<key>TimeToLive</key>
+	<integer>1000</integer>
+	<key>UUID</key>
+	<string>00000000-0000-0000-0000-000000000000</string>
+	<key>Version</key>
+	<integer>1</integer>
+</dict>
+</plist>

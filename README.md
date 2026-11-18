@@ -1634,7 +1634,7 @@ The output is a `.app` bundle holding `FlutterMacOS.framework`, `App.framework` 
 | `minimum_os_version` | Defaults to `"12.0"`, the macOS the prebuilt engine is built for. A lower value fails the build. |
 | `info_plist` | Used in place of `macos/Runner/Info.plist`. |
 | `build_name`, `build_number`, `version` | See [App version](#app-version). |
-| `entitlements` | Used in place of the `flutter create` pair. By default the macro uses `macos/Runner/DebugProfile.entitlements` for debug and profile builds and `Release.entitlements` for the rest, as the Xcode project does. It fails if either file is missing. |
+| `entitlements` | Used in place of the `flutter create` pair. By default the macro uses `macos/Runner/DebugProfile.entitlements` for debug and profile builds and `Release.entitlements` for the rest, as the Xcode project does. It fails if either file is missing. A signed app, one with a `provisioning_profile`, is signed with the entitlements Xcode gives it: its own, its `com.apple.application-identifier` (the profile's prefix and the bundle id), the profile's `com.apple.developer.team-identifier`, and `com.apple.security.get-task-allow` when the profile is a development profile, one that lists devices. Nothing else the profile grants is added. |
 | `additional_entitlements` | Entitlement files merged into whichever file the build uses, in every mode. See [Release builds and permissions](#release-builds-and-permissions). |
 | `app_icons` | Defaults to the `AppIcon.appiconset` in `macos/Runner/Assets.xcassets`. See [App icons](#app-icons). |
 | `runner_deps` | `swift_library` targets linked into the runner. See [App Intents](#app-intents). |
