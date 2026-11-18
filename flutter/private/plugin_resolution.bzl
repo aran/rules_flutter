@@ -372,6 +372,27 @@ def plugin_warnings_validation(ctx, resolution):
     )
     return [stamp]
 
+def chosen_native_libraries(resolution, platform, records):
+    """The `native_deps` records of an application, without those of implementations it did not choose.
+
+    flutter_tools builds no native code of an implementation the choice
+    passed over on the platform being built, so its `native_deps` libraries
+    stay out of the bundle, as its other native code does.
+
+    Args:
+        resolution: What `application_plugins` returned.
+        platform: The platform being built (`detect_target_platform`).
+        records: Records of `FlutterInfo.native_libraries`, each with its
+            `package`.
+
+    Returns:
+        The records kept, in order.
+    """
+    names = resolution.unchosen.get(platform)
+    if not names:
+        return records
+    return [r for r in records if r.package not in names]
+
 def chosen_native_code(resolution, android_libs, apple_plugin_libraries, apple_privacy_manifests, linux_plugin_libraries, windows_plugin_libraries):
     """An application's native plugin code, without that of implementations it did not choose.
 

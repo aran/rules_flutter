@@ -13,6 +13,13 @@ dart_package_metadata(
 flutter_plugin(
     name = "fed_desktop",
     srcs = ["lib/fed_desktop.dart"],
+    # A prebuilt library on the platforms it implements, as a plugin selects
+    # its native code, which ships only where this implementation is chosen.
+    native_deps = select({
+        "@platforms//os:linux": [":prebuilt"],
+        "@platforms//os:windows": [":prebuilt"],
+        "//conditions:default": [],
+    }),
     package = ":pubspec-metadata",
     platforms = [
         ":linux",
@@ -47,5 +54,11 @@ flutter_linux_plugin_library(
 
 flutter_windows_plugin_library(
     name = "windows_lib",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt",
+    srcs = ["libfed_desktop.so"],
     tags = ["manual"],
 )

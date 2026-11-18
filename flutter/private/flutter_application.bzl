@@ -20,14 +20,14 @@ load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "program_assets
 load("//flutter:dev_files.bzl", "DEV_FILES_GROUP")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterApplicationInputsInfo", "FlutterInfo")
 load("//flutter/private:code_asset_libraries.bzl", "code_asset_libraries", "code_asset_libraries_aspect", "describe_code_asset_libraries")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "PROGRAM_PACKAGE_DOC", "asset_roots", "check_unreplaced_hooks", "collect_binding_contracts", "collect_native_libs", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "flutter_program_inputs", "host_target_arch", "launch_build_args", "shader_sources", "shakes_icons")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "PROGRAM_PACKAGE_DOC", "asset_roots", "check_unreplaced_hooks", "declare_flutter_assets_dir", "detect_target_platform", "flutter_build_assets", "flutter_build_mode", "flutter_compile_kernel", "flutter_compile_shaders", "flutter_deps_attr", "flutter_program_inputs", "host_target_arch", "launch_build_args", "shader_sources", "shakes_icons")
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "add_ios_framework_args", "app_ios_framework_names", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "native_code_config", "program_assets")
-load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
-load("//flutter/private:plugin_resolution.bzl", "application_plugins", "chosen_native_code")
+load("//flutter/private:native_libraries.bzl", "merge_native_libraries", "native_library_records")
+load("//flutter/private:plugin_resolution.bzl", "chosen_native_code", "chosen_native_libraries")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info")
 
 visibility("//flutter/...")
@@ -267,15 +267,20 @@ def flutter_application_build(ctx, inputs):
                 target_arch = flutter_sdk_info.target_arch,
             )
 
-    # Collect native shared libraries from native_deps + transitive plugin deps.
-    native_libs = collect_native_libs(inputs.native_deps)
-    transitive_native_depsets = [
-        dep[FlutterInfo].transitive_native_libs
+    # One implementation of each federated plugin per platform, which every
+    # native registrant registers, and whose native code alone the app links:
+    # the choice the kernel compile made for the Dart registrant.
+    resolution = compilation.plugin_resolution
+
+    # The native libraries of `native_deps`, this target's own and its
+    # chosen plugins', one record each however many routes bring a library.
+    native_libraries = merge_native_libraries(ctx.label, native_library_records(inputs.native_deps, inputs.package_name) + chosen_native_libraries(resolution, target_platform, [
+        record
         for dep in inputs.deps
         if FlutterInfo in dep
-    ]
-    if transitive_native_depsets:
-        native_libs.extend(depset(transitive = transitive_native_depsets).to_list())
+        for record in dep[FlutterInfo].native_libraries.to_list()
+    ]))
+    native_libs = list(native_libraries.keys())
 
     # The manifest names an iOS library by its framework, which analysis
     # names over every library the app bundles (`ios_framework_names`).
@@ -330,9 +335,6 @@ def flutter_application_build(ctx, inputs):
             apple_privacy_manifest_depsets.append(dep[FlutterInfo].apple_privacy_manifests)
             android_lib_depsets.append(dep[FlutterInfo].android_libs)
 
-    # One implementation of each federated plugin per platform, which every
-    # native registrant registers, and whose native code alone the app links.
-    resolution = application_plugins(ctx.label, inputs.deps)
     all_plugins = resolution.native
     native_code = chosen_native_code(
         resolution,
@@ -364,27 +366,14 @@ def flutter_application_build(ctx, inputs):
     # library with no contract is an empty list rather than a missing key: the dev
     # tool has to tell "nothing describes this one" from "this one is not
     # bundled", and they mean opposite things for a reload.
-    binding_contracts = {path: [] for path in bundled_native_libs}
-    for pair in collect_binding_contracts(inputs.native_deps) + [
-        p
-        for dep in inputs.deps
-        if FlutterInfo in dep
-        for p in dep[FlutterInfo].binding_contracts.to_list()
-    ]:
-        if pair.library.path in binding_contracts:
-            binding_contracts[pair.library.path] = list(pair.contract)
-
+    #
     # And what each is built from, on the same keys, so a reload can tell that a
     # library went stale in an app that runs no build of its own.
+    binding_contracts = {path: [] for path in bundled_native_libs}
     native_lib_sources = {path: [] for path in bundled_native_libs}
-    for pair in collect_native_source_pairs(inputs.native_deps) + [
-        p
-        for dep in inputs.deps
-        if FlutterInfo in dep
-        for p in dep[FlutterInfo].native_lib_sources.to_list()
-    ]:
-        if pair.library.path in native_lib_sources:
-            native_lib_sources[pair.library.path] = list(pair.sources)
+    for record in native_libraries.values():
+        binding_contracts[record.library.path] = list(record.contract)
+        native_lib_sources[record.library.path] = list(record.sources)
 
     # A code asset off the Dart package graph, or named in `code_assets`, is
     # bundled under this target's own name for it, so what its build declares
@@ -499,7 +488,7 @@ def flutter_application_build(ctx, inputs):
                 # Per library, the first-party sources it is built from, so a
                 # reload can see a native edit in an app that runs no build of
                 # its own — every app without generated sources. Stat-ed on each
-                # reload; see `native_sources.bzl`.
+                # reload; see `native_library_aspect.bzl`.
                 "nativeLibSources": native_lib_sources,
                 # First-party source packages (app + local deps) the dev tool
                 # maps live edits back to via its SourceUriResolver. packageRoot is
@@ -543,7 +532,7 @@ def flutter_application_build(ctx, inputs):
             kernel_dill = kernel_dill if is_debug else None,
             flutter_assets = flutter_assets,
             icu_data = flutter_sdk_info.icu_data,
-            native_libs = native_libs,
+            native_libraries = native_libraries.values(),
             is_debug = is_debug,
             native_assets_manifest = native_assets_manifest_file,
             program_assets = shipped.info,

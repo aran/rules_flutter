@@ -168,7 +168,7 @@ def app_ios_framework_names(native_libs, program_assets):
     """`ios_framework_names` of an app: its `native_deps` libraries and every code-asset candidate.
 
     Args:
-      native_libs: The app's `native_deps` libraries (`FlutterApplicationInfo.native_libs`).
+      native_libs: The app's `native_deps` libraries (of `FlutterApplicationInfo.native_libraries`).
       program_assets: The app's `DartProgramAssetsInfo`.
 
     Returns:

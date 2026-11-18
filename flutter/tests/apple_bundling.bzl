@@ -88,14 +88,21 @@ def _fake_application_impl(ctx):
         outputs = [flutter_assets],
     )
 
+    icu_data = ctx.actions.declare_file(ctx.label.name + "/icudtl.dat")
+    ctx.actions.write(icu_data, "")
+
     return [FlutterApplicationInfo(
+        icu_data = icu_data,
         aot_output = aot_output,
         aot_object = aot_object,
         strip_aot = ctx.attr.strip_aot,
         kernel_dill = kernel_dill,
         is_debug = ctx.attr.debug,
         flutter_assets = flutter_assets,
-        native_libs = [libs[path] for path in ctx.attr.native_libs],
+        native_libraries = [
+            struct(library = libs[path], package = "app", sources = (), contract = ())
+            for path in ctx.attr.native_libs
+        ],
         program_assets = program_assets,
     )]
 

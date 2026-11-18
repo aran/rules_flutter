@@ -30,6 +30,7 @@ load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "IOS_FRAMEWORK_NAMES_FILE", "IosFrameworkNamesInfo", "add_ios_framework_args", "app_ios_framework_names", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:mobile_engine_check.bzl", "check_ios_engine")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
 visibility("//flutter/...")
@@ -38,7 +39,7 @@ def _flutter_ios_application_impl(ctx):
     """Bundles Flutter compilation outputs for iOS packaging."""
     app_info = ctx.attr.application[FlutterApplicationInfo]
     flutter_assets = app_info.flutter_assets
-    native_libs = app_info.native_libs
+    native_libs = native_library_files(app_info)
 
     outputs = [flutter_assets] + native_libs
     output_groups = {
@@ -337,14 +338,14 @@ def _flutter_ios_native_frameworks_impl(ctx):
     app_info = ctx.attr.application[FlutterApplicationInfo]
     dylibs = list({
         lib: None
-        for lib in list(app_info.native_libs) + candidate_code_asset_libraries(app_info.program_assets)
+        for lib in list(native_library_files(app_info)) + candidate_code_asset_libraries(app_info.program_assets)
     }.keys())
     minimum_os_version = ctx.attr.minimum_os_version
 
     symbols = native_library_symbols(ctx)
     framework_files = []
     dsym_files = []
-    by_file_name = app_ios_framework_names(app_info.native_libs, app_info.program_assets)
+    by_file_name = app_ios_framework_names(native_library_files(app_info), app_info.program_assets)
     names = {dylib: by_file_name[dylib.basename] for dylib in dylibs}
     framework_names = ctx.actions.declare_file("%s/%s" % (ctx.label.name, IOS_FRAMEWORK_NAMES_FILE))
     ctx.actions.write(framework_names, json.encode_indent(by_file_name, indent = "  ") + "\n")
@@ -438,7 +439,7 @@ def _flutter_ios_dropped_frameworks_impl(ctx):
     args.add("--output", output)
     if ctx.attr.conflict:
         args.add("--conflict", ctx.attr.conflict)
-    add_ios_framework_args(args, app_ios_framework_names(app_info.native_libs, app_info.program_assets))
+    add_ios_framework_args(args, app_ios_framework_names(native_library_files(app_info), app_info.program_assets))
     run_code_assets_tool(
         ctx,
         "ios-dropped-frameworks",

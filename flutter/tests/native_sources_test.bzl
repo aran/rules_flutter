@@ -1,14 +1,14 @@
 """Tests for the aspect that collects a native library's first-party sources.
 
 What a hot reload stats to notice that an app's native code is behind its
-sources — see `native_sources.bzl`. Two things decide whether that works: it has
+sources — see `native_library_aspect.bzl`. Two things decide whether that works: it has
 to reach the sources through a library's own dependencies, and it has to leave
 out everything that cannot be edited between reloads, or the reload pays for
 stats that can never change.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//flutter/private:native_sources.bzl", "NativeSourcesInfo", "native_sources_aspect")
+load("//flutter/private:native_library_aspect.bzl", "NativeLibraryFactsInfo", "native_library_aspect")
 
 def _collects_impl(ctx):
     env = analysistest.begin(ctx)
@@ -16,14 +16,14 @@ def _collects_impl(ctx):
     asserts.equals(
         env,
         ctx.attr.expected,
-        sorted([f.basename for f in target[NativeSourcesInfo].sources.to_list()]),
+        sorted([f.basename for f in target[NativeLibraryFactsInfo].sources.to_list()]),
     )
     return analysistest.end(env)
 
 _collects_test = analysistest.make(
     _collects_impl,
     attrs = {"expected": attr.string_list()},
-    extra_target_under_test_aspects = [native_sources_aspect],
+    extra_target_under_test_aspects = [native_library_aspect],
 )
 
 def native_sources_test_suite(name):

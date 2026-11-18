@@ -31,6 +31,7 @@ load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "p
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "plugin_link_flags")
 load("//flutter/private:flutter_windows_resources.bzl", "WINDOWS_VERSION_ATTRS", "windows_version_defines")
 load("//flutter/private:mobile_engine_check.bzl", "check_desktop_engine")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 load("//flutter/private:plugin_registrant.bzl", "registrant_include_dirs")
 
@@ -332,7 +333,7 @@ def _flutter_windows_bundle_impl(ctx):
 
     # The `native_deps` libraries always ship; the code assets are placed by
     # the bundle tool, which reads which of them ship (`code_asset_os`).
-    native_libs = list(app_info.native_libs)
+    native_libs = list(native_library_files(app_info))
     code_assets = program_assets_action_args(ctx.actions, app_info.program_assets, data = False)
     is_debug = app_info.is_debug
 

@@ -3,7 +3,7 @@
 /// Demonstrates a flutter_plugin with both dart_plugin_class and native_deps.
 /// The generated registrant calls MultiplyPlugin.registerWith(null) at startup,
 /// and the native shared library is bundled via
-/// FlutterInfo.transitive_native_libs.
+/// FlutterInfo.native_libraries.
 library;
 
 import 'dart:ffi' as ffi;

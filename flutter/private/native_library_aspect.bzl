@@ -1,7 +1,13 @@
-"""The first-party sources an app's native libraries are built from.
+"""What the build knows of a `native_deps` entry's native libraries, one record a target.
 
-A hot reload cannot see that a native library went stale unless something tells
-it where that library comes from. For an app whose reload runs a bazel build of
+One aspect walks below each `native_deps` entry (and each code asset's
+library) and gives every target it visits a `NativeLibraryFactsInfo`: the
+facts a record in `FlutterInfo.native_libraries` holds that only the graph
+below the library can say (`native_libraries.bzl`).
+
+`sources`: the first-party sources the library is built from. A hot reload
+cannot see that a native library went stale unless something tells it where
+that library comes from. For an app whose reload runs a bazel build of
 its own — one with generated sources — the build itself moves the library and
 the dev tool compares it (`NativeLibsWatch`). Every other app runs no bazel on a
 reload at all, so a `.c` or `.rs` edit reached nothing and was reported as
@@ -22,14 +28,13 @@ nothing about the others. Answering for all of them would withhold a reload over
 a library nobody touched, which is what a shared list did when it was tried.
 """
 
-load("//flutter/private:constants.bzl", "SHARED_LIBRARY_EXTENSIONS")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
 
 visibility("//flutter/...")
 
-NativeSourcesInfo = provider(
-    doc = "Source files a native library below this target is built from.",
-    fields = {"sources": "depset[File]"},
+NativeLibraryFactsInfo = provider(
+    doc = "What the build knows of the native libraries at or below this target.",
+    fields = {"sources": "depset[File]: The first-party sources they are built from."},
 )
 
 # The attributes a native library reaches its own sources through. Named rather
@@ -56,7 +61,7 @@ _SOURCE_ATTRS = [
     "file",
 ]
 
-def _native_sources_aspect_impl(_target, ctx):
+def _native_library_aspect_impl(_target, ctx):
     direct = []
     for attr in ("srcs", "hdrs", "textual_hdrs", "compile_data", "data"):
         for f in getattr(ctx.rule.files, attr, []):
@@ -68,47 +73,12 @@ def _native_sources_aspect_impl(_target, ctx):
 
     transitive = []
     for dep in rule_attr_targets(ctx.rule.attr, _SOURCE_ATTRS):
-        if NativeSourcesInfo in dep:
-            transitive.append(dep[NativeSourcesInfo].sources)
-    return [NativeSourcesInfo(sources = depset(direct, transitive = transitive))]
+        if NativeLibraryFactsInfo in dep:
+            transitive.append(dep[NativeLibraryFactsInfo].sources)
+    return [NativeLibraryFactsInfo(sources = depset(direct, transitive = transitive))]
 
-native_sources_aspect = aspect(
-    implementation = _native_sources_aspect_impl,
+native_library_aspect = aspect(
+    implementation = _native_library_aspect_impl,
     attr_aspects = _SOURCE_ATTRS,
-    doc = "Collects the first-party sources a `native_deps` entry (or a Native Asset library) is built from.",
+    doc = "Gives each target below a `native_deps` entry (or a Native Asset library) what the build knows of its native libraries.",
 )
-
-def collect_native_sources(targets):
-    """The sources below [targets], as one depset.
-
-    Args:
-        targets: Targets the `native_sources_aspect` was applied to.
-
-    Returns:
-        depset[File] of first-party source files.
-    """
-    return depset(transitive = [
-        target[NativeSourcesInfo].sources
-        for target in targets
-        if NativeSourcesInfo in target
-    ])
-
-def collect_native_source_pairs(native_deps):
-    """Pair each `native_deps` entry's libraries with the sources they are built from.
-
-    The same shape as `collect_binding_contracts`, and for the same reason: the
-    dev tool's question is per library.
-
-    Args:
-        native_deps: The `native_deps` targets, wrapped or bare.
-
-    Returns:
-        List of `struct(library = File, sources = tuple[File])`.
-    """
-    pairs = []
-    for dep in native_deps:
-        sources = tuple(collect_native_sources([dep]).to_list())
-        for f in dep[DefaultInfo].files.to_list():
-            if f.extension in SHARED_LIBRARY_EXTENSIONS:
-                pairs.append(struct(library = f, sources = sources))
-    return pairs

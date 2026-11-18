@@ -32,7 +32,7 @@ tell a reload that changed it from one that did not.
 load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo")
 load("@rules_dart//dart:utils.bzl", "DART_TOOLCHAIN_TYPES_ATTR")
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
-load("//flutter/private:native_sources.bzl", "NativeSourcesInfo", "native_sources_aspect")
+load("//flutter/private:native_library_aspect.bzl", "NativeLibraryFactsInfo", "native_library_aspect")
 
 visibility("//flutter/...")
 
@@ -107,8 +107,8 @@ def _code_asset_libraries_aspect_impl(target, ctx):
         contract = tuple(wrapper.binding_contract.to_list())
         hot_patch = wrapper.hot_patch.manifest if wrapper.hot_patch else None
     sources = ()
-    if NativeSourcesInfo in target:
-        sources = tuple(target[NativeSourcesInfo].sources.to_list())
+    if NativeLibraryFactsInfo in target:
+        sources = tuple(target[NativeLibraryFactsInfo].sources.to_list())
     record = struct(
         asset_id = asset.asset_id,
         library = asset.file,
@@ -122,7 +122,7 @@ code_asset_libraries_aspect = aspect(
     implementation = _code_asset_libraries_aspect_impl,
     attr_aspects = _propagated_attrs,
     toolchains_aspects = _propagated_toolchains,
-    requires = [native_sources_aspect],
+    requires = [native_library_aspect],
     doc = "Collects, per code asset below an application's `deps`, the binding contract and sources its build declares.",
 )
 

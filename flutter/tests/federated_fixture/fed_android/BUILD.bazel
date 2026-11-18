@@ -12,6 +12,12 @@ dart_package_metadata(
 flutter_plugin(
     name = "fed_android",
     srcs = ["lib/fed_android.dart"],
+    # A prebuilt library on the platforms it implements, as a plugin selects
+    # its native code, which ships only where this implementation is chosen.
+    native_deps = select({
+        "@platforms//os:android": [":prebuilt"],
+        "//conditions:default": [],
+    }),
     package = ":pubspec-metadata",
     platforms = [":android"],
     tags = ["manual"],
@@ -31,5 +37,11 @@ flutter_plugin_platform(
 java_library(
     name = "android_lib",
     srcs = ["android/FedAndroid.java"],
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt",
+    srcs = ["libfed_android.so"],
     tags = ["manual"],
 )

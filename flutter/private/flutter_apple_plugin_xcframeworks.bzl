@@ -34,6 +34,7 @@ load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGME
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_ios_framework_names", "candidate_code_asset_libraries", "run_code_assets_tool")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -551,7 +552,7 @@ def _code_asset_xcframeworks_impl(ctx):
     for slice in slices:
         app_info = ctx.split_attr.application[slice.id][FlutterApplicationInfo]
         program_assets[slice.id] = app_info.program_assets
-        frameworks = app_ios_framework_names(app_info.native_libs, app_info.program_assets) if platform == "ios" else {}
+        frameworks = app_ios_framework_names(native_library_files(app_info), app_info.program_assets) if platform == "ios" else {}
         for file_name, framework in frameworks.items():
             other = framework_of.setdefault(file_name, (framework, slice.id))
             if other[0] != framework:
@@ -561,11 +562,11 @@ def _code_asset_xcframeworks_impl(ctx):
                     "different libraries whose framework names collide. One " +
                     "xcframework holds a library for every slice, under one name."
                 ) % (ctx.label, file_name, other[0], other[1], framework, slice.id))
-        for dylib in list(app_info.native_libs) + candidate_code_asset_libraries(app_info.program_assets):
+        for dylib in list(native_library_files(app_info)) + candidate_code_asset_libraries(app_info.program_assets):
             name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
             per_name.setdefault(name, {})[slice.id] = dylib
             file_names[name] = dylib.basename
-        for dylib in app_info.native_libs:
+        for dylib in native_library_files(app_info):
             name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
             always.setdefault(name, []).append(slice.id)
 

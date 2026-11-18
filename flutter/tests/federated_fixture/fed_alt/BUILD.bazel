@@ -21,6 +21,8 @@ flutter_plugin(
         "@platforms//os:macos": ["PrivacyInfo.xcprivacy"],
         "//conditions:default": [],
     }),
+    # A prebuilt library, which ships only where this implementation is chosen.
+    native_deps = [":prebuilt"],
     package = ":pubspec-metadata",
     platforms = [
         ":android",
@@ -87,5 +89,11 @@ flutter_linux_plugin_library(
 
 flutter_windows_plugin_library(
     name = "windows_lib",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt",
+    srcs = ["libfed_alt.so"],
     tags = ["manual"],
 )

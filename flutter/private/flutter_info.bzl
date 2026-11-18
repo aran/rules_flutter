@@ -152,9 +152,7 @@ def flutter_info(
         deps = [],
         shader_srcs = [],
         plugins = [],
-        native_libs = [],
-        native_lib_sources = [],
-        binding_contracts = [],
+        native_libraries = [],
         apple_plugin_libraries = [],
         linux_plugin_libraries = [],
         windows_plugin_libraries = [],
@@ -183,13 +181,9 @@ def flutter_info(
         which only `package:flutter` ships.
       plugins: Plugin metadata structs this target declares. Deduplicated by
         name against the dependencies' plugins, this target's first.
-      native_libs: Shared libraries this target contributes, typically from a
-        plugin's `native_deps`.
-      native_lib_sources: `struct(library, sources)` pairs this target
-        contributes — the first-party sources each of its native libraries is
-        built from.
-      binding_contracts: `struct(library, contract)` pairs this target
-        contributes, one per `flutter_native_library` in its `native_deps`.
+      native_libraries: The records of the native libraries this target
+        contributes, typically from a plugin's `native_deps`: see
+        `FlutterInfo.native_libraries` and `native_library_records`.
       apple_plugin_libraries: Apple plugin library structs this target
         declares (`platform`, `label`, `cc_info`, `swift_info`, `package`).
       linux_plugin_libraries: Linux plugin source bundles this target declares
@@ -233,17 +227,9 @@ def flutter_info(
         # unhashable. Order is meaningful to the registrant generators, and
         # this target's own plugins come first.
         plugins = dedup_plugins([_with_dependencies(p, deps, package_dependencies, plugin_names) for p in plugins] + dep_plugins),
-        transitive_native_libs = depset(
-            direct = native_libs,
-            transitive = [info.transitive_native_libs for info in dep_infos],
-        ),
-        native_lib_sources = depset(
-            direct = native_lib_sources,
-            transitive = [info.native_lib_sources for info in dep_infos],
-        ),
-        binding_contracts = depset(
-            direct = binding_contracts,
-            transitive = [info.binding_contracts for info in dep_infos],
+        native_libraries = depset(
+            direct = native_libraries,
+            transitive = [info.native_libraries for info in dep_infos],
         ),
         # Four per-platform channels rather than one tagged union, because the
         # integration mechanisms genuinely differ: Apple carries compiled

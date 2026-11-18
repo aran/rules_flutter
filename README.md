@@ -4299,7 +4299,7 @@ An action whose output doesn't depend on the target platform, such as a kernel c
 | `is_debug` | `bool` | Whether this is a debug build. |
 | `flutter_assets` | `File` | The `flutter_assets/` tree. |
 | `icu_data` | `File` | `icudtl.dat`. |
-| `native_libs` | `list[File]` | The shared libraries of `native_deps`. |
+| `native_libraries` | `list[struct]` | The shared libraries of `native_deps`, one record each, as `FlutterInfo.native_libraries` has them, merged where a library arrives by more than one route, without those of a federated plugin's implementation the application did not choose. |
 | `native_assets_manifest` | `File` | The Native Assets manifest the app ships, which `@Native(assetId:)` bindings resolve through. |
 | `program_assets` | `DartProgramAssetsInfo` | The code and data assets the program ships, after link hooks. |
 | `plugins` | `list[struct]` | The plugins of the whole app, each with `name` and `platforms`, a dict of platform to `FlutterPluginPlatformInfo`. |
@@ -4315,7 +4315,7 @@ An action whose output doesn't depend on the target platform, such as a kernel c
 | `pub_assets` | `depset[struct]` | Each package's asset files: `package_name`, `package_root`, `asset_path` (the path from the package root), `file`, and the `platforms` and `flavors` it is limited to. |
 | `pub_fonts`, `pub_shaders` | `depset[struct]` | Each package's font families and shaders, in the same shape. |
 | `plugins` | `list[struct]` | The plugins, each with `name` and `platforms`. |
-| `transitive_native_libs` | `depset[File]` | The shared libraries of plugins' `native_deps`. |
+| `native_libraries` | `depset[struct]` | The shared libraries of plugins' `native_deps`, one record each: `library`, the `package` whose `native_deps` brought it, the first-party `sources` it is built from, and the `contract` its bindings were generated from. |
 
 **`FlutterFontFamilyInfo`** is provided by `flutter_font_family`: its `family`, and its `fonts`, each a **`FlutterFontInfo`** with `file`, `weight`, `style` and `asset`, as on `flutter_font`.
 

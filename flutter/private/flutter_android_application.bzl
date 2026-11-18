@@ -66,6 +66,7 @@ load("//flutter/private:common.bzl", "android_elf_machine_for_abi")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "run_code_assets_tool")
 load("//flutter/private:mobile_engine_check.bzl", "check_android_engine")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
 visibility("//flutter/...")
@@ -203,13 +204,13 @@ def _package_native_libs(ctx, tools, app_info, abi):
     if app_info.aot_output:
         args.add("--library-as", "libapp.so")
         args.add(app_info.aot_output)
-    args.add_all(app_info.native_libs, before_each = "--library")
+    args.add_all(native_library_files(app_info), before_each = "--library")
     run_code_assets_tool(
         ctx,
         "android-libs",
         [args, code_assets.args],
         depset(
-            ([app_info.aot_output] if app_info.aot_output else []) + list(app_info.native_libs),
+            ([app_info.aot_output] if app_info.aot_output else []) + list(native_library_files(app_info)),
             transitive = [code_assets.inputs],
         ),
         [zip],

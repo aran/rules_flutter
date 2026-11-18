@@ -16,6 +16,12 @@ flutter_plugin(
         "@platforms//os:macos": ["PrivacyInfo.xcprivacy"],
         "//conditions:default": [],
     }),
+    # A prebuilt library on the platforms it implements, as a plugin selects
+    # its native code, which ships only where this implementation is chosen.
+    native_deps = select({
+        "@platforms//os:macos": [":prebuilt"],
+        "//conditions:default": [],
+    }),
     package = ":pubspec-metadata",
     platforms = [":macos"],
     tags = ["manual"],
@@ -33,5 +39,11 @@ flutter_plugin_platform(
 
 cc_library(
     name = "macos_lib",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "prebuilt",
+    srcs = ["libfed_macos.so"],
     tags = ["manual"],
 )

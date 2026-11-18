@@ -20,6 +20,7 @@ load(":apple_plugin_settings_test.bzl", "apple_plugin_settings_test_suite")
 load(":apple_version_check_test.bzl", "apple_version_check_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
+load(":bundle_parts_test.bzl", "bundle_parts_test_suite")
 load(":cmake_link_libraries_test.bzl", "cmake_link_libraries_test_suite")
 load(":code_asset_native_library_test.bzl", "code_asset_native_library_test_suite")
 load(":common_test.bzl", "common_test_suite")
@@ -62,6 +63,7 @@ load(":macos_test.bzl", "macos_test_suite")
 load(":manifest_merge_test.bzl", "manifest_merge_test_suite")
 load(":native_assets_test.bzl", "bridge_probe", "native_assets_test_suite")
 load(":native_hot_patch_test.bzl", "native_hot_patch_test_suite")
+load(":native_libraries_test.bzl", "native_libraries_test_suite")
 load(":native_sources_test.bzl", "native_sources_test_suite")
 load(":notices_test.bzl", "notices_test_suite")
 load(":package_identity_test.bzl", "package_identity_test_suite")
@@ -127,6 +129,8 @@ data_asset_test_suite(name = "data_asset_test")
 app_root_record_test_suite(name = "app_root_record_test")
 
 asset_bundle_test_suite(name = "asset_bundle_test")
+
+bundle_parts_test_suite(name = "bundle_parts_test")
 
 ios_test_suite(name = "ios_test")
 
@@ -359,6 +363,8 @@ apple_version_check_test_suite(name = "apple_version_check_test")
 engine_targets_test_suite(name = "engine_targets_test")
 
 shared_code_asset_test_suite(name = "shared_code_asset_test")
+
+native_libraries_test_suite(name = "native_libraries_test")
 
 bridge_probe(
     name = "dart_code_asset_bridge_probe",

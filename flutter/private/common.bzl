@@ -8,17 +8,16 @@ flutter_application, flutter_android_bundle, and flutter_ios_application.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_dart//dart:providers.bzl", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "KERNEL_TOOL_ATTR", "collect_packages", "collect_transitive_srcs", "dart_import_check_aspect", "generate_dev_package_config", "import_check_output_groups", "package_identity_attrs", "package_info_from_metadata", "package_lib_prefix", "resolve_package_identity", "runtime_reset")
-load("//flutter:providers.bzl", "FlutterInfo", "FlutterNativeLibraryInfo")
+load("//flutter:providers.bzl", "FlutterInfo")
 load("//flutter/private:app_entrypoint.bzl", "APP_SCHEME", "app_main_location", "app_scheme_files", "app_scheme_location", "app_scheme_sources", "synthesize_app_package", "with_root")
 load("//flutter/private:application_version.bzl", "VERSION_SETTING_ATTRS", "program_version")
-load("//flutter/private:constants.bzl", "SHARED_LIBRARY_EXTENSIONS")
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS")
 load("//flutter/private:flutter_asset_bundle.bzl", "flutter_asset_bundle_action")
 load("//flutter/private:flutter_compile.bzl", "flutter_kernel_compile")
 load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "aggregate_pub_contributions", "bundle_key", "package_root_of", "path_in_package", "ships_in")
 load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_action")
-load("//flutter/private:native_sources.bzl", "native_sources_aspect")
+load("//flutter/private:native_library_aspect.bzl", "native_library_aspect")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant", "generate_dev_plugin_registrants")
 load("//flutter/private:plugin_resolution.bzl", "PLUGIN_WARNINGS_TOOL_ATTR", "application_plugins", "plugin_warnings_validation")
@@ -150,24 +149,6 @@ def check_unreplaced_hooks(label, deps):
         ]),
     )
 
-def collect_native_libs(native_deps):
-    """Collect shared libraries from native_deps for dart:ffi.
-
-    Filters DefaultInfo files by extension (.so, .dylib, .dll).
-
-    Args:
-        native_deps: List of targets providing DefaultInfo with shared libs.
-
-    Returns:
-        List of shared library Files.
-    """
-    libs = []
-    for dep in native_deps:
-        for f in dep[DefaultInfo].files.to_list():
-            if f.extension in SHARED_LIBRARY_EXTENSIONS:
-                libs.append(f)
-    return libs
-
 def resolve_dev_generated_sources(paths, candidates):
     """The Files behind `_dev_config.json`'s `generatedSourcePaths`.
 
@@ -191,35 +172,6 @@ def resolve_dev_generated_sources(paths, candidates):
             "frontend_server to read and never materialized by the build.",
         )
     return [by_path[p] for p in paths]
-
-def collect_binding_contracts(native_deps):
-    """Pair each `native_deps` entry's libraries with its declared binding contract.
-
-    Only a `flutter_native_library` wrapper declares one. A bare shared library
-    contributes a pair with an empty contract rather than being left out: "this
-    library has nothing describing its bindings" is the state the dev tool has to
-    be able to name, and a library missing from the map would read as a library
-    that is not bundled.
-
-    Args:
-        native_deps: The `native_deps` targets, wrapped or bare.
-
-    Returns:
-        List of `struct(library = File, contract = tuple[File])`, one per shared
-        library.
-    """
-    pairs = []
-    for dep in native_deps:
-        if FlutterNativeLibraryInfo in dep:
-            info = dep[FlutterNativeLibraryInfo]
-            contract = tuple(info.binding_contract.to_list())
-            for lib in info.libraries.to_list():
-                pairs.append(struct(library = lib, contract = contract))
-        else:
-            for f in dep[DefaultInfo].files.to_list():
-                if f.extension in SHARED_LIBRARY_EXTENSIONS:
-                    pairs.append(struct(library = f, contract = ()))
-    return pairs
 
 def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track_widget_creation = False, assets_dir = None, platform_build_args = [], recorded_uses = None, inputs = None):
     """Run the shared kernel compilation step.
@@ -265,7 +217,9 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
             `package:<name>/…` resolves to.
 
     Returns:
-        struct with kernel_dill (File) and
+        struct with kernel_dill (File), plugin_resolution (the application's
+        choice of plugin implementations, `application_plugins`, which the
+        rest of its build reads rather than choose again) and
         import_checks (the import checks' output groups, a dict for
         `OutputGroupInfo`: `_validation`, the app's and its libraries'
         checks and the action that prints the plugin choice's warnings, and rules_dart's unused-dependency group its fixer reads).
@@ -509,6 +463,7 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     )
     return struct(
         kernel_dill = kernel_dill,
+        plugin_resolution = resolution,
         import_checks = import_checks,
         # Dev-loop plugin registrants, keyed by platform (empty outside
         # debug). The dev tool replays the entry matching the running app's
@@ -1476,7 +1431,7 @@ FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {
     ),
     "native_deps": attr.label_list(
         doc = "cc_library targets providing shared libraries for dart:ffi. A web app built over the application bundles none of them, as `flutter build web` builds no native code.",
-        aspects = [native_sources_aspect],
+        aspects = [native_library_aspect],
         # Built for the platform the build had before any web app's
         # transition: no C++ toolchain targets a web platform.
         cfg = runtime_reset,

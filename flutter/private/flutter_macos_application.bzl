@@ -28,6 +28,7 @@ load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "XCODE
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "run_code_assets_tool")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
 visibility("//flutter/...")
@@ -240,14 +241,14 @@ def _flutter_macos_native_libs_impl(ctx):
     basename there: `flutter_application` checks every candidate.
     """
     app_info = ctx.attr.application[FlutterApplicationInfo]
-    if not app_info.native_libs and not candidate_code_asset_libraries(app_info.program_assets):
+    if not native_library_files(app_info) and not candidate_code_asset_libraries(app_info.program_assets):
         return [DefaultInfo(files = depset())]
 
     # Each candidate is prepared as the app's own binary is (stripped, with a
     # dSYM) before the staging action, which runs anywhere, picks the ones
     # that ship: which do is known only once the link hooks have run.
     symbols = native_library_symbols(ctx)
-    native_libs = app_info.native_libs
+    native_libs = native_library_files(app_info)
     copies = []
     dsym_files = []
     if symbols.dsym or symbols.strip:
@@ -262,7 +263,7 @@ def _flutter_macos_native_libs_impl(ctx):
             if dsym:
                 dsym_files.extend(dsym.files)
         native_libs = [prepared[library] for library in native_libs]
-        copies = [copy for library, copy in prepared.items() if library not in app_info.native_libs]
+        copies = [copy for library, copy in prepared.items() if library not in native_library_files(app_info)]
 
     staged = ctx.actions.declare_directory(ctx.label.name)
     code_assets = program_assets_action_args(ctx.actions, app_info.program_assets, data = False)

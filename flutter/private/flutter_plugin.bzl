@@ -24,7 +24,6 @@ load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS", "LIBRARY_IMP
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("@rules_swift//swift:swift.bzl", "SwiftInfo")
 load("//flutter:providers.bzl", "FlutterPluginPlatformInfo")
-load("//flutter/private:common.bzl", "collect_binding_contracts", "collect_native_libs")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleModuleHeadersInfo")
 load("//flutter/private:flutter_desktop_plugin_info.bzl", "FlutterLinuxPluginInfo", "FlutterWindowsPluginInfo")
 load("//flutter/private:flutter_font.bzl", "FONTS_ATTR")
@@ -32,7 +31,8 @@ load("//flutter/private:flutter_info.bzl", "flutter_info")
 load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "ADDITIONAL_LICENSES_ATTR", "ASSET_FLAVORS_ATTR", "ASSET_PLATFORMS_ATTR", "LIBRARY_DATA_ATTR", "SHADER_FLAVORS_ATTR", "SHADER_PLATFORMS_ATTR", "SKY_ENGINE_ATTR", "build_pub_contributions", "flutter_analyzable_info", "own_additional_licenses")
 load("//flutter/private:flutter_plugin_platform.bzl", "apple_resource_info", "plugin_platforms_of")
-load("//flutter/private:native_sources.bzl", "collect_native_source_pairs", "native_sources_aspect")
+load("//flutter/private:native_libraries.bzl", "native_library_records")
+load("//flutter/private:native_library_aspect.bzl", "native_library_aspect")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
@@ -95,18 +95,13 @@ def plugin_contributions(ctx, package_name, package_root, declares_plugin):
         implements = ctx.attr.implements,
     )] if declares_plugin else []
 
-    # Collect native libs from native_deps.
-    native_libs = collect_native_libs(ctx.attr.native_deps)
-
-    # And what their bindings were generated from, for the ones whose build said
-    # so. Carried to the app rather than used here: a plugin bundles nothing, and
-    # the app is where the dev config that a reload reads is written.
-    binding_contracts = collect_binding_contracts(ctx.attr.native_deps)
-
-    # What each `native_deps` library is built from. A code asset's sources
-    # are found by the application, off the asset's own target; see
+    # The record of each `native_deps` library: what it is built from, and
+    # what its bindings were generated from, when its build said so. Carried to
+    # the app rather than used here: a plugin bundles nothing, and the app is
+    # where the dev config that a reload reads is written. A code asset's are
+    # found by the application, off the asset's own target; see
     # `code_asset_libraries.bzl`.
-    native_lib_sources = collect_native_source_pairs(ctx.attr.native_deps)
+    native_libraries = native_library_records(ctx.attr.native_deps, package_name)
 
     # Each platform's native library, which `flutter_plugin_platform` gives
     # only to a build for that platform: the iOS and macOS libraries of one
@@ -187,9 +182,7 @@ def plugin_contributions(ctx, package_name, package_root, declares_plugin):
 
     return dict(
         plugins = plugins,
-        native_libs = native_libs,
-        binding_contracts = binding_contracts,
-        native_lib_sources = native_lib_sources,
+        native_libraries = native_libraries,
         apple_plugin_libraries = extra_apple_plugin_libraries,
         linux_plugin_libraries = extra_linux_plugin_libraries,
         windows_plugin_libraries = extra_windows_plugin_libraries,
@@ -264,7 +257,7 @@ PLUGIN_PACKAGE_ATTRS = package_identity_attrs() | {
     ),
     "native_deps": attr.label_list(
         doc = "Native dependencies. Use select() for platform-conditional deps.",
-        aspects = [native_sources_aspect],
+        aspects = [native_library_aspect],
     ),
     "exports": attr.label_list(
         doc = "The plugin's Android libraries: a `flutter_android_plugin_library` or a `kt_android_library`, anything with `JavaInfo`. Its registration is the `android` entry of `platforms`. An Android app links the libraries of the plugins it depends on, and no others. Set this with `select()` on `@platforms//os:android`, with an empty list as the default, so that only an Android build loads and analyses it: `select({\"@platforms//os:android\": [\"//android:lib\"], \"//conditions:default\": []})`. Named `exports`, as a Java library's re-exported dependencies are, because rules_android dexes an APK's libraries one at a time by an aspect that follows `deps`, `exports` and `runtime_deps` and nothing else, so only an `exports` edge makes the library visible to it.",

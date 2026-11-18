@@ -29,6 +29,7 @@ tool the build runs is not in the app.
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:bundle_parts.bzl", "parts_of_dependencies", "parts_result", "runner_binary")
 load("//flutter/private:flutter_native_assets.bzl", "candidate_code_asset_libraries")
+load("//flutter/private:native_libraries.bzl", "native_library_files")
 
 WINDOWS_BUNDLE_PARTS_OUTPUT_GROUP = "flutter_windows_bundle_parts"
 WINDOWS_NATIVE_LIBS_OUTPUT_GROUP = "flutter_windows_native_libs"
@@ -47,7 +48,7 @@ def _flutter_windows_bundle_parts_aspect_impl(_target, ctx):
         if type(app) == "Target" and FlutterApplicationInfo in app:
             app_info = app[FlutterApplicationInfo]
             assets.append(depset([app_info.flutter_assets]))
-            native_libs.append(depset(app_info.native_libs))
+            native_libs.append(depset(native_library_files(app_info)))
             native_libs.append(depset(candidate_code_asset_libraries(app_info.program_assets)))
         runner = runner_binary(ctx.rule.attr.runner)
         if runner:

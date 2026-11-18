@@ -3,7 +3,7 @@
 Over `//flutter/tests/federated_fixture`: `fed`, an app-facing package naming
 `fed_android`, `fed_macos` and `fed_desktop` (Linux and Windows) its default
 implementations, and `fed_alt`, which implements it on all four too, each with
-native code there; and `inline`, a package with an
+native code there and a library in `native_deps`; and `inline`, a package with an
 implementation of its own, and `inline_override`, another of it. The choice
 itself, case by case, is `plugin_resolution_test.bzl`'s; these hold the rules
 to handing it to the native registrants, the Dart registrant of the build and
@@ -100,7 +100,9 @@ def _native_inputs_impl(ctx):
     """An application carries the native code of the implementation it chooses on a platform, and not the other's."""
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[FlutterApplicationInfo]
-    entries = getattr(info, ctx.attr.field).to_list()
+    entries = getattr(info, ctx.attr.field)
+    if type(entries) == "depset":
+        entries = entries.to_list()
     asserts.equals(env, ctx.attr.packages, sorted([e.package for e in entries]), ctx.attr.field)
     if ctx.attr.privacy_manifests:
         asserts.equals(
@@ -219,6 +221,19 @@ def federated_plugin_test_suite(name):
         add(_android_inputs_test, target_under_test = _FIXTURE + app, field = "android_libs", packages = [android])
         add(_linux_inputs_test, target_under_test = _FIXTURE + app, field = "linux_plugin_libraries", packages = [desktop])
         add(_windows_inputs_test, target_under_test = _FIXTURE + app, field = "windows_plugin_libraries", packages = [desktop])
+
+        # Each implementation has a library in `native_deps` on the platforms
+        # it implements, which ships only where it is chosen. (No platform of
+        # these tests is Android's, which the libraries select on.)
+        add(_linux_inputs_test, target_under_test = _FIXTURE + app, field = "native_libraries", packages = [desktop])
+        add(_windows_inputs_test, target_under_test = _FIXTURE + app, field = "native_libraries", packages = [desktop])
+        add(
+            _macos_inputs_test,
+            target_under_test = _FIXTURE + app,
+            field = "native_libraries",
+            packages = [macos],
+            target_compatible_with = ["@platforms//os:macos"],
+        )
         add(
             _macos_inputs_test,
             target_under_test = _FIXTURE + app,
