@@ -30,6 +30,15 @@ common --incompatible_no_implicit_file_export
 # directory cross a package boundary, so the rules are tested with that on.
 common --incompatible_check_external_repo_source_dir_package_boundary
 
+# Three more of a coming Bazel release's defaults, so the rules are tested with
+# them on: an output file is checked for `testonly` through the rule that
+# makes it; `cfg = "host"` is refused; and the string keys of a `select()` in a
+# `.bzl` file are labels relative to that file, not to the BUILD file that
+# loads it.
+common --incompatible_check_testonly_for_output_files
+common --incompatible_disable_starlark_host_transitions
+common --incompatible_resolve_select_keys_eagerly
+
 try-import %workspace%/.bazelrc.user
 
 # `dart analyze` and the `dart format` check run as an aspect. Under `build`
