@@ -78,7 +78,7 @@ load(
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "program_assets")
 load("//flutter/private:path_mapping.bzl", "file_ref", "json_config_args")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant")
-load("//flutter/private:plugin_resolution.bzl", "application_plugins")
+load("//flutter/private:plugin_resolution.bzl", "application_plugins", "plugin_warnings_validation")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info")
 load("//flutter/private:sdk_defines.bzl", "program_version_dart_defines")
 load(
@@ -577,7 +577,8 @@ def _flutter_web_bundle_impl(ctx):
     # (create the implicit view, set up the platform dispatcher, etc.)
     # before calling the user's main(). This matches `flutter build web`.
     # One implementation of each federated plugin, the web's among them.
-    plugins = application_plugins(ctx.label, primary.deps).native
+    resolution = application_plugins(ctx.label, primary.deps)
+    plugins = resolution.native
     registrant = generate_dart_plugin_registrant(ctx, plugins, target_platform = "web")
 
     wrapper = ctx.actions.declare_file(ctx.label.name + "_wrapper_main.dart")
@@ -1266,7 +1267,10 @@ def _flutter_web_bundle_impl(ctx):
         dump_info = depset([dump_info_file] if dump_info_file else []),
         # The renderers' symbol maps, for the engine this bundle runs.
         symbols = depset(symbol_files),
-        _validation = depset(linked.validation_outputs + version_checks, transitive = [import_checks["_validation"]]),
+        _validation = depset(
+            linked.validation_outputs + version_checks + plugin_warnings_validation(ctx, resolution),
+            transitive = [import_checks["_validation"]],
+        ),
     )))
 
     # What lets rules_dart's analysis check a web app: its `main` and `srcs`,

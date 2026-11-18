@@ -15,6 +15,12 @@ choice:
 - else the app-facing package's `default_package`;
 - else an error.
 
+A `default_package` that is not among the application's plugins, or that has
+no implementation of its own on that platform, is ignored, and flutter_tools
+warns about it and builds on. Its words are this choice's `warnings`, which
+`plugin_warnings_validation` prints from an action, the way a compiler's
+warnings reach a Bazel build.
+
 A package with an implementation of its own for a platform and no `implements`
 implements itself, so an ordinary plugin is its own only candidate.
 
@@ -28,7 +34,9 @@ counterpart is `FlutterInfo.app_dependencies`: the packages the application
 target and the `flutter_library` targets of the main repository depend on.
 """
 
+load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
 load("//flutter:providers.bzl", "FlutterInfo")
+load("//flutter/private:exec_groups.bzl", "PORTABLE", "portable_tools")
 load("//flutter/private:flutter_info.bzl", "direct_package_names", "plugins_in_registration_order")
 
 visibility("//flutter/...")
@@ -124,9 +132,31 @@ def _choose(platform, name, candidates, default, is_direct):
         "To fix this issue, add one of these to the `deps` of the application.\n"
     ).format(name = name, platform = platform, names = _names(candidates))
 
+def _default_warning(plugin, platform, default_name, default):
+    """flutter_tools' warning about a `default_package` it ignores, or None."""
+    if default == None:
+        return (
+            "Package {name}:{platform} references {default}:{platform} as the default plugin, " +
+            "but the package does not exist, or is not a plugin package.\n" +
+            "Ask the maintainers of {name} to either avoid referencing a default implementation " +
+            "via `platforms: {platform}: default_package: {default}` " +
+            "or create a plugin named {default}.\n"
+        ).format(name = plugin.name, platform = platform, default = default_name)
+    if not _inline(default, platform):
+        return (
+            "Package {name}:{platform} references {default}:{platform} as the default plugin, " +
+            "but it does not provide an inline implementation.\n" +
+            "Ask the maintainers of {name} to either avoid referencing a default implementation " +
+            "via `platforms: {platform}: default_package: {default}` " +
+            "or add an inline implementation to {default} via `platforms: {platform}:` " +
+            "`pluginClass` or `dartPluginClass`.\n"
+        ).format(name = plugin.name, platform = platform, default = default_name)
+    return None
+
 def _resolve_platform(plugins, by_name, platform, mode, is_direct):
-    """`_resolvePluginImplementationsByPlatform`: the chosen plugins' names and the errors."""
+    """`_resolvePluginImplementationsByPlatform`: the chosen plugins' names, the errors and the warnings."""
     pubspec_errors = []
+    warnings = []
     candidates = {}
     defaults = {}
     for plugin in plugins:
@@ -140,6 +170,9 @@ def _resolve_platform(plugins, by_name, platform, mode, is_direct):
         # A default that is not in the app, or that implements nothing here,
         # flutter_tools warns about and ignores.
         default = by_name.get(default_name) if default_name else None
+        warning = _default_warning(plugin, platform, default_name, default) if default_name else None
+        if warning:
+            warnings.append(warning)
         if default != None and _inline(default, platform) and (mode == _NATIVE_OR_DART or _has_inline(default, platform, mode)):
             defaults[plugin.name] = default
         if implemented:
@@ -153,10 +186,13 @@ def _resolve_platform(plugins, by_name, platform, mode, is_direct):
             resolution_errors.append(error)
         elif resolution != None:
             chosen[resolution.name] = True
-    return struct(chosen = chosen, pubspec_errors = pubspec_errors, resolution_errors = resolution_errors)
+    return struct(chosen = chosen, pubspec_errors = pubspec_errors, resolution_errors = resolution_errors, warnings = warnings)
 
-def _resolve(plugins, mode, is_direct):
-    """`_resolvePluginImplementations`: per platform, the names chosen; and the error, or None."""
+def _resolve(plugins, mode, is_direct, warnings):
+    """`_resolvePluginImplementations`: per platform, the names chosen; and the error, or None.
+
+    Adds its warnings to `warnings`, a dict whose keys keep their order.
+    """
     by_name = {p.name: p for p in plugins}
     chosen = {}
     printed = []
@@ -165,6 +201,8 @@ def _resolve(plugins, mode, is_direct):
     for platform in _PLATFORMS:
         result = _resolve_platform(plugins, by_name, platform, mode, is_direct)
         printed.extend(result.pubspec_errors + result.resolution_errors)
+        for warning in result.warnings:
+            warnings[warning] = True
         if result.pubspec_errors:
             pubspec_error = True
         elif result.resolution_errors:
@@ -222,7 +260,7 @@ def choose_implementations(plugins, app_dependencies):
             only where two implementations of one plugin compete.
 
     Returns:
-        struct(native, dart, unchosen, error). `native` and `dart` are the plugins each
+        struct(native, dart, unchosen, warnings, error). `native` and `dart` are the plugins each
         set of registrants registers, each struct with only the platforms it
         is chosen on, and plugins chosen on none left out: `native` the choice
         over every implementation, which the native registrants and the web's
@@ -231,7 +269,8 @@ def choose_implementations(plugins, app_dependencies):
         `plugins_on_platform`. `unchosen` maps a platform to the names, as a
         dict's keys, of the plugins with an implementation there that the
         native choice passed over, and has no entry for a platform where
-        nothing was. `error` is flutter_tools' report when a
+        nothing was. `warnings` are flutter_tools' words, each once, about a
+        `default_package` the choice ignored. `error` is flutter_tools' report when a
         platform's choice cannot be made or a plugin's `default_package` sits
         beside an implementation of its own, on any platform, whichever the
         application is built for; None otherwise, and `native`, `dart` and
@@ -248,16 +287,20 @@ def choose_implementations(plugins, app_dependencies):
             cache["names"] = {n: True for n in app_dependencies.to_list()}
         return name in cache["names"]
 
-    native, error = _resolve(plugins, _NATIVE_OR_DART, is_direct)
+    # Both choices warn alike: flutter_tools asks whether a default
+    # implements anything at all, whichever it is choosing.
+    warnings = {}
+    native, error = _resolve(plugins, _NATIVE_OR_DART, is_direct, warnings)
     if error:
-        return struct(native = None, dart = None, unchosen = None, error = error)
-    dart, error = _resolve(plugins, _DART, is_direct)
+        return struct(native = None, dart = None, unchosen = None, warnings = None, error = error)
+    dart, error = _resolve(plugins, _DART, is_direct, warnings)
     if error:
-        return struct(native = None, dart = None, unchosen = None, error = error)
+        return struct(native = None, dart = None, unchosen = None, warnings = None, error = error)
     return struct(
         native = _restricted(plugins, native),
         dart = _restricted(plugins, dart),
         unchosen = _unchosen(plugins, native),
+        warnings = list(warnings),
         error = None,
     )
 
@@ -273,8 +316,8 @@ def application_plugins(label, deps):
         deps: Its `deps`.
 
     Returns:
-        struct(native, dart, unchosen), as `choose_implementations` has them. Fails
-        with its error.
+        struct(native, dart, unchosen, warnings), as `choose_implementations`
+        has them. Fails with its error.
     """
     plugins = []
     transitive = []
@@ -286,6 +329,48 @@ def application_plugins(label, deps):
     if chosen.error:
         fail("%s: %s" % (label, chosen.error))
     return chosen
+
+# The attribute `plugin_warnings_validation` reads: a rule that resolves an
+# application's plugins declares it, with `PORTABLE`.
+PLUGIN_WARNINGS_TOOL_ATTR = {
+    "_print_warnings": attr.label(
+        default = Label("//flutter/private/tools:print_warnings.dart"),
+        allow_single_file = True,
+    ),
+}
+
+def plugin_warnings_validation(ctx, resolution):
+    """The action that prints the choice's warnings, as flutter_tools does.
+
+    Args:
+        ctx: The rule context, declaring `PLUGIN_WARNINGS_TOOL_ATTR` and
+            `PORTABLE`.
+        resolution: What `application_plugins` returned.
+
+    Returns:
+        The stamps for the `_validation` output group: none when there is
+        nothing to say, else one, whose action prints each warning and
+        succeeds, so a build of the target shows them.
+    """
+    if not resolution.warnings:
+        return []
+    tools = portable_tools(ctx)
+    stamp = ctx.actions.declare_file(ctx.label.name + ".plugin_warnings")
+    args = ctx.actions.args()
+    args.add(ctx.file._print_warnings)
+    args.add_all(resolution.warnings, before_each = "--warning")
+    args.add("--stamp", stamp)
+    ctx.actions.run(
+        executable = tools.dart,
+        arguments = [args],
+        inputs = depset([ctx.file._print_warnings], transitive = [tools.sdk_files.run]),
+        outputs = [stamp],
+        mnemonic = "FlutterPluginWarnings",
+        exec_group = PORTABLE,
+        execution_requirements = PATH_MAPPING,
+        progress_message = "Warning of the plugin choices of %{label}",
+    )
+    return [stamp]
 
 def chosen_native_code(resolution, android_libs, apple_plugin_libraries, apple_privacy_manifests, linux_plugin_libraries, windows_plugin_libraries):
     """An application's native plugin code, without that of implementations it did not choose.

@@ -89,7 +89,7 @@ load("//flutter/private:flutter_module.bzl", "flutter_module_aspect")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "collect_bundled_code_asset_files", "resolve_native_assets", "write_native_assets_manifest")
 load("//flutter/private:flutter_program_test.bzl", "add_user_env", "program_environment", "track_widget_creation", _flutter_test_rule = "flutter_test")
 load("//flutter/private:plugin_registrant.bzl", "make_registrant_parts")
-load("//flutter/private:plugin_resolution.bzl", "application_plugins")
+load("//flutter/private:plugin_resolution.bzl", "PLUGIN_WARNINGS_TOOL_ATTR", "application_plugins", "plugin_warnings_validation")
 load("//flutter/private:program_analysis.bzl", "program_analyzable_info", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "app_version_dart_defines")
 
@@ -531,7 +531,8 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
     # plugins' libraries in the linked program.
     # One Dart implementation of each federated plugin, as `flutter test`
     # chooses it, with the test's `deps` the direct dependencies.
-    plugins = application_plugins(ctx.label, deps).dart
+    resolution = application_plugins(ctx.label, deps)
+    plugins = resolution.dart
     ctx.actions.write(bootstrap, make_bootstrap_content(
         to_root + _kernel_root_path(ctx.file.main.short_path),
         golden_comparator_import = staged_comparator.basename if staged_comparator else None,
@@ -639,22 +640,30 @@ def _program(ctx, kind, runner_tools, target_os, target_arch, layout):
         target_os = target_os,
         runfiles = runfiles,
     )
+
+    # The test's own files and every library it reaches import only what
+    # their `deps` provide, in either compile mode. The generated bootstrap
+    # and golden comparator are the rule's, not the user's: their imports
+    # are uses of `deps` (the bootstrap's of `flutter_test`, which a test
+    # may reach only through a helper), and are not themselves checked.
+    import_checks = dict(import_check_output_groups(
+        ctx,
+        ctx.executable._kernel_tool,
+        entry_files + inputs.srcs,
+        # `synthesize_app_package` appends the test's own package last.
+        packages[-1],
+        deps,
+        main = ctx.file.main,
+        generated = [bootstrap] + ([staged_comparator] if staged_comparator else []),
+    ))
+
+    # And what flutter_tools warns of about its plugins is printed.
+    import_checks["_validation"] = depset(
+        plugin_warnings_validation(ctx, resolution),
+        transitive = [import_checks["_validation"]],
+    )
     return struct(info = info, providers = [
-        # The test's own files and every library it reaches import only what
-        # their `deps` provide, in either compile mode. The generated bootstrap
-        # and golden comparator are the rule's, not the user's: their imports
-        # are uses of `deps` (the bootstrap's of `flutter_test`, which a test
-        # may reach only through a helper), and are not themselves checked.
-        OutputGroupInfo(**import_check_output_groups(
-            ctx,
-            ctx.executable._kernel_tool,
-            entry_files + inputs.srcs,
-            # `synthesize_app_package` appends the test's own package last.
-            packages[-1],
-            deps,
-            main = ctx.file.main,
-            generated = [bootstrap] + ([staged_comparator] if staged_comparator else []),
-        )),
+        OutputGroupInfo(**import_checks),
         # What lets rules_dart's analysis check a `flutter_test`. The test's
         # `main` belongs to no package's `lib/`, so no `DartInfo` can name it
         # and it reaches the analyzer only through here. Deliberately not
@@ -818,6 +827,7 @@ _PROGRAM_ATTRS.update(_ENVIRONMENT.attrs)
 _PROGRAM_ATTRS.update(PLATFORM_CONSTRAINT_ATTRS)
 _PROGRAM_ATTRS.update(program_assets_attrs())
 _PROGRAM_ATTRS.update(KERNEL_TOOL_ATTR)
+_PROGRAM_ATTRS.update(PLUGIN_WARNINGS_TOOL_ATTR)
 _PROGRAM_ATTRS.update(KERNEL_LIST_ATTR)
 _PROGRAM_ATTRS.update(MODULAR_KERNEL_ATTR)
 _PROGRAM_ATTRS.update(TRACK_CREATION_LOCATIONS_ATTR)

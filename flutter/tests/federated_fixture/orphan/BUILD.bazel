@@ -1,0 +1,25 @@
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "orphan",
+)
+
+# An app-facing package whose default implementation on Android is no package
+# the application has: flutter_tools warns and builds on.
+flutter_plugin(
+    name = "orphan",
+    srcs = ["lib/orphan.dart"],
+    package = ":pubspec-metadata",
+    platforms = [":android"],
+    tags = ["manual"],
+)
+
+flutter_plugin_platform(
+    name = "android",
+    default_package = "orphan_android",
+    platform = "android",
+    tags = ["manual"],
+)

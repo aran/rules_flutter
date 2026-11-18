@@ -35,6 +35,7 @@ exports_files(
         "merge_android_manifests.dart",
         "merge_plists.dart",
         "plist_binary.dart",
+        "print_warnings.dart",
         "sdk_check.dart",
         "signing_entitlements.dart",
         "strip_native_libs.dart",
@@ -480,6 +481,13 @@ dart_test(
     name = "check_web_version_json_test",
     srcs = ["check_web_version_json.dart"],
     main = "test/check_web_version_json_test.dart",
+    deps = ["@dev_tool_deps//:test"],
+)
+
+dart_test(
+    name = "print_warnings_test",
+    srcs = ["print_warnings.dart"],
+    main = "test/print_warnings_test.dart",
     deps = ["@dev_tool_deps//:test"],
 )
 

@@ -27,6 +27,15 @@ flutter_application(
     ],
 )
 
+# Over a plugin whose default implementation is missing.
+flutter_application(
+    name = "orphan_app",
+    main = "lib/main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/federated_fixture/orphan"],
+)
+
 # Depends on the second implementation.
 flutter_application(
     name = "direct_app",

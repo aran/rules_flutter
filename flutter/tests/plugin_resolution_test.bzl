@@ -61,6 +61,9 @@ def _default_package_test_impl(ctx):
     # The other implementation's native code stays out on Android. The
     # app-facing package has none of its own there.
     asserts.equals(env, {"android": {"fed_android_alt": True}}, chosen.unchosen)
+
+    # A default that implements its plugin is nothing to warn of.
+    asserts.equals(env, [], chosen.warnings)
     return unittest.end(env)
 
 _default_package_test = unittest.make(_default_package_test_impl)
@@ -202,9 +205,38 @@ def _missing_default_test_impl(ctx):
     ])
     asserts.equals(env, None, chosen.error)
     asserts.equals(env, ["gone_other"], _on(chosen.native, "windows"))
+
+    # In flutter_tools' words, once, though both choices pass over it.
+    asserts.equals(env, [
+        "Package gone:windows references gone_windows:windows as the default plugin, " +
+        "but the package does not exist, or is not a plugin package.\n" +
+        "Ask the maintainers of gone to either avoid referencing a default implementation via " +
+        "`platforms: windows: default_package: gone_windows` or create a plugin named gone_windows.\n",
+    ], chosen.warnings)
     return unittest.end(env)
 
 _missing_default_test = unittest.make(_missing_default_test_impl)
+
+def _unimplemented_default_test_impl(ctx):
+    """A default with no implementation of its own on the platform is passed over, as flutter_tools warns and does."""
+    env = unittest.begin(ctx)
+    chosen = _choose([
+        _plugin("hollow", macos = _entry(default = "hollow_macos")),
+        _plugin("hollow_macos", implements = "hollow", ios = _entry("HollowIOS")),
+        _plugin("hollow_other", implements = "hollow", macos = _entry("Other")),
+    ])
+    asserts.equals(env, None, chosen.error)
+    asserts.equals(env, ["hollow_other"], _on(chosen.native, "macos"))
+    asserts.equals(env, [
+        "Package hollow:macos references hollow_macos:macos as the default plugin, " +
+        "but it does not provide an inline implementation.\n" +
+        "Ask the maintainers of hollow to either avoid referencing a default implementation via " +
+        "`platforms: macos: default_package: hollow_macos` or add an inline implementation to " +
+        "hollow_macos via `platforms: macos:` `pluginClass` or `dartPluginClass`.\n",
+    ], chosen.warnings)
+    return unittest.end(env)
+
+_unimplemented_default_test = unittest.make(_unimplemented_default_test_impl)
 
 def _per_platform_choice_test_impl(ctx):
     """A plugin chosen on one platform and not another keeps only the platform it is chosen on."""
@@ -282,6 +314,7 @@ def plugin_resolution_test_suite(name):
         _web_default_test,
         _pubspec_errors_test,
         _missing_default_test,
+        _unimplemented_default_test,
         _per_platform_choice_test,
         _platform_order_test,
         _chosen_native_code_test,

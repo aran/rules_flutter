@@ -20,7 +20,7 @@ load("//flutter/private:flutter_shader_compile.bzl", "flutter_shader_compile_act
 load("//flutter/private:native_sources.bzl", "native_sources_aspect")
 load("//flutter/private:notices.bzl", "NOTICES_ATTRS", "additional_licenses_of", "flutter_notices_action", "notices_asset_key", "package_licenses_of")
 load("//flutter/private:plugin_registrant.bzl", "generate_dart_plugin_registrant", "generate_dev_plugin_registrants")
-load("//flutter/private:plugin_resolution.bzl", "application_plugins")
+load("//flutter/private:plugin_resolution.bzl", "PLUGIN_WARNINGS_TOOL_ATTR", "application_plugins", "plugin_warnings_validation")
 load("//flutter/private:program_analysis.bzl", "program_sky_engine_attr")
 load("//flutter/private:sdk_defines.bzl", "program_version_dart_defines")
 load("//flutter/private:validation.bzl", "validate_dart_defines")
@@ -267,7 +267,7 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
         struct with kernel_dill (File) and
         import_checks (the import checks' output groups, a dict for
         `OutputGroupInfo`: `_validation`, the app's and its libraries'
-        checks, and rules_dart's unused-dependency group its fixer reads).
+        checks and the action that prints the plugin choice's warnings, and rules_dart's unused-dependency group its fixer reads).
     """
     if inputs == None:
         inputs = flutter_program_inputs(ctx)
@@ -377,7 +377,8 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
     # a side library (upstream _PluginRegistrant shape) the engine invokes
     # before main() on every root-isolate launch — including hot restart.
     # One Dart implementation of each federated plugin per platform.
-    plugins = application_plugins(ctx.label, inputs.deps).dart
+    resolution = application_plugins(ctx.label, inputs.deps)
+    plugins = resolution.dart
     registrant = generate_dart_plugin_registrant(
         ctx,
         plugins,
@@ -427,6 +428,14 @@ def flutter_compile_kernel(ctx, tools, aot = None, target_platform = None, track
         inputs.deps,
         main = inputs.main,
         generated = generated,
+    )
+
+    # What flutter_tools warns of and builds on, printed by an action the
+    # build requires.
+    import_checks = dict(import_checks)
+    import_checks["_validation"] = depset(
+        plugin_warnings_validation(ctx, resolution),
+        transitive = [import_checks["_validation"]],
     )
 
     # The user's attr + extra_dart_defines flag, the flavor's, and the ones
@@ -1456,7 +1465,7 @@ KERNEL_COMPILE_ATTRS = package_identity_attrs(
               "name and resources. The app's own `assets` are not filtered by " +
               "flavor: list a flavor's assets in that flavor's target.",
     ),
-} | VERSION_SETTING_ATTRS | EXTRA_DART_DEFINES_ATTR | BUILD_MODE_ATTR | KERNEL_TOOL_ATTR
+} | VERSION_SETTING_ATTRS | EXTRA_DART_DEFINES_ATTR | BUILD_MODE_ATTR | KERNEL_TOOL_ATTR | PLUGIN_WARNINGS_TOOL_ATTR
 
 # Shared attrs for all flutter application rules.
 FLUTTER_APPLICATION_ATTRS = KERNEL_COMPILE_ATTRS | {

@@ -133,6 +133,23 @@ def _conflict_impl(ctx):
 
 _conflict_test = analysistest.make(_conflict_impl, expect_failure = True)
 
+def _warnings_impl(ctx):
+    """A `default_package` flutter_tools warns of is printed by an action the build requires."""
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    printing = [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterPluginWarnings"]
+    if not ctx.attr.warning:
+        asserts.equals(env, [], printing, "no warnings, no action")
+        return analysistest.end(env)
+    asserts.equals(env, 1, len(printing), "one action prints the warnings")
+    if printing:
+        asserts.true(env, ctx.attr.warning in printing[0].argv, "prints flutter_tools' warning: %s" % printing[0].argv)
+        validations = target[OutputGroupInfo]._validation.to_list()
+        asserts.true(env, printing[0].outputs.to_list()[0] in validations, "the build requires it")
+    return analysistest.end(env)
+
+_warnings_test = analysistest.make(_warnings_impl, attrs = {"warning": attr.string()})
+
 def federated_plugin_test_suite(name):
     """Analysis tests of applications over a federated plugin.
 
@@ -182,6 +199,15 @@ def federated_plugin_test_suite(name):
     )
     add(_test_bootstrap_test, target_under_test = _FIXTURE + "direct_test.program", host_default = _host_default())
     add(_conflict_test, target_under_test = _FIXTURE + "conflict_app")
+    add(
+        _warnings_test,
+        target_under_test = _FIXTURE + "orphan_app",
+        warning = "Package orphan:android references orphan_android:android as the default plugin, " +
+                  "but the package does not exist, or is not a plugin package.\n" +
+                  "Ask the maintainers of orphan to either avoid referencing a default implementation via " +
+                  "`platforms: android: default_package: orphan_android` or create a plugin named orphan_android.\n",
+    )
+    add(_warnings_test, target_under_test = _FIXTURE + "default_app")
 
     # The native code an application links, on each platform: the chosen
     # implementation's, and not the other's. The macOS build is analysed only
