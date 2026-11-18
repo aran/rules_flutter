@@ -152,6 +152,7 @@ void main() {
         }),
         ProbeRepo('web_sdk_ok', 'flutter_web_sdk_repo', {
           'engine_revision': str(revision),
+          'host': str('linux-x64'),
           'sha256': str(digest),
           'dart_sdk_sha256s': strDict({
             for (final host in hostPlatforms) host: dartSdkDigest,

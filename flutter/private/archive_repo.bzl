@@ -32,6 +32,12 @@ def _flutter_archive_repo_impl(repository_ctx):
         repository_ctx.extract(archive = archive, output = output)
         repository_ctx.delete(archive)
 
+    # What the repository leaves out of what it extracted. Each path must be
+    # there, so a list that has fallen behind its archives fails the fetch.
+    for path, message in attr.deletions.items():
+        if not repository_ctx.delete(path):
+            fail(message)
+
     for check in json.decode(attr.checks):
         path = repository_ctx.path(check["path"])
         if "content" not in check:
@@ -64,6 +70,10 @@ flutter_archive_repo = repository_rule(
                   "and `message`. With `content`, the file's stripped text must equal it, and " +
                   "`message` is formatted with `actual`; without, the path must exist.",
             default = "[]",
+        ),
+        "deletions": attr.string_dict(
+            doc = "A path in the repository to delete after the archives are extracted, to the " +
+                  "message to fail with when it is not there.",
         ),
         "files": attr.string_dict(doc = "Path to the content of a file to write, after the archives."),
         "nested_archives": attr.string_dict(

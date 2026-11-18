@@ -1,9 +1,11 @@
-"""Repository rules for the Android emulator and the system image it boots, which Android integration tests run on by default.
+"""The repositories of the Android emulator and the system image it boots, which Android integration tests run on by default.
 
-`flutter_android_emulator_repo` holds one host's emulator, named for the host
+`flutter_android_emulator_repo` declares one host's emulator, named for the host
 (`flutter_android_emulator_<host>`), and `flutter_android_system_image_repo` one
 ABI's system image (`flutter_android_system_image_<abi>`). Each is the archive
-from Google's Android SDK repository, extracted as it is, pinned by sha256.
+from Google's Android SDK repository, extracted as it is, pinned by sha256,
+into a `flutter_archive_repo`, so Bazel keeps one copy of each for every output
+base.
 
 The `flutter` extension declares every one of them. A repository is fetched when
 something references it, so only the host's own emulator and image are
@@ -12,21 +14,30 @@ an Android integration test selects them for the host, and only when the test
 runs on the emulator.
 """
 
+load("//flutter/private:archives.bzl", "archive", "archive_repo")
 load("//flutter/private:artifact_urls.bzl", "android_emulator_url", "android_system_image_url")
-load("//flutter/private:pinned.bzl", "pinned")
 
 visibility("//flutter/...")
 
-def _flutter_android_emulator_impl(repository_ctx):
-    host = repository_ctx.attr.host
-    repository_ctx.download_and_extract(
-        url = android_emulator_url(repository_ctx.attr.build_id, host),
-        sha256 = pinned("emulator-%s-%s.zip" % (host, repository_ctx.attr.build_id), repository_ctx.attr.sha256),
+def flutter_android_emulator_repo(name, build_id, host, sha256):
+    """Declares the Android emulator of one host.
+
+    Args:
+        name: The repository's name.
+        build_id: The emulator's build.
+        host: The Android SDK repository's name for the host: `darwin_aarch64`
+            or `linux_x64`.
+        sha256: Expected SHA-256 of the archive.
+    """
+    archive_repo(
+        name = name,
+        archives = [archive("emulator-%s-%s.zip" % (host, build_id), android_emulator_url(build_id, host), sha256)],
+        deletions = {
+            "emulator/" + path: "The emulator %s for %s has no emulator/%s to leave out: the list of what it never loads is out of date." % (build_id, host, path)
+            for path in _UNUSED.get(host, [])
+        },
+        files = {"BUILD.bazel": _EMULATOR_BUILD},
     )
-    for path in _UNUSED.get(host, []):
-        if not repository_ctx.delete("emulator/" + path):
-            fail("The emulator %s for %s has no emulator/%s to leave out: the list of what it never loads is out of date." % (repository_ctx.attr.build_id, host, path))
-    repository_ctx.file("BUILD.bazel", _EMULATOR_BUILD)
 
 # What a Linux emulator that has no window and runs x86_64 images never loads:
 # the Qt of its window, the software Vulkan it is not told to use, the Mesa of
@@ -63,34 +74,33 @@ filegroup(
 )
 """
 
-flutter_android_emulator_repo = repository_rule(
-    _flutter_android_emulator_impl,
-    doc = "Downloads the Android emulator of one host.",
-    attrs = {
-        "build_id": attr.string(doc = "The emulator's build.", mandatory = True),
-        "host": attr.string(
-            doc = "The Android SDK repository's name for the host: `darwin_aarch64` or `linux_x64`.",
-            mandatory = True,
-        ),
-        "sha256": attr.string(doc = "Expected SHA-256 of the archive."),
-    },
-)
+def flutter_android_system_image_repo(name, abi, api_level, revision, sha256, tag):
+    """Declares an Android emulator system image of one ABI.
 
-def _flutter_android_system_image_impl(repository_ctx):
-    attr = repository_ctx.attr
-    url = android_system_image_url(attr.api_level, attr.tag, attr.abi, attr.revision)
-    repository_ctx.download_and_extract(
-        url = url,
-        sha256 = pinned("%s system image %s-%s_%s" % (attr.tag, attr.abi, attr.api_level, attr.revision), attr.sha256),
-        # The archive's one directory, the ABI's.
-        stripPrefix = attr.abi,
+    Args:
+        name: The repository's name.
+        abi: The image's ABI: `arm64-v8a` or `x86_64`.
+        api_level: The image's Android API level.
+        revision: The image's revision, such as `r01`.
+        sha256: Expected SHA-256 of the archive.
+        tag: The image's tag, such as `aosp_atd`.
+    """
+    archive_repo(
+        name = name,
+        archives = [archive(
+            "%s system image %s-%s_%s" % (tag, abi, api_level, revision),
+            android_system_image_url(api_level, tag, abi, revision),
+            sha256,
+            # The archive's one directory, the ABI's.
+            strip_prefix = abi,
+        )],
+        files = {"BUILD.bazel": _SYSTEM_IMAGE_BUILD.format(
+            abi = abi,
+            api_level = api_level,
+            tag = tag,
+            rule_bzl = str(Label("//flutter/private:generated_repos.bzl")),
+        )},
     )
-    repository_ctx.file("BUILD.bazel", _SYSTEM_IMAGE_BUILD.format(
-        abi = attr.abi,
-        api_level = attr.api_level,
-        tag = attr.tag,
-        rule_bzl = str(Label("//flutter/private:generated_repos.bzl")),
-    ))
 
 # `system_image` says what the image is, which the emulator's device
 # configuration names, and where: the directory of its `source.properties`.
@@ -110,15 +120,3 @@ flutter_android_system_image(
     visibility = ["//visibility:public"],
 )
 """
-
-flutter_android_system_image_repo = repository_rule(
-    _flutter_android_system_image_impl,
-    doc = "Downloads an Android emulator system image of one ABI.",
-    attrs = {
-        "abi": attr.string(doc = "The image's ABI: `arm64-v8a` or `x86_64`.", mandatory = True),
-        "api_level": attr.int(doc = "The image's Android API level.", mandatory = True),
-        "revision": attr.string(doc = "The image's revision, such as `r01`.", mandatory = True),
-        "sha256": attr.string(doc = "Expected SHA-256 of the archive."),
-        "tag": attr.string(doc = "The image's tag, such as `aosp_atd`.", mandatory = True),
-    },
-)

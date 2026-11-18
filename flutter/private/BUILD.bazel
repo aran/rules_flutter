@@ -317,8 +317,9 @@ bzl_library(
     srcs = ["flutter_dev_root_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
-        ":pinned",
+        ":framework_source",
     ],
 )
 
@@ -878,8 +879,8 @@ bzl_library(
     srcs = ["flutter_web_sdk_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":archives",
         ":artifact_urls",
-        ":pinned",
     ],
 )
 

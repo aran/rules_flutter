@@ -210,6 +210,7 @@ void main() {
           'dart-sdk',
           ProbeRepo('web_sdk_second_archive', 'flutter_web_sdk_repo', {
             'engine_revision': str(revision),
+            'host': str('linux-x64'),
             'sha256': str(digest),
           }),
         ),
@@ -217,6 +218,7 @@ void main() {
           'flutter-web-sdk.zip',
           ProbeRepo('web_sdk_blank', 'flutter_web_sdk_repo', {
             'engine_revision': str(revision),
+            'host': str('linux-x64'),
           }),
         ),
         add(

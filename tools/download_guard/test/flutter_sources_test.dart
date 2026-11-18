@@ -45,12 +45,12 @@ void main() {
       files,
       containsAll([
         'flutter/private/archive_repo.bzl',
-        'flutter/private/flutter_web_sdk_repo.bzl',
+        'flutter/private/flutter_material_fonts_repo.bzl',
         'flutter/private/flutter_source_files.bzl',
         'flutter/private/flutter_framework_package.bzl',
       ]),
     );
-    expect(sites.length, greaterThan(10));
+    expect(sites.length, greaterThan(5));
   });
 
   test('every download site checks the bytes against a non-empty digest', () {

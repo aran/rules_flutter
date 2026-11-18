@@ -33,6 +33,7 @@ load("//flutter/private:flutter_linux_runtime_repo.bzl", "flutter_linux_runtime_
 load("//flutter/private:flutter_material_fonts_repo.bzl", "flutter_material_fonts_repo")
 load("//flutter/private:flutter_sdk_toolchains_repo.bzl", "flutter_sdk_toolchains_repo")
 load("//flutter/private:flutter_sdks_repo.bzl", "encode_sdks", "flutter_sdks_repo")
+load("//flutter/private:flutter_web_sdk_repo.bzl", "host_platform")
 load("//flutter/private:linux_runtime_pins.bzl", "LINUX_RUNTIME")
 load("//flutter/private:local_engine.bzl", "flutter_checkout_engine")
 load("//flutter/private:pub_extension.bzl", "DEFAULT_SDK_NAME")
@@ -267,7 +268,7 @@ def _declared_sdks(module_ctx):
         fail("A flutter.toolchain() is required: the default SDK, named \"{}\".".format(DEFAULT_SDK_NAME))
     return sdks
 
-def _register_sdk(sdk):
+def _register_sdk(sdk, host):
     """Declares the repositories of one SDK; returns the label prefix of its engine source."""
     name = sdk.name
     if sdk.checkout:
@@ -286,7 +287,7 @@ def _register_sdk(sdk):
         )
     if sdk.engine == None and sdk.framework == None:
         # The release, with the artifact repositories it is made of.
-        flutter_register_toolchains(name = name, flutter_version = sdk.version)
+        flutter_register_toolchains(name = name, flutter_version = sdk.version, host = host)
         return "@{}_stock_engine".format(name)
 
     # The Material fonts come with the framework: the ones its
@@ -305,6 +306,7 @@ def _register_sdk(sdk):
         flutter_register_toolchains(
             name = name,
             flutter_version = sdk.version,
+            host = host,
             framework_json = _framework_json(sdk),
             framework_json_file = _framework_json(sdk),
             material_fonts = fonts_label,
@@ -328,11 +330,15 @@ def _register_sdk(sdk):
 
 def _toolchain_extension(module_ctx):
     sdks = _declared_sdks(module_ctx)
+
+    # The web SDK repository holds the Dart SDK of the machine Bazel runs on,
+    # so the extension's repositories depend on its OS and CPU.
+    host = host_platform(module_ctx.os)
     engine_prefixes = {}
     outline_packages = {}
     for name in sorted(sdks.keys()):
         sdk = sdks[name]
-        engine_prefixes[name] = _register_sdk(sdk)
+        engine_prefixes[name] = _register_sdk(sdk, host)
 
         # The SDK's dev root, for `@rules_flutter//flutter/pub`. Declared
         # unconditionally because bzlmod repositories are lazy: a workspace
@@ -476,7 +482,7 @@ flutter = module_extension(
         "custom_sdk": flutter_custom_sdk,
         "checkout": flutter_checkout,
     },
-    os_dependent = False,
-    arch_dependent = False,
+    os_dependent = True,
+    arch_dependent = True,
     doc = "Installs the Flutter SDKs and their toolchains.",
 )

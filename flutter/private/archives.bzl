@@ -32,7 +32,7 @@ def archive(artifact, url, sha256, output = "", strip_prefix = "", type = ""):
         entry["type"] = type
     return entry
 
-def archive_repo(name, archives, files, nested_archives = {}, checks = []):
+def archive_repo(name, archives, files, nested_archives = {}, checks = [], deletions = {}):
     """Declares a repository of extracted archives and the files beside them.
 
     Args:
@@ -44,11 +44,14 @@ def archive_repo(name, archives, files, nested_archives = {}, checks = []):
         checks: Checks of what was extracted, each a dict with `path` and
             `message`, and with `content` (the file's stripped text, which
             `message` may name as `{actual}`) or without (the path must exist).
+        deletions: A path to delete after extracting, to the message to fail
+            with when it is not there.
     """
     flutter_archive_repo(
         name = name,
         archives = json.encode(archives),
         checks = json.encode(checks),
+        deletions = deletions,
         files = files,
         nested_archives = nested_archives,
     )
