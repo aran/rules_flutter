@@ -94,11 +94,15 @@ flutter_application(
 ```
 """
 
+_FRAMEWORK_NAME_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+
 def native_asset_framework_name(filename):
     """Derive the framework name for a bundled native-asset dylib on Apple.
 
     Mirrors flutter_tools' `frameworkUri` (native_assets_host.dart): strip a
-    trailing `.dylib`, drop a leading `lib`, and sanitize to `[A-Za-z0-9_-]`.
+    trailing `.dylib` and then a leading `lib`, and keep only
+    `[A-Za-z0-9._-]`, the characters a bundle identifier may hold. A file that
+    is not a `.dylib` keeps its `lib`: `libfoo.so` is `libfoo.so`.
     iOS embeds each `dynamic_loading_bundle` dylib as `<name>.framework/<name>`.
     The manifest path and the framework-assembly rule both call this so they
     agree on the name.
@@ -114,11 +118,7 @@ def native_asset_framework_name(filename):
         name = name[:-len(".dylib")]
         if name.startswith("lib"):
             name = name[len("lib"):]
-    sanitized = ""
-    for c in name.elems():
-        if c.isalnum() or c == "_" or c == "-":
-            sanitized += c
-    return sanitized
+    return "".join([c for c in name.elems() if c in _FRAMEWORK_NAME_CHARACTERS])
 
 def _path_list_for(asset, layout):
     """Return the manifest path-list shape for `asset`.

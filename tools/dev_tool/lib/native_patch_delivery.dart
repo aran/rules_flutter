@@ -111,7 +111,7 @@ String iosFrameworkName(String libraryFileName) {
     name = name.substring(0, name.length - '.dylib'.length);
     if (name.startsWith('lib')) name = name.substring('lib'.length);
   }
-  return name.replaceAll(RegExp('[^A-Za-z0-9_-]'), '');
+  return name.replaceAll(RegExp('[^A-Za-z0-9._-]'), '');
 }
 
 String _iosLoadPath(String libraryFileName) {

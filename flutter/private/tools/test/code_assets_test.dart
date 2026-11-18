@@ -132,11 +132,26 @@ void main() {
     });
 
     test('derives framework names as flutter_tools does', () {
+      // flutter_tools 3.50's cases for `frameworkUri`.
+      expect(frameworkName('libfoo.dylib'), 'foo');
+      expect(frameworkName('foo'), 'foo');
+      expect(frameworkName('foo_foo'), 'foo_foo');
+      expect(frameworkName('foo-foo'), 'foo-foo');
+      expect(frameworkName(r'foo$foo'), 'foofoo');
+      expect(frameworkName('foo.foo'), 'foo.foo');
+      expect(frameworkName('foo.1.2.3'), 'foo.1.2.3');
+      expect(
+        frameworkName('libatoolongfilenameforaframework.dylib'),
+        'atoolongfilenameforaframework',
+      );
+
       expect(frameworkName('objective_c.dylib'), 'objective_c');
-      expect(frameworkName('libsqlite3.dylib'), 'sqlite3');
-      expect(frameworkName('my-lib_2.dylib'), 'my-lib_2');
-      expect(frameworkName('foo.bar.dylib'), 'foobar');
+      expect(frameworkName('foo.bar.dylib'), 'foo.bar');
+      expect(frameworkName('libfoo.bar.dylib'), 'foo.bar');
       expect(frameworkName('libfoo'), 'libfoo');
+      expect(frameworkName('libfoo.so'), 'libfoo.so');
+      expect(frameworkName('my-lib_2.dylib'), 'my-lib_2');
+      expect(frameworkName('foo bar+\u00e9.dylib'), 'foobar');
     });
   });
 
@@ -295,7 +310,7 @@ void main() {
               as Map<String, Object?>;
       expect(section['package:pick/add'], [
         'absolute',
-        '@rpath/libaddso.framework/libaddso',
+        '@rpath/libadd.so.framework/libadd.so',
       ]);
     });
 
@@ -374,7 +389,7 @@ void main() {
       base: File(params).parent.path,
     );
     expect(program.droppedFileNames, {'libmul.so'});
-    expect(iosDroppedFrameworks(program), 'libmulso.framework\n');
+    expect(iosDroppedFrameworks(program), 'libmul.so.framework\n');
   });
 
   test('an app with its own post-processor fails only when one is dropped', () {
@@ -391,7 +406,7 @@ void main() {
         isA<StateError>().having(
           (e) => e.message,
           'message',
-          allOf(contains('//app:post'), contains('libmulso.framework')),
+          allOf(contains('//app:post'), contains('libmul.so.framework')),
         ),
       ),
     );

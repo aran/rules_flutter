@@ -33,7 +33,8 @@ void main() {
   test('an iOS framework is named the way the bundler names it', () {
     expect(iosFrameworkName('libmul.dylib'), 'mul');
     expect(iosFrameworkName('objective_c.dylib'), 'objective_c');
-    expect(iosFrameworkName('foo.bar.dylib'), 'foobar');
+    expect(iosFrameworkName('foo.bar.dylib'), 'foo.bar');
+    expect(iosFrameworkName('libfoo.so'), 'libfoo.so');
     expect(iosFrameworkName('libfoo'), 'libfoo');
   });
 

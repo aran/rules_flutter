@@ -254,7 +254,7 @@ final class ProgramCodeAssets {
 
 /// The framework name of a bundled library on iOS, as flutter_tools'
 /// `frameworkUri` derives it: a trailing `.dylib` and then a leading `lib`
-/// dropped, and only `[A-Za-z0-9_-]` kept. `native_asset_framework_name` in
+/// dropped, and only `[A-Za-z0-9._-]` kept. `native_asset_framework_name` in
 /// `flutter_native_assets.bzl` is the same function, for the frameworks
 /// analysis wraps.
 String frameworkName(String fileName) {
@@ -263,7 +263,7 @@ String frameworkName(String fileName) {
     name = name.substring(0, name.length - '.dylib'.length);
     if (name.startsWith('lib')) name = name.substring('lib'.length);
   }
-  return name.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+  return name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
 }
 
 /// The path of the library [fileName] in [os]'s code-asset directory
