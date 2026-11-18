@@ -68,10 +68,17 @@ load("//flutter/private:common.bzl", "android_elf_machine_for_abi")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "run_code_assets_tool")
 load("//flutter/private:mobile_engine_check.bzl", "check_android_engine")
-load("//flutter/private:native_libraries.bzl", "native_library_files")
+load("//flutter/private:native_libraries.bzl", "native_library_files", "plugin_native_libraries")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
 
 visibility("//flutter/...")
+
+FlutterAndroidBundleLibsInfo = provider(
+    doc = "Which of a `flutter_android_bundle`'s native libraries are its plugins'.",
+    fields = {
+        "plugin_libraries": "list[str]: The names, in the `native_libs` zip, of the `native_deps` libraries of the plugins with an Android library (`FlutterApplicationInfo.android_libs`). An APK packages them with the app's; a module AAR leaves them to the AAR of each plugin (`flutter_android_plugin_aars`), as `flutter build aar` does.",
+    },
+)
 
 # The ABIs of devices that can have 16 KB pages: Android's 64-bit ones. Every
 # native library packaged for them is checked to be aligned for that.
@@ -404,6 +411,10 @@ def _flutter_android_bundle_impl(ctx):
         # `CcInfo` is what makes this a dependency `android_binary` accepts.
         AndroidNativeLibsInfo(native_libs = depset([packaged])),
         CcInfo(),
+        FlutterAndroidBundleLibsInfo(plugin_libraries = sorted({
+            record.library.basename: None
+            for record in plugin_native_libraries(app_info)
+        }.keys())),
         OutputGroupInfo(
             native_libs = depset([packaged]),
             flutter_assets = depset([flutter_assets]),

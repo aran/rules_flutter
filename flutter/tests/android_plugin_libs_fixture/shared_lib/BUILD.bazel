@@ -1,0 +1,12 @@
+"""A prebuilt shared library in a Bazel package of its own, which plugin `plugin_linked` links."""
+
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+# Only analysis reads it, so its bytes do not matter.
+write_file(
+    name = "libshared",
+    out = "libshared.so",
+    content = [""],
+)

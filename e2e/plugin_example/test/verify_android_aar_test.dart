@@ -78,9 +78,13 @@ const _pluginDependencies = {
   ],
 };
 
-/// The native libraries of each plugin whose Android library links any from
-/// its own package: none of these does.
-const _pluginNativeLibraries = <String, List<String>>{};
+/// The native libraries of each plugin that has any: package:jni's
+/// `native_deps`, which its Java side loads with
+/// `System.loadLibrary("dartjni")`. `flutter build aar` puts them in the
+/// plugin's AAR.
+const _pluginNativeLibraries = {
+  'jni': ['libdartjni.so'],
+};
 
 /// The plugins written in Kotlin, whose POMs name the standard library.
 const _kotlin = {
@@ -282,10 +286,16 @@ void _verifyRepo(
   final jniAbis = {
     for (final e in entries.where((e) => e.startsWith('jni/'))) e.split('/')[1],
   };
+  // A debug module is kernel, and its plugins' libraries are in their own
+  // AARs, so it has no native library of its own.
+  final wantedAbis = mode == 'debug' ? <String>[] : abis;
   check.expect(
-    '$label: the module AAR has native libraries for ${abis.join(', ')} '
-    'and no other ABI',
-    condition: jniAbis.length == abis.length && jniAbis.containsAll(abis),
+    wantedAbis.isEmpty
+        ? '$label: the module AAR has no native library'
+        : '$label: the module AAR has native libraries for '
+              '${abis.join(', ')} and no other ABI',
+    condition:
+        jniAbis.length == wantedAbis.length && jniAbis.containsAll(wantedAbis),
     detail: 'jni/ has $jniAbis',
   );
   for (final abi in abis) {
@@ -293,6 +303,16 @@ void _verifyRepo(
       '$label: the module AAR ${mode == 'debug' ? 'has no' : 'has'} jni/$abi/libapp.so',
       condition: entries.contains('jni/$abi/libapp.so') == (mode != 'debug'),
     );
+    // A plugin's native libraries are in the plugin's AAR, as `flutter build
+    // aar` puts them, and not in the module's.
+    for (final library in [
+      for (final p in plugins) ...?_pluginNativeLibraries[p],
+    ]) {
+      check.expect(
+        "$label: the module AAR has no jni/$abi/$library, a plugin's",
+        condition: !entries.contains('jni/$abi/$library'),
+      );
+    }
   }
   _checkStripped(check, '$label: the module AAR', aar, entries);
   final manifest = File('${aar.path}/AndroidManifest.xml').readAsStringSync();

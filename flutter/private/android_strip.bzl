@@ -66,11 +66,10 @@ def android_strip_tool(ctx):
         ctx: Rule context.
 
     Returns:
-        None, or a struct of `strip` (the tool: its File when it is one of the
-        toolchain's files, so that path mapping rewrites it with the rest, or
-        else the path the toolchain names, an absolute host path that names no
-        configuration), `files` (depset of the toolchain's files, the action's
-        inputs), `cc_toolchain` and `feature_configuration`.
+        None, or a struct of `strip` (the execution path the toolchain names
+        for the tool), `files` (depset of the toolchain's files, the action's
+        inputs), `execution_requirements` (for an action that runs it),
+        `cc_toolchain` and `feature_configuration`.
     """
     cc_info = ctx.exec_groups[STRIP].toolchains[CC_TOOLCHAIN_TYPE]
     if not cc_info:
@@ -86,11 +85,12 @@ def android_strip_tool(ctx):
         feature_configuration = feature_configuration,
         action_name = ACTION_NAMES.strip,
     )
-    files = cc_toolchain.all_files
-    strip_file = [f for f in files.to_list() if f.path == strip]
     return struct(
-        strip = strip_file[0] if strip_file else strip,
-        files = files,
+        strip = strip,
+        files = cc_toolchain.all_files,
+        # Path mapping rewrites the paths of Files, not strings: a tool the
+        # build makes, whose path names a configuration, must keep its own.
+        execution_requirements = {} if strip.startswith("bazel-out/") else PATH_MAPPING,
         cc_toolchain = cc_toolchain,
         feature_configuration = feature_configuration,
     )
@@ -151,7 +151,7 @@ def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output 
         outputs = outputs + ([output] if output else []),
         mnemonic = mnemonic,
         exec_group = STRIP,
-        execution_requirements = PATH_MAPPING,
+        execution_requirements = tool.execution_requirements if tool else PATH_MAPPING,
         progress_message = progress_message,
     )
 
@@ -193,6 +193,6 @@ def strip_native_library(ctx, input, output, mnemonic, progress_message):
         outputs = [output],
         mnemonic = mnemonic,
         exec_group = STRIP,
-        execution_requirements = PATH_MAPPING,
+        execution_requirements = tool.execution_requirements,
         progress_message = progress_message,
     )

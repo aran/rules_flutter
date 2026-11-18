@@ -6,6 +6,7 @@ have an Android library and `app_uses_<n>` depends on plugin `<n>` alone.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidPluginNativeLibsInfo")
 
 _FIXTURE = "//flutter/tests/android_plugin_libs_fixture:"
 
@@ -158,6 +159,31 @@ _java_in_app_configuration_test = analysistest.make(
     config_settings = _platform("@rules_android//:arm64-v8a"),
 )
 
+def _plugin_native_libs(env):
+    """What `FlutterAndroidPluginNativeLibsInfo.libraries` gives, as {library name: [basenames]}."""
+    info = analysistest.target_under_test(env)[FlutterAndroidPluginNativeLibsInfo]
+    return {label.name: sorted([f.basename for f in files]) for label, files in info.libraries.items()}
+
+def _keeps_libraries_of_other_packages_impl(ctx):
+    """A plugin's AAR carries what its library links from another Bazel package, but not what it links through another plugin's.
+
+    `plugin_linked`'s library links `libshared.so` of another package, and
+    `plugin_dep`'s depends on `plugin_linked`'s: the library goes in
+    `plugin_linked`'s AAR alone, as Gradle builds it into that module.
+    """
+    env = analysistest.begin(ctx)
+    asserts.equals(
+        env,
+        {"lib_dep": [], "lib_linked": ["libshared.so"]},
+        _plugin_native_libs(env),
+    )
+    return analysistest.end(env)
+
+_keeps_libraries_of_other_packages_test = analysistest.make(
+    _keeps_libraries_of_other_packages_impl,
+    config_settings = _platform("@rules_android//:arm64-v8a"),
+)
+
 def android_plugin_libs_test_suite(name):
     """Declares the tests.
 
@@ -204,9 +230,14 @@ def android_plugin_libs_test_suite(name):
         name = name + "_java_in_app_configuration",
         target_under_test = _FIXTURE + "libs_of_native",
     )
+    _keeps_libraries_of_other_packages_test(
+        name = name + "_keeps_libraries_of_other_packages",
+        target_under_test = _FIXTURE + "native_libs_of_linked_and_dep",
+    )
     native.test_suite(
         name = name,
         tests = [
+            name + "_keeps_libraries_of_other_packages",
             name + "_java_in_app_configuration",
             name + "_checks_native_libs_arm64",
             name + "_checks_native_libs_armv7",

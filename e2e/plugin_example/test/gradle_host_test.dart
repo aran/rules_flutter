@@ -68,7 +68,9 @@ const _moduleGroupPath = 'com/example/plugin_example/module';
 /// Checks the AARs of each of the module's repositories the host builds
 /// against: the Android Gradle plugin strips the host's APK whatever they
 /// hold, so only they show what `flutter_android_aar` packaged. Every native
-/// library is stripped, as a Gradle build of the module strips them.
+/// library is stripped, as a Gradle build of the module strips them, and
+/// package:jni's `libdartjni.so` is in the jni plugin's AAR, for every ABI,
+/// and not in the module's, as `flutter build aar` lays them out.
 void _verifyModuleRepositories(BundleCheck check, GradleHost host) {
   var repositories = 0;
   for (final uri in host.repositories) {
@@ -102,6 +104,22 @@ void _verifyModuleRepositories(BundleCheck check, GradleHost host) {
             '$name has $library stripped',
             condition: problem == null,
             detail: problem,
+          );
+        }
+        final dartjni = {
+          for (final abi in _abis) 'jni/$abi/libdartjni.so',
+        };
+        if (RegExp('^jni_(debug|profile|release)-').hasMatch(name)) {
+          check.expect(
+            "$name, package:jni's AAR, has libdartjni.so for every ABI",
+            condition: libraries.keys.toSet().containsAll(dartjni),
+            detail: 'it has ${libraries.keys.toList()..sort()}',
+          );
+        } else if (RegExp('^flutter_(debug|profile|release)-').hasMatch(name)) {
+          check.expect(
+            "$name, the module's AAR, leaves libdartjni.so to package:jni's",
+            condition: !libraries.keys.any(dartjni.contains),
+            detail: 'it has ${libraries.keys.toList()..sort()}',
           );
         }
       } finally {

@@ -9,7 +9,7 @@ prebuilt native libraries, as an AAR's do.
 
 load("//flutter:android.bzl", "flutter_android_plugin_libs")
 load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application")
-load("//flutter/private:flutter_android_plugin_libs.bzl", "flutter_android_maven_report", "flutter_android_maven_requirements")
+load("//flutter/private:flutter_android_plugin_libs.bzl", "flutter_android_maven_report", "flutter_android_maven_requirements", "flutter_android_plugin_native_libs")
 
 package(default_visibility = ["//flutter/tests:__subpackages__"])
 
@@ -68,6 +68,25 @@ flutter_android_plugin_libs(
     name = "libs_of_native",
     tags = ["manual"],
     deps = [":app_uses_native"],
+)
+
+# `plugin_dep`'s Android library depends on `plugin_linked`'s, which links a
+# shared library of another Bazel package: the library is `plugin_linked`'s.
+flutter_application(
+    name = "app_uses_linked_and_dep",
+    main = "main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = [
+        "//flutter/tests/android_plugin_libs_fixture/dep:plugin_dep",
+        "//flutter/tests/android_plugin_libs_fixture/linked:plugin_linked",
+    ],
+)
+
+flutter_android_plugin_native_libs(
+    name = "native_libs_of_linked_and_dep",
+    application = ":app_uses_linked_and_dep",
+    tags = ["manual"],
 )
 
 flutter_android_plugin_libs(

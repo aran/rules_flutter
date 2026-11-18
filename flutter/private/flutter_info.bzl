@@ -195,8 +195,8 @@ def flutter_info(
       pub_shaders: Shader contribution structs from a `flutter.shaders` block.
       additional_licenses: `struct(package_name, files)` pairs this target
         contributes, the files of its `flutter: licenses:`.
-      android_libs: `struct(package, group, lib)` triples this target contributes,
-        one per plugin Android library it selects (`lib` is the
+      android_libs: `struct(package, group, lib)` records this target
+        contributes, one per plugin Android library it selects (`lib` is the
         `JavaInfo`-bearing Target; `group` the Maven group of the plugin's
         Android `flutter_plugin_platform`, or "").
       app_dependencies: The packages, by name, this target depends on

@@ -159,10 +159,17 @@ def plugin_contributions(ctx, package_name, package_root, declares_plugin):
     extra_apple_privacy_manifests = list(ctx.files.apple_privacy_files)
 
     # The plugin's Android library, when this build selected one. Only an
-    # Android build does, so nothing else loads the library's package.
+    # Android build does, so nothing else loads the library's package. Its
+    # `native_deps` libraries, the records of its package, go with it: an AAR
+    # of the plugin carries them, as Gradle's of the plugin carries what its
+    # own build links.
     android_group = platforms["android"].group if "android" in platforms else ""
     extra_android_libs = [
-        struct(package = package_name, group = android_group, lib = lib)
+        struct(
+            package = package_name,
+            group = android_group,
+            lib = lib,
+        )
         for lib in ctx.attr.exports
     ]
 

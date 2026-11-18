@@ -1,0 +1,32 @@
+"""Plugin `plugin_dep`, whose Android library depends on `plugin_linked`'s, as Gradle's `api project(":plugin_linked")`."""
+
+load("@rules_java//java:java_library.bzl", "java_library")
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin")
+load("//flutter/tests/android_plugin_libs_fixture/linked:cc_like.bzl", "cc_like")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+java_library(
+    name = "lib_dep_java",
+    srcs = ["Dep.java"],
+    deps = ["//flutter/tests/android_plugin_libs_fixture/linked:lib_linked_java"],
+)
+
+cc_like(
+    name = "lib_dep",
+    lib = ":lib_dep_java",
+    deps = ["//flutter/tests/android_plugin_libs_fixture/linked:lib_linked"],
+)
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "plugin_dep",
+)
+
+flutter_plugin(
+    name = "plugin_dep",
+    srcs = ["lib/plugin_dep.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    exports = [":lib_dep"],
+)

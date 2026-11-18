@@ -1,0 +1,31 @@
+"""Plugin `plugin_linked`, whose Android library links a shared library of another Bazel package."""
+
+load("@rules_java//java:java_library.bzl", "java_library")
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin")
+load(":cc_like.bzl", "cc_like")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+java_library(
+    name = "lib_linked_java",
+    srcs = ["Linked.java"],
+)
+
+cc_like(
+    name = "lib_linked",
+    lib = ":lib_linked_java",
+    shared = ["//flutter/tests/android_plugin_libs_fixture/shared_lib:libshared.so"],
+)
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "plugin_linked",
+)
+
+flutter_plugin(
+    name = "plugin_linked",
+    srcs = ["lib/plugin_linked.dart"],
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    exports = [":lib_linked"],
+)

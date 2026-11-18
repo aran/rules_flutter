@@ -15,6 +15,7 @@
 ///       [--tree <prefix in the archive> <directory>]...
 ///       [--flutter-assets <abi> <directory>]...
 ///       [--jni <abi> <library>]... [--jni-zip <abi> <zip>]...
+///       [--jni-exclude <abi> <name>]...
 ///
 /// `classes.jar` holds the entries of every `--classes` jar; two jars with
 /// one class are an error. `--flutter-assets` names the `flutter_assets` of
@@ -27,7 +28,9 @@
 /// aar` writes it. Each `--jni` library goes to `jni/<abi>/<its name>`,
 /// and each `lib/<abi>/<name>` entry of a `--jni-zip` (a
 /// `flutter_android_bundle`'s native libraries, as an APK has them) to
-/// `jni/<abi>/<name>`.
+/// `jni/<abi>/<name>`, but those a `--jni-exclude` of the ABI names: a
+/// plugin's, which the plugin's own AAR carries. Excluding a name no
+/// `--jni-zip` of the ABI holds is an error.
 library;
 
 import 'dart:convert';
@@ -57,6 +60,7 @@ class AarSpec {
   final flutterAssets = <(String, String)>[];
   final jni = <(String, String)>[];
   final jniZips = <(String, String)>[];
+  final jniExcludes = <(String, String)>[];
 }
 
 /// Expands a leading `@<file>` into the file's lines.
@@ -101,6 +105,8 @@ AarSpec parseArgs(List<String> args) {
         spec.jni.add((next(++i), next(++i)));
       case '--jni-zip':
         spec.jniZips.add((next(++i), next(++i)));
+      case '--jni-exclude':
+        spec.jniExcludes.add((next(++i), next(++i)));
       default:
         throw AarException('unknown argument: $flag');
     }
@@ -285,6 +291,10 @@ List<ZipEntry> aarEntries(AarSpec spec) {
   for (final (abi, library) in spec.jni) {
     add('jni/$abi/${library.split('/').last}', File(library).readAsBytesSync());
   }
+  final excluded = {
+    for (final (abi, name) in spec.jniExcludes) 'jni/$abi/$name',
+  };
+  final zipped = <String>{};
   for (final (abi, zip) in spec.jniZips) {
     for (final entry in readZip(File(zip).readAsBytesSync())) {
       final prefix = 'lib/$abi/';
@@ -293,8 +303,16 @@ List<ZipEntry> aarEntries(AarSpec spec) {
           '$zip holds ${entry.name}, which is not a library of $abi',
         );
       }
-      add('jni/$abi/${entry.name.substring(prefix.length)}', entry.bytes);
+      final name = 'jni/$abi/${entry.name.substring(prefix.length)}';
+      zipped.add(name);
+      if (!excluded.contains(name)) add(name, entry.bytes);
     }
+  }
+  final unmatched = excluded.difference(zipped).toList()..sort();
+  if (unmatched.isNotEmpty) {
+    throw AarException(
+      'no --jni-zip holds ${unmatched.join(', ')}, which --jni-exclude names',
+    );
   }
   final names = rest.keys.toList()..sort();
   return out..addAll([for (final n in names) ZipEntry(n, rest[n]!)]);

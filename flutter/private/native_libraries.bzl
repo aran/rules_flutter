@@ -9,7 +9,8 @@ parallel lists back up by File:
 - `package`: the Dart package whose `native_deps` brought it: a plugin's, or
   the application's own. An application leaves out the libraries of a
   federated plugin's implementations it did not choose, as flutter_tools
-  builds no native code of them.
+  builds no native code of them, and an Android plugin's AAR carries its
+  package's.
 - `sources`: the first-party sources it is built from, which a hot reload
   stats to notice that the library went stale (`native_library_aspect.bzl`).
 - `contract`: the files its bindings were generated from, which the dev tool
@@ -139,3 +140,20 @@ def native_library_files(app_info):
         A list of Files.
     """
     return [record.library for record in app_info.native_libraries]
+
+def plugin_native_libraries(app_info):
+    """The records of an application's `native_libraries` that a plugin's Android library carries.
+
+    Those of each package with an Android library in
+    `FlutterApplicationInfo.android_libs`: an AAR of the plugin carries its
+    `native_deps` libraries, as Gradle's of the plugin carries what its own
+    build links.
+
+    Args:
+        app_info: The application's `FlutterApplicationInfo`.
+
+    Returns:
+        A list of records, in the order of `native_libraries`.
+    """
+    packages = {entry.package: True for entry in app_info.android_libs.to_list()}
+    return [record for record in app_info.native_libraries if record.package in packages]

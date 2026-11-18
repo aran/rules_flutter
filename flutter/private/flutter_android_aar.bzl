@@ -14,7 +14,8 @@ release):
 
 * `flutter_android_module_aar`: the module's AAR (`flutter_<mode>`): the
   generated plugin registrant's classes, `flutter_assets`, and
-  `jni/<abi>/libapp.so` and the app's other native libraries for every ABI.
+  `jni/<abi>/libapp.so` and the app's other native libraries for every ABI,
+  but its plugins'.
 * `flutter_android_plugin_aars`: an AAR for each plugin with Android code the
   application depends on (`<plugin>_<mode>`): the plugin's own classes,
   resources, manifest, consumer R8 rules and native libraries.
@@ -28,6 +29,7 @@ load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "ANDROID_EMBEDDING_MAVEN_DEPS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+load("//flutter/private:flutter_android_application.bzl", "FlutterAndroidBundleLibsInfo")
 load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "FlutterAndroidPluginNativeLibsInfo", "flutter_android_plugin_native_libs")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
@@ -346,10 +348,16 @@ def _flutter_android_module_aar_impl(ctx):
         args.add_all([assets], expand_directories = False)
         inputs.append(assets)
     for abi in ctx.attr.abis:
-        libs = _single(ctx.split_attr.bundle[abi], "native_libs", ctx.label)
+        bundle = ctx.split_attr.bundle[abi]
+        libs = _single(bundle, "native_libs", ctx.label)
         args.add("--jni-zip", abi)
         args.add(libs)
         inputs.append(libs)
+
+        # A plugin's `native_deps` libraries are in its own AAR.
+        for name in bundle[FlutterAndroidBundleLibsInfo].plugin_libraries:
+            args.add("--jni-exclude", abi)
+            args.add(name)
 
     artifact = "flutter_" + mode
     aar = ctx.actions.declare_file("%s/%s.aar" % (ctx.label.name, artifact))
@@ -389,8 +397,11 @@ It holds `classes.jar` (the classes `library` compiles: the generated
 `io.flutter.plugins.GeneratedPluginRegistrant`), an `AndroidManifest.xml`
 whose package is `package_name`, `assets/flutter_assets/` and, for each ABI of
 `abis`, `jni/<abi>/` with the app's `libapp.so` (profile and release) and its
-other native libraries, stripped as a Gradle build strips them. A debug module's `flutter_assets` hold the kernel and
-VM snapshots instead of `libapp.so`. The mode is the configuration's.
+other native libraries, stripped as a Gradle build strips them. A plugin's
+`native_deps` libraries are not among them: the AAR of a plugin with Android
+code carries its own (`flutter_android_plugin_aars`). A debug module's
+`flutter_assets` hold the kernel and VM snapshots instead of `libapp.so`. The
+mode is the configuration's.
 
 The engine is not in it: `FlutterAndroidAarInfo` names the engine's Maven
 artifacts for `flutter_android_maven_repo` to list in the POM, as Gradle does.
@@ -401,7 +412,7 @@ embedding's classes and each ABI's `libflutter.so`, from the engine's
 `flutter.jar`.""",
     attrs = {
         "bundle": attr.label(
-            doc = "The `flutter_android_bundle` of the module's `flutter_application`, built for each ABI of `abis`: its native libraries are the AAR's `jni/<abi>/`. Its `flutter_assets` are the same for every ABI, and the AAR's are those of the arm64 build, in which Java is compiled too.",
+            doc = "The `flutter_android_bundle` of the module's `flutter_application`, built for each ABI of `abis`: its native libraries are the AAR's `jni/<abi>/`, but its plugins' `native_deps`. Its `flutter_assets` are the same for every ABI, and the AAR's are those of the arm64 build, in which Java is compiled too.",
             cfg = _abi_split,
             mandatory = True,
         ),
@@ -629,8 +640,8 @@ def flutter_android_plugin_aars(
     module: the classes the plugin's library compiles itself (with its
     generated `BuildConfig`, not its dependencies'), its resources, `R.txt`,
     manifest, consumer R8 rules (`proguard_specs`), and under `jni/<abi>/`
-    the shared libraries of its own package, stripped as a Gradle build strips
-    them. Each is published under the `group`
+    the shared libraries of its own package and those of its `native_deps`,
+    stripped as a Gradle build strips them. Each is published under the `group`
     of the plugin's Android `flutter_plugin_platform` (a pub plugin's is the
     group its `android/build.gradle` sets), and its POM lists the Maven
     artifacts a pub plugin's Gradle build declares (and the Kotlin standard

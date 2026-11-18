@@ -36,6 +36,7 @@ load("//flutter/private:android_plugin_maven.bzl", "maven_app_report", "maven_ch
 load("//flutter/private:android_strip.bzl", "STRIP_ATTRS", "STRIP_EXEC_GROUPS", "android_strip_tool", "run_strip_native_libs", "strip_native_library")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_application.bzl", "ANDROID_NATIVE_LIBS_ATTRS", "android_abi", "validate_android_native_libs")
+load("//flutter/private:native_libraries.bzl", "plugin_native_libraries")
 
 visibility("//flutter/...")
 
@@ -323,29 +324,44 @@ flutter_android_plugin_libs = rule(
 FlutterAndroidPluginNativeLibsInfo = provider(
     doc = "The native libraries of each plugin of an application, stripped, built for one Android ABI.",
     fields = {
-        "libraries": "dict[Label, list[File]]: For the label of each plugin's Android library (`FlutterApplicationInfo.android_libs`), the native libraries that are the plugin's own: the shared libraries its library links from its own Bazel package. Empty outside an Android configuration.",
+        "libraries": "dict[Label, list[File]]: For the label of each plugin's Android library (`FlutterApplicationInfo.android_libs`), the native libraries that are the plugin's own: the shared libraries its library links, but for those it links through another plugin's Android library, and those of its `native_deps`. Empty outside an Android configuration.",
     },
 )
-
-def _same_package(a, b):
-    return a.repo_name == b.repo_name and a.package == b.package
 
 def _flutter_android_plugin_native_libs_impl(ctx):
     abi = android_abi(ctx)
     if not abi:
         return [FlutterAndroidPluginNativeLibsInfo(libraries = {})]
+    app_info = ctx.attr.application[FlutterApplicationInfo]
+    by_package = {}
+    for record in plugin_native_libraries(app_info):
+        by_package.setdefault(record.package, []).append(record.library)
+    entries = {entry.lib.label: entry for entry in app_info.android_libs.to_list()}.values()
+
+    def shared(lib):
+        return android_shared_libraries(lib[AndroidCcLinkParamsInfo]) if AndroidCcLinkParamsInfo in lib else []
+
+    def class_jars(lib):
+        return [o.class_jar for o in lib[JavaInfo].java_outputs if o.class_jar] if JavaInfo in lib else []
+
+    # A shared library one plugin's Android library links through another
+    # plugin's, one it depends on (Gradle's `api project(":other")`), is that
+    # plugin's, and goes in its AAR. Every other is the plugin's own, from
+    # whichever Bazel package it is built in.
+    shared_by_lib = {entry.lib.label: shared(entry.lib) for entry in entries}
     libraries = {}
-    for entry in ctx.attr.application[FlutterApplicationInfo].android_libs.to_list():
+    for entry in entries:
         lib = entry.lib
-        if lib.label in libraries:
-            continue
-        own = [
-            f
-            for f in (android_shared_libraries(lib[AndroidCcLinkParamsInfo]) if AndroidCcLinkParamsInfo in lib else [])
-            if _same_package(f.owner, lib.label)
-        ]
+        runtime = {j: None for j in lib[JavaInfo].transitive_runtime_jars.to_list()} if JavaInfo in lib else {}
+        through = {
+            f: None
+            for other in entries
+            if other.lib.label != lib.label and [j for j in class_jars(other.lib) if j in runtime]
+            for f in shared_by_lib[other.lib.label]
+        }
+        own = [f for f in shared_by_lib[lib.label] if f not in through]
         stripped = []
-        for f in own:
+        for f in {f: None for f in own + by_package.get(entry.package, [])}.keys():
             out = ctx.actions.declare_file("%s/%s/%s" % (ctx.label.name, entry.package, f.basename))
             strip_native_library(
                 ctx,

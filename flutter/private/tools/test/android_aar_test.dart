@@ -134,6 +134,48 @@ void main() {
       ]);
     });
 
+    test('leaves the libraries a plugin\'s AAR carries out of jni/', () {
+      final libs = jar('libs.zip', {
+        'lib/arm64-v8a/libapp.so': 'app',
+        'lib/arm64-v8a/libdartjni.so': 'jni',
+      });
+      final spec = parseArgs([
+        '--output', '${tmp.path}/out.aar', //
+        '--manifest', file('AndroidManifest.xml', '<manifest/>'),
+        '--jni-zip', 'arm64-v8a', libs,
+        '--jni-exclude', 'arm64-v8a', 'libdartjni.so',
+      ]);
+      expect(
+        aarEntries(spec).map((e) => e.name).where((n) => n.startsWith('jni/')),
+        ['jni/arm64-v8a/libapp.so'],
+      );
+    });
+
+    test('fails to leave out a library no zip of the ABI holds', () {
+      final spec = parseArgs([
+        '--output', '${tmp.path}/out.aar', //
+        '--manifest', file('AndroidManifest.xml', '<manifest/>'),
+        '--jni-zip',
+        'arm64-v8a',
+        jar('libs.zip', {'lib/arm64-v8a/libapp.so': 'app'}),
+        '--jni-zip',
+        'x86_64',
+        jar('x86.zip', {'lib/x86_64/libdartjni.so': 'jni'}),
+        '--jni-exclude', 'arm64-v8a', 'libdartjni.so',
+      ]);
+      expect(
+        () => aarEntries(spec),
+        throwsA(
+          isA<AarException>().having(
+            (e) => e.message,
+            'message',
+            'no --jni-zip holds jni/arm64-v8a/libdartjni.so, which '
+                '--jni-exclude names',
+          ),
+        ),
+      );
+    });
+
     test('fails when the ABIs\' flutter_assets differ', () {
       file('arm/flutter_assets/NOTICES.Z', 'one');
       file('x86/flutter_assets/NOTICES.Z', 'two');
