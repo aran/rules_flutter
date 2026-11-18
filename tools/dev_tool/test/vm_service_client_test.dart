@@ -11,6 +11,34 @@ import 'package:test/test.dart';
 import 'fakes.dart';
 
 void main() {
+  group('vmReloadRefusal', () {
+    test('carries the reason the VM gave', () {
+      expect(
+        vmReloadRefusal({
+          'type': 'ReloadReport',
+          'success': false,
+          'notices': [
+            {
+              'type': 'ReasonForCancelling',
+              'message': 'Const class cannot remove fields: Library:x Class: A',
+            },
+          ],
+        }),
+        'the VM rejected the new kernel: Const class cannot remove fields: '
+        'Library:x Class: A. A hot restart runs it (R, or app.restart with '
+        'fullRestart: true)',
+      );
+    });
+
+    test('says only that when the VM gave no reason', () {
+      expect(
+        vmReloadRefusal({'type': 'ReloadReport', 'success': false}),
+        'the VM rejected the new kernel. A hot restart runs it (R, or '
+        'app.restart with fullRestart: true)',
+      );
+    });
+  });
+
   group('VmServiceClient', () {
     // Every hot reload puts its kernel in the VM's devFS and reloads from
     // there, so a test of one needs a devFS to upload into and a kernel that

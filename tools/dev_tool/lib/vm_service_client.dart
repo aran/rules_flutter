@@ -1378,7 +1378,7 @@ class VmServiceClient {
             _mainIsolateId!,
             rootLibUri: devFSUri.toString(),
           );
-          return result.success! ? null : 'the VM rejected the new kernel';
+          return result.success! ? null : vmReloadRefusal(result.json);
         },
         codeAfterDelivery: RunningCode.updated,
         // Everything above puts the code in the VM; this makes the app show
@@ -2483,4 +2483,20 @@ class VmServiceClient {
   /// — and the calls that must answer for a missing one do it from their own
   /// guards, which carry the reason ([_noConnectionMessage]).
   bool get isConnected => _service != null;
+}
+
+/// What a refused `reloadSources` says, from its `ReloadReport` [json].
+///
+/// The VM names why it would not take the kernel in the report's notices (a
+/// const class that lost a field, an enum that became a class, a type
+/// parameter added), and that reason is what tells the user the edit is one a
+/// reload cannot carry. A restart builds a new isolate and takes every one of
+/// them, so the refusal says so.
+String vmReloadRefusal(Map<String, dynamic>? json) {
+  final reasons = [
+    for (final notice in (json?['notices'] as List?) ?? const [])
+      if (notice is Map && notice['message'] is String) notice['message'],
+  ];
+  return '${reasons.isEmpty ? 'the VM rejected the new kernel' : 'the VM rejected the new kernel: ${reasons.join('; ')}'}'
+      '. A hot restart runs it (R, or app.restart with fullRestart: true)';
 }
