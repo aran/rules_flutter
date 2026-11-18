@@ -248,6 +248,15 @@ def flutter_macos_runner_lib_gen(name, registrant, engine, application = None, m
     that library built in the app's configuration, with its plugins
     (`flutter_apple_app_runner`).
 
+    The app's configuration differs from the macos_application's only when the
+    lock has a plugin whose Package.swift reads the app and `info_plist` or
+    `swift_package_environment` is set. Then what else in the macos_application
+    names `application` (the App.framework, the native frameworks, the
+    version) builds it in the macos_application's own configuration, and the
+    application is analysed and built twice, once there and once under
+    `name`. The tier-1 app macro builds the whole bundle in the app's
+    configuration, and so builds its application once.
+
     Args:
         name: Target name. Add to macos_application deps.
         registrant: A flutter_macos_registrant_gen target (Swift source).
@@ -778,7 +787,14 @@ def flutter_macos_app(
         resources = resources,
         additional_contents = flutter_contents,
         entitlements = entitlements,
-        deps = ["__%s_app_runner" % name],
+        # The version check sits under the bundle, as its application does,
+        # so it reads the application in the configuration the bundle builds
+        # it in; at the target in front, it would analyse and build the
+        # application again in the top-level one.
+        deps = [
+            "__%s_app_runner" % name,
+            "__%s_version_check" % name,
+        ],
         tags = tags,
         testonly = testonly,
         **kwargs
@@ -789,7 +805,10 @@ def flutter_macos_app(
     flutter_apple_app(
         name = name,
         app = "__%s_app" % name,
-        validations = ["__%s_version_check" % name],
+        # In the configuration of the app's plugins, as its runner is
+        # (`flutter_apple_app`).
+        info_plist = str(native.package_relative_label(info_plist or "__%s_info_plist" % name)),
+        swift_package_environment = swift_package_environment,
         tags = tags,
         target_compatible_with = target_compatible_with + select({
             "@platforms//os:macos": [],

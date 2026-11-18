@@ -38,6 +38,7 @@ load(
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load("@rules_flutter//flutter/tests:purls.bzl", "package_metadata_files")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "one_application_configuration_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load(":android_apk.bzl", "android_apk")
@@ -1008,6 +1009,13 @@ flutter_macos_app(
     swift_package_environment = {"BYPASS_PERMISSION_LOCATION_ALWAYS": "1"},
     tags = ["manual"],
     target_compatible_with = ["@platforms//os:macos"],
+)
+
+# Property: the app reaches its application in the bundle's configuration
+# alone, though its plugin's Package.swift reads the app.
+one_application_configuration_test(
+    name = "location_macos_one_application_configuration_test",
+    target = ":location_macos",
 )
 
 dart_test(

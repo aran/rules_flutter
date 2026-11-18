@@ -1174,6 +1174,8 @@ The stand-in folder leaves out the rest of your app's tree, so a manifest that r
 
 Each such plugin is compiled once per distinct pair of Info.plist and environment. Two apps with the same plist target and the same environment share one compile, and a third with a different one gets its own. The app's runner and its other plugins are compiled with it, since a Swift compile cannot import one module built two ways, so in a workspace whose lock has such a plugin, apps with different pairs don't share their plugins' compiles. Without one, every app shares them. Each distinct compile also gets its own copy of the C and Swift tools it is compiled with, built once and then cached. A workspace with several apps can avoid those copies with `--incompatible_exclude_starlark_flags_from_exec_config` in its `.bazelrc`. Bazel 9.3 accepts the flag, though `bazel help` doesn't list it yet.
 
+`flutter_ios_app` and `flutter_macos_app` build the whole app with its plugins, so the Flutter application is built once. With the composable rules, only the runner from `flutter_ios_runner_lib_gen` or `flutter_macos_runner_lib_gen` is. If you set its `info_plist` or `swift_package_environment`, the rest of your `ios_application` or `macos_application` that reads `application` (the App.framework, the native frameworks, the version) builds the application a second time.
+
 ### Packages with build hooks
 
 Some pub packages compile native code through a Dart `hook/build.dart` (Dart Native Assets). Bazel doesn't run those hooks. Each one needs one of these instead:

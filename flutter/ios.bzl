@@ -322,6 +322,15 @@ def flutter_ios_runner_lib_gen(name, registrant, engine, application = None, mod
     that library built in the app's configuration, with its plugins
     (`flutter_apple_app_runner`).
 
+    The app's configuration differs from the ios_application's only when the
+    lock has a plugin whose Package.swift reads the app and `info_plist` or
+    `swift_package_environment` is set. Then what else in the ios_application
+    names `application` (the App.framework, the native frameworks, the
+    version) builds it in the ios_application's own configuration, and the
+    application is analysed and built twice, once there and once under
+    `name`. The tier-1 app macro builds the whole bundle in the app's
+    configuration, and so builds its application once.
+
     Args:
         name: Target name. Add to ios_application deps.
         registrant: A flutter_ios_registrant_gen target (Swift source).
@@ -900,6 +909,10 @@ def flutter_ios_app(
             "__%s_app_bundle" % name,
             "__%s_native_frameworks" % name,
             "__%s_signing_check" % name,
+            # Under the bundle, as its application is, so that it reads the
+            # application in the bundle's configuration; at the target in
+            # front, it would analyse and build it again in the top-level one.
+            "__%s_version_check" % name,
         ],
         tags = tags,
         testonly = testonly,
@@ -912,7 +925,10 @@ def flutter_ios_app(
     flutter_apple_app(
         name = name,
         app = "__%s_app" % name,
-        validations = ["__%s_version_check" % name],
+        # In the configuration of the app's plugins, as its runner is
+        # (`flutter_apple_app`).
+        info_plist = str(native.package_relative_label(actual_info_plist)),
+        swift_package_environment = swift_package_environment,
         tags = tags,
         target_compatible_with = target_compatible_with + select({
             "@platforms//os:ios": [],

@@ -6,6 +6,7 @@ target platform the iOS rules must still cope with.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_dart//dart:providers.bzl", "DartAnalyzableInfo")
+load("//flutter:providers.bzl", "FlutterApplicationInfo")
 
 def _analyses_impl(ctx):
     env = analysistest.begin(ctx)
@@ -67,6 +68,54 @@ _fastbuild_test = _analyses_under("fastbuild", False)
 _fastbuild_profile_test = _analyses_under("fastbuild", True)
 _opt_test = _analyses_under("opt", False)
 _opt_profile_test = _analyses_under("opt", True)
+
+# Each `flutter_application` below a target, with the output directory of the
+# configuration it is analysed in.
+_ApplicationConfigurationsInfo = provider(
+    doc = "The `flutter_application`s below a target, each as `<label> in <bin dir>`.",
+    fields = {"applications": "depset of strings"},
+)
+
+def _application_configurations_aspect_impl(target, ctx):
+    direct = []
+    if FlutterApplicationInfo in target:
+        direct.append("%s in %s" % (target.label, ctx.bin_dir.path))
+    transitive = []
+    for attr_name in dir(ctx.rule.attr):
+        attr = getattr(ctx.rule.attr, attr_name)
+        for dep in attr if type(attr) == "list" else [attr]:
+            if type(dep) == "Target" and _ApplicationConfigurationsInfo in dep:
+                transitive.append(dep[_ApplicationConfigurationsInfo].applications)
+    return [_ApplicationConfigurationsInfo(applications = depset(direct, transitive = transitive))]
+
+_application_configurations_aspect = aspect(
+    implementation = _application_configurations_aspect_impl,
+    attr_aspects = ["*"],
+)
+
+def _one_application_configuration_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    applications = target[_ApplicationConfigurationsInfo].applications.to_list()
+
+    # Counted by configuration: what forwards the application (iOS's
+    # intermediates) is another label in the same one.
+    configurations = {a.rpartition(" in ")[2]: None for a in applications}
+    asserts.equals(
+        env,
+        1,
+        len(configurations),
+        ("%s should reach its flutter_application in the one configuration " +
+         "its bundle is built in; a second configuration analyses and builds " +
+         "the application and its native code again: %s") % (target.label, applications),
+    )
+    return analysistest.end(env)
+
+_one_application_configuration_dbg_test = analysistest.make(
+    _one_application_configuration_impl,
+    config_settings = {"//command_line_option:compilation_mode": "dbg"},
+    extra_target_under_test_aspects = [_application_configurations_aspect],
+)
 
 _COMMAND_LINES = {
     "dbg": _dbg_test,
@@ -152,3 +201,17 @@ def skipped_test(name, target, on_linux = False):
     """
     rule = _skipped_linux_test if on_linux else _skipped_dbg_test
     rule(name = name, target_under_test = target)
+
+def one_application_configuration_test(name, target):
+    """A test that `target`, an app, reaches its `flutter_application` in one configuration, in `-c dbg`.
+
+    Every edge from the app to the application, the bundle's and its checks',
+    must arrive in the configuration the bundle is built in. An edge that
+    arrives in another one analyses the application again there, and a build
+    of the app (the dev tool's included) compiles its native code twice.
+
+    Args:
+        name: The test's name.
+        target: The app.
+    """
+    _one_application_configuration_dbg_test(name = name, target_under_test = target)

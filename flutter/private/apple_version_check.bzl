@@ -9,8 +9,11 @@ The values of a rules_apple `apple_bundle_version` may come from
 `--embed_label`, known only when it runs, so both are checked then.
 
 This rule runs `check_apple_version_keys.dart` over the plist and the version
-file as a validation action: the app's `_validation` output group carries it,
-so building the app fails with the key, the values and what to set instead.
+file as a validation action, so building the app fails with the key, the
+values and what to set instead. The macros put it in the bundle's `deps`, where
+the application it reads is in the configuration the bundle builds it in: a
+check outside the bundle's transition would analyse and build the application,
+native code and all, a second time.
 """
 
 load("@rules_apple//apple:providers.bzl", "AppleBundleVersionInfo")

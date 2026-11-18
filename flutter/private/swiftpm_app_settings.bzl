@@ -36,8 +36,11 @@ environment share one build of each such plugin; another app gets its own.
 The app's runner is built in that configuration too (`flutter_apple_app_runner`),
 and with it every plugin the app links: a Swift compile that imports the
 engine's module, or under explicit Clang modules an SDK module, from two
-configurations fails. In a build with no such plugin the transition changes
-nothing, and apps share their plugins' builds.
+configurations fails. The app macros build the whole bundle there
+(`flutter_apple_app`), so that the bundle and the runner reach the app's
+`flutter_application` in one configuration; the runner's own transition is
+then the configuration it is already in. In a build with no such plugin the
+transition changes nothing, and apps share their plugins' builds.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
@@ -150,7 +153,8 @@ and a compile that sees one module from two configurations fails ("signature
 mismatch"). So the runner, and with it the aggregator and every plugin the
 app links, is built there too, and the app's `deps` name this target in its
 place. The aggregator's own transition, with the same settings, is then the
-configuration it is already in.
+configuration it is already in, and so is this one's under an app macro,
+which builds the whole bundle there (`flutter_apple_app`).
 """,
 )
 

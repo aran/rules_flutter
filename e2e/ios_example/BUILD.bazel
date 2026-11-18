@@ -17,7 +17,7 @@ load(
     "flutter_ios_simulator_build",
     "flutter_ios_simulator_build_test",
 )
-load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "program_test", "skipped_test")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "one_application_configuration_test", "program_test", "skipped_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load("@rules_swift//swift:swift.bzl", "swift_library")
@@ -377,6 +377,20 @@ flutter_ios_app(
     bundle_id = "com.rulesflutter.ios.example.swiftpm",
     runner_deps = [":native_firebase"],
     tags = ["manual"],
+)
+
+# Property: an app reaches its application in the bundle's configuration
+# alone, so a build of it, and the dev tool's, compiles it once. This lock has
+# plugins whose Package.swift reads the app, so every app here is built in a
+# configuration of its own (`swiftpm_app_transition`), the whole of it.
+one_application_configuration_test(
+    name = "app_one_application_configuration_test",
+    target = ":app",
+)
+
+one_application_configuration_test(
+    name = "swiftpm_plugins_app_one_application_configuration_test",
+    target = ":swiftpm_plugins_app",
 )
 
 flutter_ios_simulator_build(
