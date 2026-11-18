@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:rules_flutter_e2e_testing/archive.dart';
 import 'package:rules_flutter_e2e_testing/bundle_check.dart';
+import 'package:rules_flutter_e2e_testing/elf.dart';
 import 'package:rules_flutter_e2e_testing/runfiles_paths.dart';
 
 /// The Android package of both modules.
@@ -287,6 +288,20 @@ void _verifyRepo(
     check.expect(
       '$label: the module AAR ${mode == 'debug' ? 'has no' : 'has'} jni/$abi/libapp.so',
       condition: entries.contains('jni/$abi/libapp.so') == (mode != 'debug'),
+    );
+  }
+  // Every native library is stripped, as a Gradle build strips what it
+  // packages into an AAR, in every build type.
+  for (final library in entries.where(
+    (e) => e.startsWith('jni/') && e.endsWith('.so'),
+  )) {
+    final problem = ElfImage.fromFile(
+      File('${aar.path}/$library'),
+    ).unstrippedSections();
+    check.expect(
+      '$label: the module AAR has $library stripped',
+      condition: problem == null,
+      detail: problem,
     );
   }
   final manifest = File('${aar.path}/AndroidManifest.xml').readAsStringSync();

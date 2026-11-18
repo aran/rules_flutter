@@ -515,6 +515,7 @@ bzl_library(
     srcs = ["flutter_android_application.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":android_strip",
         ":assemble_directory",
         ":common",
         ":exec_groups",
@@ -601,18 +602,27 @@ bzl_library(
 )
 
 bzl_library(
+    name = "android_strip",
+    srcs = ["android_strip.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":exec_groups",
+        "@rules_cc//cc:action_names",
+        "@rules_cc//cc:find_cc_toolchain",
+        "@rules_cc//cc/common:cc_common",
+        "@rules_dart//dart:utils",
+    ],
+)
+
+bzl_library(
     name = "flutter_android_engine_jar",
     srcs = ["flutter_android_engine_jar.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":android_strip",
         ":common",
-        ":exec_groups",
         "@rules_android//providers:providers_bzl",
-        "@rules_cc//cc:action_names",
-        "@rules_cc//cc:find_cc_toolchain",
-        "@rules_cc//cc/common:cc_common",
         "@rules_cc//cc/common:cc_info",
-        "@rules_dart//dart:utils",
     ],
 )
 

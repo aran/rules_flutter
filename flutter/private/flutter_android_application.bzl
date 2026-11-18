@@ -41,7 +41,8 @@ The user wires these outputs into rules_android's android_binary:
 The bundle's native libraries are one zip of `lib/<abi>/<name>` entries,
 stored uncompressed: `libapp.so`, the `native_deps` libraries and the code
 assets that ship (in a release or profile build, those the packages' link
-hooks keep). `android_binary` builds its dependencies once for each platform
+hooks keep), each stripped as a Gradle build strips it. `android_binary`
+builds its dependencies once for each platform
 of `--@rules_android//flags:android_platforms` and merges each build's zip
 into the APK. The zip is also the `native_libs` output group.
 
@@ -61,6 +62,7 @@ load("@rules_android//rules:utils.bzl", android_utils = "utils")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "program_assets_action_args")
 load("//flutter:providers.bzl", "FlutterApplicationInfo", "FlutterSdkRecordInfo")
+load("//flutter/private:android_strip.bzl", "STRIP_ATTRS", "STRIP_EXEC_GROUPS", "run_strip_native_libs")
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:common.bzl", "android_elf_machine_for_abi")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
@@ -182,6 +184,11 @@ def _package_native_libs(ctx, tools, app_info, abi):
     program's assets file, and `android_binary` takes the zip as it takes an
     `aar_import`'s libraries (`AndroidNativeLibsInfo`), for this ABI.
 
+    Every library is stripped as a Gradle build strips the libraries it
+    packages (android_strip.bzl), in every build mode: an APK or AAR carries
+    no symbol table or debug info of them. The `.symbols` of `libapp.so` are
+    the application's `debug_info`.
+
     Every library is validated (`validate_android_native_libs`) before the APK
     is packaged: a library a device cannot load fails the build instead of
     producing an APK that crashes on device. Two libraries under one name fail
@@ -196,11 +203,11 @@ def _package_native_libs(ctx, tools, app_info, abi):
     Returns:
         A tuple of the zip and the validation stamp the build must produce.
     """
-    zip = ctx.actions.declare_file("%s_native_libs/libs.zip" % ctx.label.name)
+    unstripped = ctx.actions.declare_file("%s_native_libs/unstripped.zip" % ctx.label.name)
     code_assets = program_assets_action_args(ctx.actions, app_info.program_assets, data = False)
     args = ctx.actions.args()
     args.add("--abi", abi)
-    args.add("--output", zip)
+    args.add("--output", unstripped)
     if app_info.aot_output:
         args.add("--library-as", "libapp.so")
         args.add(app_info.aot_output)
@@ -213,9 +220,17 @@ def _package_native_libs(ctx, tools, app_info, abi):
             ([app_info.aot_output] if app_info.aot_output else []) + list(native_library_files(app_info)),
             transitive = [code_assets.inputs],
         ),
-        [zip],
+        [unstripped],
         mnemonic = "FlutterAndroidNativeLibs",
         progress_message = "Packaging the %s native libraries of %%{label}" % abi,
+    )
+    zip = ctx.actions.declare_file("%s_native_libs/libs.zip" % ctx.label.name)
+    run_strip_native_libs(
+        ctx,
+        input = unstripped,
+        libs = zip,
+        mnemonic = "FlutterStripNativeLibs",
+        progress_message = "Stripping the %s native libraries of %%{label}" % abi,
     )
     validated = validate_android_native_libs(
         ctx,
@@ -424,11 +439,11 @@ flutter_android_bundle = rule(
         "_allowlist_function_transition": attr.label(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
-    } | ANDROID_NATIVE_LIBS_ATTRS | ASSEMBLE_DIRECTORY_ATTRS | CODE_ASSETS_TOOL_ATTRS,
+    } | ANDROID_NATIVE_LIBS_ATTRS | ASSEMBLE_DIRECTORY_ATTRS | CODE_ASSETS_TOOL_ATTRS | STRIP_ATTRS,
     # Packaging copies and checks what the application built, the same bytes on
-    # any host.
-    exec_groups = PORTABLE_EXEC_GROUPS,
-    fragments = ["platform"],
+    # any host. Stripping takes the NDK's tool, in an exec group of its own.
+    exec_groups = PORTABLE_EXEC_GROUPS | STRIP_EXEC_GROUPS,
+    fragments = ["cpp", "platform"],
     doc = """Bundles Flutter compilation outputs for Android packaging.
 
 Put it in an `android_binary`'s `deps`: it provides the app's native libraries
@@ -446,8 +461,10 @@ The bundle is built for the Android platform `android_binary` builds it for,
 one for each of `--@rules_android//flags:android_platforms`, and takes its ABI from that platform;
 the application behind it is built for the same platform, so the AOT compile
 and all native deps target Android with no further flag. An APK for several
-ABIs therefore carries `libapp.so` of each. Native libraries are validated to
-be ELF for the platform's ABI at packaging time. With
+ABIs therefore carries `libapp.so` of each. Native libraries are stripped
+with the NDK's `llvm-strip --strip-unneeded`, as a Gradle build strips them in
+every build type, and validated to be ELF for the platform's ABI at packaging
+time. With
 `--@rules_dart//dart:split_debug_info`, it provides the `.symbols` of the
 snapshot it packages as `BundledProgramInfo`, which `flutter_android_aar`
 passes on, and in its `debug_info` output group those of every ABI it is

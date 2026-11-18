@@ -46,6 +46,14 @@ def _libraries_impl(ctx):
         asserts.equals(env, "code", argv[argv.index("--holds") + 1], "the libraries view, no data assets")
         asserts.equals(env, ctx.attr.abi, argv[argv.index("--abi") + 1])
 
+        # What the APK takes is the packaged zip with every library stripped,
+        # as a Gradle build strips what it packages.
+        strips = [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterStripNativeLibs"]
+        asserts.equals(env, 1, len(strips), "one strip of the libraries")
+        if strips:
+            asserts.equals(env, packaging[0].outputs.to_list(), [f for f in strips[0].inputs.to_list() if f in packaging[0].outputs.to_list()])
+            asserts.equals(env, packaged, strips[0].outputs.to_list())
+
     # Every library is checked against the ABI of the platform it was built
     # for: that ABI's name and ELF machine, not another's.
     validations = [

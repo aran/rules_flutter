@@ -536,7 +536,7 @@ rules_flutter's actions run where the tools they need are:
 
 - on a Mac: `gen_snapshot` for iOS and macOS, Xcode tools, and signing;
 - on any host with the Flutter SDK: kernel compiles, asset and shader bundling, and web compiles;
-- on the machine running Bazel: stripping the Android engine, which needs the NDK that machine has.
+- on the machine running Bazel: stripping the Android engine and the app's native libraries, which needs the NDK that machine has.
 
 An Android app needs Linux x86_64 workers. Google publishes the Android SDK's build tools, aapt2 among them, for Linux only on x86_64, so a Linux arm64 worker can't build one. It also needs a fix to rules_go: see [Fixes to other rulesets](#fixes-to-other-rulesets).
 
@@ -2031,9 +2031,9 @@ android.sdk(
     version = "35",
 )
 
-# ndkVersion. The NDK builds your C/C++ code for Android and strips the engine's
-# native libraries, as a Gradle build does. `api_level` is your app's
-# `min_sdk_version`.
+# ndkVersion. The NDK builds your C/C++ code for Android and strips the native
+# libraries an APK or AAR packages, as a Gradle build does. `api_level` is your
+# app's `min_sdk_version`.
 android.ndk(
     api_level = 24,
     version = "r28c",
@@ -3326,7 +3326,7 @@ flutter_application(
 | `require_sksl_shaders` | `False` | Fail the build when a shader can't be compiled for Skia. By default such a shader is compiled for Impeller alone, with a warning, as `flutter build` does. It then fails to load only where the app renders with Skia. Web builds always need Skia shaders. |
 | `tree_shake_icons` | `True` | In a release or profile build, keep only the icon glyphs the app uses. As with `flutter build`, this needs every `IconData` to be a constant and each icon font family the app draws from to be one font file, and the build fails otherwise. `MaterialIcons` and `CupertinoIcons` ship cut to one glyph when the app uses none of their icons. The build learns which icons the app uses from what the compiler records of `IconData`, so a [custom framework](#custom-engines-and-frameworks) must be Flutter 3.50 or later. Set it to `False` to ship the fonts whole. |
 | `track_widget_creation` | `True` | In a debug or profile build, record where each widget was created, for the DevTools inspector, as `flutter run` does. A release build never records it. |
-| `extra_gen_snapshot_options` | `[]` | Flags for `gen_snapshot`. `--no-strip` keeps the shipped binary's symbols, as in `flutter build`. It is read by the rules, not passed on. A flag that makes `gen_snapshot` write a file names it relative to the package: `--save-obfuscation-map=obfuscation.json` writes `<name>_gen_snapshot/obfuscation.json`, in the `gen_snapshot_files` output group. `--resolve-dwarf-paths` is refused. |
+| `extra_gen_snapshot_options` | `[]` | Flags for `gen_snapshot`. `--no-strip` keeps the shipped binary's symbols, as in `flutter build`, except on Android, where an APK or AAR strips `libapp.so` as the Android Gradle plugin does. It is read by the rules, not passed on. A flag that makes `gen_snapshot` write a file names it relative to the package: `--save-obfuscation-map=obfuscation.json` writes `<name>_gen_snapshot/obfuscation.json`, in the `gen_snapshot_files` output group. `--resolve-dwarf-paths` is refused. |
 | `additional_licenses` | `[]` | The files `flutter: licenses:` lists in `pubspec.yaml`. They are appended to the licence notices as they are. |
 | `minimum_os_version` | `""` | The Apple deployment target given to `gen_snapshot`. The iOS and macOS app rules set it, so you rarely do. |
 
@@ -4347,7 +4347,7 @@ An action whose output doesn't depend on the target platform, such as a kernel c
 |---|---|---|
 | `aot_output` | `File` or `None` | The AOT native code. `None` in debug mode. |
 | `aot_object` | `File` or `None` | On Apple platforms, the object file `gen_snapshot` wrote beside `aot_output`, which its dSYM is made from. |
-| `strip_aot` | `bool` | Whether the shipped AOT binary is stripped. `False` with `--no-strip`. |
+| `strip_aot` | `bool` | Whether `gen_snapshot` strips the AOT binary. `False` with `--no-strip`. An Android app or AAR strips `libapp.so` whatever it says, as the Android Gradle plugin does. |
 | `kernel_dill` | `File` or `None` | The kernel. `None` in a release or profile build. |
 | `is_debug` | `bool` | Whether this is a debug build. |
 | `flutter_assets` | `File` | The `flutter_assets/` tree. |

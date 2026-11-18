@@ -116,6 +116,18 @@ class ElfImage {
   /// section headers.
   List<String> sectionNames() => [for (final s in _sections()) s.name];
 
+  /// What a library stripped as a Gradle build strips it
+  /// (`llvm-strip --strip-unneeded`) would not have, or null if it has none
+  /// of it: a symbol table (`.symtab`) or debug info (`.debug_*`). Its
+  /// dynamic symbol table, which the loader reads, it keeps.
+  String? unstrippedSections() {
+    final kept = [
+      for (final name in sectionNames())
+        if (name == '.symtab' || name.startsWith('.debug_')) name,
+    ];
+    return kept.isEmpty ? null : 'it has ${kept.join(', ')}';
+  }
+
   /// The API level the file was built against, from its `.note.android.ident`
   /// section (what clang writes for a target such as
   /// `aarch64-linux-android24`), or null if the file has no such note.

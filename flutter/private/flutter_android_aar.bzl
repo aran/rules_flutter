@@ -389,7 +389,7 @@ It holds `classes.jar` (the classes `library` compiles: the generated
 `io.flutter.plugins.GeneratedPluginRegistrant`), an `AndroidManifest.xml`
 whose package is `package_name`, `assets/flutter_assets/` and, for each ABI of
 `abis`, `jni/<abi>/` with the app's `libapp.so` (profile and release) and its
-other native libraries. A debug module's `flutter_assets` hold the kernel and
+other native libraries, stripped as a Gradle build strips them. A debug module's `flutter_assets` hold the kernel and
 VM snapshots instead of `libapp.so`. The mode is the configuration's.
 
 The engine is not in it: `FlutterAndroidAarInfo` names the engine's Maven
