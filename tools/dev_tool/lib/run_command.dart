@@ -492,6 +492,7 @@ class RunCommand {
           accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
         );
         await sourceWatcher.start();
+        pipeline.watcher = sourceWatcher;
         // A dead watcher does not end the run — an explicit `app.hotReload`
         // still works — but it silently ends `--watch`, so it has to be said.
         // package:watcher closes itself permanently on a post-ready end or any
@@ -522,7 +523,10 @@ class RunCommand {
           fail: host.fail,
           builtBefore: builtBefore,
         );
-        await web.assemble(outputFiles);
+        await web.assemble(
+          outputFiles,
+          moduleGraphFlags: build.moduleGraphFlags,
+        );
       }
 
       // Step 3b: Launch on each device and create sessions.

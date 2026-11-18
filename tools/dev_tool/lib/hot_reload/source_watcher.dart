@@ -9,7 +9,9 @@
 /// `SourceWatcher` is stateless w.r.t. reload semantics — it doesn't
 /// track what's been compiled or applied. That's `AppliedVersions`'s job.
 import 'dart:async';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:watcher/watcher.dart';
 
 class SourceChange {
@@ -68,10 +70,16 @@ class SourceWatcher {
   /// in that window away.
   final StreamController<SourceChange> _changes =
       StreamController<SourceChange>();
-  StreamSubscription<WatchEvent>? _sub;
+
+  /// One subscription per watched directory: [root] first, then each one
+  /// [watchAlso] added.
+  final List<StreamSubscription<WatchEvent>> _subs = [];
+
+  /// Every directory watched, [root] included.
+  final List<String> _roots = [];
   Timer? _debounceTimer;
   final Set<String> _pending = {};
-  DirectoryWatcher? _watcher;
+  bool _stopped = false;
 
   /// Factory for the underlying `DirectoryWatcher`. Tests can inject a
   /// double here; production passes `DirectoryWatcher.new` indirectly.
@@ -106,26 +114,49 @@ class SourceWatcher {
   Future<WatcherFailure> get failed => _failed.future;
 
   /// Begin watching. Returns once the underlying watcher is ready.
-  Future<void> start() async {
-    _watcher = _newWatcher(root);
-    _sub = _watcher!.events.listen(
-      _onEvent,
-      onError: (Object e, StackTrace st) => _die(
-        WatcherFailure(
-          'the filesystem watcher on $root reported an error and has stopped '
-          'watching',
-          error: e,
-          stackTrace: st,
+  Future<void> start() => _watch(root);
+
+  /// Watch [dir] as well, a source directory outside [root]: a local
+  /// repository's package, which the run learns of only once it has built.
+  ///
+  /// Its edits arrive on [changes] like [root]'s. A directory under one already
+  /// watched is not watched twice, and one that does not exist holds nothing to
+  /// watch. Returns once the watcher on it is ready.
+  Future<void> watchAlso(String dir) async {
+    if (_stopped) return;
+    final norm = p.normalize(dir);
+    if (_roots.any((r) => r == norm || p.isWithin(r, norm))) return;
+    if (!await Directory(norm).exists()) return;
+    // Asked again: a [stop] during the check above has already cancelled every
+    // subscription it could see, and one started now would hold the process
+    // open with nothing left to cancel it.
+    if (_stopped) return;
+    await _watch(norm);
+  }
+
+  Future<void> _watch(String dir) async {
+    final watcher = _newWatcher(dir);
+    _roots.add(p.normalize(dir));
+    _subs.add(
+      watcher.events.listen(
+        (event) => _onEvent(event, dir),
+        onError: (Object e, StackTrace st) => _die(
+          WatcherFailure(
+            'the filesystem watcher on $dir reported an error and has stopped '
+            'watching',
+            error: e,
+            stackTrace: st,
+          ),
         ),
-      ),
-      onDone: () => _die(
-        WatcherFailure(
-          'the filesystem watcher on $root closed its event stream and has '
-          'stopped watching',
+        onDone: () => _die(
+          WatcherFailure(
+            'the filesystem watcher on $dir closed its event stream and has '
+            'stopped watching',
+          ),
         ),
       ),
     );
-    await _watcher!.ready;
+    await watcher.ready;
   }
 
   /// Record the death and make sure nothing half-seen escapes as an edit.
@@ -141,11 +172,12 @@ class SourceWatcher {
     if (!_failed.isCompleted) _failed.complete(failure);
   }
 
-  void _onEvent(WatchEvent event) {
+  void _onEvent(WatchEvent event, String watched) {
     // Order matters: `bazel-bin` holds copies of both sources and assets, and
     // a build writing into it must never look like a user edit — that is a
-    // reload loop, since the reload is what wrote them.
-    if (event.path.contains('bazel-')) return;
+    // reload loop, since the reload is what wrote them. Judged below the
+    // watched directory, whose own path may well say `bazel-`.
+    if (p.relative(event.path, from: watched).contains('bazel-')) return;
     if (!_accepts(event.path)) return;
     _pending.add(event.path);
     _debounceTimer?.cancel();
@@ -164,8 +196,10 @@ class SourceWatcher {
   Future<void> stop() async {
     _debounceTimer?.cancel();
     _debounceTimer = null;
-    await _sub?.cancel();
-    _sub = null;
+    _stopped = true;
+    final subs = [..._subs];
+    _subs.clear();
+    await Future.wait([for (final s in subs) s.cancel()]);
     // Not awaited. `close()` on a single-subscription controller completes only
     // once the stream is done being consumed, so on a run where nobody ever
     // subscribed it never completes at all — and that run is reachable, since

@@ -6,6 +6,7 @@ import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
 import 'package:flutter_bazel_dev_tool/launch_bundle_parts.dart';
 import 'package:flutter_bazel_dev_tool/web_bundle_facts.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'fakes.dart';
@@ -184,6 +185,43 @@ void main() {
         outputGroup: 'flutter_native_hot_patch',
       );
       expect(outputs.files, isEmpty);
+    });
+  });
+
+  // The shape Bazel 9 writes, with the options a `build:modprobe` config
+  // expanded into marked as such, and the original command line beside it.
+  group('moduleGraphFlagsFromBuildEvents', () {
+    const events = [
+      '{"id":{"structuredCommandLine":{"commandLineLabel":"original"}},"structuredCommandLine":{"commandLineLabel":"original","sections":[{"sectionLabel":"command options","optionList":{"option":[{"combinedForm":"--config=modprobe","optionName":"config","optionValue":"modprobe"}]}}]}}',
+      '{"id":{"structuredCommandLine":{"commandLineLabel":"canonical"}},"structuredCommandLine":{"commandLineLabel":"canonical","sections":['
+          '{"sectionLabel":"executable","chunkList":{"chunk":["bazel"]}},'
+          '{"sectionLabel":"command options","optionList":{"option":['
+          '{"combinedForm":"--override_module=rules_dart=/src/rules_dart","optionName":"override_module","optionValue":"rules_dart=/src/rules_dart","source":"/ws/.bazelrc.user"},'
+          '{"combinedForm":"--lockfile_mode=off","optionName":"lockfile_mode","optionValue":"off"},'
+          '{"combinedForm":"--default_override=2:build:modprobe=--registry=https://r.example","optionName":"default_override","optionValue":"2:build:modprobe=--registry=https://r.example"},'
+          '{"combinedForm":"--config=modprobe","optionName":"config","optionValue":"modprobe"},'
+          '{"combinedForm":"--registry=https://r.example","optionName":"registry","optionValue":"https://r.example","source":"expanded from --config=modprobe"},'
+          '{"combinedForm":"--noignore_dev_dependency","optionName":"ignore_dev_dependency","optionValue":"0"},'
+          '{"combinedForm":"--copt=-O0","optionName":"copt","optionValue":"-O0"},'
+          '{"combinedForm":"--@@rules_dart+//dart:extra_dart_defines=[A=1]"}'
+          ']}},'
+          '{"sectionLabel":"residual","chunkList":{"chunk":["//:app"]}}]}}',
+    ];
+
+    test('keeps the options that decide the module graph, as expanded', () {
+      expect(moduleGraphFlagsFromBuildEvents(events.join('\n')), [
+        '--override_module=rules_dart=/src/rules_dart',
+        '--lockfile_mode=off',
+        '--registry=https://r.example',
+        '--noignore_dev_dependency',
+      ]);
+    });
+
+    test('refuses a stream with no canonical command line', () {
+      expect(
+        () => moduleGraphFlagsFromBuildEvents(events.first),
+        throwsA(isA<DevToolException>()),
+      );
     });
   });
 
@@ -444,6 +482,68 @@ void main() {
       expect(finished.exitCode, 0);
       expect(finished.stdout, '/out/base\n');
       expect(finished.stderr, 'a warning\n');
+    });
+
+    // An override the build's flags make, rather than MODULE.bazel, has to
+    // reach `bazel mod` too, or the module reads as fetched and a reload never
+    // sees its edits. They go as the build expanded them: never a `--config`,
+    // which `bazel mod` refuses when the config has only `build` lines.
+    test(
+      'localRepositories asks with the build\'s module graph flags',
+      () async {
+        final fake = fakeBazel();
+
+        final local = fake.bazel.localRepositories(
+          ['kit+'],
+          workspace: '/ws',
+          moduleGraphFlags: [
+            '--override_module=kit=/src/kit',
+            '--registry=https://registry.example',
+          ],
+        );
+        await pumpEventQueue();
+        final process = fake.processes.single;
+        await process.outputAttached;
+        process.emitStdout(
+          '{"canonicalName":"kit+","repoRuleName":"local_repository",'
+          '"attribute":[{"name":"path","stringValue":"/src/kit"}]}',
+        );
+        process.complete(0);
+
+        expect(await local, {'kit+': p.normalize('/src/kit')});
+        expect(fake.spawned.single.args, [
+          'mod',
+          'show_repo',
+          '@@kit+',
+          '--output=streamed_jsonproto',
+          '--override_module=kit=/src/kit',
+          '--registry=https://registry.example',
+        ]);
+      },
+    );
+
+    test('localRepositories fails with Bazel\'s own words', () async {
+      final fake = fakeBazel();
+
+      final local = fake.bazel.localRepositories(
+        ['kit+'],
+        workspace: '/ws',
+        moduleGraphFlags: const [],
+      );
+      final failed = expectLater(
+        local,
+        throwsA(
+          isA<BazelInvocationFailure>()
+              .having((e) => e.command, 'command', 'mod show_repo')
+              .having((e) => e.diagnostics, 'diagnostics', contains('ERROR')),
+        ),
+      );
+      await pumpEventQueue();
+      final process = fake.processes.single;
+      await process.outputAttached;
+      process.emitStderr('ERROR: no such repo\n');
+      process.complete(2);
+      await failed;
     });
 
     test(
@@ -895,14 +995,18 @@ void main() {
             .split('=')
             .last;
         File(eventFile).writeAsStringSync(
-          _remoteHotPatchBuildEvents
-              .map((e) => e.replaceAll('flutter_native_hot_patch_aspect', 'a'))
-              .join('\n'),
+          [
+            ..._remoteHotPatchBuildEvents.map(
+              (e) => e.replaceAll('flutter_native_hot_patch_aspect', 'a'),
+            ),
+            '{"structuredCommandLine":{"commandLineLabel":"canonical","sections":[{"sectionLabel":"command options","optionList":{"option":[{"combinedForm":"--override_module=kit=/src/kit","optionName":"override_module"}]}}]}}',
+          ].join('\n'),
         );
         process.complete(0);
 
         final outputs = await build;
         expect(outputs.success, isTrue);
+        expect(outputs.moduleGraphFlags, ['--override_module=kit=/src/kit']);
         expect(
           outputs.files,
           contains(

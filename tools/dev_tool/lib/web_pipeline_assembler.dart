@@ -32,6 +32,7 @@ import 'frontend_server.dart';
 import 'hot_reload/asset_bundle.dart';
 import 'hot_reload/source_uri_resolver.dart';
 import 'hot_reload/workspace.dart';
+import 'local_packages.dart';
 import 'logging.dart';
 import 'native_libs_watch.dart';
 import 'outcome_renderer.dart';
@@ -115,7 +116,13 @@ class WebPipelineAssembler {
 
   /// Assemble, or — with `--allow-no-vm-service` — record why there is no dev
   /// loop and let the run serve the last build statically.
-  Future<void> assemble(List<String> outputFiles) async {
+  ///
+  /// [moduleGraphFlags] are the options that decided the module graph of the
+  /// build [outputFiles] came from (see `Bazel.localRepositories`).
+  Future<void> assemble(
+    List<String> outputFiles, {
+    required List<String> moduleGraphFlags,
+  }) async {
     try {
       // Find dev config in build outputs (emitted by flutter_web_bundle in -c dbg).
       final devConfigPath = findDevConfig(outputFiles);
@@ -402,11 +409,24 @@ class WebPipelineAssembler {
       // compile did pick up being re-sent once. `builtBefore` is not the cutoff
       // for any of this; it governs the asset tree below, which really is
       // bazel-built.
+      // The main repository's packages, and those of local repositories: an
+      // edit in either is one the user made (see `local_packages.dart`).
+      final localPackages = await localSourcePackages(
+        devConfig.devPackageConfig,
+        localRepositories: (repos) => host.bazel.localRepositories(
+          repos,
+          workspace: plan.workspace,
+          moduleGraphFlags: moduleGraphFlags,
+        ),
+      );
       final res = pipeline.resolver = SourceUriResolver(
         workspaceRoot: plan.workspace,
-        sourcePackages: devConfig.sourcePackages,
+        sourcePackages: [...devConfig.sourcePackages, ...localPackages],
         appSources: devConfig.appSources,
       );
+      await pipeline.watchOutsideWorkspace([
+        for (final pkg in localPackages) p.join(pkg.packageRoot, 'lib'),
+      ]);
       final ws = pipeline.workspaceView = Workspace(
         resolver: res,
         generatedFiles: devConfig.generatedFileUris,

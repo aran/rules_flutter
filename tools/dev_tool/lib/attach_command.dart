@@ -201,6 +201,7 @@ class AttachCommand {
           accepts: (path) => isDartSource(path) || pipeline.watchesAsset(path),
         );
         await sourceWatcher.start();
+        pipeline.watcher = sourceWatcher;
         // A dead watcher does not end the run — an explicit `app.hotReload`
         // still works — but it silently ends `--watch`, so it has to be said.
         // package:watcher closes itself permanently on a post-ready end or any

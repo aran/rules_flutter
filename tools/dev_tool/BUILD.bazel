@@ -407,6 +407,7 @@ _UNIT_TESTS = {
         "loopbacks": True,
         "deps": _PATH_DEP,
     },
+    "local_packages_test": {"deps": _PATH_DEP},
     "package_roots_test": {},
     "process_group_exec_test": {"data": [":process_group_exec"]},
     "shutdown_signals_test": {},

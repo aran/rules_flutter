@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/hot_reload/source_uri_resolver.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/source_watcher.dart';
@@ -9,6 +10,79 @@ import 'fakes.dart';
 
 void main() {
   group('SourceWatcher', () {
+    // A local repository's package lives outside the workspace, and is learnt
+    // of only once the run has built: its edits must arrive all the same.
+    test(
+      'watchAlso delivers edits from a directory outside the root',
+      () async {
+        final outside = Directory.systemTemp.createTempSync('watch_also_');
+        addTearDown(() => outside.deleteSync(recursive: true));
+        final fakes = <String, FakeDirectoryWatcher>{};
+        final watcher = SourceWatcher(
+          root: '/root',
+          watcherFactory: (dir) => fakes[dir] = FakeDirectoryWatcher(dir),
+        );
+        await watcher.start();
+        await watcher.watchAlso(outside.path);
+        // Under a directory already watched, and absent: neither is watched.
+        await watcher.watchAlso('/root/lib');
+        await watcher.watchAlso('/does/not/exist');
+        expect(fakes.keys, ['/root', outside.path]);
+
+        // Both in one debounce window, so the one change that flushes says
+        // whether the second was let through. The outside directory's own path
+        // may say `bazel-`; only what is below it is judged.
+        final change = watcher.changes.first;
+        fakes[outside.path]!.emit(
+          WatchEvent(ChangeType.MODIFY, '${outside.path}/bazel-bin/x.dart'),
+        );
+        fakes[outside.path]!.emit(
+          WatchEvent(ChangeType.MODIFY, '${outside.path}/src/label.dart'),
+        );
+        expect((await change).paths, {'${outside.path}/src/label.dart'});
+
+        await watcher.stop();
+        for (final f in fakes.values) {
+          await f.closeStream();
+        }
+      },
+    );
+
+    // `watchAlso` runs after the build, and the run can end while it looks
+    // for the directory. A watcher started then is one nothing cancels, and it
+    // keeps the process alive.
+    test('watchAlso starts no watcher once stop() has run', () async {
+      final outside = Directory.systemTemp.createTempSync('watch_also_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final fakes = <String, FakeDirectoryWatcher>{};
+      final watcher = SourceWatcher(
+        root: '/root',
+        watcherFactory: (dir) => fakes[dir] = FakeDirectoryWatcher(dir),
+      );
+      await watcher.start();
+
+      final also = watcher.watchAlso(outside.path);
+      await watcher.stop();
+      await also;
+
+      expect(fakes.keys, ['/root']);
+      await fakes['/root']!.closeStream();
+    });
+
+    test('a root whose own path says bazel- still delivers edits', () async {
+      final fake = FakeDirectoryWatcher('/work/bazel-thing');
+      final watcher = SourceWatcher(
+        root: '/work/bazel-thing',
+        watcherFactory: (_) => fake,
+      );
+      await watcher.start();
+      final change = watcher.changes.first;
+      fake.emit(WatchEvent(ChangeType.MODIFY, '/work/bazel-thing/lib/a.dart'));
+      expect((await change).paths, {'/work/bazel-thing/lib/a.dart'});
+      await watcher.stop();
+      await fake.closeStream();
+    });
+
     test(
       'debounces multiple file changes within the debounce window into one event',
       () async {

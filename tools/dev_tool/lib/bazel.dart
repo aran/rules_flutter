@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'dev_tool_exception.dart';
 import 'launch_bundle_parts.dart';
+import 'local_packages.dart';
 import 'logging.dart';
 import 'phase_log.dart';
 import 'process_group.dart';
@@ -73,11 +74,17 @@ class BazelBuildResult {
   /// [Bazel.build]'s `parts`), by group name; empty when it was asked for none.
   final Map<String, List<String>> partsFiles;
 
+  /// The options that decided the build's module graph (see
+  /// [moduleGraphFlagsFromBuildEvents]), when [Bazel.build] was asked to
+  /// record them; empty otherwise.
+  final List<String> moduleGraphFlags;
+
   BazelBuildResult({
     required this.exitCode,
     required this.outputFiles,
     required this.stderr,
     this.partsFiles = const {},
+    this.moduleGraphFlags = const [],
   });
 
   bool get success => exitCode == 0;
@@ -93,11 +100,6 @@ class BazelBuildResult {
   }
 }
 
-/// A [SubprocessOutput] that also keeps the last few lines it emitted.
-///
-/// Bounded, and deliberately small: the whole stream already reaches the user
-/// (text mode) and a machine client (`subprocess_output` records) line by line
-/// as it arrives. This exists only so a failure record can name its own cause.
 /// What [Bazel.buildAspectOutputs] built.
 class BazelAspectOutputs {
   final int exitCode;
@@ -116,12 +118,17 @@ class BazelAspectOutputs {
   /// The tail of the build's output when it failed.
   final String stderr;
 
+  /// The options that decided this build's module graph (see
+  /// [moduleGraphFlagsFromBuildEvents]). Empty when the build failed.
+  final List<String> moduleGraphFlags;
+
   const BazelAspectOutputs({
     required this.exitCode,
     required this.files,
     required this.executionRoot,
     required this.stderr,
     this.filesByGroup = const {},
+    this.moduleGraphFlags = const [],
   });
 
   bool get success => exitCode == 0;
@@ -236,6 +243,65 @@ BazelAspectOutputs aspectOutputsFromBuildEvents(
   );
 }
 
+/// The options that change which repository a module or repository name
+/// resolves to, and that `bazel mod` takes.
+const _moduleGraphOptions = {
+  'allow_yanked_versions',
+  'enable_bzlmod',
+  'ignore_dev_dependency',
+  'inject_repository',
+  'lockfile_mode',
+  'override_module',
+  'override_repository',
+  'registry',
+  'repo_env',
+  'vendor_dir',
+};
+
+/// Of the options a build ran with, those that decided its module graph, in
+/// order, from its JSON event stream (`--build_event_json_file`).
+///
+/// Read from the `canonical` command line, which is the build's options after
+/// Bazel expanded every `--config` and read every rc file: an override a
+/// `build:<name>` line turns on is there as the `--override_module` it is.
+/// Passed to `bazel mod` as they are, they make it resolve the graph that
+/// build resolved, which no `--config` can, since `bazel mod` reads only a
+/// config's `common` and `mod` lines and refuses one that has neither.
+///
+/// Throws [DevToolException] when the stream has no canonical command line.
+List<String> moduleGraphFlagsFromBuildEvents(String events) {
+  for (final line in LineSplitter.split(events)) {
+    if (line.trim().isEmpty) continue;
+    final event = jsonDecode(line) as Map<String, Object?>;
+    final commandLine = event['structuredCommandLine'] as Map<String, Object?>?;
+    if (commandLine == null || commandLine['commandLineLabel'] != 'canonical') {
+      continue;
+    }
+    return [
+      for (final section in (commandLine['sections'] as List? ?? const []))
+        if ((section as Map<String, Object?>)['sectionLabel'] ==
+            'command options')
+          for (final option
+              in ((section['optionList'] as Map<String, Object?>?)?['option']
+                      as List? ??
+                  const []))
+            if (_moduleGraphOptions.contains(
+              (option as Map<String, Object?>)['optionName'],
+            ))
+              option['combinedForm'] as String,
+    ];
+  }
+  throw DevToolException(
+    'The build event stream has no canonical command line, so the options '
+    'that decided the build\'s module graph are unknown.',
+  );
+}
+
+/// A [SubprocessOutput] that also keeps the last few lines it emitted.
+///
+/// Bounded, and deliberately small: the whole stream already reaches the user
+/// (text mode) and a machine client (`subprocess_output` records) line by line
+/// as it arrives. This exists only so a failure record can name its own cause.
 class _TailedOutput extends SubprocessOutput {
   static const _maxLines = 40;
 
@@ -578,6 +644,9 @@ class Bazel {
   /// transition, that is the transitioned instance as well, listed first and
   /// on disk, and its files are ones this build never rewrites.
   ///
+  /// [recordModuleGraph] reads [BazelBuildResult.moduleGraphFlags] off the
+  /// build's event stream.
+  ///
   /// Throws [BazelCancelled] if [close] stopped it.
   Future<BazelBuildResult> build(
     String target, {
@@ -585,10 +654,11 @@ class Bazel {
     String? compilationMode,
     List<String> extraArgs = const [],
     LaunchBundleParts? parts,
+    bool recordModuleGraph = false,
   }) async {
     // The parts are an aspect's outputs, which no cquery lists, so they are
-    // read from the build's own event stream.
-    final events = parts == null
+    // read from the build's own event stream, as the options are.
+    final events = parts == null && !recordModuleGraph
         ? null
         : await Directory.systemTemp.createTemp('flutter_bep_');
     try {
@@ -598,6 +668,7 @@ class Bazel {
         compilationMode: compilationMode,
         extraArgs: extraArgs,
         parts: parts,
+        recordModuleGraph: recordModuleGraph,
         eventFile: events == null ? null : '${events.path}/events.json',
       );
     } finally {
@@ -611,6 +682,7 @@ class Bazel {
     required String? compilationMode,
     required List<String> extraArgs,
     required LaunchBundleParts? parts,
+    required bool recordModuleGraph,
     required String? eventFile,
   }) async {
     final args = [
@@ -667,18 +739,24 @@ class Bazel {
       workspace,
     );
 
+    final stream = eventFile == null
+        ? null
+        : await File(eventFile).readAsString();
     return BazelBuildResult(
       exitCode: built.exitCode,
       outputFiles: outputFiles,
       stderr: cqueryResult.stderr as String,
-      partsFiles: parts == null || eventFile == null
+      partsFiles: parts == null || stream == null
           ? const {}
           : aspectOutputsFromBuildEvents(
-              await File(eventFile).readAsString(),
+              stream,
               aspect: parts.aspect,
               outputGroup: parts.assetsGroup,
               otherGroups: [parts.nativeLibsGroup],
             ).filesByGroup,
+      moduleGraphFlags: recordModuleGraph
+          ? moduleGraphFlagsFromBuildEvents(stream!)
+          : const [],
     );
   }
 
@@ -745,11 +823,20 @@ class Bazel {
           stderr: built.tail,
         );
       }
-      return aspectOutputsFromBuildEvents(
-        await File(eventFile).readAsString(),
+      final stream = await File(eventFile).readAsString();
+      final outputs = aspectOutputsFromBuildEvents(
+        stream,
         aspect: aspect,
         outputGroup: outputGroup,
         otherGroups: otherGroups,
+      );
+      return BazelAspectOutputs(
+        exitCode: outputs.exitCode,
+        files: outputs.files,
+        filesByGroup: outputs.filesByGroup,
+        executionRoot: outputs.executionRoot,
+        stderr: outputs.stderr,
+        moduleGraphFlags: moduleGraphFlagsFromBuildEvents(stream),
       );
     } finally {
       await events.delete(recursive: true);
@@ -1018,6 +1105,34 @@ class Bazel {
     );
     if (result.exitCode != 0) return const [];
     return parseWebBundlesOver(result.stdout as String);
+  }
+
+  /// Which of [repos] (canonical names) are local repositories, and the
+  /// directory each one is: see `local_packages.dart`.
+  ///
+  /// [moduleGraphFlags] are the options that decided the module graph of the
+  /// build the app came from, read off its event stream; see [showRepoArgs].
+  ///
+  /// Throws [BazelInvocationFailure] when Bazel cannot say: the answer decides
+  /// which edits a reload can see, and guessing it would drop some silently.
+  Future<Map<String, String>> localRepositories(
+    Iterable<String> repos, {
+    required String workspace,
+    required List<String> moduleGraphFlags,
+  }) async {
+    if (repos.isEmpty) return const {};
+    final args = showRepoArgs(repos, moduleGraphFlags: moduleGraphFlags);
+    final result = await run(args, workingDirectory: workspace);
+    if (result.exitCode != 0) {
+      throw BazelInvocationFailure(
+        command: args.take(2).join(' '),
+        diagnostics: result.stderr as String,
+      );
+    }
+    return parseLocalRepositories(
+      result.stdout as String,
+      workspace: workspace,
+    );
   }
 
   /// Locate the Bazel workspace root.

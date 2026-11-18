@@ -30,6 +30,7 @@ import 'hot_reload/applied_versions.dart';
 import 'hot_reload/asset_bundle.dart';
 import 'hot_reload/file_clock.dart';
 import 'hot_reload/source_uri_resolver.dart';
+import 'hot_reload/source_watcher.dart';
 import 'hot_reload/readiness_gate.dart';
 import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/workspace.dart';
@@ -74,6 +75,23 @@ class ReloadPipeline {
 
   /// The source tree as the compiler sees it, snapshot by snapshot.
   Workspace? workspaceView;
+
+  /// The run's `--watch` watcher, null without one.
+  ///
+  /// Started on the workspace before anything is built. Assembly learns of the
+  /// source outside it, a local repository's packages, and hands those
+  /// directories over through [watchOutsideWorkspace].
+  SourceWatcher? watcher;
+
+  /// Have [watcher], if the run has one, watch [dirs] as well: source outside
+  /// the workspace that [resolver] maps to the packages the app compiles.
+  Future<void> watchOutsideWorkspace(Iterable<String> dirs) async {
+    final w = watcher;
+    if (w == null) return;
+    for (final dir in dirs) {
+      await w.watchAlso(dir);
+    }
+  }
 
   /// Native's apply path: a bounded RPC budget per app, compiler commit and
   /// rollback, and a report of what was actually recompiled. Null on web DDC,

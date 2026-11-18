@@ -20,6 +20,8 @@ library;
 
 import 'dart:async';
 
+import 'package:path/path.dart' as p;
+
 import 'bazel.dart';
 import 'build_info.dart';
 import 'bundle_rebuild.dart';
@@ -36,6 +38,7 @@ import 'hot_reload/reload_orchestrator.dart';
 import 'hot_reload/session_reloader.dart';
 import 'hot_reload/workspace.dart';
 import 'launch_bundle_parts.dart';
+import 'local_packages.dart';
 import 'logging.dart';
 import 'native_hot_patcher.dart';
 import 'native_libs_fingerprint.dart';
@@ -289,10 +292,10 @@ class NativePipelineAssembler {
     logger.severe({
       'message': 'dev_build_failed',
       'text':
-          'The Bazel build that hot reload needs — `bazel '
+          'The Bazel command that hot reload needs — `bazel '
           '${failure.command}` — failed, so this run has no incremental '
           'compiler yet. The app keeps running the code it launched with. Fix '
-          'the error below: the next hot reload builds again, and under '
+          'the error below: the next hot reload runs it again, and under '
           '`--watch` a saved Dart file is one.'
           '${failure.diagnostics.isEmpty ? '' : '\n${failure.diagnostics}'}',
       'command': failure.command,
@@ -301,10 +304,13 @@ class NativePipelineAssembler {
     });
     pipeline.frontendServer = null;
     pipeline.reassemble = _assembleAgain;
+    // Bazel's own words go in the reply too: a client that sees only replies
+    // (an agent over the control channel) has no other way to read them.
     pipeline.ready.signalRetryable(
-      'The Bazel build that hot reload needs (`bazel ${failure.command}`) '
+      'The Bazel command that hot reload needs (`bazel ${failure.command}`) '
       'failed, so there is no incremental compiler yet. Fix the error and '
-      'reload again.',
+      'reload again.'
+      '${failure.diagnostics.isEmpty ? '' : '\n${failure.diagnostics.trimRight()}'}',
     );
   }
 
@@ -534,11 +540,28 @@ class NativePipelineAssembler {
     // a file between `app.started` and here — and this snapshot would contain
     // that edit. Hence [builtBefore]: anything stamped after it is left
     // unseeded, so the first reload picks it up.
+    //
+    // The packages an edit is looked for in: the main repository's, which the
+    // build lists, and those of local repositories, which Bazel names (see
+    // `local_packages.dart`). A `local_path_override` module is source the user
+    // edits, and a reload blind to it compiles the app against the package as
+    // it was at launch.
+    final localPackages = await localSourcePackages(
+      devConfig.devPackageConfig,
+      localRepositories: (repos) => host.bazel.localRepositories(
+        repos,
+        workspace: workspace,
+        moduleGraphFlags: devBuild.moduleGraphFlags,
+      ),
+    );
     final resolver = pipeline.resolver = SourceUriResolver(
       workspaceRoot: workspace,
-      sourcePackages: devConfig.sourcePackages,
+      sourcePackages: [...devConfig.sourcePackages, ...localPackages],
       appSources: devConfig.appSources,
     );
+    await pipeline.watchOutsideWorkspace([
+      for (final pkg in localPackages) p.join(pkg.packageRoot, 'lib'),
+    ]);
     final workspaceView = pipeline.workspaceView = Workspace(
       resolver: resolver,
       generatedFiles: devConfig.generatedFileUris,
