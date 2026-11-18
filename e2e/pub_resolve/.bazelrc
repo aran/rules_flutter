@@ -35,3 +35,8 @@ common --incompatible_disable_starlark_host_transitions
 common --incompatible_resolve_select_keys_eagerly
 
 try-import %workspace%/.bazelrc.user
+
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
+# see the root .bazelrc.
+build --@rules_dart//dart:runner_snapshot

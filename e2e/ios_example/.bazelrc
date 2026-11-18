@@ -54,3 +54,8 @@ test --aspects=@rules_dart//dart:analyze.bzl%dart_analyze
 test --output_groups=+dart_analyze
 test --output_groups=+dart_format
 common --@rules_dart//dart:analysis_config=//:analysis_config
+
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
+# see the root .bazelrc.
+build --@rules_dart//dart:runner_snapshot

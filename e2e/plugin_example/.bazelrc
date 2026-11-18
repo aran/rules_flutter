@@ -82,3 +82,8 @@ build --build_tag_filters=-deep
 test --test_tag_filters=-deep
 build:deep --build_tag_filters=
 test:deep --test_tag_filters=
+
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
+# see the root .bazelrc.
+build --@rules_dart//dart:runner_snapshot

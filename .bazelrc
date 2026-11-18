@@ -17,6 +17,15 @@ test --output_groups=+dart_analyze
 test --output_groups=+dart_format
 common --@rules_dart//dart:analysis_config=//dev:analysis_config
 
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine, which roughly halves its start-up (rules_dart README, "Faster tests
+# and builds"). This repository's tests run on its own machines and CI, where
+# the cache directory is writable; a remote executor may have none. `build`,
+# not `test`, as rules_dart's own .bazelrc has it: the flag is part of the
+# target configuration, so `test` alone would give `bazel build` and `bazel
+# test` different configurations and rebuild between them.
+build --@rules_dart//dart:runner_snapshot
+
 # Targets tagged `deep` are heavy (each fetches another Flutter SDK, say) or
 # guard what only a toolchain bump can break, and are left out by default,
 # from building as well as from running: a test that is only filtered out of
