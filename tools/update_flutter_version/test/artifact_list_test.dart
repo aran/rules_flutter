@@ -15,6 +15,7 @@ FLUTTER_VERSIONS = {
     ),
     "3.2.0": struct(
         engine_revision = "def",
+        dart_source_sha256 = "$_sha",
         source_sha256 = "$_sha2",
     ),
 }
@@ -91,6 +92,16 @@ void main() {
 
     test('is null for an unpinned version', () {
       expect(pinnedSourceSha256(_versionsBzl, '9.9.9'), isNull);
+    });
+  });
+
+  group('pinnedDartSourceSha256', () {
+    test('reads the Dart source checksum, not the Flutter one', () {
+      expect(pinnedDartSourceSha256(_versionsBzl, '3.2.0'), _sha);
+    });
+
+    test('is null where none is recorded', () {
+      expect(pinnedDartSourceSha256(_versionsBzl, '3.1.0'), isNull);
     });
   });
 }

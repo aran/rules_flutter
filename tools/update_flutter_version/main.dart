@@ -170,6 +170,28 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // The Dart SDK source tarball of the engine's Dart, which rules_dart's
+  // `dart_kernel_source` builds the outline stripper from. rules_dart pins
+  // only the Dart releases it serves, so the checksum is kept here.
+  final pinnedDartSource = pinnedDartSourceSha256(versionsBzl, version);
+  if (pinnedDartSource != null) {
+    checksums['__dart_source__'] = pinnedDartSource;
+    print(
+      '  dart-sdk-$dartVersion.tar.gz (source) ... $pinnedDartSource (pinned)',
+    );
+  } else {
+    final url =
+        'https://github.com/dart-lang/sdk/archive/refs/tags/$dartVersion.tar.gz';
+    stdout.write('  dart-sdk-$dartVersion.tar.gz (source) ... ');
+    try {
+      final sha = await _downloadAndHash(client, url);
+      checksums['__dart_source__'] = sha;
+      print(sha);
+    } catch (e) {
+      print('FAILED ($e)');
+    }
+  }
+
   // Download material fonts and compute checksum.
   final pinnedFonts = pinned['material_fonts.zip'];
   if (pinnedFonts != null) {
@@ -255,6 +277,9 @@ Future<void> main(List<String> args) async {
   print('        engine_revision = "$engineRev",');
   print('        framework_revision = "$frameworkRev",');
   print('        dart_version = "$dartVersion",');
+  print(
+    '        dart_source_sha256 = "${checksums['__dart_source__'] ?? 'FIXME'}",',
+  );
   print('        material_fonts_url = "$materialFontsUrl",');
   print('        # sha256 of the GitHub source tarball. Required: every');
   print('        # fetch of the framework source is pinned against it.');

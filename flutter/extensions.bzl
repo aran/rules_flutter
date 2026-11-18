@@ -357,6 +357,7 @@ def _toolchain_extension(module_ctx):
             dart_kernel_source(
                 name = name + "_outline_tool_src",
                 dart_version = FLUTTER_VERSIONS[sdk.version].dart_version,
+                sha256 = FLUTTER_VERSIONS[sdk.version].dart_source_sha256,
             )
             outline_packages[name] = "@{}_outline_tool_src//".format(name)
         else:

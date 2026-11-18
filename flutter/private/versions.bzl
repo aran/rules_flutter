@@ -6,6 +6,9 @@ Each version entry maps a Flutter SDK version string to a struct containing:
   reports (shortened) as the framework revision
 - dart_version: The version of the Dart SDK the engine bundles (its
   `dart-sdk/version` file; checked against the downloaded SDK)
+- dart_source_sha256: sha256 of the Dart SDK's GitHub source tarball for
+  `dart_version`, from which the kernel outline stripper is built, so that it
+  reads the engine's kernel format
 - material_fonts_url: GCS path of the Material icon font bundle
 - source_sha256: sha256 of the GitHub source tarball for the release tag
 
@@ -34,6 +37,7 @@ FLUTTER_VERSIONS = {
         engine_revision = "371f77202a73e8dff57a8b3bff75bca55c090aee",
         framework_revision = "ab2912035e160d9cad6306df307576da6128ebdb",
         dart_version = "3.14.0",
+        dart_source_sha256 = "f9cdd43f4c05d7f8cbd1caea31e3505d1f81c489d008c063c7bc028364844f65",
         material_fonts_url = "flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
         # sha256 of the GitHub source tarball. Required: every
         # fetch of the framework source is pinned against it.

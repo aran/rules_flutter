@@ -39,6 +39,21 @@ String? pinnedSourceSha256(String versionsBzl, String version) {
   ).firstMatch(versionsBzl);
   if (block == null) return null;
   return RegExp(
-    r'source_sha256\s*=\s*"([0-9a-f]{64})"',
+    r'(?<![a-z_])source_sha256\s*=\s*"([0-9a-f]{64})"',
+  ).firstMatch(block.group(1)!)?.group(1);
+}
+
+/// The `dart_source_sha256` recorded for [version] in versions.bzl, or null:
+/// the checksum of the Dart SDK source tarball the outline stripper is built
+/// from, so a re-run reuses it instead of downloading the tarball again.
+String? pinnedDartSourceSha256(String versionsBzl, String version) {
+  final block = RegExp(
+    '^    "${RegExp.escape(version)}": struct\\((.*?)^    \\),',
+    multiLine: true,
+    dotAll: true,
+  ).firstMatch(versionsBzl);
+  if (block == null) return null;
+  return RegExp(
+    r'dart_source_sha256\s*=\s*"([0-9a-f]{64})"',
   ).firstMatch(block.group(1)!)?.group(1);
 }
