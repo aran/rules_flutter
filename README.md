@@ -2084,7 +2084,14 @@ Current ACCEPTED_ANDROID_SDK_LICENSE_VERSION value was unset.
 
 On a Mac the downloads are about 1.1 GB, 950 MB of it the NDK, which unpacks to 2.8 GB. Bazel keeps the archives in its repository cache and the unpacked NDK in its repository contents cache, which every workspace on the machine shares. Each workspace's output base holds its own 350 MB copy of the SDK.
 
-**Keep `rules_flutter`'s `bazel_dep` above `rules_android`'s.** rules_android builds some of its tools with Go, using the first Go SDK the module graph declares: your module's own, then each dependency's in the order your `MODULE.bazel` names them. rules_flutter declares a Go new enough for the Gazelle in the graph. rules_android declares Go 1.22.4, which is too old. With rules_android named first, every Android build fails during analysis with `go: go.work requires go >= 1.24.12 (running go 1.22.4; GOTOOLCHAIN=local)`. A `go_sdk.download` in your own `MODULE.bazel` takes precedence over both.
+**Keep `rules_flutter`'s `bazel_dep` above `rules_android`'s, or declare the Go SDK yourself.** rules_android builds some of its tools with Go, using the first Go SDK the module graph declares: your module's own, then each dependency's in the order your `MODULE.bazel` names them. rules_android 0.8.1 declares Go 1.22.4. That is too old for the Gazelle that comes with rules_go 0.63.0 and newer, which rules_flutter needs because older rules_go fails to build Go's standard library under the [path mapping](#bazelrc) above. rules_flutter declares a newer Go, which rules_go uses only when your `MODULE.bazel` names rules_flutter first. With rules_android named first, every Android build fails during analysis with `go: go.work requires go >= 1.24.12 (running go 1.22.4; GOTOOLCHAIN=local)`. To make the order irrelevant, declare the SDK in your own `MODULE.bazel`, which takes precedence over both:
+
+```starlark
+bazel_dep(name = "rules_go", version = "0.64.2")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.27.3")
+```
 
 **Set the NDK's `api_level` to the app's `min_sdk_version`**, as Gradle compiles native code at `minSdk`. Your `cc_library` code (an FFI library, a plugin's C code) is built against that level. At a higher level it can call functions that older devices lack. Such a library installs on an older device, then fails to load there with an unresolved symbol. hermetic_android_toolchains defaults to 31.
 

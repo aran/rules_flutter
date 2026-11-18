@@ -46,14 +46,18 @@ git_override(
     remote = "https://github.com/aran/rules_dart.git",
 )
 
-# The Go SDK that builds rules_android's Go tools (`ak`, a tool of the Android
-# toolchain, so every Android build analyses it) and the Gazelle tools that
-# fetch their Go modules.
-# rules_dart brings Gazelle 0.54.0, whose `go.work` needs Go 1.24.12 or newer;
-# rules_android declares Go 1.22.4. rules_go builds with the first SDK the
-# module graph declares, the root's and then each module's in breadth-first
-# order, so this one, declared here, is the one an app gets whenever its
-# MODULE.bazel names rules_flutter before rules_android, as the README's does.
+# The rules_go and Go SDK that build rules_android's Go tools (`ak`, a tool of
+# the Android toolchain, so every Android build analyses it) and the Gazelle
+# tools that fetch their Go modules. rules_go 0.63.0 is the first whose Go standard library builds under the
+# README's `--experimental_output_paths=strip`: older ones path-map the cgo
+# action and it fails with `cc: no such file or directory`. rules_go 0.63.0 and
+# newer bring Gazelle 0.51.3, whose `go.work` needs Go 1.24.12 or newer, and
+# rules_android 0.8.1 declares Go 1.22.4. rules_go builds with the first SDK
+# the module graph declares, the root's and then each module's in
+# breadth-first order, so an app that declares no SDK of its own gets this one
+# only when its MODULE.bazel names rules_flutter before rules_android. Only
+# the root module can make that order irrelevant, by declaring the SDK itself,
+# as the README says, until rules_android declares a newer Go.
 bazel_dep(name = "rules_go", version = "0.64.2")
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
