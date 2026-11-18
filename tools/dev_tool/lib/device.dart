@@ -1601,9 +1601,51 @@ class AndroidDevice extends Device {
       ? 'adb $what failed: $stderr'
       : 'adb $what failed (adb -s $deviceId): $stderr';
 
+  /// How long the stop before a launch may take: flutter_tools' `stopApp`
+  /// bound. Settable so tests can drive the expiry.
+  Duration forceStopBound = const Duration(seconds: 30);
+
+  /// `am force-stop` [packageName], reporting rather than throwing when it
+  /// fails or does not answer within [forceStopBound]. See [launch].
+  Future<void> _forceStopBeforeLaunch(String packageName) async {
+    String? failure;
+    try {
+      final stopped = await _runProcess(
+        adbPath,
+        _adbArgs(['shell', 'am', 'force-stop', packageName]),
+      ).timeout(forceStopBound);
+      if (stopped.exitCode != 0) {
+        failure = _adbFailure('am force-stop', '${stopped.stderr}'.trim());
+      }
+    } on TimeoutException {
+      failure =
+          'adb am force-stop did not answer within '
+          '${forceStopBound.inSeconds}s';
+    } on ProcessException catch (e) {
+      failure = _adbFailure('am force-stop', e.message);
+    }
+    if (failure == null) return;
+    _logger.warning({
+      'message': 'android_force_stop_failed',
+      'text':
+          'Could not stop $packageName on $name before launching it '
+          '($failure). Launching anyway: the install stops a running copy.',
+      'device': name,
+      'error': failure,
+    });
+  }
+
   @override
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     final packageName = _packageName ?? await _readPackageName(appPath);
+
+    // Step 0: Stop the app first, as `flutter run` does (flutter_tools'
+    // `AndroidDevice.startApp`), and the way it does: within 30 s, and a stop
+    // that fails or does not answer is reported and the launch goes on. The
+    // install below stops a running copy of the app itself (the package
+    // manager kills it on a package update), so nothing here depends on this
+    // step, and a launch is not held up or ended by it.
+    await _forceStopBeforeLaunch(packageName);
 
     // Step 1: Install the APK.
     final installResult = await _runProcess(

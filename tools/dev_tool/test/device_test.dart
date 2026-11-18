@@ -1001,6 +1001,106 @@ void main() {
   });
 
   group('AndroidDevice.launch', () {
+    // As `flutter run` does (flutter_tools' `AndroidDevice.startApp`).
+    test('stops the app before it installs and starts it', () async {
+      final calls = <List<String>>[];
+      final fakeLogcat = FakeProcess();
+      final device = AndroidDevice(
+        aapt2Path: 'aapt2',
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) async {
+          calls.add(args);
+          return ProcessResult(0, 0, '', '');
+        },
+        startProcess: (exe, args) async => fakeLogcat,
+      );
+      unawaited(fakeLogcat.outputAttached.then((_) => fakeLogcat.complete(0)));
+
+      await device.launch('/path/to/app.apk');
+
+      final stop = calls.indexWhere(
+        (c) => c.join(' ') == 'shell am force-stop com.example.app',
+      );
+      expect(stop, isNot(-1), reason: '$calls');
+      expect(stop, lessThan(calls.indexWhere((c) => c.contains('install'))));
+      expect(
+        stop,
+        lessThan(
+          calls.indexWhere((c) => c.contains('am') && c.contains('start')),
+        ),
+      );
+    });
+
+    // flutter_tools' `stopApp` logs a failed stop and goes on, and so does
+    // this: the install stops a running copy itself, so the stop is never what
+    // a launch depends on.
+    group('a stop that does not work', () {
+      AndroidDevice deviceWhoseStop(
+        Future<ProcessResult> Function() onStop,
+        List<List<String>> calls,
+        FakeProcess logcat,
+      ) => AndroidDevice(
+        aapt2Path: 'aapt2',
+        packageName: 'com.example.app',
+        adbPath: 'adb',
+        runProcess: (exe, args) {
+          calls.add(args);
+          if (args.contains('force-stop')) return onStop();
+          return Future.value(ProcessResult(0, 0, '', ''));
+        },
+        startProcess: (exe, args) async => logcat,
+      );
+
+      test('is reported, and the launch goes on', () async {
+        final records = <LogRecord>[];
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
+        final calls = <List<String>>[];
+        final logcat = FakeProcess();
+        unawaited(logcat.outputAttached.then((_) => logcat.complete(0)));
+        final device = deviceWhoseStop(
+          () async => ProcessResult(0, 1, '', 'Error: device offline'),
+          calls,
+          logcat,
+        );
+
+        await device.launch('/path/to/app.apk');
+
+        expect(calls.any((c) => c.contains('install')), isTrue);
+        expect(
+          records.map((r) => '${(r.object as Map)['text']}'),
+          contains(contains('device offline')),
+        );
+      });
+
+      test('that never answers is given up on after 30 s', () {
+        fakeAsync((async) {
+          final calls = <List<String>>[];
+          final logcat = FakeProcess();
+          unawaited(logcat.outputAttached.then((_) => logcat.complete(0)));
+          final device = deviceWhoseStop(
+            () => Completer<ProcessResult>().future,
+            calls,
+            logcat,
+          );
+
+          // What follows the install reads real files, which fake time does
+          // not reach; that the install is reached is what this asks.
+          unawaited(
+            device
+                .launch('/path/to/app.apk')
+                .then((_) {}, onError: (Object _) {}),
+          );
+          async.elapse(const Duration(seconds: 29));
+          expect(calls.any((c) => c.contains('install')), isFalse);
+
+          async.elapse(const Duration(seconds: 2));
+          expect(calls.any((c) => c.contains('install')), isTrue);
+        });
+      });
+    });
+
     test('calls adb install with -r and device flag', () async {
       final calls = <(String, List<String>)>[];
       final fakeLogcat = FakeProcess();
@@ -1058,7 +1158,9 @@ void main() {
 
         await device.launch('/path/to/app.apk');
 
-        final startCall = calls.firstWhere((c) => c.$2.contains('am'));
+        final startCall = calls.firstWhere(
+          (c) => c.$2.contains('am') && c.$2.contains('start'),
+        );
         expect(
           startCall.$2,
           containsAllInOrder(['--ez', 'start-paused', 'true']),
@@ -1083,7 +1185,9 @@ void main() {
 
       await device.launch('/path/to/app.apk');
 
-      final startCall = calls.firstWhere((c) => c.$2.contains('am'));
+      final startCall = calls.firstWhere(
+        (c) => c.$2.contains('am') && c.$2.contains('start'),
+      );
       expect(startCall.$2, isNot(contains('start-paused')));
     });
 
@@ -1107,7 +1211,9 @@ void main() {
 
       await device.launch('/path/to/app.apk');
 
-      final startCall = calls.firstWhere((c) => c.$2.contains('am'));
+      final startCall = calls.firstWhere(
+        (c) => c.$2.contains('am') && c.$2.contains('start'),
+      );
       expect(startCall.$2, contains('shell'));
       expect(startCall.$2, contains('am'));
       expect(startCall.$2, contains('start'));
@@ -1134,7 +1240,9 @@ void main() {
 
       await device.launch('/path/to/app.apk');
 
-      final startCall = calls.firstWhere((c) => c.$2.contains('am'));
+      final startCall = calls.firstWhere(
+        (c) => c.$2.contains('am') && c.$2.contains('start'),
+      );
       expect(startCall.$2, contains('com.example.app/.MainActivity'));
     });
 
@@ -1338,9 +1446,11 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           adbPath: 'adb',
-          runProcess: (exe, args) async => args.contains('install')
+          runProcess: (exe, args) async => args.contains('force-stop')
+              ? ProcessResult(0, 0, '', '')
+              : args.contains('install')
               ? ProcessResult(0, 1, '', 'Failure [INSTALL_FAILED_INVALID_APK]')
-              : fail('nothing else should be asked of adb'),
+              : fail('nothing but the stop and the install is asked of adb'),
           startProcess: (exe, args) async => FakeProcess(),
         );
         await expectLater(
@@ -2152,7 +2262,9 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         );
         await device.launch('/path/to/app.apk');
 
-        final start = calls.firstWhere((c) => c.$2.contains('am'));
+        final start = calls.firstWhere(
+          (c) => c.$2.contains('am') && c.$2.contains('start'),
+        );
         expect(start.$2, contains('com.example.myapp/com.example.myapp.Main'));
       },
     );
@@ -2245,7 +2357,10 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         containsAllInOrder(['shell', 'dumpsys', 'package', 'com.example.app']),
       );
       // The activity was started (check passed, launch proceeded).
-      expect(calls.any((c) => c.$2.contains('am')), isTrue);
+      expect(
+        calls.any((c) => c.$2.contains('am') && c.$2.contains('start')),
+        isTrue,
+      );
     });
 
     test('fails fast with diagnostic when INTERNET is missing', () async {
@@ -2282,7 +2397,10 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       expect(message, contains('debug_manifest'));
 
       // Failed before starting the activity or tailing logcat.
-      expect(calls.any((c) => c.$2.contains('am')), isFalse);
+      expect(
+        calls.any((c) => c.$2.contains('am') && c.$2.contains('start')),
+        isFalse,
+      );
       expect(calls.any((c) => c.$2.contains('logcat')), isFalse);
     });
 
@@ -2373,7 +2491,10 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       await device.launch('/path/to/app.apk');
 
       expect(calls.any((c) => c.$2.contains('dumpsys')), isFalse);
-      expect(calls.any((c) => c.$2.contains('am')), isTrue);
+      expect(
+        calls.any((c) => c.$2.contains('am') && c.$2.contains('start')),
+        isTrue,
+      );
     });
   });
 
