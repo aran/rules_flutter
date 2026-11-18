@@ -121,6 +121,11 @@ class NativeHotPatcher {
   /// delivery has a file name its loader has never opened.
   final Map<String, int> _delivered = {};
 
+  /// What the last build of [hotPatchAspect]'s group wrote, which a delivery
+  /// may need to find a library in the running app (see
+  /// [NativePatchDelivery.forBuild]).
+  List<String> _built = const [];
+
   NativeHotPatcher._({
     required this.workspace,
     required this.build,
@@ -232,7 +237,12 @@ class NativeHotPatcher {
       for (final path in manifestFiles)
         NativeHotPatchManifest.parse(path, await File(path).readAsString()),
     ];
-    final running = await _runningManifests(manifests, executionRoot);
+    _built = built.files;
+    final running = await _runningManifests(
+      manifests,
+      executionRoot,
+      IosFrameworks.ofBuild(built.files),
+    );
     if (running.isEmpty) {
       final declared = {for (final m in manifests) p.basename(m.library)};
       logger.warning({
@@ -281,9 +291,12 @@ class NativeHotPatcher {
   /// By linker identity, never by position or by bytes: see
   /// `native_image_identity.dart` for why bundling defeats a byte comparison and
   /// why a build can hold several copies of one library.
+  ///
+  /// [frameworks] names the framework an iOS app ships each library in.
   Future<List<NativeHotPatchManifest>> _runningManifests(
     List<NativeHotPatchManifest> manifests,
     String executionRoot,
+    IosFrameworks frameworks,
   ) async {
     final bundled = (await nativeLibsFingerprint(appFile)).keys.toList();
     final byName = <String, List<NativeHotPatchManifest>>{};
@@ -293,11 +306,15 @@ class NativeHotPatcher {
 
     final running = <NativeHotPatchManifest>[];
     for (final MapEntry(key: name, value: candidates) in byName.entries) {
-      final framework = iosFrameworkName(name);
+      // On iOS the framework the build named for it, which may not be the
+      // one its file name gives: a framework whose name another library's
+      // took is renamed.
+      final framework = frameworks.of(name);
       final members = [
         for (final member in bundled)
           if (p.basename(member) == name ||
-              member.endsWith('$framework.framework/$framework'))
+              (framework != null &&
+                  member.endsWith('$framework.framework/$framework')))
             member,
       ];
       if (members.isEmpty) {
@@ -413,7 +430,7 @@ class NativeHotPatcher {
     for (final library in moved) {
       final perApp = plans[library] = {};
       for (final app in apps) {
-        final delivery = app.delivery!;
+        final delivery = _delivery(app);
         final int address;
         try {
           address = await _applyAddress(app, delivery, library);
@@ -551,7 +568,7 @@ class NativeHotPatcher {
     _Patchable library,
     String patchFile,
   ) async {
-    final delivery = app.delivery!;
+    final delivery = _delivery(app);
     final directory = await _call(
       app,
       'ext.rules_flutter.nativePatchDirectory',
@@ -579,8 +596,12 @@ class NativeHotPatcher {
 
   Future<void> _revert(NativePatchTarget app, _Patchable library) =>
       _call(app, 'ext.rules_flutter.applyNativePatch', {
-        'library': app.delivery!.libraryLoadPath(library.libraryFileName),
+        'library': _delivery(app).libraryLoadPath(library.libraryFileName),
       });
+
+  /// How a patch reaches [app], told what the last build wrote.
+  NativePatchDelivery _delivery(NativePatchTarget app) =>
+      app.delivery!.forBuild(_built);
 
   /// An extension call, with the agent's refusal as a [DevToolException] in its
   /// own words.

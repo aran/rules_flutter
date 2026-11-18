@@ -313,13 +313,44 @@ _builds_test = analysistest.make(_builds_impl)
 _builds_debug_test = analysistest.make(_builds_impl, config_settings = _DBG)
 
 _REFUSES_ATTRS = {"message": attr.string()}
-_refuses_ios_arm64_test = analysistest.make(_refuses_impl, attrs = _REFUSES_ATTRS, expect_failure = True, config_settings = _platform("ios_arm64"))
+
+def _renamed_framework_impl(ctx):
+    # `combined.dylib` and `libcombined.dylib` would both be `combined`;
+    # flutter_tools' `frameworkUri` gives the second, in file-name order,
+    # `combined1`, and the manifest names each by its framework.
+    env = analysistest.begin(ctx)
+    writes = [a for a in analysistest.target_actions(env) if a.mnemonic == "FlutterNativeAssetsManifest"]
+    asserts.equals(env, 1, len(writes), "one manifest action")
+    if len(writes) != 1:
+        return analysistest.end(env)
+    argv = writes[0].argv
+    frameworks = {argv[i + 1]: argv[i + 2] for i in range(len(argv)) if argv[i] == "--framework"}
+    asserts.equals(env, {"combined.dylib": "combined", "libcombined.dylib": "combined1"}, frameworks)
+    return analysistest.end(env)
+
+_renamed_framework_ios_arm64_test = analysistest.make(_renamed_framework_impl, config_settings = _platform("ios_arm64"))
+
+def _renamed_framework_bundle_impl(ctx):
+    # The frameworks the iOS app embeds, and the names it records for the dev
+    # tool, are the manifest's.
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    binaries = sorted([
+        "/".join(f.path.split("/")[-2:])
+        for f in target[DefaultInfo].files.to_list()
+        if f.basename != "Info.plist"
+    ])
+    asserts.equals(env, ["combined.framework/combined", "combined1.framework/combined1"], binaries)
+    names = written_json(env, "rules_flutter_ios_frameworks.json")
+    asserts.equals(env, {"combined.dylib": "combined", "libcombined.dylib": "combined1"}, names)
+    return analysistest.end(env)
+
+_renamed_framework_bundle_ios_arm64_test = analysistest.make(_renamed_framework_bundle_impl, config_settings = _platform("ios_arm64"))
 _refuses_linux_x64_test = analysistest.make(_refuses_impl, attrs = _REFUSES_ATTRS, expect_failure = True, config_settings = _platform("linux_x64") | _DBG)
 _refuses_macos_arm64_test = analysistest.make(_refuses_impl, attrs = _REFUSES_ATTRS, expect_failure = True, config_settings = _platform("macos_arm64"))
 _builds_macos_arm64_test = analysistest.make(_builds_impl, config_settings = _platform("macos_arm64"))
 
 _REFUSES_ON = {
-    "ios_arm64": _refuses_ios_arm64_test,
     "linux_x64": _refuses_linux_x64_test,
     "macos_arm64": _refuses_macos_arm64_test,
 }
@@ -504,12 +535,11 @@ def shared_code_asset_test_suite(name):
     tests.append(name + "_two_configurations_refused")
 
     # The one check that no two libraries an application could bundle land on
-    # one path, over every candidate whichever ships: by file name on every
-    # platform, and by framework name on iOS.
+    # one path, over every candidate whichever ships: by file name, on every
+    # platform, as flutter_tools refuses two code assets of one file name.
     for app, platform, message in [
         ("app_same_file_name", "macos_arm64", "two native libraries would both be bundled as `libcombined.dylib`"),
         ("app_same_file_name", "linux_x64", "two native libraries would both be bundled as `libcombined.so`"),
-        ("app_same_framework_name", "ios_arm64", "would both be bundled as the framework `combined.framework`"),
     ]:
         _REFUSES_ON[platform](
             name = "%s_%s_%s_refused" % (name, app, platform),
@@ -518,6 +548,21 @@ def shared_code_asset_test_suite(name):
             target_compatible_with = ["@platforms//os:macos"],
         )
         tests.append("%s_%s_%s_refused" % (name, app, platform))
+
+    # On iOS, two file names whose framework names collide ship, the second
+    # renamed, as flutter_tools renames it.
+    _renamed_framework_ios_arm64_test(
+        name = name + "_framework_renamed_on_ios",
+        target_under_test = _FIXTURE + "app_same_framework_name",
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    tests.append(name + "_framework_renamed_on_ios")
+    _renamed_framework_bundle_ios_arm64_test(
+        name = name + "_framework_renamed_in_the_ios_bundle",
+        target_under_test = _FIXTURE + "app_same_framework_name_ios_frameworks",
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    tests.append(name + "_framework_renamed_in_the_ios_bundle")
     _BUILDS_ON["macos_arm64"](
         name = name + "_framework_names_matter_on_ios_only",
         target_under_test = _FIXTURE + "app_same_framework_name",

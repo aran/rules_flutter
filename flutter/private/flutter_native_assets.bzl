@@ -120,6 +120,67 @@ def native_asset_framework_name(filename):
             name = name[len("lib"):]
     return "".join([c for c in name.elems() if c in _FRAMEWORK_NAME_CHARACTERS])
 
+# The file the iOS app's framework rule writes `ios_framework_names` to, which
+# `flutter_native_hot_patch_aspect` hands the dev tool.
+IOS_FRAMEWORK_NAMES_FILE = "rules_flutter_ios_frameworks.json"
+
+IosFrameworkNamesInfo = provider(
+    doc = "The framework each bundled library of an iOS app ships in.",
+    fields = {"file": "File: `IOS_FRAMEWORK_NAMES_FILE`, a JSON object from library file name to framework name."},
+)
+
+def ios_framework_names(libraries):
+    """The framework each of an iOS app's bundled libraries ships in, by file name.
+
+    flutter_tools' `frameworkUri` (native_assets_host.dart) over the libraries
+    in the order of their file names: each is named by
+    `native_asset_framework_name`, and a name an earlier one took gains `1`,
+    `2`, ... up to 999, as `foo.dylib` and `libfoo.dylib` ship as `foo` and
+    `foo1`. flutter_tools names them in the order its build hooks reported
+    them; file-name order is the one every rule that names a framework can
+    reproduce from the same libraries, so the bundle, the manifest, the list
+    of frameworks to drop and the dev tool agree.
+
+    Args:
+      libraries: Files: every library the app bundles, its `native_deps` and
+        every code-asset candidate, repeats allowed.
+
+    Returns:
+      A dict from file name to framework name.
+    """
+    taken = {}
+    names = {}
+    for file_name in sorted({library.basename: None for library in libraries}.keys()):
+        base = native_asset_framework_name(file_name)
+        name = base
+        if name in taken:
+            for i in range(1, 1000):
+                name = "%s%d" % (base, i)
+                if name not in taken:
+                    break
+            if name in taken:
+                fail("Failed to rename %s in native assets packaging." % base)
+        taken[name] = True
+        names[file_name] = name
+    return names
+
+def app_ios_framework_names(native_libs, program_assets):
+    """`ios_framework_names` of an app: its `native_deps` libraries and every code-asset candidate.
+
+    Args:
+      native_libs: The app's `native_deps` libraries (`FlutterApplicationInfo.native_libs`).
+      program_assets: The app's `DartProgramAssetsInfo`.
+
+    Returns:
+      A dict from file name to framework name.
+    """
+    return ios_framework_names(list(native_libs) + candidate_code_asset_libraries(program_assets))
+
+def add_ios_framework_args(args, names):
+    """Adds `--framework <file name> <name>` to `args` for each of `names`, as `code_assets.dart` reads them."""
+    for file_name, name in sorted(names.items()):
+        args.add_all("--framework", [file_name, name])
+
 def _path_list_for(asset, layout):
     """Return the manifest path-list shape for `asset`.
 
@@ -287,48 +348,45 @@ def candidate_code_asset_libraries(program_assets):
         if asset.link_mode == "dynamic_loading_bundle" and asset.file != None
     }.keys())
 
-def check_bundled_library_names(label, libraries, target_os):
-    """Fails when two of an app's bundled libraries would land on one path.
+def check_bundled_library_names(label, libraries):
+    """Fails when two of an app's bundled libraries have one file name.
 
-    A bundle places every library by its file name (on iOS by the framework
-    name derived from it), so two different libraries under one name cannot
-    both ship. Checked over every candidate, kept or not, because which a
-    link hook keeps is known only when the bundle is built: the check holds
-    whatever it keeps.
+    Two different libraries under one file name cannot both ship, as
+    flutter_tools' application check fails on two code assets of one file
+    name. (On iOS two file names may lead to one framework name; the second
+    is renamed, `ios_framework_names`.) Checked over every candidate, kept or
+    not, because which a link hook keeps is known only when the bundle is
+    built: the check holds whatever it keeps.
 
     Args:
       label: The application's label, for the message.
       libraries: Files: the code-asset candidates' libraries and the
         `native_deps` libraries, in any order, repeats allowed.
-      target_os: The platform the app is built for.
     """
     by_name = {}
     for library in libraries:
-        names = [("`%s`" % library.basename, library.basename)]
-        if target_os == "ios":
-            framework = native_asset_framework_name(library.basename)
-            names.append(("the framework `%s.framework`" % framework, framework + ".framework"))
-        for what, key in names:
-            other = by_name.get(key)
-            if other == None:
-                by_name[key] = library
-                continue
-            if other == library:
-                continue
-            if other.owner == library.owner:
-                fail((
-                    "%s: %s reaches this target in two configurations " +
-                    "(%s and %s), so two builds of it would both be " +
-                    "bundled as %s. Name the one to ship in this " +
-                    "target's `code_assets`, or reset the setting that " +
-                    "changes on the way to the other."
-                ) % (label, library.owner, other.path, library.path, what))
+        name = library.basename
+        what = "`%s`" % name
+        other = by_name.get(name)
+        if other == None:
+            by_name[name] = library
+            continue
+        if other == library:
+            continue
+        if other.owner == library.owner:
             fail((
-                "%s: two native libraries would both be bundled as %s: " +
-                "%s and %s. A bundle places each library by its file name, " +
-                "so only one of them can ship. Rename one, or serve both ids " +
-                "from one library by naming it in this target's `code_assets`."
-            ) % (label, what, other.owner, library.owner))
+                "%s: %s reaches this target in two configurations " +
+                "(%s and %s), so two builds of it would both be " +
+                "bundled as %s. Name the one to ship in this " +
+                "target's `code_assets`, or reset the setting that " +
+                "changes on the way to the other."
+            ) % (label, library.owner, other.path, library.path, what))
+        fail((
+            "%s: two native libraries would both be bundled as %s: " +
+            "%s and %s. A bundle places each library by its file name, " +
+            "so only one of them can ship. Rename one, or serve both ids " +
+            "from one library by naming it in this target's `code_assets`."
+        ) % (label, what, other.owner, library.owner))
 
 def resolve_native_assets(ctx, package, deps, code_assets):
     """The one asset per id a program loads, with each library staged once.

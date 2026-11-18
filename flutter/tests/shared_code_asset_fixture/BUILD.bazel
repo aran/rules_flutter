@@ -206,6 +206,12 @@ _DEPS = [
     ]
 ]
 
+# The frameworks of an app whose two libraries' framework names collide.
+flutter_ios_native_frameworks_gen(
+    name = "app_same_framework_name_ios_frameworks",
+    application = ":app_same_framework_name",
+)
+
 # The bundle rule itself, which the macro above makes compatible with Android
 # platforms only: built for any other, it names the flag to pass.
 _flutter_android_bundle(

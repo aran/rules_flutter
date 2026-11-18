@@ -12,10 +12,12 @@
 /// from is a fact about its sandbox that only the app knows without guessing.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'dev_tool_exception.dart';
 import 'temp_dir.dart';
 
 /// Runs a process to completion. Injected so tests see every command.
@@ -27,6 +29,13 @@ typedef DeliveryProcessRunner = Future<ProcessResult> Function(
 /// How a native hot patch reaches one kind of device.
 abstract class NativePatchDelivery {
   const NativePatchDelivery();
+
+  /// This delivery, for the app the native hot patch build's [files] describe.
+  ///
+  /// Where a platform needs more of the build than a library's file name to
+  /// find it. Only iOS does: its libraries ship in frameworks the build names
+  /// (see [IosFrameworks]).
+  NativePatchDelivery forBuild(Iterable<String> files) => this;
 
   /// The path the app opens [libraryFileName] by — the name of a bundled native
   /// library as its build wrote it (`libbridge.dylib`, `libbridge.so`).
@@ -99,23 +108,71 @@ class MacOSPatchDelivery extends NativePatchDelivery {
   }
 }
 
-/// The framework an iOS bundle wraps a native library in: `libbridge.dylib`
-/// ships as `bridge.framework/bridge`, because iOS refuses loose dylibs.
+/// The framework each native library of an iOS app ships in, by the library's
+/// file name: `libbridge.dylib` ships as `bridge.framework/bridge`, because
+/// iOS refuses loose dylibs.
 ///
-/// The same derivation the bundler applies (`native_asset_framework_name` in
-/// `flutter/private/flutter_native_assets.bzl`): drop `.dylib`, drop a `lib`
-/// prefix that came with it, and keep only characters a bundle name may hold.
-String iosFrameworkName(String libraryFileName) {
-  var name = libraryFileName;
-  if (name.endsWith('.dylib')) {
-    name = name.substring(0, name.length - '.dylib'.length);
-    if (name.startsWith('lib')) name = name.substring('lib'.length);
+/// The build names them (`ios_framework_names` in
+/// `flutter/private/flutter_native_assets.bzl`, which renames a framework whose
+/// name another library's took, as flutter_tools does) and writes them to
+/// [fileName], which the hot patch aspect's group carries.
+class IosFrameworks {
+  /// The framework names by library file name.
+  final Map<String, String> byFileName;
+
+  const IosFrameworks(this.byFileName);
+
+  /// None: a delivery not yet told the build.
+  static const none = IosFrameworks({});
+
+  /// The name of the file the build writes them to.
+  static const fileName = 'rules_flutter_ios_frameworks.json';
+
+  /// The framework names in a build's [files]: every [fileName] among them.
+  static IosFrameworks ofBuild(Iterable<String> files) => read([
+    for (final f in files)
+      if (p.basename(f) == fileName) f,
+  ]);
+
+  /// The framework names of [files], every [fileName] a build wrote: one per
+  /// iOS app it reached. Throws [DevToolException] when two name one library's
+  /// framework differently, since the dev tool could not tell which runs.
+  static IosFrameworks read(Iterable<String> files) {
+    final names = <String, String>{};
+    final from = <String, String>{};
+    for (final path in files) {
+      final decoded = json.decode(File(path).readAsStringSync()) as Map;
+      for (final MapEntry(:key, :value) in decoded.entries) {
+        final library = key as String;
+        final framework = value as String;
+        final other = names[library];
+        if (other != null && other != framework) {
+          throw DevToolException(
+            '$library ships as $other.framework by ${from[library]} and as '
+            '$framework.framework by $path, so the dev tool cannot tell which '
+            'the running app has, and native edits to it need a hot restart.',
+          );
+        }
+        names[library] = framework;
+        from[library] = path;
+      }
+    }
+    return IosFrameworks(names);
   }
-  return name.replaceAll(RegExp('[^A-Za-z0-9._-]'), '');
+
+  /// The framework [libraryFileName] ships in, or null when the build named
+  /// none for it: a library this iOS app does not bundle.
+  String? of(String libraryFileName) => byFileName[libraryFileName];
 }
 
-String _iosLoadPath(String libraryFileName) {
-  final framework = iosFrameworkName(libraryFileName);
+String _iosLoadPath(String libraryFileName, IosFrameworks frameworks) {
+  final framework = frameworks.of(libraryFileName);
+  if (framework == null) {
+    throw DevToolException(
+      'The build names no framework for $libraryFileName in the iOS app, so '
+      'the dev tool cannot open the running copy of it.',
+    );
+  }
   return '@executable_path/Frameworks/$framework.framework/$framework';
 }
 
@@ -124,12 +181,24 @@ String _iosLoadPath(String libraryFileName) {
 class IOSSimulatorPatchDelivery extends NativePatchDelivery {
   final DeliveryProcessRunner _run;
 
-  const IOSSimulatorPatchDelivery({required DeliveryProcessRunner run})
-    : _run = run;
+  /// The framework each library ships in, as the build named them.
+  final IosFrameworks frameworks;
+
+  const IOSSimulatorPatchDelivery({
+    required DeliveryProcessRunner run,
+    this.frameworks = IosFrameworks.none,
+  }) : _run = run;
+
+  @override
+  IOSSimulatorPatchDelivery forBuild(Iterable<String> files) =>
+      IOSSimulatorPatchDelivery(
+        run: _run,
+        frameworks: IosFrameworks.ofBuild(files),
+      );
 
   @override
   String libraryLoadPath(String libraryFileName) =>
-      _iosLoadPath(libraryFileName);
+      _iosLoadPath(libraryFileName, frameworks);
 
   @override
   Future<String> deliver({
@@ -162,6 +231,9 @@ class IOSDevicePatchDelivery extends NativePatchDelivery {
 
   final DeliveryProcessRunner _run;
 
+  /// The framework each library ships in, as the build named them.
+  final IosFrameworks frameworks;
+
   String? _identity;
 
   IOSDevicePatchDelivery({
@@ -169,11 +241,22 @@ class IOSDevicePatchDelivery extends NativePatchDelivery {
     required this.bundleId,
     required this.appPath,
     required DeliveryProcessRunner run,
+    this.frameworks = IosFrameworks.none,
   }) : _run = run;
 
   @override
+  IOSDevicePatchDelivery forBuild(Iterable<String> files) =>
+      IOSDevicePatchDelivery(
+        udid: udid,
+        bundleId: bundleId,
+        appPath: appPath,
+        run: _run,
+        frameworks: IosFrameworks.ofBuild(files),
+      );
+
+  @override
   String libraryLoadPath(String libraryFileName) =>
-      _iosLoadPath(libraryFileName);
+      _iosLoadPath(libraryFileName, frameworks);
 
   @override
   Future<String> deliver({

@@ -178,6 +178,22 @@ void main() {
       expect(await arm(), isNull);
     });
 
+    test('finds a library in the framework the build renamed it to', () async {
+      // An iOS app whose `libmul.dylib` ships as `mul1.framework`, because
+      // another library's framework took `mul`.
+      appFile = '${tmp.path}/ios.app';
+      File('$appFile/Frameworks/mul1.framework/mul1')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(machO(0xaa));
+      final names =
+          File('$execRoot/bazel-out/ios/bin/rules_flutter_ios_frameworks.json')
+            ..createSync(recursive: true)
+            ..writeAsStringSync('{"libmul.dylib": "mul1", "mul.dylib": "mul"}');
+      builtFiles = [declare('ios', 0xaa), names.path];
+      final patcher = await arm();
+      expect(patcher!.libraries, ['libmul.dylib']);
+    });
+
     test('snapshots only the build the app is running', () async {
       // The same library in two configurations, as a platform rule's own
       // transition produces; only the second carries the bundled identity.

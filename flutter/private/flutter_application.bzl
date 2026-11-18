@@ -24,7 +24,7 @@ load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONS
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "add_ios_framework_args", "app_ios_framework_names", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "native_code_config", "program_assets")
 load("//flutter/private:native_sources.bzl", "collect_native_source_pairs")
 load("//flutter/private:plugin_resolution.bzl", "application_plugins", "chosen_native_code")
@@ -189,20 +189,6 @@ def flutter_application_build(ctx, inputs):
             "rules_flutter bug in host_target_arch's cpu detection: please " +
             "report the bazel-out cpu segment of this build."
         ) % (ctx.label, len(shipped.code_assets), target_platform, target_arch))
-    manifest_code_assets = program_assets_action_args(ctx.actions, shipped.info, data = False, code = "names")
-    manifest_args = ctx.actions.args()
-    manifest_args.add("--os", target_platform)
-    manifest_args.add("--target", dart_target)
-    manifest_args.add("--output", native_assets_manifest_file)
-    run_code_assets_tool(
-        ctx,
-        "manifest",
-        [manifest_args, manifest_code_assets.args],
-        manifest_code_assets.inputs,
-        [native_assets_manifest_file],
-        mnemonic = "FlutterNativeAssetsManifest",
-        progress_message = "Writing the native-assets manifest of %{label}",
-    )
 
     # Declared before the kernel compile that will later feed it, because a
     # debug app carries this path inside itself: `flutter_compile_kernel`
@@ -291,6 +277,25 @@ def flutter_application_build(ctx, inputs):
     if transitive_native_depsets:
         native_libs.extend(depset(transitive = transitive_native_depsets).to_list())
 
+    # The manifest names an iOS library by its framework, which analysis
+    # names over every library the app bundles (`ios_framework_names`).
+    manifest_code_assets = program_assets_action_args(ctx.actions, shipped.info, data = False, code = "names")
+    manifest_args = ctx.actions.args()
+    manifest_args.add("--os", target_platform)
+    manifest_args.add("--target", dart_target)
+    manifest_args.add("--output", native_assets_manifest_file)
+    if is_ios:
+        add_ios_framework_args(manifest_args, app_ios_framework_names(native_libs, shipped.info))
+    run_code_assets_tool(
+        ctx,
+        "manifest",
+        [manifest_args, manifest_code_assets.args],
+        manifest_code_assets.inputs,
+        [native_assets_manifest_file],
+        mnemonic = "FlutterNativeAssetsManifest",
+        progress_message = "Writing the native-assets manifest of %{label}",
+    )
+
     # Step 3: Shader compilation + asset bundle. Pass the program's assets so
     # the bundler places its data assets under flutter_assets/packages/<pkg>/<name>.
     compiled_shaders = flutter_compile_shaders(ctx, portable_tools(ctx), target_platform, inputs.deps, inputs)
@@ -349,7 +354,7 @@ def flutter_application_build(ctx, inputs):
     # because nothing stops one library arriving twice. A debug build, the
     # one the dev tool reads these of, runs no link hook and ships them all.
     candidate_libraries = candidate_code_asset_libraries(shipped.info)
-    check_bundled_library_names(ctx.label, native_libs + candidate_libraries, target_platform)
+    check_bundled_library_names(ctx.label, native_libs + candidate_libraries)
     bundled_native_libs = {}
     for lib in native_libs + candidate_libraries:
         bundled_native_libs[lib.path] = lib

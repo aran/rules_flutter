@@ -115,15 +115,21 @@ void main() {
         'Contents/Frameworks/libfoo.dylib',
       );
       expect(
-        CodeAssetPlacement('ios').bundlePath('libfoo.dylib'),
-        'Frameworks/foo.framework/foo',
+        CodeAssetPlacement(
+          'ios',
+          frameworks: IosFrameworks({'libfoo.dylib': 'foo1'}),
+        ).bundlePath('libfoo.dylib'),
+        'Frameworks/foo1.framework/foo1',
       );
     });
 
     test('names a library by its path in the code-asset directory', () {
       expect(CodeAssetPlacement('macos').pathInDirectory('a.dylib'), 'a.dylib');
       expect(
-        CodeAssetPlacement('ios').pathInDirectory('objective_c.dylib'),
+        CodeAssetPlacement(
+          'ios',
+          frameworks: IosFrameworks({'objective_c.dylib': 'objective_c'}),
+        ).pathInDirectory('objective_c.dylib'),
         'objective_c.framework/objective_c',
       );
     });
@@ -133,27 +139,17 @@ void main() {
       expect(() => CodeAssetPlacement('fuchsia'), throwsArgumentError);
     });
 
-    test('derives framework names as flutter_tools does', () {
-      // flutter_tools 3.50's cases for `frameworkUri`.
-      expect(frameworkName('libfoo.dylib'), 'foo');
-      expect(frameworkName('foo'), 'foo');
-      expect(frameworkName('foo_foo'), 'foo_foo');
-      expect(frameworkName('foo-foo'), 'foo-foo');
-      expect(frameworkName(r'foo$foo'), 'foofoo');
-      expect(frameworkName('foo.foo'), 'foo.foo');
-      expect(frameworkName('foo.1.2.3'), 'foo.1.2.3');
+    test('names an iOS library by the framework analysis named', () {
+      final frameworks = IosFrameworks.fromArgs([
+        '--framework', 'libfoo.dylib', 'foo', //
+        '--framework', 'foo.dylib', 'foo1',
+      ]);
+      expect(frameworks.of('foo.dylib'), 'foo1');
+      expect(() => frameworks.of('libbar.dylib'), throwsStateError);
       expect(
-        frameworkName('libatoolongfilenameforaframework.dylib'),
-        'atoolongfilenameforaframework',
+        () => CodeAssetPlacement('ios').pathInDirectory('libfoo.dylib'),
+        throwsArgumentError,
       );
-
-      expect(frameworkName('objective_c.dylib'), 'objective_c');
-      expect(frameworkName('foo.bar.dylib'), 'foo.bar');
-      expect(frameworkName('libfoo.bar.dylib'), 'foo.bar');
-      expect(frameworkName('libfoo'), 'libfoo');
-      expect(frameworkName('libfoo.so'), 'libfoo.so');
-      expect(frameworkName('my-lib_2.dylib'), 'my-lib_2');
-      expect(frameworkName('foo bar+\u00e9.dylib'), 'foobar');
     });
   });
 
@@ -389,7 +385,15 @@ void main() {
 
     test('names an iOS library by its framework', () {
       final manifest = jsonDecode(
-        nativeAssetsManifest(program(), 'ios', 'ios_arm64'),
+        nativeAssetsManifest(
+          program(),
+          'ios',
+          'ios_arm64',
+          frameworks: IosFrameworks({
+            'libadd.so': 'libadd.so',
+            'libtrim.so': 'libtrim.so1',
+          }),
+        ),
       ) as Map<String, Object?>;
       final section =
           (manifest['native-assets']! as Map)['ios_arm64']
@@ -397,6 +401,12 @@ void main() {
       expect(section['package:pick/add'], [
         'absolute',
         '@rpath/libadd.so.framework/libadd.so',
+      ]);
+      // A framework analysis renamed, as flutter_tools renames one whose name
+      // another library's took.
+      expect(section['package:trim/ops'], [
+        'absolute',
+        '@rpath/libtrim.so1.framework/libtrim.so1',
       ]);
     });
 
@@ -475,7 +485,10 @@ void main() {
       base: File(params).parent.path,
     );
     expect(program.droppedFileNames, {'libmul.so'});
-    expect(iosDroppedFrameworks(program), 'libmul.so.framework\n');
+    expect(
+      iosDroppedFrameworks(program, IosFrameworks({'libmul.so': 'libmul.so1'})),
+      'libmul.so1.framework\n',
+    );
   });
 
   test('an app with its own post-processor fails only when one is dropped', () {
@@ -487,7 +500,11 @@ void main() {
       base: File(params).parent.path,
     );
     expect(
-      () => iosDroppedFrameworks(program, conflict: '//app:post'),
+      () => iosDroppedFrameworks(
+        program,
+        IosFrameworks({'libmul.so': 'libmul.so'}),
+        conflict: '//app:post',
+      ),
       throwsA(
         isA<StateError>().having(
           (e) => e.message,
@@ -503,6 +520,7 @@ void main() {
     expect(
       iosDroppedFrameworks(
         ProgramCodeAssets.read(none.path),
+        IosFrameworks({}),
         conflict: '//app:post',
       ),
       '',

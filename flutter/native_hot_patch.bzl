@@ -31,6 +31,7 @@ they already are.
 """
 
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
+load("//flutter/private:flutter_native_assets.bzl", "IosFrameworkNamesInfo")
 load("//flutter/private:host_platform_transition.bzl", _host_platform_transition = "host_platform_transition")
 
 HOT_PATCH_OUTPUT_GROUP = "flutter_native_hot_patch"
@@ -93,6 +94,11 @@ def _flutter_native_hot_patch_aspect_impl(target, ctx):
                 for f in info.hot_patch.files.to_list() + info.libraries.to_list()
                 if not f.is_source
             ]))
+    if IosFrameworkNamesInfo in target:
+        # The framework each library of an iOS app ships in, which analysis
+        # names (renaming a framework another library's name took): the dev
+        # tool finds a library's running image, and loads its patch, by it.
+        direct.append(depset([target[IosFrameworkNamesInfo].file]))
     files = depset(transitive = direct + _dependencies(ctx.rule.attr))
     return [
         _HotPatchFilesInfo(files = files),

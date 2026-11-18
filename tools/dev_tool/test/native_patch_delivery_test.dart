@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
 import 'package:flutter_bazel_dev_tool/native_patch_delivery.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -30,12 +31,33 @@ void main() {
     return ProcessResult(1, 0, '', '');
   };
 
-  test('an iOS framework is named the way the bundler names it', () {
-    expect(iosFrameworkName('libmul.dylib'), 'mul');
-    expect(iosFrameworkName('objective_c.dylib'), 'objective_c');
-    expect(iosFrameworkName('foo.bar.dylib'), 'foo.bar');
-    expect(iosFrameworkName('libfoo.so'), 'libfoo.so');
-    expect(iosFrameworkName('libfoo'), 'libfoo');
+  test('an iOS framework is the one the build named', () {
+    final dir = Directory('${tmp.path}/frameworks')..createSync();
+    final a = File('${dir.path}/a.json')
+      ..writeAsStringSync('{"libfoo.dylib": "foo", "foo.dylib": "foo1"}');
+    final b = File('${dir.path}/b.json')
+      ..writeAsStringSync('{"foo.dylib": "foo1"}');
+    final frameworks = IosFrameworks.read([a.path, b.path]);
+    expect(frameworks.of('foo.dylib'), 'foo1');
+    expect(frameworks.of('libbar.dylib'), isNull);
+    final simulator = IOSSimulatorPatchDelivery(
+      run: recording(),
+      frameworks: frameworks,
+    );
+    expect(
+      simulator.libraryLoadPath('foo.dylib'),
+      '@executable_path/Frameworks/foo1.framework/foo1',
+    );
+    expect(
+      () => simulator.libraryLoadPath('libbar.dylib'),
+      throwsA(isA<DevToolException>()),
+    );
+    final conflicting = File('${dir.path}/c.json')
+      ..writeAsStringSync('{"foo.dylib": "foo"}');
+    expect(
+      () => IosFrameworks.read([a.path, conflicting.path]),
+      throwsA(isA<DevToolException>()),
+    );
   });
 
   test('macOS copies into the directory the app named', () async {
@@ -57,9 +79,14 @@ void main() {
 
   test('the simulator copies, then signs ad hoc', () async {
     final delivery = IOSSimulatorPatchDelivery(run: recording());
+    final frameworks = File('${tmp.path}/${IosFrameworks.fileName}')
+      ..writeAsStringSync('{"libmul.dylib": "mul"}');
     expect(
-      delivery.libraryLoadPath('libmul.dylib'),
+      delivery
+          .forBuild(['${tmp.path}/other.json', frameworks.path])
+          .libraryLoadPath('libmul.dylib'),
       '@executable_path/Frameworks/mul.framework/mul',
+      reason: 'the framework is the one the build named',
     );
     final path = await delivery.deliver(
       localFile: patch().path,
@@ -180,7 +207,10 @@ void main() {
     );
 
     test('loads a library by the name the app already has it by', () {
-      expect(android().libraryLoadPath('libmul.so'), 'libmul.so');
+      expect(
+        android().libraryLoadPath('libmul.so'),
+        'libmul.so',
+      );
     });
 
     test('pushes, copies in as the app, and cleans up', () async {

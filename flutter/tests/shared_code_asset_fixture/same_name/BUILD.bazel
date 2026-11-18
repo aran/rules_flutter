@@ -1,5 +1,6 @@
-# A library another package also names `libcombined`, and one whose iOS
-# framework name is `combined`'s: no app can bundle either beside it.
+# A library another package also names `libcombined`, which no app can bundle
+# beside it, and one whose iOS framework name is `combined`'s, which an iOS app
+# bundles renamed.
 
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")

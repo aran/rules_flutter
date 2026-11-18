@@ -33,7 +33,7 @@ load("//flutter/private:apple_add_to_app.bzl", "BUNDLE_ATTRS", "SLICES", "SLICES
 load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGMENTS", "XCODE_TOOL_TOOLCHAINS", "process_native_library", "rewrite_install_names", "run_xcode_tool")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "candidate_code_asset_libraries", "native_asset_framework_name", "run_code_assets_tool")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_ios_framework_names", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
 
 visibility("//flutter/...")
@@ -539,19 +539,34 @@ def _code_asset_xcframeworks_impl(ctx):
     # candidate. Which candidates ship is known only to the action below,
     # which reads each slice's program assets. `flutter_application` has
     # checked that no two of a slice's share a name.
+    #
+    # On iOS each is named by its framework, `ios_framework_names` of the
+    # slice's libraries, as the slice's own manifest names it; a library is
+    # one framework in every slice, so the slices must agree on its name.
     per_name = {}
     file_names = {}
     always = {}
     program_assets = {}
+    framework_of = {}
     for slice in slices:
         app_info = ctx.split_attr.application[slice.id][FlutterApplicationInfo]
         program_assets[slice.id] = app_info.program_assets
+        frameworks = app_ios_framework_names(app_info.native_libs, app_info.program_assets) if platform == "ios" else {}
+        for file_name, framework in frameworks.items():
+            other = framework_of.setdefault(file_name, (framework, slice.id))
+            if other[0] != framework:
+                fail((
+                    "%s: %s ships as `%s.framework` in the %s slice and as " +
+                    "`%s.framework` in the %s slice, since the slices bundle " +
+                    "different libraries whose framework names collide. One " +
+                    "xcframework holds a library for every slice, under one name."
+                ) % (ctx.label, file_name, other[0], other[1], framework, slice.id))
         for dylib in list(app_info.native_libs) + candidate_code_asset_libraries(app_info.program_assets):
-            name = native_asset_framework_name(dylib.basename) if platform == "ios" else dylib.basename
+            name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
             per_name.setdefault(name, {})[slice.id] = dylib
             file_names[name] = dylib.basename
         for dylib in app_info.native_libs:
-            name = native_asset_framework_name(dylib.basename) if platform == "ios" else dylib.basename
+            name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
             always.setdefault(name, []).append(slice.id)
 
     # The libraries a slice bundles, each with its install name there: a
