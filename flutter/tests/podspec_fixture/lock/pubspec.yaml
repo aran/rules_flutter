@@ -1,0 +1,10 @@
+name: podspec_fixture_lock
+description: The lock of //flutter/tests/podspec_fixture.
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  podspec_plugin:
+    path: ../podspec_plugin

@@ -948,6 +948,8 @@ To build the app, build the library with Bazel: a `rust_shared_library` from rul
 - A plugin overlay (`flutter_pub.plugin_overlays`): a `BUILD.bazel.tpl` for the package whose `flutter_plugin` lists the library. rules_flutter's bundled overlay for `package:jni`, in `flutter/ext/jni/`, does this.
 - A `flutter_plugin` of your own, which `flutter_pub.from_lock(resolve = {"<package>": "//your:target"})` puts in place of the package (see [Packages in your workspace](#packages-in-your-workspace-path-dependencies-forks)).
 
+An iOS or macOS plugin built from its podspec (one with no `Package.swift` for that platform) can also need what CocoaPods adds to its build, which rules_flutter drops: the pods it depends on (`s.dependency`, except `Flutter`, `FlutterMacOS` and plugins its pubspec depends on), the frameworks and libraries it vendors (`vendored_frameworks`, `vendored_libraries`), and the preprocessor defines of its xcconfig (`GCC_PREPROCESSOR_DEFINITIONS`). The build for that platform fails at analysis, naming the package and each line. Give the package an overlay whose `flutter_apple_plugin_library` builds it with them: the pods and frameworks as Bazel targets in `deps`, the defines in `copts`.
+
 ### Apple plugins built from their Package.swift
 
 Some Apple plugins are Swift packages on iOS or macOS: `ios/<plugin>/Package.swift`, or `darwin/<plugin>/Package.swift` with `sharedDarwinSource`. rules_flutter builds those as the manifest says, as `flutter build` does with Swift Package Manager.

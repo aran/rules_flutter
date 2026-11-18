@@ -72,6 +72,8 @@ load(
     "cmake_native_build",
     "ffi_plugin_native_build",
     "gradle_native_build",
+    "podspec_dropped_fields",
+    "podspec_dropped_fields_message",
     "podspec_native_build",
     "unbuilt_native_code_message",
 )
@@ -551,13 +553,34 @@ def _platform_native_build(ctx, platform, info):
         mechanism = ffi_plugin_native_build(build)
     return mechanism
 
-def _detect_unbuilt_native_code(ctx, version, plugin_block):
+def _podspec_dropped_fields(ctx, version, platform, info, pub_dependencies):
+    """The message for what the platform's podspec adds that rules_flutter drops, or "".
+
+    Only where the plugin is built from its podspec: one with a Package.swift
+    is built from that.
+    """
+    shared_darwin = info.get("sharedDarwinSource", False) == True
+    if _apple_manifest_dir(ctx, platform, shared_darwin):
+        return ""
+    directory = "darwin" if shared_darwin else platform
+    podspec = _podspec(ctx, directory)
+    if not podspec:
+        return ""
+    fields = podspec_dropped_fields(ctx.read(podspec), platform, pub_dependencies)
+    if not fields:
+        return ""
+    path = "{}/{}".format(directory, podspec.basename)
+    return podspec_dropped_fields_message(ctx.attr.package_name, version, platform, path, fields)
+
+def _detect_unbuilt_native_code(ctx, version, plugin_block, pub_dependencies):
     """The plugin's native code rules_flutter does not build, per platform.
 
     Returns:
         A dict of platform (`android`, `ios`, `macos`, `linux`, `windows`) to
         the message its build fails with, for each platform the pubspec
-        declares whose build makes a library rules_flutter cannot. Fails the
+        declares whose build makes a library rules_flutter cannot, and for
+        each iOS or macOS platform whose podspec adds to the build what
+        rules_flutter drops (`podspec_dropped_fields`). Fails the
         fetch when an iOS or macOS Package.swift depends on other Swift
         packages.
     """
@@ -567,6 +590,8 @@ def _detect_unbuilt_native_code(ctx, version, plugin_block):
         if info == None:
             continue
         mechanism = _platform_native_build(ctx, platform, info)
+        apple_library = platform in ("ios", "macos") and _builds_apple_library(ctx, platform, info)
+        dropped = _podspec_dropped_fields(ctx, version, platform, info, pub_dependencies) if apple_library and not mechanism else ""
         if mechanism:
             out[platform] = unbuilt_native_code_message(
                 ctx.attr.package_name,
@@ -574,7 +599,9 @@ def _detect_unbuilt_native_code(ctx, version, plugin_block):
                 platform,
                 mechanism,
             )
-        elif platform in ("ios", "macos") and _builds_apple_library(ctx, platform, info):
+        elif dropped:
+            out[platform] = dropped
+        elif apple_library:
             # The sources are compiled, so the plugin's Package.swift says
             # what else that compile needs: a directory outside the plugin fails the
             # fetch. (Its settings are the Apple repository's to apply.)
@@ -2797,7 +2824,7 @@ def _flutter_pub_package_impl(ctx):
         # A platform whose library the plugin's own build makes by means
         # rules_flutter does not run gets a stand-in for its library that
         # fails that platform's build; its sources are not compiled.
-        unbuilt_native_code = _detect_unbuilt_native_code(ctx, version, plugin_block)
+        unbuilt_native_code = _detect_unbuilt_native_code(ctx, version, plugin_block, pubspec_dependencies)
 
         # Each Apple platform with a plugin class has a library in the
         # plugin's Apple repository, built from its Package.swift or, without

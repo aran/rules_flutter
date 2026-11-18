@@ -1,0 +1,41 @@
+"""An application with a plugin built from podspecs that depend on pods.
+
+`podspec_plugin`, a `path` package built from its pubspec, has no
+Package.swift, and its podspecs depend on `GoogleMaps` (iOS) and `Sparkle`
+(macOS), which rules_flutter does not provide: the iOS and macOS builds of
+`app` fail at analysis saying so. `//flutter/tests:unbuilt_native_code_test`
+analyses them, the iOS one for an iOS platform: `flutter_plugin_platform`
+gives a plugin's iOS library only to a build for iOS.
+"""
+
+load("//flutter:defs.bzl", "dart_package_metadata", "flutter_application")
+load("//flutter:macos.bzl", "flutter_apple_plugins_aggregator")
+
+package(default_visibility = ["//flutter/tests:__subpackages__"])
+
+dart_package_metadata(
+    name = "pubspec-metadata",
+    package_name = "app",
+)
+
+flutter_application(
+    name = "app",
+    main = "main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["@rules_flutter_podspec_fixture//:podspec_plugin"],
+)
+
+flutter_apple_plugins_aggregator(
+    name = "macos_plugins",
+    application = ":app",
+    platform = "macos",
+    tags = ["manual"],
+)
+
+flutter_apple_plugins_aggregator(
+    name = "ios_plugins",
+    application = ":app",
+    platform = "ios",
+    tags = ["manual"],
+)

@@ -362,3 +362,13 @@ two_fetchers_dart_pub.from_lock(
     lock = "//flutter/tests/two_fetchers_fixture/lock:pubspec.lock",
 )
 use_repo(two_fetchers_dart_pub, "rules_flutter_two_fetchers")
+
+# A `path` plugin built from a podspec that depends on a pod, for
+# `//flutter/tests:unbuilt_native_code_test`.
+podspec_fixture_pub = use_extension("//flutter/pub:extensions.bzl", "pub", dev_dependency = True)
+podspec_fixture_pub.from_lock(
+    name = "rules_flutter_podspec_fixture",
+    build_from_pubspec = ["podspec_plugin"],
+    lock = "//flutter/tests/podspec_fixture/lock:pubspec.lock",
+)
+use_repo(podspec_fixture_pub, "rules_flutter_podspec_fixture")

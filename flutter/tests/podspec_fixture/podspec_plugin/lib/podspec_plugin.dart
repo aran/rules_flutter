@@ -1,0 +1,1 @@
+const podspecPlugin = 1;

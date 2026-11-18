@@ -1,0 +1,15 @@
+name: podspec_plugin
+description: An iOS and macOS plugin built from its podspecs, which depend on pods rules_flutter drops.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.13.0
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: PodspecPlugin
+      macos:
+        pluginClass: PodspecPlugin

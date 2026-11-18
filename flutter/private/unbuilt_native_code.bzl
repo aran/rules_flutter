@@ -19,7 +19,15 @@ some other means is not made at all:
   plugin's native sources into a library that Dart opens by name.
 
 Each yields an app missing the library, which builds and fails at run time
-when the plugin loads it. The functions here say which mechanism a build file
+when the plugin loads it.
+
+A podspec also says what CocoaPods adds to the plugin's build, and
+rules_flutter, compiling the sources itself, drops it: the pods it depends on
+(but `Flutter`, `FlutterMacOS` and the plugins of its own pubspec, which the
+package graph provides), the frameworks and libraries it vendors, and the
+preprocessor defines of its xcconfig. A plugin compiled without them fails
+to compile or link, or misbehaves, so that is refused too
+(`podspec_dropped_fields`). The functions here say which mechanism a build file
 uses; `flutter_pub_package` records it per platform, and the platform's build
 fails naming it: Android when it loads the plugin's `android/` package, iOS and
 macOS in `flutter_apple_plugins_aggregator`, Linux and Windows in the runner
@@ -83,6 +91,88 @@ def podspec_native_build(content, path):
         if ".script_phase" in line:
             return "a CocoaPods script phase (`{}` in {})".format(line.strip(), path)
     return ""
+
+# What CocoaPods provides for a `Flutter` or `FlutterMacOS` dependency: the
+# engine, which every plugin is built against.
+_FLUTTER_PODS = ("Flutter", "FlutterMacOS")
+
+def _quoted(text):
+    """The first single- or double-quoted string in `text`, or None."""
+    for i in range(len(text)):
+        c = text[i]
+        if c in ("'", '"'):
+            end = text.find(c, i + 1)
+            return text[i + 1:end] if end > i else None
+    return None
+
+# A podspec's attribute for one platform only: `s.ios.dependency`.
+_OTHER_PLATFORMS = {
+    "ios": (".osx.", ".macos.", ".tvos.", ".watchos.", ".visionos."),
+    "macos": (".ios.", ".tvos.", ".watchos.", ".visionos."),
+}
+
+def podspec_dropped_fields(content, platform, pub_dependencies = []):
+    """The lines of a podspec that add to the plugin's build what rules_flutter drops.
+
+    Args:
+        content: The text of the podspec.
+        platform: `ios` or `macos`: a line for another platform only
+            (`s.osx.dependency`) is not this one's.
+        pub_dependencies: The names of the package's pubspec dependencies:
+            a pod named after one is that plugin, which the package graph
+            provides.
+
+    Returns:
+        Each such line, stripped, with its number: `` `<line>` (line N) ``.
+        Empty when the podspec only compiles sources.
+    """
+    found = []
+    for number, raw in enumerate(content.split("\n"), start = 1):
+        line = raw.strip()
+        if line.startswith("#") or [p for p in _OTHER_PLATFORMS[platform] if p in line]:
+            continue
+        dropped = False
+        if ".dependency" in line:
+            pod = _quoted(line.split(".dependency", 1)[1])
+            dropped = pod != None and pod not in _FLUTTER_PODS and pod not in pub_dependencies
+        elif ".vendored_framework" in line or ".vendored_librar" in line:
+            dropped = True
+        elif "GCC_PREPROCESSOR_DEFINITIONS" in line:
+            value = _quoted(line.split("GCC_PREPROCESSOR_DEFINITIONS", 1)[1].split("=>", 1)[-1])
+            dropped = value == None or value.strip() != "$(inherited)"
+        if dropped:
+            found.append("`{}` (line {})".format(line, number))
+    return found
+
+def podspec_dropped_fields_message(package, version, platform, path, fields):
+    """Why an app for `platform` cannot be built from `package`'s podspec, and what to do.
+
+    Args:
+        package: The pub package's name.
+        version: Its version.
+        platform: `ios` or `macos`.
+        path: The podspec's path in the package.
+        fields: What `podspec_dropped_fields` found.
+
+    Returns:
+        The message.
+    """
+    return (
+        "package:{pkg} {version} has no Package.swift for {platform}, and its podspec ({path}) " +
+        "adds to the plugin's build what rules_flutter drops, since it does not run CocoaPods:\n    {fields}\n" +
+        "A plugin built without its pods, vendored frameworks and libraries, or preprocessor defines " +
+        "would fail to compile or link, or misbehave, so the {platform} build stops here. " +
+        "Give {pkg} a plugin overlay (`flutter_pub.plugin_overlays` in MODULE.bazel) whose " +
+        "`flutter_apple_plugin_library` builds it with them: the pods and vendored frameworks as " +
+        "Bazel targets in `deps`, the defines in `copts`. Or give it a `flutter_plugin` of your own " +
+        "that `flutter_pub.from_lock(resolve = ...)` maps the package to."
+    ).format(
+        pkg = package,
+        version = version,
+        platform = PLATFORM_NAMES[platform],
+        path = path,
+        fields = "\n    ".join(fields),
+    )
 
 def cmake_native_build(content, path):
     """The library a plugin's CMakeLists.txt builds or ships beside its sources, or "".
