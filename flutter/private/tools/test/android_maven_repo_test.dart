@@ -97,6 +97,7 @@ void main() {
             'group': 'io.flutter.plugins.pathprovider',
             'artifact': 'path_provider_android_release',
             'version': '1.0',
+            'packaging': 'aar',
             'dependencies': [
               {
                 'group': 'androidx.annotation',
@@ -137,6 +138,57 @@ void main() {
     expect(
       File('${tmp.path}/repo/$base.pom.md5').readAsStringSync(),
       md5Hex(utf8.encode(pomText)),
+    );
+  });
+
+  test('layOut writes an engine jar at its own version', () {
+    final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final jar = File('${tmp.path}/libs.zip')..writeAsStringSync('jar');
+    layOut(
+      {
+        'artifacts': [
+          {
+            'group': 'io.flutter',
+            'artifact': 'arm64_v8a_release',
+            'version': '1.0.0-abc',
+            'packaging': 'jar',
+            'dependencies': [],
+          },
+        ],
+      },
+      [jar.path],
+      '${tmp.path}/repo',
+    );
+    const base =
+        'io/flutter/arm64_v8a_release/1.0.0-abc/arm64_v8a_release-1.0.0-abc';
+    expect(File('${tmp.path}/repo/$base.jar').readAsStringSync(), 'jar');
+    expect(
+      File('${tmp.path}/repo/$base.pom').readAsStringSync(),
+      contains('<packaging>jar</packaging>'),
+    );
+  });
+
+  test('layOut refuses a packaging it does not know', () {
+    final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    expect(
+      () => layOut(
+        {
+          'artifacts': [
+            {
+              'group': 'g',
+              'artifact': 'a',
+              'version': '1',
+              'packaging': 'apk',
+              'dependencies': [],
+            },
+          ],
+        },
+        ['${tmp.path}/x'],
+        '${tmp.path}/repo',
+      ),
+      throwsFormatException,
     );
   });
 

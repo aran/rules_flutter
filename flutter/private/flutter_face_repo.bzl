@@ -135,7 +135,7 @@ alias(
 )
 """
 
-def android_engine_face_extra(sdks, arch, abi):
+def android_engine_face_extra(sdks, arch, abi, custom):
     """The BUILD text of the Android engine face of one CPU.
 
     `stripped` is the engine jar of the selected SDK and the build mode with
@@ -143,11 +143,18 @@ def android_engine_face_extra(sdks, arch, abi):
     them. The stripping is made once per SDK and mode, not in each
     `flutter_android_engine` target, which every pub plugin has one of.
 
+    `aar_engine` is the engine a module's Maven repository carries: `stripped`
+    for an SDK whose engine is not the release's, and nothing for one whose
+    engine is, whose artifacts the host takes from Google's Maven repository.
+    It names the release's jars in no branch, so a module's build under the
+    release fetches no engine it does not otherwise use.
+
     Args:
         sdks: A dict from each declared SDK to the label prefix of its engine
             source (`@repo`).
         arch: The CPU part of the target (`arm64`, `x64`).
         abi: The Android ABI of that CPU (`arm64-v8a`).
+        custom: The SDKs of `sdks` whose engine is not the release's.
 
     Returns:
         BUILD text, for `flutter_face_repo(extra = ...)`.
@@ -178,6 +185,13 @@ alias(
         '            "@flutter_toolchains//:sdk_{sdk}": ":{sdk}_stripped",\n'.format(sdk = sdk)
         for sdk in sorted(sdks.keys())
     ])
+    aar_branches = "".join([
+        '            "@flutter_toolchains//:sdk_{sdk}": ":{target}",\n'.format(
+            sdk = sdk,
+            target = sdk + "_stripped" if sdk in custom else "no_aar_engine",
+        )
+        for sdk in sorted(sdks.keys())
+    ])
     return content + """
 # The engine of the selected SDK and the build mode, stripped: debug under
 # `-c dbg`, profile under `-c opt` with `//flutter:profile`, release otherwise.
@@ -190,4 +204,20 @@ alias(
     ),
     visibility = ["//visibility:public"],
 )
-""".format(branches = branches, declared = declared)
+
+# What the selected SDK's module AAR carries of the engine: the stripped jar
+# when the engine is not the release's, otherwise nothing.
+filegroup(
+    name = "no_aar_engine",
+)
+
+alias(
+    name = "aar_engine",
+    actual = select(
+        {{
+{aar_branches}        }},
+        no_match_error = "No Flutter SDK is declared for --@rules_flutter//flutter:sdk. Declared: {declared}.",
+    ),
+    visibility = ["//visibility:public"],
+)
+""".format(branches = branches, aar_branches = aar_branches, declared = declared)

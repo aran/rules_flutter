@@ -125,6 +125,7 @@ load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_libr
 load("@rules_kotlin//kotlin:core.bzl", _kt_kotlinc_options = "kt_kotlinc_options")
 load("//flutter/private:android_debug_info.bzl", _flutter_android_debug_info = "flutter_android_debug_info")
 load("//flutter/private:app_version.bzl", "manifest_values_conflict", "version_arg")
+load("//flutter/private:common.bzl", _ANDROID_EMBEDDING_MAVEN_DEPS = "ANDROID_EMBEDDING_MAVEN_DEPS")
 load("//flutter/private:constants.bzl", _ANDROID_MIN_SDK_VERSION = "ANDROID_MIN_SDK_VERSION", _ANDROID_REGISTRANT_JVM_TARGET = "ANDROID_REGISTRANT_JVM_TARGET", _ANDROID_TARGET_SDK_VERSION = "ANDROID_TARGET_SDK_VERSION")
 load("//flutter/private:flutter_android_aar.bzl", _DEFAULT_AAR_ABIS = "DEFAULT_AAR_ABIS", _flutter_android_maven_repo = "flutter_android_maven_repo", _flutter_android_module_aar = "flutter_android_module_aar", _flutter_android_plugin_aars = "flutter_android_plugin_aars")
 load("//flutter/private:flutter_android_application.bzl", _flutter_android_bundle = "flutter_android_bundle")
@@ -159,16 +160,9 @@ ANDROID_TARGET_SDK_VERSION = _ANDROID_TARGET_SDK_VERSION
 # that contract. It adds nothing to the APK that the engine target wasn't
 # already carrying at runtime.
 _ANDROIDX_EMBEDDING_DEPS = [
-    Label("@rules_flutter_maven//:androidx_annotation_annotation"),
-    Label("@rules_flutter_maven//:androidx_core_core"),
-    Label("@rules_flutter_maven//:androidx_exifinterface_exifinterface"),
-    Label("@rules_flutter_maven//:androidx_fragment_fragment"),
-    Label("@rules_flutter_maven//:androidx_lifecycle_lifecycle_common"),
-    Label("@rules_flutter_maven//:androidx_lifecycle_lifecycle_runtime"),
-    Label("@rules_flutter_maven//:androidx_tracing_tracing"),
-    Label("@rules_flutter_maven//:androidx_window_window"),
-    Label("@rules_flutter_maven//:androidx_window_window_java"),
-    Label("@rules_flutter_maven//:com_getkeepsafe_relinker_relinker"),
+    # rules_jvm_external names an artifact's target by its coordinate.
+    Label("@rules_flutter_maven//:" + coordinate.replace(".", "_").replace(":", "_").replace("-", "_"))
+    for coordinate in _ANDROID_EMBEDDING_MAVEN_DEPS
 ]
 
 # -- Composable rules (Tier 2) ------------------------------------------------
@@ -1275,7 +1269,9 @@ def flutter_android_aar(
     and one AAR per plugin with Android code, `<group>:<plugin>_<mode>:<build_number>`;
     the module's POM depends on Flutter's engine artifacts
     (`io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>`) and
-    on the plugins'. See `flutter_android_maven_repo` for the layout.
+    on the plugins'. With an engine that is not the release's, the repository
+    holds that engine's artifacts too. See `flutter_android_maven_repo` for
+    the layout.
 
     The mode is the command line's: `-c dbg` is debug, `-c opt
     --@rules_flutter//flutter:profile` profile, and otherwise release.

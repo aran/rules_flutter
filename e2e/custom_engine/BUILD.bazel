@@ -8,7 +8,7 @@ load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:sdk_choice_test.bzl", "flutter_sdk_default_test", "flutter_sdk_flag_release_test", "flutter_sdk_probe")
-load(":aar_test.bzl", "aar_of_local_engine_refused_test")
+load(":aar_test.bzl", "aar_carries_local_engine_test", "aar_of_release_names_google_engine_test")
 
 exports_files(["pubspec.lock"])
 
@@ -106,8 +106,8 @@ flutter_android_app(
 )
 
 # The module as a Maven repository for a Gradle host app. Its POM names the
-# engine's Maven artifacts, which only a released engine has: under the
-# checkout's SDK it fails analysis, saying so.
+# engine's Maven artifacts, which Google publishes for a released engine only:
+# under the checkout's SDK the repository carries the checkout engine's own.
 flutter_android_aar(
     name = "module_aar",
     package_name = "com.example.customengine.module",
@@ -115,8 +115,13 @@ flutter_android_aar(
     application = ":android_flutter",
 )
 
-aar_of_local_engine_refused_test(
-    name = "aar_of_local_engine_refused_test",
+aar_carries_local_engine_test(
+    name = "aar_carries_local_engine_test",
+    target_under_test = ":module_aar",
+)
+
+aar_of_release_names_google_engine_test(
+    name = "aar_of_release_names_google_engine_test",
     target_under_test = ":module_aar",
 )
 

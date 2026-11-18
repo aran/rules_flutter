@@ -8,12 +8,13 @@
 /// give the host the `flutter_debug`, `flutter_profile` and `flutter_release`
 /// artifacts it depends on. Each artifact's `maven-metadata.xml` lists every
 /// version (build number) published to the repository, as Gradle's
-/// `maven-publish` records them.
+/// `maven-publish` records them; an engine the repository carries, that of
+/// an SDK whose engine is not the release's, is at the engine's version.
 ///
 /// Environment:
 ///   RULES_FLUTTER_ANDROID_AAR_CONFIG  runfiles path of the JSON file the rule
 ///       writes: `label`, `package`, `packageName`, `buildNumber`, `mode`,
-///       `artifacts` (each `group` and `artifact`), and `repo`, the runfiles
+///       `artifacts` (each `group`, `artifact` and `version`), and `repo`, the runfiles
 ///       path of the built repository.
 ///   BUILD_WORKSPACE_DIRECTORY, BUILD_WORKING_DIRECTORY  set by `bazel run`.
 library;
@@ -59,6 +60,7 @@ class AarConfig {
             (
               (a as Map<String, Object?>)['group']! as String,
               a['artifact']! as String,
+              a['version']! as String,
             ),
         ],
         repo: repo,
@@ -72,8 +74,8 @@ class AarConfig {
   final String buildNumber;
   final String mode;
 
-  /// `(group, artifact)` of each artifact the built repository holds.
-  final List<(String, String)> artifacts;
+  /// `(group, artifact, version)` of each artifact the built repository holds.
+  final List<(String, String, String)> artifacts;
 
   /// The built repository, a directory.
   final String repo;
@@ -96,15 +98,15 @@ void copyTree(String from, String to) {
   }
 }
 
-/// Records [version] of each of [artifacts] as published to [repo] at [time],
-/// in its `maven-metadata.xml` (and that file's `.sha1` and `.md5`).
+/// Records each `(group, artifact, version)` of [artifacts] as published to
+/// [repo] at [time], in the artifact's `maven-metadata.xml` (and that file's
+/// `.sha1` and `.md5`).
 void publishMetadata(
   String repo,
-  List<(String, String)> artifacts,
-  String version,
+  List<(String, String, String)> artifacts,
   DateTime time,
 ) {
-  for (final (group, artifact) in artifacts) {
+  for (final (group, artifact, version) in artifacts) {
     final file = File(
       '$repo/${artifactDirectory(group, artifact)}/maven-metadata.xml',
     );
@@ -287,7 +289,7 @@ void main(List<String> args) {
     }
 
     copyTree(config.repo, repo);
-    publishMetadata(repo, config.artifacts, config.buildNumber, DateTime.now());
+    publishMetadata(repo, config.artifacts, DateTime.now());
 
     final modes = modesIn(repo, config.packageName, config.buildNumber);
     stdout

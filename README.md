@@ -2446,9 +2446,10 @@ Like `flutter build aar`, each run then prints the host's steps:
 
 The repository has upstream's coordinates and POMs:
 
-- The module's AAR is `<package_name>:flutter_<mode>:<build_number>`. Its POM depends on Flutter's engine artifacts from `download.flutter.io`, `io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>`. Only a released engine has them, so with an engine that is not the release's (see [Custom engines and frameworks](#custom-engines-and-frameworks)) the build fails saying so.
+- The module's AAR is `<package_name>:flutter_<mode>:<build_number>`. Its POM depends on Flutter's engine artifacts, `io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>` at version `1.0.0-<engine revision>`, which the host fetches from `download.flutter.io`.
+- With an engine that is not the release's (see [Custom engines and frameworks](#custom-engines-and-frameworks)), Google has no artifacts to fetch, so the repository holds that engine's own, as `flutter build aar --local-engine` does. `io.flutter:flutter_embedding_<mode>` holds the embedding's classes, and its POM names the AndroidX artifacts the embedding needs. Each `io.flutter:<abi>_<mode>` holds that ABI's `libflutter.so`, stripped. Both come from the engine's `flutter.jar`. The module's POM names them at the engine's revision, so the host takes them from this repository. Keep it listed before `download.flutter.io`, as the printed steps do.
 - Each plugin with Android code has an AAR at `<plugin group>:<plugin>_<mode>:<build_number>`. Its POM lists the Maven artifacts its Gradle build declares.
-- Every artifact, plugins' included, has the build number as its version, as `flutter build aar` sets it. Each artifact's `maven-metadata.xml` lists the modes written so far.
+- Every artifact except the engine's has the build number as its version, plugins' included, as `flutter build aar` sets it. Each artifact's `maven-metadata.xml` lists the versions written so far.
 
 A pub plugin is published under the Maven group its `android/build.gradle` sets (`group = "..."`, which `flutter create` writes). A plugin written in your workspace sets `group` on its Android `flutter_plugin_platform`: `flutter_plugin_platform(platform = "android", group = "com.example.my_plugin", ...)`. There is no default, since a wrong group would publish under someone else's coordinates. A plugin with no group fails the build, naming the plugin.
 

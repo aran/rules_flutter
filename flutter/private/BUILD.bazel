@@ -169,6 +169,25 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
+# The engine a module AAR's Maven repository carries for the ABI of the
+# platform it is built for: the stripped jar of an SDK whose engine is not the
+# release's, nothing for the release's (flutter_android_aar.bzl). On any other
+# platform it is incompatible, so that `bazel build //...` skips it.
+alias(
+    name = "aar_engine",
+    actual = select({
+        ":android_arm": "@flutter_android_engine_arm//:aar_engine",
+        ":android_arm64": "@flutter_android_engine_arm64//:aar_engine",
+        ":android_x64": "@flutter_android_engine_x64//:aar_engine",
+        "//conditions:default": ":no_aar_engine",
+    }),
+)
+
+filegroup(
+    name = "no_aar_engine",
+    target_compatible_with = ["@platforms//:incompatible"],
+)
+
 bzl_library(
     name = "common",
     srcs = ["common.bzl"],

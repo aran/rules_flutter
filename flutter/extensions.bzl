@@ -409,7 +409,12 @@ def _toolchain_extension(module_ctx):
             name = "flutter_android_engine_" + arch,
             sdks = engine_prefixes,
             targets = {},
-            extra = android_engine_face_extra(engine_prefixes, arch, ANDROID_ABI_FOR_ARCH[arch]),
+            extra = android_engine_face_extra(
+                engine_prefixes,
+                arch,
+                ANDROID_ABI_FOR_ARCH[arch],
+                custom = [name for name, sdk in sdks.items() if sdk.engine != None],
+            ),
         )
     flutter_face_repo(
         name = "flutter_outline_tool",

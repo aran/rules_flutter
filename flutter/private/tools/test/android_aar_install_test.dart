@@ -14,8 +14,7 @@ void main() {
     test('records a first version', () {
       publishMetadata(
         tmp.path,
-        [('com.example.module', 'flutter_release')],
-        '1.0',
+        [('com.example.module', 'flutter_release', '1.0')],
         DateTime.utc(2026, 11, 10, 8, 9, 10),
       );
       final file = File(
@@ -49,10 +48,11 @@ void main() {
     });
 
     test('keeps the versions earlier runs published', () {
-      final artifacts = [('com.example.module', 'flutter_debug')];
-      publishMetadata(tmp.path, artifacts, '1.0', DateTime.utc(2026));
-      publishMetadata(tmp.path, artifacts, '2.0', DateTime.utc(2026));
-      publishMetadata(tmp.path, artifacts, '1.0', DateTime.utc(2026));
+      for (final version in ['1.0', '2.0', '1.0']) {
+        publishMetadata(tmp.path, [
+          ('com.example.module', 'flutter_debug', version),
+        ], DateTime.utc(2026));
+      }
       final metadata = MavenMetadata.parse(
         File(
           '${tmp.path}/com/example/module/flutter_debug/maven-metadata.xml',
@@ -63,6 +63,19 @@ void main() {
       expect(metadata.release, '1.0');
     });
 
+    test('records each artifact at its own version', () {
+      publishMetadata(tmp.path, [
+        ('com.example.module', 'flutter_release', '1.0'),
+        ('io.flutter', 'flutter_embedding_release', '1.0.0-abc'),
+      ], DateTime.utc(2026));
+      final engine = MavenMetadata.parse(
+        File(
+          '${tmp.path}/io/flutter/flutter_embedding_release/maven-metadata.xml',
+        ).readAsStringSync(),
+      );
+      expect(engine.versions, ['1.0.0-abc']);
+    });
+
     test('refuses the metadata of another artifact', () {
       final dir = Directory('${tmp.path}/a/b/c')..createSync(recursive: true);
       File('${dir.path}/maven-metadata.xml').writeAsStringSync(
@@ -71,8 +84,7 @@ void main() {
       expect(
         () => publishMetadata(
           tmp.path,
-          [('a.b', 'c')],
-          '1.0',
+          [('a.b', 'c', '1.0')],
           DateTime.utc(2026),
         ),
         throwsA(isA<InstallException>()),

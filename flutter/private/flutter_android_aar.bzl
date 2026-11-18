@@ -3,8 +3,9 @@
 The Bazel counterpart of `flutter build aar`. A native Android app built with
 Gradle depends on the module as `<package>:flutter_<mode>:<build number>`, and
 the module's POM brings the Flutter engine (`io.flutter:*`, from
-`download.flutter.io`) and one AAR per plugin, with the Maven artifacts each
-plugin's Gradle build declares. The coordinates are upstream's, so a host
+`download.flutter.io`, or from the repository itself for an engine that is not
+the release's) and one AAR per plugin, with the Maven artifacts each plugin's
+Gradle build declares. The coordinates are upstream's, so a host
 moves between a Gradle-built module and this one without changing a line.
 
 Three composable rules, each building the mode of the configuration (`-c dbg`
@@ -21,11 +22,11 @@ release):
   artifact; `bazel run` of it adds the repository to the one on disk.
 """
 
-load("@rules_android//providers:providers.bzl", "AndroidCcLinkParamsInfo", "StarlarkAndroidResourcesInfo")
+load("@rules_android//providers:providers.bzl", "AndroidCcLinkParamsInfo", "AndroidNativeLibsInfo", "StarlarkAndroidResourcesInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "runfiles_path")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:common.bzl", "ANDROID_ABIS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
+load("//flutter/private:common.bzl", "ANDROID_ABIS", "ANDROID_EMBEDDING_MAVEN_DEPS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "android_shared_libraries")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
@@ -54,6 +55,7 @@ FlutterAndroidAarInfo = provider(
         "mode": "str: The build mode: `debug`, `profile` or `release`.",
         "artifacts": "list[struct]: Each with `group`, `artifact` (with the `_<mode>` suffix), `aar` (File) and `dependencies`: structs of `group`, `artifact`, `version` (None for an artifact of the same repository, which has its build number) and `scope` (`compile` or `runtime`).",
         "package_name": "str or None: The module's Android package, for the module's artifacts; None for plugins'.",
+        "engine": "list[struct]: The engine's artifacts the repository carries, each with `group`, `artifact`, `version`, `jar` (File) and `dependencies` (as `artifacts`'): those of an engine that is not the release's, which no Maven repository publishes. Empty for the release's, and for plugins.",
     },
 )
 
@@ -245,15 +247,67 @@ def _single(target, group, label):
         fail("%s: expected one `%s` from %s, found %s" % (label, group, target.label, files))
     return files[0]
 
+def _engine_artifacts(ctx, mode, version):
+    """The Maven artifacts of an engine that is not the release's, for the repository to carry.
+
+    Google publishes the release engine's artifacts, and the module's POM names
+    them for the host to fetch. Another engine's are nowhere to fetch from, so
+    the repository holds them, as `flutter build aar --local-engine` copies a
+    local engine's into its repository: `io.flutter:flutter_embedding_<mode>`,
+    the embedding's classes, whose POM names the Maven artifacts the embedding
+    needs, and `io.flutter:<abi>_<mode>` for each ABI, a jar of `lib/<abi>/`
+    with `libflutter.so`. Both are taken from the engine's `flutter.jar`, its
+    libraries stripped as an APK's are; at the engine's version.
+    """
+    resolved = ctx.attr._maven[FlutterAndroidMavenInfo].data["resolved"]
+    embedding_deps = []
+    for coordinate in ANDROID_EMBEDDING_MAVEN_DEPS:
+        if coordinate not in resolved:
+            fail(("%s: the engine's POM names `%s`, which the embedding needs, and " +
+                  "@rules_flutter_maven does not resolve it.") % (ctx.label, coordinate))
+        group, artifact = coordinate.split(":")
+        embedding_deps.append(struct(group = group, artifact = artifact, version = resolved[coordinate], scope = "compile"))
+
+    def engine_of(abi):
+        target = ctx.split_attr._engine[abi]
+        if AndroidNativeLibsInfo not in target:
+            fail("%s: the \"%s\" Flutter SDK's engine is not the release's and %s carries no %s engine for the module's repository." %
+                 (ctx.label, ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info.sdk, target.label, abi))
+        return target
+
+    classes = engine_of(_COMPILE_ABI)[DefaultInfo].files.to_list()
+    if len(classes) != 1:
+        fail("%s: expected one jar of the engine's classes, found %s" % (ctx.label, classes))
+    artifacts = [struct(
+        group = "io.flutter",
+        artifact = "flutter_embedding_" + mode,
+        version = version,
+        jar = classes[0],
+        dependencies = embedding_deps,
+    )]
+    for abi in DEFAULT_AAR_ABIS:
+        if abi not in ctx.attr.abis:
+            continue
+        libs = engine_of(abi)[AndroidNativeLibsInfo].native_libs.to_list()
+        if len(libs) != 1:
+            fail("%s: expected one zip of the %s engine's libraries, found %s" % (ctx.label, abi, libs))
+        artifacts.append(struct(
+            group = "io.flutter",
+            artifact = "%s_%s" % (_MAVEN_ABI[abi], mode),
+            version = version,
+            jar = libs[0],
+            dependencies = [],
+        ))
+    return artifacts
+
 def _flutter_android_module_aar_impl(ctx):
     _check_abis(ctx.label, ctx.attr.abis)
     mode = flutter_build_mode(ctx)
     sdk = ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info
-    if not is_release_engine(sdk.host_tools):
-        fail(("%s: the \"%s\" Flutter SDK's engine is not the release's, and the module's POM names " +
-              "the engine's Maven artifacts (`io.flutter:flutter_embedding_<mode>:1.0.0-<revision>`), " +
-              "which are published for released engines only.") % (ctx.label, sdk.sdk))
-    engine_revision = sdk.engine_revision
+
+    # The engine's Maven version, as the engine's build writes its POMs.
+    version = "1.0.0-" + sdk.engine_revision
+    engine = [] if is_release_engine(sdk.host_tools) else _engine_artifacts(ctx, mode, version)
 
     # What the manifest of upstream's module template (`.android/Flutter/src/
     # main/AndroidManifest.xml`) declares, in every mode: the Dart VM service
@@ -301,7 +355,6 @@ def _flutter_android_module_aar_impl(ctx):
     aar = ctx.actions.declare_file("%s/%s.aar" % (ctx.label.name, artifact))
     _assemble_aar(ctx, aar, args, depset(inputs, transitive = [own.jars, own.proguard]), "the Flutter module's AAR")
 
-    version = "1.0.0-" + engine_revision
     dependencies = [struct(group = "io.flutter", artifact = "flutter_embedding_" + mode, version = version, scope = "compile")] + [
         struct(group = "io.flutter", artifact = "%s_%s" % (_MAVEN_ABI[abi], mode), version = version, scope = "compile")
         for abi in DEFAULT_AAR_ABIS
@@ -324,6 +377,7 @@ def _flutter_android_module_aar_impl(ctx):
                 aar = aar,
                 dependencies = dependencies,
             )],
+            engine = engine,
         ),
     ]
 
@@ -339,7 +393,12 @@ other native libraries. A debug module's `flutter_assets` hold the kernel and
 VM snapshots instead of `libapp.so`. The mode is the configuration's.
 
 The engine is not in it: `FlutterAndroidAarInfo` names the engine's Maven
-artifacts for `flutter_android_maven_repo` to list in the POM, as Gradle does.""",
+artifacts for `flutter_android_maven_repo` to list in the POM, as Gradle does.
+When the selected SDK's engine is not the release's, whose artifacts no Maven
+repository publishes, it also hands over that engine's artifacts for the
+repository to carry, as `flutter build aar --local-engine` does: the
+embedding's classes and each ABI's `libflutter.so`, from the engine's
+`flutter.jar`.""",
     attrs = {
         "bundle": attr.label(
             doc = "The `flutter_android_bundle` of the module's `flutter_application`, built for each ABI of `abis`: its native libraries are the AAR's `jni/<abi>/`. Its `flutter_assets` are the same for every ABI, and the AAR's are those of the arm64 build, in which Java is compiled too.",
@@ -364,6 +423,17 @@ artifacts for `flutter_android_maven_repo` to list in the POM, as Gradle does.""
         "min_sdk_version": attr.string(
             doc = "The manifest's `minSdkVersion`.",
             mandatory = True,
+        ),
+        # The selected SDK's engine for each ABI, stripped, when it is not the
+        # release's; nothing when it is.
+        "_engine": attr.label(
+            default = "//flutter/private:aar_engine",
+            cfg = _abi_split,
+        ),
+        # The versions of the Maven artifacts the engine's POM names.
+        "_maven": attr.label(
+            default = "@flutter_pub_android_maven//:requirements",
+            providers = [FlutterAndroidMavenInfo],
         ),
     } | _AAR_ATTRS | BUILD_MODE_ATTR,
     exec_groups = PORTABLE_EXEC_GROUPS,
@@ -521,7 +591,7 @@ def _flutter_android_plugin_aars_impl(ctx):
         ))
     return [
         DefaultInfo(files = depset(outputs)),
-        FlutterAndroidAarInfo(mode = mode, artifacts = artifacts, package_name = None),
+        FlutterAndroidAarInfo(mode = mode, artifacts = artifacts, package_name = None, engine = []),
     ]
 
 _flutter_android_plugin_aars = rule(
@@ -600,7 +670,7 @@ def _flutter_android_maven_repo_impl(ctx):
     module = ctx.attr.module[FlutterAndroidAarInfo]
     if not module.package_name:
         fail("%s: `module` %s is not a `flutter_android_module_aar`." % (ctx.label, ctx.attr.module.label))
-    plugins = ctx.attr.plugins[FlutterAndroidAarInfo] if ctx.attr.plugins else FlutterAndroidAarInfo(mode = module.mode, artifacts = [], package_name = None)
+    plugins = ctx.attr.plugins[FlutterAndroidAarInfo] if ctx.attr.plugins else FlutterAndroidAarInfo(mode = module.mode, artifacts = [], package_name = None, engine = [])
     if plugins.mode != module.mode:
         fail("%s: the module is built in %s mode and the plugins in %s mode." % (ctx.label, module.mode, plugins.mode))
 
@@ -609,15 +679,40 @@ def _flutter_android_maven_repo_impl(ctx):
         struct(group = a.group, artifact = a.artifact, version = None, scope = "compile")
         for a in plugins.artifacts
     ]
+
+    # Every artifact the repository holds: the module's and the plugins' AARs
+    # at the build number, and a custom engine's jars at the engine's version.
     artifacts = [
         struct(
             group = a.group,
             artifact = a.artifact,
-            aar = a.aar,
+            version = version,
+            packaging = "aar",
+            file = a.aar,
             dependencies = a.dependencies + plugin_dependencies,
         )
         for a in module.artifacts
-    ] + plugins.artifacts
+    ] + [
+        struct(
+            group = a.group,
+            artifact = a.artifact,
+            version = version,
+            packaging = "aar",
+            file = a.aar,
+            dependencies = a.dependencies,
+        )
+        for a in plugins.artifacts
+    ] + [
+        struct(
+            group = a.group,
+            artifact = a.artifact,
+            version = a.version,
+            packaging = "jar",
+            file = a.jar,
+            dependencies = a.dependencies,
+        )
+        for a in module.engine
+    ]
 
     coordinates = {}
     for a in artifacts:
@@ -631,7 +726,8 @@ def _flutter_android_maven_repo_impl(ctx):
         {
             "group": a.group,
             "artifact": a.artifact,
-            "version": version,
+            "version": a.version,
+            "packaging": a.packaging,
             "dependencies": [
                 {
                     "group": d.group,
@@ -651,12 +747,12 @@ def _flutter_android_maven_repo_impl(ctx):
     args.add(ctx.file._repo_tool)
     args.add("--spec", spec)
     args.add("--output", repo.path)
-    args.add_all([a.aar for a in artifacts], before_each = "--aar")
+    args.add_all([a.file for a in artifacts], before_each = "--file")
     ctx.actions.run(
         executable = tools.dart,
         arguments = [args],
         inputs = depset(
-            [ctx.file._repo_tool, ctx.file._maven_repo, spec] + [a.aar for a in artifacts],
+            [ctx.file._repo_tool, ctx.file._maven_repo, spec] + [a.file for a in artifacts],
             transitive = [tools.sdk_files.run],
         ),
         outputs = [repo],
@@ -671,7 +767,7 @@ def _flutter_android_maven_repo_impl(ctx):
     workspace = ctx.workspace_name
     config = ctx.actions.declare_file(ctx.label.name + ".android_aar.json")
     ctx.actions.write(config, json.encode_indent({
-        "artifacts": [{"group": a.group, "artifact": a.artifact} for a in artifacts],
+        "artifacts": [{"group": a.group, "artifact": a.artifact, "version": a.version} for a in artifacts],
         "buildNumber": version,
         "label": "//%s:%s" % (ctx.label.package, ctx.label.name) if not ctx.label.repo_name else str(ctx.label),
         "mode": module.mode,
@@ -713,8 +809,17 @@ with a `.sha1` and `.md5` beside each file. The module's POM depends on the
 engine's artifacts (`io.flutter:flutter_embedding_<mode>` and
 `io.flutter:<abi>_<mode>`, version `1.0.0-<engine revision>`, from
 `https://storage.googleapis.com/download.flutter.io`) and on every plugin's;
-each plugin's lists the Maven artifacts its Gradle build declares. There are
-no Gradle `.module` files and no sources or javadoc jars. Its `debug_info`
+each plugin's lists the Maven artifacts its Gradle build declares. When the
+selected SDK's engine is not the release's, the repository holds that
+engine's artifacts too, as `flutter build aar --local-engine` copies a local
+engine's in, since Google publishes only the release's:
+
+    io/flutter/flutter_embedding_<mode>/1.0.0-<engine revision>/flutter_embedding_<mode>-1.0.0-<engine revision>.{jar,pom}
+    io/flutter/<abi>_<mode>/1.0.0-<engine revision>/<abi>_<mode>-1.0.0-<engine revision>.{jar,pom}
+
+The first is the embedding's classes, its POM naming the AndroidX artifacts
+the embedding needs; each of the others holds `lib/<abi>/libflutter.so`,
+stripped. There are no Gradle `.module` files and no sources or javadoc jars. Its `debug_info`
 output group is the module's: the `.symbols` of each ABI's `libapp.so` with
 `--@rules_dart//dart:split_debug_info`.
 

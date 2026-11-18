@@ -74,12 +74,13 @@ def _target_name_test_impl(ctx):
 
 def _android_engine_targets_test_impl(ctx):
     env = unittest.begin(ctx)
-    text = android_engine_face_extra({"flutter": "@flutter_stock_engine", "local": "@local_engine"}, "arm64", "arm64-v8a")
+    text = android_engine_face_extra({"flutter": "@flutter_stock_engine", "local": "@local_engine"}, "arm64", "arm64-v8a", custom = ["local"])
 
     # One stripped jar for each SDK and mode, over that SDK's slice of the ABI.
     asserts.equals(
         env,
         [
+            "aar_engine",
             "flutter_debug_stripped",
             "flutter_profile_stripped",
             "flutter_release_stripped",
@@ -88,6 +89,7 @@ def _android_engine_targets_test_impl(ctx):
             "local_profile_stripped",
             "local_release_stripped",
             "local_stripped",
+            "no_aar_engine",
             "stripped",
         ],
         _names(text),
@@ -101,6 +103,11 @@ def _android_engine_targets_test_impl(ctx):
     asserts.true(env, "\"@rules_flutter//flutter/private:profile\": \":local_profile_stripped\"" in text)
     asserts.true(env, "\"//conditions:default\": \":flutter_release_stripped\"" in text)
     asserts.true(env, "\"@flutter_toolchains//:sdk_local\": \":local_stripped\"" in text)
+
+    # A module AAR carries the engine of a custom SDK and none of the release.
+    aar = text[text.index("name = \"aar_engine\""):]
+    asserts.true(env, "\"@flutter_toolchains//:sdk_local\": \":local_stripped\"" in aar)
+    asserts.true(env, "\"@flutter_toolchains//:sdk_flutter\": \":no_aar_engine\"" in aar)
     return unittest.end(env)
 
 _filegroup_names_test = unittest.make(_filegroup_names_test_impl)

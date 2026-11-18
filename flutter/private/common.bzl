@@ -898,6 +898,23 @@ def compute_desktop_bundle_copies(is_debug, kernel_dill_path, aot_output_path, a
 
     return copies
 
+# The coordinates of the `@rules_flutter_maven` artifacts the Flutter
+# embedding compiles against and needs at run time: what `flutter_android_engine`
+# links (android.bzl says which, and why), and what the POM of an engine a
+# module AAR carries names.
+ANDROID_EMBEDDING_MAVEN_DEPS = [
+    "androidx.annotation:annotation",
+    "androidx.core:core",
+    "androidx.exifinterface:exifinterface",
+    "androidx.fragment:fragment",
+    "androidx.lifecycle:lifecycle-common",
+    "androidx.lifecycle:lifecycle-runtime",
+    "androidx.tracing:tracing",
+    "androidx.window:window",
+    "androidx.window:window-java",
+    "com.getkeepsafe.relinker:relinker",
+]
+
 # Android ABIs with AOT cross-compilation support. Single source of truth
 # mapping each ABI to the Bazel platform Android rules transition to and the
 # ELF e_machine value native libraries packaged for that ABI must carry.
