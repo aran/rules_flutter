@@ -2089,6 +2089,8 @@ Error in readdir: can't readdir(), not a directory:
   .../Android/sdk/ndk/toolchains/llvm/prebuilt/darwin-x86_64
 ```
 
+Every build needs `ANDROID_NDK_HOME`, not only Android ones. `register_toolchains("@androidndk//:all")` has Bazel fetch the `@androidndk` repository when it resolves toolchains, so a web build, for one, stops the same way without it. The downloaded NDK above has no such cost: its `@androidndk` is a small repository that points at the NDK, and a web build doesn't download the NDK itself.
+
 With `ANDROID_NDK_HOME` unset, the build stops while fetching:
 
 ```
