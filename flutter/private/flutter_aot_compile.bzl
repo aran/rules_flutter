@@ -44,7 +44,31 @@ _OBFUSCATE_NEEDS_SPLIT = (
     "stack trace cannot be read back."
 )
 
-def gen_snapshot_options(ctx, inputs = None):
+# The name `flutter build` gives an architecture in a split debug info file:
+# Darwin's for Apple targets, Flutter's own for the rest.
+_DARWIN_ARCHS = {"arm64": "arm64", "x64": "x86_64"}
+
+def _symbols_basename(ctx, target_platform, target_arch):
+    """`app.<platform>.symbols`, as `flutter build --split-debug-info` names it.
+
+    `app.ios-arm64.symbols`, `app.darwin-x86_64.symbols`,
+    `app.android-arm64.symbols`: one build may write several, one a platform
+    and architecture, into one directory.
+    """
+    if target_platform in ("ios", "macos"):
+        arch = _DARWIN_ARCHS.get(target_arch, "")
+        platform = "darwin" if target_platform == "macos" else "ios"
+    else:
+        arch = target_arch
+        platform = target_platform
+    if not arch:
+        fail(("%s: the split debug info is named after the target architecture, " +
+              "which could not be determined for %s (got %r). This is a " +
+              "rules_flutter bug in host_target_arch's cpu detection: please " +
+              "report the bazel-out cpu segment of this build.") % (ctx.label, target_platform, target_arch))
+    return "app.%s-%s.symbols" % (platform, arch)
+
+def gen_snapshot_options(ctx, target_platform, target_arch, inputs = None):
     """Reads the gen_snapshot options a rule's attributes ask for.
 
     `extra_gen_snapshot_options` means the same on every rule that declares
@@ -62,13 +86,18 @@ def gen_snapshot_options(ctx, inputs = None):
         ctx: A rule context with an `extra_gen_snapshot_options` attribute
             and `GEN_SNAPSHOT_SETTINGS_ATTRS`, which says where the declared
             files go (`<name>_gen_snapshot/`).
+        target_platform: The platform the snapshot is for (`ios`, `macos`,
+            `android`, `linux`, `windows`).
+        target_arch: Its architecture (`arm64`, `x64`, `arm`), which names
+            the split debug info file as `flutter build` does.
         inputs: What to read `extra_gen_snapshot_options` from, if not `ctx`:
             `flutter_program_inputs`, which a program rebuilt under another
             target (`flutter_application_variant`) carries from its own.
 
     Returns:
         A struct of `flags` (strings), `file_flags` ((flag, File) pairs),
-        `debug_info` (the split debug info File, or None), `files` (every
+        `debug_info` (the split debug info File,
+        `<name>_symbols/app.<platform>-<arch>.symbols`, or None), `files` (every
         output the options declare) and `strip` (False when the options hold
         `--no-strip`, which `flutter build` reads as "ship the symbols").
     """
@@ -106,7 +135,10 @@ def gen_snapshot_options(ctx, inputs = None):
         flags.append("--obfuscate")
     debug_info = None
     if split:
-        debug_info = ctx.actions.declare_file(ctx.label.name + ".symbols")
+        debug_info = ctx.actions.declare_file("%s_symbols/%s" % (
+            ctx.label.name,
+            _symbols_basename(ctx, target_platform, target_arch),
+        ))
     return struct(
         flags = flags,
         file_flags = file_flags,
@@ -217,7 +249,7 @@ def flutter_aot_macho_action(
     The dylib keeps its symbols: gen_snapshot's `--strip` leaves no debug
     information to make a dSYM from, so Apple targets strip after extracting
     one, as `flutter build` does (see `split_and_strip_aot_binary`), unless
-    `--no-strip` asked for the symbols (`gen_snapshot_options(ctx).strip`).
+    `--no-strip` asked for the symbols (`gen_snapshot_options(...).strip`).
 
     Args:
         ctx: Rule context.

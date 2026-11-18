@@ -21,25 +21,30 @@ StagedSourcesInfo = provider(
 
 BundledProgramInfo = provider(
     doc = "The program a part of a platform's app bundle is built from, for " +
-          "the app to pass on to rules_dart's analysis when the bundle rule " +
-          "(rules_apple's) passes on nothing of its contents'.",
+          "the app to pass on what the bundle rule (rules_apple's) passes on " +
+          "nothing of: the program's Dart files, for rules_dart's analysis, " +
+          "and the split debug info of the snapshot it ships.",
     fields = {
-        "info": "The program's `DartAnalyzableInfo`.",
+        "info": "The program's `DartAnalyzableInfo`, or None.",
+        "debug_info": "Depset of the program's `debug_info` output group: " +
+                      "its `.symbols`, built in the bundle's configuration.",
     },
 )
 
 def bundled_program_info(application):
-    """The `BundledProgramInfo` of a bundle part built from `application`, if it is a program.
+    """The `BundledProgramInfo` of a bundle part built from `application`.
 
     Args:
       application: The part's `flutter_application` (or variant) Target.
 
     Returns:
-      A list of one `BundledProgramInfo`, or none.
+      A list of one `BundledProgramInfo`.
     """
-    if DartAnalyzableInfo not in application:
-        return []
-    return [BundledProgramInfo(info = application[DartAnalyzableInfo])]
+    groups = application[OutputGroupInfo] if OutputGroupInfo in application else None
+    return [BundledProgramInfo(
+        info = application[DartAnalyzableInfo] if DartAnalyzableInfo in application else None,
+        debug_info = groups.debug_info if groups and "debug_info" in groups else depset(),
+    )]
 
 def _bundled_program_aspect_impl(_target, ctx):
     # The parts of the bundle, as the bundle rule configured them, so the

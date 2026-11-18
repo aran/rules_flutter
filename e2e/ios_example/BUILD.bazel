@@ -17,7 +17,7 @@ load(
     "flutter_ios_simulator_build",
     "flutter_ios_simulator_build_test",
 )
-load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "one_application_configuration_test", "program_test", "skipped_test")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "command_line_tests", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
 load("@rules_swift//swift:swift.bzl", "swift_library")
@@ -712,6 +712,9 @@ program_test(
     target = ":ios_only_app",
 )
 
+# Property: an obfuscated device build's `.symbols`, which reads its stack
+# traces back, is the one of the snapshot the bundle ships, named as `flutter
+# build ipa --split-debug-info` names it.
 analyses_test(
     name = "ios_app_macos_only_control_test",
     target = ":app_macos_only",
@@ -751,6 +754,16 @@ apple_release_build(
     ios_device = True,
     sign = False,
     targets = [":swiftpm_plugins_app_device"],
+)
+
+# Property: an obfuscated device build's `.symbols`, which reads its stack
+# traces back, is the one of the snapshot the bundle ships, named as `flutter
+# build ipa --split-debug-info` names it.
+split_debug_info_test(
+    name = "ios_app_split_debug_info_test",
+    ios_device = True,
+    symbols = "app.ios-arm64.symbols",
+    target = ":swiftpm_plugins_app_device",
 )
 
 dart_test(

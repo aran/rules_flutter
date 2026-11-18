@@ -19,7 +19,7 @@ load(
     "flutter_macos_registrant_gen",
     "flutter_macos_runner_lib_gen",
 )
-load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "one_application_configuration_test", "program_test", "skipped_test")
+load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "analyses_test", "one_application_configuration_test", "program_test", "skipped_test", "split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_flag", "device_profile")
 load("@rules_flutter//tools/e2e_testing:version_build.bzl", "version_build")
@@ -657,6 +657,15 @@ program_test(
 # alone, so a build of it, and the dev tool's, compiles it once.
 one_application_configuration_test(
     name = "macos_app_one_application_configuration_test",
+    target = ":app",
+)
+
+# Property: an obfuscated build's `.symbols`, which reads its stack traces
+# back, is the one of the snapshot the bundle ships, named as `flutter build
+# macos --split-debug-info` names it.
+split_debug_info_test(
+    name = "macos_app_split_debug_info_test",
+    symbols = "app.darwin-arm64.symbols",
     target = ":app",
 )
 

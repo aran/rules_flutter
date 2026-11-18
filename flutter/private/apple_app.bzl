@@ -69,6 +69,14 @@ def _impl(ctx):
     # Bazel runs the validations of every target a build reaches.
     groups = {name: getattr(app[OutputGroupInfo], name) for name in dir(app[OutputGroupInfo]) if name != "to_json"} if OutputGroupInfo in app else {}
 
+    # The `.symbols` of the snapshot the bundle ships, as `flutter build
+    # --split-debug-info` writes them: the application's, in the bundle's
+    # configuration. Built at the top level, it would be another configuration
+    # and another snapshot, whose symbols match nothing the app ships.
+    program = app[BundledProgramInfo] if BundledProgramInfo in app else None
+    if program:
+        groups["debug_info"] = program.debug_info
+
     return [
         DefaultInfo(
             executable = executable,
@@ -80,7 +88,7 @@ def _impl(ctx):
         # The program's own Dart files, for rules_dart's analysis: the
         # rules_apple bundle does not pass on what its contents provide, so
         # `bundled_program_aspect` reads them off the bundle's parts.
-        [app[BundledProgramInfo].info] if BundledProgramInfo in app else []
+        [program.info] if program and program.info else []
     )
 
 flutter_apple_app = rule(
@@ -106,6 +114,8 @@ flutter_apple_app = rule(
     doc = """The Flutter app a user names: carries `target_compatible_with` in front of a rules_apple application.
 
 Forwards the application's providers and executable, and its archive under this
-target's name (`<name>.ipa`, `<name>.zip`), and the `DartAnalyzableInfo` of the
-Flutter program inside it.""",
+target's name (`<name>.ipa`, `<name>.zip`), the `DartAnalyzableInfo` of the
+Flutter program inside it, and in its `debug_info` output group the program's
+split debug info (`app.ios-arm64.symbols`, `app.darwin-arm64.symbols`) with
+`--@rules_dart//dart:split_debug_info`.""",
 )

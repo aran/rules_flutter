@@ -13,7 +13,7 @@ platforms (ELF .so).
 """
 
 load("@rules_dart//dart:utils.bzl", "COPY_TO_DIRECTORY_TOOLCHAINS")
-load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "KERNEL_COMPILE_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "detect_target_platform", "flutter_build_mode", "flutter_compile_kernel")
+load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "KERNEL_COMPILE_ATTRS", "PLATFORM_CONSTRAINT_ATTRS", "detect_target_platform", "flutter_build_mode", "flutter_compile_kernel", "host_target_arch")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "GEN_SNAPSHOT_SETTINGS_ATTRS", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
 
@@ -54,7 +54,7 @@ def _flutter_aot_snapshot_impl(ctx):
         return [DefaultInfo(files = depset([kernel_dill])), OutputGroupInfo(**output_groups)]
 
     # Step 2: AOT compile — choose format based on target platform.
-    options = gen_snapshot_options(ctx)
+    options = gen_snapshot_options(ctx, target_platform, host_target_arch(ctx, flutter_sdk_info))
     if options.debug_info:
         output_groups["debug_info"] = depset([options.debug_info])
     if options.files:

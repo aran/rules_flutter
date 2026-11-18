@@ -240,7 +240,7 @@ def flutter_application_build(ctx, inputs):
     debug_info_output = None
     gen_snapshot_files = []
     if not is_debug:
-        options = gen_snapshot_options(ctx, inputs)
+        options = gen_snapshot_options(ctx, target_platform, target_arch, inputs)
         strip_aot = options.strip
         debug_info_output = options.debug_info
         gen_snapshot_files = options.files

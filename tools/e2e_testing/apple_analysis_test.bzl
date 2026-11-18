@@ -215,3 +215,71 @@ def one_application_configuration_test(name, target):
         target: The app.
     """
     _one_application_configuration_dbg_test(name = name, target_under_test = target)
+
+def _split_debug_info_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    groups = target[OutputGroupInfo]
+    symbols = groups.debug_info.to_list() if "debug_info" in groups else []
+    asserts.equals(
+        env,
+        [ctx.attr.symbols],
+        [f.basename for f in symbols],
+        ("%s's `debug_info` output group should hold one split debug info " +
+         "file, named as `flutter build` names it") % target.label,
+    )
+
+    # The shipped App binary's dSYM is made in the configuration the bundle
+    # builds its application in, from that application's snapshot.
+    shipped = [
+        f
+        for f in (groups.dsyms.to_list() if "dsyms" in groups else [])
+        if f.path.endswith("/App.framework.dSYM/Contents/Resources/DWARF/App")
+    ]
+    asserts.equals(env, 1, len(shipped), "the bundle has the dSYM of one App binary: %s" % shipped)
+    if symbols and len(shipped) == 1:
+        asserts.equals(
+            env,
+            shipped[0].root.path,
+            symbols[0].root.path,
+            ("the `.symbols` should be the application's in the configuration " +
+             "whose snapshot the bundle ships, as its App binary is"),
+        )
+    return analysistest.end(env)
+
+_SPLIT_DEBUG_INFO_SETTINGS = {
+    "//command_line_option:apple_generate_dsym": True,
+    "//command_line_option:compilation_mode": "opt",
+    str(Label("//flutter:obfuscate")): True,
+    str(Label("@rules_dart//dart:split_debug_info")): True,
+}
+
+_split_debug_info_test = analysistest.make(
+    _split_debug_info_impl,
+    attrs = {"symbols": attr.string(mandatory = True)},
+    config_settings = _SPLIT_DEBUG_INFO_SETTINGS,
+)
+
+_split_debug_info_ios_device_test = analysistest.make(
+    _split_debug_info_impl,
+    attrs = {"symbols": attr.string(mandatory = True)},
+    config_settings = _SPLIT_DEBUG_INFO_SETTINGS | {"//command_line_option:ios_multi_cpus": ["arm64"]},
+)
+
+def split_debug_info_test(name, target, symbols, ios_device = False):
+    """A test that `target`, an app, has its program's `.symbols` in its `debug_info` output group.
+
+    Built `-c opt`, obfuscated, with `--@rules_dart//dart:split_debug_info`
+    and `--apple_generate_dsym`. The file must be the one of the application
+    in the configuration its shipped App binary (whose dSYM the bundle has)
+    is built in: another configuration compiles another snapshot.
+
+    Args:
+        name: The test's name.
+        target: The app.
+        symbols: The file's basename, as `flutter build` names it
+            (`app.darwin-arm64.symbols`).
+        ios_device: Build for an arm64 iOS device.
+    """
+    rule = _split_debug_info_ios_device_test if ios_device else _split_debug_info_test
+    rule(name = name, target_under_test = target, symbols = symbols)

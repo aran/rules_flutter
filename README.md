@@ -612,7 +612,7 @@ bazel build -c opt //:my_app_macos \
     --output_groups=+debug_info
 ```
 
-`--@rules_dart//dart:split_debug_info` leaves the Dart debug information out of the AOT snapshot and writes it to `<application>.symbols`, as `gen_snapshot --save-debugging-info` does. The file is in the `debug_info` output group of the `flutter_application`, and of a `flutter_aot_snapshot` or a rules_dart `dart_binary`. `--@rules_flutter//flutter:obfuscate` renames the Dart symbols. It needs `split_debug_info`, as `--obfuscate` needs `--split-debug-info`, and the build fails without it. A debug build ignores both.
+`--@rules_dart//dart:split_debug_info` leaves the Dart debug information out of the AOT snapshot and writes it to a `.symbols` file named as `flutter build --split-debug-info` names it: `app.ios-arm64.symbols`, `app.darwin-arm64.symbols`, `app.android-arm64.symbols`, `app.linux-x64.symbols`. The file is in the `debug_info` output group of the `flutter_application` and a `flutter_aot_snapshot`, and of a `flutter_ios_app` or `flutter_macos_app`, which hold the one of the snapshot they ship: their bundle builds the application in a configuration of its own, so the application's file at the top level is another build's. A rules_dart `dart_binary` writes `<name>.symbols`. `--@rules_flutter//flutter:obfuscate` renames the Dart symbols. It needs `split_debug_info`, as `--obfuscate` needs `--split-debug-info`, and the build fails without it. A debug build ignores both.
 
 The dSYM of an obfuscated app holds the original Dart names, and `gen_snapshot` warns about it. Don't ship it inside the app.
 
