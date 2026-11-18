@@ -381,6 +381,9 @@ class RunCommand {
     host.registerReloadCommands(pipeline);
     host.registerLifecycleCommands();
 
+    // Held from before the first command can arrive until startup has settled
+    // the gate: see [ReloadPipeline.holdForStartup].
+    final endStartup = pipeline.holdForStartup();
     protocol.startListening();
 
     // Assigned part-way through the run and released in its `finally`, so
@@ -637,6 +640,7 @@ class RunCommand {
           plan.hotReloadOff ?? 'Hot reload is not available for this run.',
         );
       }
+      endStartup();
 
       // Profile mode enters an interactive session (without hot reload).
       // This allows DevTools connection, performance overlay, and key handlers.
@@ -707,6 +711,7 @@ class RunCommand {
       // the build send its answer before the transports close under it.
       await host.shutdownRequested.future;
     } finally {
+      endStartup();
       await sourceWatcher?.stop();
       // Whatever route the run ended by — 'q', an app.stop, the app exiting,
       // a failure, a shutdown — everything it owns goes here. Nothing is shut

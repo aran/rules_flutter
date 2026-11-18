@@ -332,7 +332,7 @@ _UNIT_TESTS = {
     "readiness_gate_test": {},
     "reload_pipeline_test": {
         "fakes": True,
-        "deps": _PATH_DEP,
+        "deps": ["@dev_tool_deps//:fake_async"] + _PATH_DEP,
     },
     "reload_orchestrator_test": {
         "fakes": True,

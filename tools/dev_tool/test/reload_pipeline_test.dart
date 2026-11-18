@@ -8,6 +8,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_bazel_dev_tool/command_failure.dart';
 import 'package:flutter_bazel_dev_tool/command_report.dart';
 import 'package:flutter_bazel_dev_tool/compiler_config.dart';
@@ -461,6 +462,55 @@ void main() {
         );
       },
     );
+
+    // A cold start can spend minutes building and compiling before the gate
+    // settles, and a client that sends a reload in that window is owed the
+    // verdict of that startup, not a guess made from a clock.
+    //
+    // The pipeline is made inside the fake clock's zone: a future made
+    // outside it completes on the real event loop, which never turns here.
+    test('a request during a long startup waits for the startup', () {
+      fakeAsync((async) {
+        final pipeline = ReloadPipeline(
+          host: SessionHost(isMachine: false, logger: Logger('test')),
+        );
+        final release = pipeline.holdForStartup();
+        Map<String, dynamic>? answer;
+        pipeline.hotReload(const {}).then((a) => answer = a);
+
+        async.elapse(const Duration(minutes: 3));
+        expect(answer, isNull, reason: 'the startup is still running');
+
+        pipeline.ready.signalUnavailable('Initial compile failed.');
+        release();
+        async.flushMicrotasks();
+        expect(answer, containsPair('error', 'Initial compile failed.'));
+      });
+    });
+
+    test('a startup that ends without settling releases its waiters', () {
+      fakeAsync((async) {
+        final pipeline = ReloadPipeline(
+          host: SessionHost(isMachine: false, logger: Logger('test')),
+        );
+        final release = pipeline.holdForStartup();
+        Map<String, dynamic>? answer;
+        pipeline.hotReload(const {}).then((a) => answer = a);
+
+        async.elapse(const Duration(minutes: 3));
+        expect(answer, isNull, reason: 'the startup is still running');
+
+        release();
+        async.flushMicrotasks();
+        expect(
+          answer,
+          containsPair('error', 'Hot reload is still starting up.'),
+        );
+        // Both callers end their hold twice: where the startup finishes, and
+        // again on the way out of the run.
+        release();
+      });
+    });
   });
 
   // A reload that is stuck and one that is slow must not look alike: every phase

@@ -169,6 +169,9 @@ class AttachCommand {
     // the build-info record and hard-fails the run when the app lacks it.
     host.registerAgentCommands();
     host.registerBuildInfo();
+    // Held until the pipeline below has settled its gate: see
+    // [ReloadPipeline.holdForStartup].
+    final endStartup = pipeline.holdForStartup();
 
     SourceWatcher? sourceWatcher;
     // Everything from resolving the workspace to the end of the session is
@@ -422,6 +425,7 @@ class AttachCommand {
           'Hot reload is not available for this session.',
         );
       }
+      endStartup();
 
       // After assembly, for the reason `run` starts it there: a driver reads
       // this channel appearing as "the run is ready", and an edit that lands
@@ -479,6 +483,7 @@ class AttachCommand {
       // send its answer before the transports close under it.
       await host.shutdownRequested.future;
     } finally {
+      endStartup();
       // The VM services outlive this command — the apps were started
       // externally and keep running — so their stream subscriptions are ours
       // to cancel. Done here rather than in performCleanup because an

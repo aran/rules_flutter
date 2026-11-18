@@ -262,11 +262,37 @@ class ReloadPipeline {
   int command = 0;
 
   /// Serializes assembly attempts, so two requests arriving together produce
-  /// two builds one after another rather than two at once.
+  /// two builds one after another rather than two at once. The run's startup
+  /// is the first of them: see [holdForStartup].
   Future<void> _attempts = Future<void>.value();
   bool _attemptInFlight = false;
 
   ReloadPipeline({required this.host});
+
+  /// Counts the run's own startup as an attempt in flight, until the returned
+  /// function is called.
+  ///
+  /// A command sent while the app is still building, launching or compiling
+  /// for the first time waits on [ready], and that wait is bounded for a gate
+  /// nothing will ever settle. Startup will settle it, however long a cold
+  /// `bazel build` takes, so a request that arrives during it is held for its
+  /// verdict like one behind an attempt, rather than told hot reload is still
+  /// starting up while it is.
+  ///
+  /// Not counted in [awaitingAssembly]: the watcher has nothing to wake during
+  /// startup, whose first compile reads the edits saved inside it.
+  ///
+  /// The returned function may be called more than once; the first call ends
+  /// the hold. A caller ends it where startup settles the gate, and again on
+  /// the way out, so a startup that throws does not hold requests forever.
+  void Function() holdForStartup() {
+    final done = Completer<void>();
+    final previous = _attempts;
+    _attempts = previous.then((_) => done.future);
+    return () {
+      if (!done.isCompleted) done.complete();
+    };
+  }
 
   /// Whether this run can hot reload at all.
   ///
@@ -315,11 +341,12 @@ class ReloadPipeline {
       const Duration(seconds: 90),
       onTimeout: () {},
     );
-    // An attempt in flight holds the gate open, and waiting for *it* is a
-    // different thing from waiting out the clock above: something is running,
-    // it will settle, and a `bazel build` taking its time is not evidence that
-    // anything is wrong. The bound above stays for the case it was written
-    // for — a run mode that settles the gate never at all.
+    // An attempt in flight, or the startup (see [holdForStartup]), holds the
+    // gate open, and waiting for *it* is a different thing from waiting out the
+    // clock above: something is running, it will settle, and a `bazel build`
+    // taking its time is not evidence that anything is wrong. The bound above
+    // stays for the case it was written for — a run mode that settles the gate
+    // never at all.
     if (!ready.isSettled) await _attempts;
     // A gate settled retryable is a verdict on the last attempt, not on the
     // run. This request is the event that makes the next one.
