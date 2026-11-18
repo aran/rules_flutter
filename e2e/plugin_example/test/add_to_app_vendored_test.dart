@@ -2,7 +2,13 @@
 /// plugin links as it is, as `flutter build ios-framework` and
 /// `macos-framework` copy a pod's vendored xcframework.
 ///
-/// Usage: `add_to_app_vendored_test --platform=<ios|macos> TARGET XCFRAMEWORK`,
+/// It also links a prebuilt static framework, `STATIC`, which the module
+/// makes a dynamic framework of its own that the plugin links: one copy of
+/// its code for the host, however many plugins use it, where `flutter build
+/// ios-framework` links it into each plugin's framework and copies it beside.
+///
+/// Usage: `add_to_app_vendored_test --platform=PLATFORM --static=STATIC
+/// TARGET XCFRAMEWORK`, `PLATFORM` `ios` or `macos`,
 /// `TARGET` a `flutter_ios_xcframeworks` or `flutter_macos_xcframeworks` in
 /// the test's runfiles built in release, whose plugin links `XCFRAMEWORK` (a
 /// workspace path in the runfiles, its files as a glob of a vendored one
@@ -22,8 +28,9 @@ import 'package:rules_flutter_e2e_testing/mach_o.dart';
 import 'package:rules_flutter_e2e_testing/runfiles_paths.dart';
 
 void main(List<String> args) {
-  final platform = args.first.substring('--platform='.length);
-  final [target, xcframeworkPath] = args.sublist(1);
+  final platform = args[0].substring('--platform='.length);
+  final static = args[1].substring('--static='.length);
+  final [target, xcframeworkPath] = args.sublist(2);
   final original = requireRunfile(xcframeworkPath, what: 'xcframework');
   final name = xcframeworkPath.split('/').last.replaceAll('.xcframework', '');
   final release = '${exportXcframeworks(target)}/Release';
@@ -48,10 +55,12 @@ void main(List<String> args) {
   }
 
   final package = File('$release/Package.swift').readAsStringSync();
-  if (!package.contains(
-    '.binaryTarget(name: "$name", path: "$name.xcframework")',
-  )) {
-    failures.add('Package.swift has no binary target of $name');
+  for (final framework in [name, static]) {
+    if (!package.contains(
+      '.binaryTarget(name: "$framework", path: "$framework.xcframework")',
+    )) {
+      failures.add('Package.swift has no binary target of $framework');
+    }
   }
 
   final slices = platform == 'ios'
@@ -76,6 +85,25 @@ void main(List<String> args) {
     }
     if (MachO(plugin).definitionsOf('_vendored_greeting') != 0) {
       failures.add('$plugin carries $name');
+    }
+
+    if (!links.contains('@rpath/$static.framework/')) {
+      failures.add('$plugin does not link $static.framework:\n$links');
+    }
+    if (MachO(plugin).definitionsOf('_static_greeting') != 0) {
+      failures.add('$plugin carries $static');
+    }
+    final staticBinary = platform == 'ios'
+        ? '$static.framework/$static'
+        : '$static.framework/Versions/A/$static';
+    final shared = MachO('$release/$static.xcframework/$slice/$staticBinary');
+    if (shared.definitionsOf('_static_greeting') != 1) {
+      failures.add('${shared.path} does not define _static_greeting once');
+    }
+    // A static archive has no install name, and `installName` throws on it.
+    final installName = '@rpath/$staticBinary';
+    if (shared.installName() != installName) {
+      failures.add('${shared.path} is not named $installName');
     }
   }
 

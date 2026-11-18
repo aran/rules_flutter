@@ -1,4 +1,4 @@
-load("@rules_apple//apple:apple.bzl", "apple_dynamic_xcframework_import", "apple_xcframework")
+load("@rules_apple//apple:apple.bzl", "apple_dynamic_xcframework_import", "apple_static_xcframework", "apple_static_xcframework_import", "apple_xcframework")
 load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_plugin", "flutter_plugin_platform")
 load("@rules_flutter//flutter:macos.bzl", "flutter_apple_plugin_library")
@@ -54,7 +54,10 @@ flutter_apple_plugin_library(
     srcs = glob(["darwin/Classes/*"]),
     module_name = "vendored_plugin",
     platform = "darwin",
-    deps = [":vendored_greeting"],
+    deps = [
+        ":static_greeting",
+        ":vendored_greeting",
+    ],
 )
 
 apple_dynamic_xcframework_import(
@@ -123,4 +126,55 @@ unpacked_xcframework(
     },
     visibility = ["//:__pkg__"],
     xcframework = "VendoredGreeting",
+)
+
+# A prebuilt static framework, as FirebaseAnalytics' `binaryTarget` is one.
+# Add-to-app makes it a framework of its own, which every plugin that uses it
+# links, so the host has one copy of its code (//:add_to_app_vendored_*_test).
+apple_static_xcframework_import(
+    name = "static_greeting",
+    target_compatible_with = _APPLE_ONLY,
+    xcframework_imports = [":static_greeting_files"],
+)
+
+unpacked_xcframework(
+    name = "static_greeting_files",
+    archive = ":StaticGreeting.xcframework.zip",
+    files = ["Info.plist"] + [
+        "%s/StaticGreeting.framework/%s" % (slice, f)
+        for slice in [
+            "ios-arm64",
+            "ios-arm64-simulator",
+            "macos-arm64",
+        ]
+        for f in [
+            "StaticGreeting",
+            "Headers/StaticGreeting.h",
+            "Modules/module.modulemap",
+        ]
+    ],
+    xcframework = "StaticGreeting",
+)
+
+objc_library(
+    name = "static_greeting_lib",
+    srcs = ["greeting/StaticGreeting.c"],
+    hdrs = ["greeting/StaticGreeting.h"],
+    target_compatible_with = _APPLE_ONLY,
+)
+
+apple_static_xcframework(
+    name = "StaticGreeting",
+    ios = {
+        "device": ["arm64"],
+        "simulator": ["arm64"],
+    },
+    macos = ["arm64"],
+    minimum_os_versions = {
+        "ios": "15.0",
+        "macos": "12.0",
+    },
+    public_hdrs = ["greeting/StaticGreeting.h"],
+    target_compatible_with = _APPLE_ONLY,
+    deps = [":static_greeting_lib"],
 )

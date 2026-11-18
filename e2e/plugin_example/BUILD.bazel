@@ -1332,6 +1332,7 @@ flutter_macos_xcframeworks(
         name = "add_to_app_vendored_%s_test" % platform,
         args = [
             "--platform=" + platform,
+            "--static=StaticGreeting",
             "vendored_module_" + platform,
             "vendored_plugin/vendored_greeting_files/VendoredGreeting.xcframework",
         ],
