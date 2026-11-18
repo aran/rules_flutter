@@ -157,7 +157,9 @@ void main() {
   group('an Android namespace in a package', () {
     // The namespace is written into the plugin's generated Android BUILD file
     // (the library's `custom_package` and a genrule that emits BuildConfig),
-    // so it must be a dotted Java name, not text that ends a string.
+    // so it must be a dotted Java name, not text that ends a string. Only the
+    // plugin's Android library needs it: the package fetches and loads, and
+    // that library fails at analysis.
     final hostile = {
       'gradle': (
         'android/build.gradle',
@@ -179,18 +181,38 @@ void main() {
     });
 
     for (final key in hostile.keys) {
-      test('from the $key is refused naming the package, never run', () async {
-        final result = await ws.loadSpoke('ns_$key');
+      test('from the $key fails the Android library naming the package, '
+          'never run', () async {
+        final loaded = await ws.loadSpoke('ns_$key');
+        expect(loaded.succeeded, isTrue, reason: '$loaded');
+        final spoke = PubInputsWorkspace.spoke('ns_$key');
+        final result = await ws.bazel([
+          'build',
+          '--nobuild',
+          '$spoke//android:lib',
+        ]);
+        for (final run in [loaded, result]) {
+          expect(
+            run.output,
+            isNot(contains('INJECTED')),
+            reason: 'a namespace ran as code in the spoke:\n$run',
+          );
+        }
+        expect(result.succeeded, isFalse, reason: 'built from $key: $result');
+        expect(
+          namesPackage(result.output, 'ns_$key'),
+          isTrue,
+          reason: 'the failure does not name the package:\n$result',
+        );
         expect(
           result.output,
-          isNot(contains('INJECTED')),
-          reason: 'a namespace ran as code in the spoke:\n$result',
+          contains('is not a Java package name'),
+          reason: '$result',
         );
-        expectRefused(
-          result,
-          package: 'ns_$key',
-          what: 'an Android namespace that is not a Java package name',
-          mentions: ['namespace'],
+        expect(
+          result.output,
+          isNot(contains('package contains errors')),
+          reason: 'the Android package should load:\n$result',
         );
       });
     }

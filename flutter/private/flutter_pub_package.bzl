@@ -61,6 +61,7 @@ load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_libr
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFORMS")
+load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "unusable_message", "write_failing_stub")
@@ -228,8 +229,8 @@ def _builds_apple_library(ctx, platform, info):
     shared_darwin = info.get("sharedDarwinSource", False) == True
     return info.get("ffiPlugin", False) == True and bool(_apple_manifest_dir(ctx, platform, shared_darwin))
 
-def _fail_on_swiftpm_dependencies(package_name, platform, manifests):
-    """Fails when a plugin's SwiftPM package depends on a directory outside the plugin.
+def _swiftpm_path_dependencies_message(package_name, platform, manifests):
+    """Why a plugin's SwiftPM package cannot be built, when it depends on a directory outside the plugin, or "".
 
     A remote package is the root module's to declare
     (`swift_packages.bzl`), and the Flutter framework and sibling plugins
@@ -239,6 +240,9 @@ def _fail_on_swiftpm_dependencies(package_name, platform, manifests):
         package_name: The plugin's package name, for the message.
         platform: `"macos"` or `"ios"`, for the message.
         manifests: The plugin's manifests for `platform` (`_apple_manifests`).
+
+    Returns:
+        The message the platform's library fails with, or "".
     """
     for manifest in manifests:
         unsupported = [
@@ -247,7 +251,7 @@ def _fail_on_swiftpm_dependencies(package_name, platform, manifests):
             if d.startswith("path ")
         ]
         if unsupported:
-            fail((
+            return ((
                 "package:{pkg} ({plat}) declares Swift package dependencies in " +
                 "{manifest} on directories outside the plugin, which nothing in " +
                 "the build supplies:\n" +
@@ -258,6 +262,7 @@ def _fail_on_swiftpm_dependencies(package_name, platform, manifests):
                 manifest = manifest.path,
                 deps = "\n".join(["  - " + d for d in unsupported]),
             ))
+    return ""
 
 def _detect_apple_include_dirs(ctx, source_dirs, package_name):
     """Collect SwiftPM-canonical public-header directories for the given Apple sources.
@@ -444,17 +449,17 @@ def _java_package_problem(name):
                 return "has the character {} where a Java identifier has none".format(repr(c))
     return ""
 
-def _checked_java_package(package, source, name):
-    """Return the namespace `name`, or fail naming the package and its source."""
+def _java_package_message(package, source, name):
+    """Why the namespace `name` cannot be the plugin's Android package, naming the package and its source, or ""."""
     problem = _java_package_problem(name) if name else ""
-    if problem:
-        fail("package {}: the Android namespace {} (from {}) is not a Java package name: it {}.".format(
-            package,
-            repr(name),
-            source,
-            problem,
-        ))
-    return name
+    if not problem:
+        return ""
+    return "package {}: the Android namespace {} (from {}) is not a Java package name: it {}.".format(
+        package,
+        repr(name),
+        source,
+        problem,
+    )
 
 def _android_gradle_script(ctx):
     """The plugin's Gradle build script: `android/build.gradle`, else its `.kts`.
@@ -578,11 +583,10 @@ def _detect_unbuilt_native_code(ctx, version, plugin_block, pub_dependencies):
     Returns:
         A dict of platform (`android`, `ios`, `macos`, `linux`, `windows`) to
         the message its build fails with, for each platform the pubspec
-        declares whose build makes a library rules_flutter cannot, and for
-        each iOS or macOS platform whose podspec adds to the build what
-        rules_flutter drops (`podspec_dropped_fields`). Fails the
-        fetch when an iOS or macOS Package.swift depends on other Swift
-        packages.
+        declares whose build makes a library rules_flutter cannot, for each
+        iOS or macOS platform whose podspec adds to the build what
+        rules_flutter drops (`podspec_dropped_fields`), and for each whose
+        Package.swift depends on a directory outside the plugin.
     """
     out = {}
     for platform in ("android", "ios", "macos", "linux", "windows"):
@@ -603,22 +607,27 @@ def _detect_unbuilt_native_code(ctx, version, plugin_block, pub_dependencies):
             out[platform] = dropped
         elif apple_library:
             # The sources are compiled, so the plugin's Package.swift says
-            # what else that compile needs: a directory outside the plugin fails the
-            # fetch. (Its settings are the Apple repository's to apply.)
+            # what else that compile needs: a directory outside the plugin
+            # fails the platform's build. (Its settings are the Apple
+            # repository's to apply.)
             manifests = _apple_manifests(ctx, platform, info.get("sharedDarwinSource", False) == True)
-            _fail_on_swiftpm_dependencies(ctx.attr.package_name, platform, manifests)
+            outside = _swiftpm_path_dependencies_message(ctx.attr.package_name, platform, manifests)
+            if outside:
+                out[platform] = outside
     return out
 
 def make_android_failing_build_content(message):
-    """An `android/BUILD.bazel` that fails at load time with `message`.
+    """An `android/BUILD.bazel` whose `:lib` fails at analysis with `message`.
 
     Written for a plugin whose Android native code rules_flutter does not
-    build (see `unbuilt_native_code.bzl`), or whose Java level it cannot read
-    (`android_plugin_jvm_target.bzl`), when no overlay builds the package.
-    An Android build that links the plugin loads this file through its
-    member's `exports` and fails; other platforms never load it.
+    build (see `unbuilt_native_code.bzl`), whose Java level it cannot read
+    (`android_plugin_jvm_target.bzl`), or whose namespace cannot be the
+    library's, when no overlay builds the package. An Android build that
+    links the plugin reaches `:lib` through its member's `exports` and fails;
+    other platforms never analyse it, and the package still loads, so that
+    `bazel query` over the member's dependencies works.
     """
-    return "fail({})\n".format(repr(message))
+    return FAILING_TARGETS_LOAD + failing_targets(["lib"], message)
 
 def _parse_consumer_proguard_files(content):
     """Extract `consumerProguardFiles` paths from a Gradle build script.
@@ -1881,6 +1890,15 @@ flutter_pub_member(
         pub_attrs = pub_attrs,
     )
 
+NO_NAMESPACE_MESSAGE = (
+    "Plugin ships Android resources (android/src/main/res/) but " +
+    "declares no namespace — checked android.namespace in " +
+    "build.gradle(.kts), the AndroidManifest.xml package " +
+    "attribute, and flutter.plugin.platforms.android.package in " +
+    "pubspec.yaml. Without a namespace the R class cannot be " +
+    "generated, so the resources would not compile."
+)
+
 def make_android_subpackage_build_content(
         android_src_dir,
         java_package,
@@ -1978,14 +1996,8 @@ def make_android_subpackage_build_content(
         Generated BUILD content as a string.
     """
     if has_resources and not java_package:
-        fail(
-            "Plugin ships Android resources (android/src/main/res/) but " +
-            "declares no namespace — checked android.namespace in " +
-            "build.gradle(.kts), the AndroidManifest.xml package " +
-            "attribute, and flutter.plugin.platforms.android.package in " +
-            "pubspec.yaml. Without a namespace the R class cannot be " +
-            "generated, so the resources would not compile.",
-        )
+        # The repository writes `make_android_failing_build_content` instead.
+        fail(NO_NAMESPACE_MESSAGE)
 
     if android_src_dir:
         # Source dir is relative to the package root; the sub-package
@@ -2874,6 +2886,7 @@ def _flutter_pub_package_impl(ctx):
         android_consumer_proguard_specs = []
         android_has_resources = False
         android_native_build = unbuilt_native_code.get("android", "")
+        android_unbuildable = ""
         if android_info and android_info.get("pluginClass", "") and not android_native_build:
             android_src_dir = _detect_android_source_dir(ctx)
             android_has_resources = _detect_android_resources(ctx)
@@ -2883,16 +2896,22 @@ def _flutter_pub_package_impl(ctx):
             # `package` field locates the plugin class for the registrant;
             # it only stands in for the namespace when the plugin declares
             # none of its own.
-            android_java_package = _checked_java_package(
-                ctx.attr.package_name,
-                "android/build.gradle(.kts), android/src/main/AndroidManifest.xml or pubspec.yaml",
-                (
-                    _detect_android_namespace(ctx) or
-                    android_info.get("package", "") or
-                    ""
-                ),
+            android_java_package = (
+                _detect_android_namespace(ctx) or
+                android_info.get("package", "") or
+                ""
             )
             if android_src_dir or android_has_resources:
+                # What keeps the library from being generated fails the
+                # plugin's Android build, and no other platform's.
+                android_unbuildable = _java_package_message(
+                    ctx.attr.package_name,
+                    "android/build.gradle(.kts), android/src/main/AndroidManifest.xml or pubspec.yaml",
+                    android_java_package,
+                )
+                if android_has_resources and not android_java_package:
+                    android_unbuildable = NO_NAMESPACE_MESSAGE
+            if (android_src_dir or android_has_resources) and not android_unbuildable:
                 android_gradle_maven = _read_plugin_maven_deps(ctx)
                 android_manifest = _detect_android_manifest(ctx)
                 android_consumer_proguard_specs = _detect_consumer_proguard_specs(ctx)
@@ -2969,6 +2988,7 @@ def _flutter_pub_package_impl(ctx):
         android_consumer_proguard_specs = []
         android_has_resources = False
         android_native_build = ""
+        android_unbuildable = ""
     else:
         build_content = make_dart_member_build_content(
             name = ctx.attr.package_name,
@@ -2987,6 +3007,7 @@ def _flutter_pub_package_impl(ctx):
         android_consumer_proguard_specs = []
         android_has_resources = False
         android_native_build = ""
+        android_unbuildable = ""
 
     ctx.file("BUILD.bazel", build_prelude + build_content)
     is_flutter_member = plugin_block.present or has_asset_contributions or uses_material_icons or bool(additional_licenses)
@@ -3031,8 +3052,8 @@ def _flutter_pub_package_impl(ctx):
         maven_boms = _bom_dicts(android_gradle_maven)
         maven_unread = _unread_dicts(android_gradle_maven)
         maven_script = android_gradle_maven.script
-    if android_native_build:
-        write_android_build(ctx, build_prelude, make_android_failing_build_content(android_native_build))
+    if android_native_build or android_unbuildable:
+        write_android_build(ctx, build_prelude, make_android_failing_build_content(android_native_build or android_unbuildable))
     elif android_src_dir or android_has_resources:
         # A level the reader cannot read fails the plugin's Android build, as
         # an unbuilt native library does, rather than compiling at a guess.

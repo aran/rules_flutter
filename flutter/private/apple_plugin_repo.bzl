@@ -55,10 +55,17 @@ def apple_library_label(package, platform, prefix = SPOKE_PREFIX):
     return "@{}//:{}_apple_{}".format(apple_repo(package, prefix), package, platform)
 
 def _dump_package(ctx, manifest_dir):
-    """`swift package dump-package` of the package in `manifest_dir`, decoded."""
+    """`swift package dump-package` of the package in `manifest_dir`.
+
+    Returns:
+        A struct: `dump`, the decoded package, or None; and `problem`, why
+        there is none. A host without Xcode (a Linux machine running
+        `bazel fetch --all`, say) still fetches the repository, whose Apple
+        libraries then fail with `problem` when a build uses them.
+    """
     xcrun = ctx.which("xcrun")
     if not xcrun:
-        fail((
+        return struct(dump = None, problem = (
             "package:{pkg}: building its iOS or macOS library reads its Package.swift " +
             "with Xcode's `swift package dump-package`, and `xcrun` is not on PATH. " +
             "Install Xcode, or select it with `xcode-select`."
@@ -84,12 +91,23 @@ def _dump_package(ctx, manifest_dir):
     )
     ctx.delete(scratch)
     if result.return_code != 0:
-        fail("package:{pkg}: `swift package dump-package` of {dir} failed:\n{err}".format(
+        return struct(dump = None, problem = "package:{pkg}: `swift package dump-package` of {dir} failed:\n{err}".format(
             pkg = ctx.attr.package_name,
             dir = manifest_dir,
             err = result.stderr,
         ))
-    return json.decode(result.stdout)
+    return struct(dump = json.decode(result.stdout), problem = None)
+
+def _missing_paths(ctx, targets):
+    """What the package's targets (`swift_package_targets`) name that the plugin does not have, as a message, or None."""
+    for target in targets:
+        for path in target.sources + [target.dir]:
+            if not ctx.path(path).exists:
+                return "package:{}: its Package.swift names {}, which it does not have".format(ctx.attr.package_name, path)
+        for resource in target.resources:
+            if not ctx.path(resource.path).exists:
+                return "package:{}: its Package.swift names the resource {}, which it does not have".format(ctx.attr.package_name, resource.path)
+    return None
 
 def _configured(values, quote):
     """A BUILD expression of the list `values` (a dict by configuration) selects."""
@@ -112,9 +130,7 @@ def _make_variables_escaped(flag):
     return flag.replace("$", "$$")
 
 def _patterns(ctx, path, extensions):
-    """Glob patterns for the files with `extensions` at `path`, a file or a directory."""
-    if not ctx.path(path).exists:
-        fail("package:{}: its Package.swift names {}, which it does not have".format(ctx.attr.package_name, path))
+    """Glob patterns for the files with `extensions` at `path`, a file or a directory, which `_missing_paths` found."""
     if ctx.path(path).is_dir:
         return ["{}/**/*.{}".format(path, ext) for ext in extensions]
     return [path]
@@ -125,10 +141,8 @@ def _target_label(package, platform, target, main):
     return name if target == main else "{}__{}".format(name, target)
 
 def _files_under(ctx, path):
-    """The files at `path` (repository-relative): itself, or those under it."""
+    """The files at `path` (repository-relative), which `_missing_paths` found: itself, or those under it."""
     root = ctx.path(path)
-    if not root.exists:
-        fail("package:{}: its Package.swift names the resource {}, which it does not have".format(ctx.attr.package_name, path))
     if not root.is_dir:
         return [path]
     found = []
@@ -604,24 +618,32 @@ def _apple_plugin_repo_impl(ctx):
             )
         if manifest_dir not in dumps:
             dumps[manifest_dir] = _dump_package(ctx, plugin_root.get_child(manifest_dir))
-        if app_settings:
-            ctx.file(app_settings.reference, json.encode(dumps[manifest_dir]))
-        built = swift_package_targets(dumps[manifest_dir], package, platform, manifest_dir, defines = not app_settings)
-        if built.problems:
-            targets.append(_stand_in(package, platform, swift_package_message(
+        dumped = dumps[manifest_dir]
+        built = None
+        if dumped.dump != None:
+            if app_settings:
+                ctx.file(app_settings.reference, json.encode(dumped.dump))
+            built = swift_package_targets(dumped.dump, package, platform, manifest_dir, defines = not app_settings)
+        unbuildable = dumped.problem
+        if built and built.problems:
+            unbuildable = swift_package_message(
                 package,
                 ctx.attr.version,
                 platform,
                 manifest,
                 built.problems,
-            )))
+            )
+        if not unbuildable:
+            unbuildable = _missing_paths(ctx, built.targets)
+        if unbuildable:
+            targets.append(_stand_in(package, platform, unbuildable))
             if app_settings:
                 targets.append(_APP_LIBRARY_STAND_IN.format(name = "{}_apple_{}".format(package, platform), suffix = APP_LIBRARY_SUFFIX))
             continue
 
         # The remote packages' products, from the root's repositories of them.
         remote = [p for t in built.targets for p in t.remote_products]
-        requirements = _remote_requirements(dumps[manifest_dir])
+        requirements = _remote_requirements(dumped.dump)
         reported[platform] = [
             {"identity": identity, "url": requirements[identity][0], "requirement": requirements[identity][1]}
             for identity in sorted({i: None for i, _ in remote})

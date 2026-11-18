@@ -1911,6 +1911,7 @@ bzl_library(
         ":asset_variants",
         ":cmake_link_libraries",
         ":constants",
+        ":failing_targets",
         ":flutter_pub_index",
         ":flutter_pubspec",
         ":framework_source",

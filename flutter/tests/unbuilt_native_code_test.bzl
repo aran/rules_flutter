@@ -310,10 +310,12 @@ def _message_test_impl(ctx):
 _message_test = unittest.make(_message_test_impl)
 
 def _android_content_test_impl(ctx):
-    """The Android package fails with the message as written, quotes and all."""
+    """The Android package's `:lib` fails at analysis with the message as written, quotes and all; the package loads."""
     env = unittest.begin(ctx)
     message = 'package:x 1.0 builds native code for Android with cargokit (`apply from: "../cargokit/gradle/plugin.gradle"`)'
-    asserts.equals(env, "fail(%s)\n" % repr(message), make_android_failing_build_content(message))
+    content = make_android_failing_build_content(message)
+    asserts.true(env, "flutter_missing_slice(\n    name = \"lib\",\n    message = %s," % repr(message) in content, content)
+    asserts.false(env, "\nfail(" in "\n" + content, content)
     return unittest.end(env)
 
 _android_content_test = unittest.make(_android_content_test_impl)
