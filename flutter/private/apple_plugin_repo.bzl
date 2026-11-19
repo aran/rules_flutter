@@ -66,7 +66,7 @@ def _dump_package(ctx, manifest_dir):
 
     # The Xcode `xcrun` runs, when the shell selects one: reading it makes
     # selecting another fetch the repository again.
-    ctx.getenv("DEVELOPER_DIR")
+    developer_dir = ctx.getenv("DEVELOPER_DIR")
     xcrun = ctx.which("xcrun")
     if not xcrun:
         return struct(dump = None, problem = (
@@ -78,8 +78,24 @@ def _dump_package(ctx, manifest_dir):
     # SwiftPM writes its build state under the scratch path, by default in
     # the package: keep the plugin's files as they are.
     scratch = ctx.path("_swiftpm_scratch")
+
+    # A manifest can read the environment (audio_session's reads
+    # `AUDIO_SESSION_MICROPHONE`), and the repository would then hold
+    # whatever the Bazel server was started with. So it runs in a fixed one:
+    # `env -i` clears the server's, leaving the Xcode selection, a `PATH` of
+    # the system's tools and a `HOME` of its own. A manifest that depends on
+    # the environment gets the app's in the build (`swiftpm_app_settings.bzl`).
+    environment = [
+        "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME=" + str(scratch.get_child("home")),
+    ]
+    if developer_dir:
+        environment.append("DEVELOPER_DIR=" + developer_dir)
     result = ctx.execute(
         [
+            "/usr/bin/env",
+            "-i",
+        ] + environment + [
             xcrun,
             "swift",
             "package",
