@@ -3970,7 +3970,7 @@ flutter_web_integration_test(
 )
 ```
 
-The `flutter_web_app` arguments (`web_dir`, `base_href`, ...) pass through. The test's program is built as a web app in debug mode whatever `-c` says, served from a directory of its own on the loopback interface, and opened in the browser. `env` reaches the host runner only.
+The `flutter_web_app` arguments (`web_dir`, `base_href`, ...) pass through. The test's program is built as a web app in debug mode whatever `-c` says, served from a directory of its own on the loopback interface, and opened in the browser. By default it loads the renderer from its own bundle (`use_local_canvaskit = True`), as `flutter test` does, so the test does not need `www.gstatic.com`; `use_local_canvaskit = False` loads it from the CDN, as `flutter drive` does. `env` reaches the host runner only.
 
 - **The browser is pinned:** Chrome for Testing's headless shell, downloaded by version and `sha256` for macOS (arm64, x64), Linux (x64, arm64) and Windows (x64). Only the host's own is downloaded, and only when a web integration test is analysed. A host with no pinned build skips the test, rather than run it in another browser. To use another, pass a `flutter_chrome_runner` of your own as `runner`. `bazel run @rules_flutter//tools/update_chrome_for_testing` prints a newer pin.
 - **The suite is driven over the browser's DevTools protocol**, which a web app has in place of a VM service, so the page opens no port. The browser's profile is deleted and the browser killed when the test ends.

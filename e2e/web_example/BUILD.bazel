@@ -412,5 +412,6 @@ flutter_web_integration_test(
     deps = [
         "@deps//:flutter_test",
         "@deps//:integration_test",
+        "@deps//:web",
     ],
 )

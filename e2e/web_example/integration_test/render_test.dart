@@ -1,7 +1,10 @@
+import 'dart:js_interop';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:web/web.dart' as web;
 import 'package:web_example/main.dart' as app;
 
 /// The render check of docs/TESTING.md § 5, run in headless Chrome by
@@ -52,6 +55,23 @@ void main() {
     );
     expect(FlutterVersion.engineRevision, matches(RegExp(r'^[0-9a-f]{10}$')));
     expect(FlutterVersion.dartVersion, matches(RegExp(r'^\d+\.\d+\.\d+')));
+  });
+
+  testWidgets('the renderer came from the app, not the CDN', (tester) async {
+    // A test that loads the renderer from www.gstatic.com fails whenever the
+    // CDN is out of reach, so the test bundle serves its own. The browser's
+    // own record of what it fetched says where the renderer came from.
+    final entries = web.window.performance.getEntriesByType('resource').toDart;
+    final renderer =
+        [
+          for (final entry in entries) Uri.parse(entry.name),
+        ].where(
+          (uri) => uri.pathSegments.lastOrNull?.startsWith('skwasm') ?? false,
+        );
+    expect(renderer, isNotEmpty, reason: 'the page fetched no renderer');
+    for (final uri in renderer) {
+      expect(uri.origin, Uri.base.origin, reason: '$uri');
+    }
   });
 
   testWidgets('a tap reaches the app', (tester) async {
