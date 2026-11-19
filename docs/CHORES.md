@@ -131,8 +131,10 @@ Dart versions those need. Then `bazel test //...` in `e2e/smoke`.
 
 Every workspace's `MODULE.bazel.lock` is checked: the root's and each e2e
 workspace's (their `.bazelrc` sets `--lockfile_mode=error`). The tools run
-Bazel without the gitignored `.bazelrc.user`, whose `--override_module` lines
-would otherwise put a local checkout's module graph into a lock.
+Bazel with every rc file Bazel reads, the gitignored `.bazelrc.user` included,
+whose `--override_module` lines would put a local checkout's module graph into
+a lock. Move the `.bazelrc.user` files aside (root and every e2e workspace)
+before a refresh or a check, and put them back afterwards.
 
 **Procedure**:
 

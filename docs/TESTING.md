@@ -188,8 +188,8 @@ merely load:
     bazel build --lockfile_mode=error //path/to:target
     mv .bazelrc.user.aside .bazelrc.user
 
-To check one workspace's lock by hand, use the lock check below, which moves
-nothing aside.
+To check one workspace's lock by hand, use the lock check below, with the
+`.bazelrc.user` files moved aside as it describes.
 
 Two cautions:
 
@@ -243,10 +243,12 @@ missing protobuf entry in what is now `e2e/package_assets`;
 workspace is covered without being listed anywhere. A workspace that is meant to
 fail carries a `lock_expected_failure.txt` naming what its failure prints.
 
-It runs Bazel with each workspace's committed `.bazelrc` but without its
-gitignored `.bazelrc.user` (keeping that file's `startup` lines, so the server is
-not restarted). Nothing in your tree is moved or edited. Your `~/.bazelrc` still
-applies.
+It runs Bazel with every rc file Bazel reads: each workspace's committed
+`.bazelrc`, its gitignored `.bazelrc.user` and your `~/.bazelrc`. Move the
+`.bazelrc.user` files (the root's and every workspace's) aside first, and put
+them back afterwards: their `--override_module` lines would put a local checkout
+into the lock. Startup options such as `--max_idle_secs` do not reach a lock, so
+a `.bazelrc.user` holding only those can stay.
 
 It lists each stale workspace with the command that fixes it:
 
@@ -254,8 +256,8 @@ It lists each stale workspace with the command that fixes it:
 
 which runs `bazel mod tidy --lockfile_mode=refresh`, then
 `bazel mod deps` and `bazel build --nobuild --lockfile_mode=update //...`, again
-without the `.bazelrc.user` (regenerating through it writes a lock that omits
-the registry entry for rules_dart). A stale Maven lock fails these steps; see
+with the `.bazelrc.user` files moved aside (regenerating through them writes a
+lock that omits the registry entry for rules_dart). A stale Maven lock fails these steps; see
 "Maven lock files" below for the re-pin, then refresh again. Commit the changed
 lock with the change that made it stale.
 

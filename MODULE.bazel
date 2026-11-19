@@ -42,6 +42,14 @@ bazel_dep(name = "rules_java", version = "9.9.0")
 bazel_dep(name = "rules_jvm_external", version = "7.2")
 bazel_dep(name = "rules_dart", version = "0.9.1")
 
+# Pins an unreleased rules_dart until its next release, which replaces this with
+# a version bump.
+git_override(
+    module_name = "rules_dart",
+    commit = "0facd3131bdf6820daa3ffd5cdce1a7395a7e62e",
+    remote = "https://github.com/aran/rules_dart.git",
+)
+
 # The Go SDK that builds rules_android's Go tools (`ak`, a tool of the Android
 # toolchain, so every Android build analyses it) and the Gazelle tools that
 # fetch their Go modules.
@@ -110,7 +118,7 @@ bazel_dep(name = "rules_license", version = "1.0.0")
 bazel_dep(name = "overhead", version = "0.0.0", dev_dependency = True)
 git_override(
     module_name = "overhead",
-    commit = "6868a95fd5b341345c506eef8a19a2564ace65bc",
+    commit = "0facd3131bdf6820daa3ffd5cdce1a7395a7e62e",
     remote = "https://github.com/aran/rules_dart.git",
     strip_prefix = "overhead",
 )
