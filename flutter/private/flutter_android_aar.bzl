@@ -315,7 +315,7 @@ def _engine_artifacts(ctx, mode):
     return artifacts
 
 def _embedding_dependency(mode):
-    """The engine's embedding, which the module depends on at compile scope, as in Gradle."""
+    """The engine's embedding, which the module and every plugin depend on at compile scope, as in Gradle."""
     return struct(group = "io.flutter", artifact = "flutter_embedding_" + mode, version = ENGINE_VERSION, scope = "compile")
 
 def _flutter_android_module_aar_impl(ctx):
@@ -606,7 +606,9 @@ def _flutter_android_plugin_aars_impl(ctx):
             group = group,
             artifact = artifact,
             aar = aar,
-            dependencies = _maven_dependencies(ctx.label, package, data, own.kotlin),
+            # Flutter's Gradle build adds the embedding to every plugin's
+            # `api` (`addEmbeddingDependencyToPlugin`).
+            dependencies = _maven_dependencies(ctx.label, package, data, own.kotlin) + [_embedding_dependency(mode)],
         ))
     return [
         DefaultInfo(files = depset(outputs)),
@@ -856,9 +858,9 @@ with a `.sha1` and `.md5` beside each file. The module's POM depends on the
 engine's artifacts (`io.flutter:flutter_embedding_<mode>` and
 `io.flutter:<abi>_<mode>`, version `1.0.0-<engine revision>`, from
 `https://storage.googleapis.com/download.flutter.io`) and on every plugin's;
-each plugin's lists the Maven artifacts its Gradle build declares. When the
-selected SDK's engine is not the release's, the repository holds that
-engine's artifacts too, as `flutter build aar
+each plugin's lists the Maven artifacts its Gradle build declares and the
+embedding. When the selected SDK's engine is not the release's, the
+repository holds that engine's artifacts too, as `flutter build aar
 --local-engine` copies a local engine's in, since Google publishes only the
 release's, at the version of the engine's embedding POM, which every POM
 names them at:

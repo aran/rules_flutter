@@ -391,6 +391,9 @@ void _verifyPlugin(
   final kotlinStdlib = RegExp(
     r'^org\.jetbrains\.kotlin:kotlin-stdlib:[^:]+:compile$',
   );
+  final embedding = RegExp(
+    '^io\\.flutter:flutter_embedding_$mode:1\\.0\\.0-[0-9a-f]{40}:compile\$',
+  );
   final kotlin = plugin == 'annotated_plugin' || _kotlin.contains(plugin);
   final declared = plugin == 'annotated_plugin'
       // What `flutter_pub.annotation` in MODULE.bazel says its version catalog
@@ -404,15 +407,22 @@ void _verifyPlugin(
       condition:
           _one(pom, 'groupId') == group &&
           _one(pom, 'artifactId') == '${plugin}_$mode' &&
-          dependencies.where((d) => !kotlinStdlib.hasMatch(d)).join(',') ==
+          dependencies
+                  .where((d) => !kotlinStdlib.hasMatch(d))
+                  .where((d) => !d.startsWith('io.flutter:'))
+                  .join(',') ==
               declared.join(',') &&
           dependencies.where(kotlinStdlib.hasMatch).length == (kotlin ? 1 : 0),
       detail: 'dependencies: $dependencies',
     )
     ..expect(
-      "$label: $plugin's POM does not list the embedding, which a plugin "
-      'compiles against only',
-      condition: !dependencies.any((d) => d.startsWith('io.flutter:')),
+      "$label: $plugin's POM lists io.flutter:flutter_embedding_$mode at "
+      "compile scope, at the engine's version, and no other engine artifact, "
+      "as Flutter's Gradle build adds the embedding to every plugin's api",
+      condition:
+          dependencies.where(embedding.hasMatch).length == 1 &&
+          dependencies.where((d) => d.startsWith('io.flutter:')).length == 1,
+      detail: 'dependencies: $dependencies',
     );
 
   final aarFile = '$repo/$base.aar';
