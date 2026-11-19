@@ -328,6 +328,41 @@ FlutterAndroidPluginNativeLibsInfo = provider(
     },
 )
 
+def plugin_android_libraries(label, app_info):
+    """The Android library of each plugin of an application that has one, for its AAR.
+
+    A plugin's AAR is one Gradle module, as `flutter build aar` publishes
+    each plugin, built from the libraries of the Bazel package of its
+    Android library. So a plugin has one Android library among its
+    `exports`, which may depend on the others of its package; with two, which
+    of them is the module is not known, and the build fails naming them.
+
+    Args:
+        label: The label of the rule asking, for the message.
+        app_info: The application's `FlutterApplicationInfo`.
+
+    Returns:
+        The `FlutterApplicationInfo.android_libs` entries, one for each plugin.
+    """
+    by_package = {}
+    for entry in app_info.android_libs.to_list():
+        by_package.setdefault(entry.package, {})[entry.lib.label] = entry
+    entries = []
+    for package, libs in by_package.items():
+        if len(libs) > 1:
+            fail((
+                "{label}: plugin `{package}` exports {count} Android libraries ({libs}). A plugin's " +
+                "AAR is one Gradle module, as `flutter build aar` publishes it: export one Android " +
+                "library, which may depend on the others of its package, and its AAR carries them all."
+            ).format(
+                label = label,
+                package = package,
+                count = len(libs),
+                libs = ", ".join([str(lib) for lib in sorted(libs.keys())]),
+            ))
+        entries.extend(libs.values())
+    return entries
+
 def _flutter_android_plugin_native_libs_impl(ctx):
     abi = android_abi(ctx)
     if not abi:
@@ -336,7 +371,7 @@ def _flutter_android_plugin_native_libs_impl(ctx):
     by_package = {}
     for record in plugin_native_libraries(app_info):
         by_package.setdefault(record.package, []).append(record.library)
-    entries = {entry.lib.label: entry for entry in app_info.android_libs.to_list()}.values()
+    entries = plugin_android_libraries(ctx.label, app_info)
 
     def shared(lib):
         return android_shared_libraries(lib[AndroidCcLinkParamsInfo]) if AndroidCcLinkParamsInfo in lib else []

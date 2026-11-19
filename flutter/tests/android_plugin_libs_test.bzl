@@ -184,6 +184,20 @@ _keeps_libraries_of_other_packages_test = analysistest.make(
     config_settings = _platform("@rules_android//:arm64-v8a"),
 )
 
+def _one_library_a_plugin_impl(ctx):
+    """A plugin that exports two Android libraries fails for its AAR, naming both."""
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "plugin `plugin_two` exports 2 Android libraries")
+    asserts.expect_failure(env, "//flutter/tests/android_plugin_libs_fixture/two:lib_one")
+    asserts.expect_failure(env, "A plugin's AAR is one Gradle module")
+    return analysistest.end(env)
+
+_one_library_a_plugin_test = analysistest.make(
+    _one_library_a_plugin_impl,
+    expect_failure = True,
+    config_settings = _platform("@rules_android//:arm64-v8a"),
+)
+
 def android_plugin_libs_test_suite(name):
     """Declares the tests.
 
@@ -234,10 +248,15 @@ def android_plugin_libs_test_suite(name):
         name = name + "_keeps_libraries_of_other_packages",
         target_under_test = _FIXTURE + "native_libs_of_linked_and_dep",
     )
+    _one_library_a_plugin_test(
+        name = name + "_one_library_a_plugin",
+        target_under_test = _FIXTURE + "native_libs_of_two",
+    )
     native.test_suite(
         name = name,
         tests = [
             name + "_keeps_libraries_of_other_packages",
+            name + "_one_library_a_plugin",
             name + "_java_in_app_configuration",
             name + "_checks_native_libs_arm64",
             name + "_checks_native_libs_armv7",

@@ -30,7 +30,7 @@ load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "ANDROID_EMBEDDING_MAVEN_DEPS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_application.bzl", "FlutterAndroidBundleLibsInfo")
-load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "FlutterAndroidPluginNativeLibsInfo", "flutter_android_plugin_native_libs")
+load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "FlutterAndroidPluginNativeLibsInfo", "flutter_android_plugin_native_libs", "plugin_android_libraries")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
@@ -521,12 +521,8 @@ def _flutter_android_plugin_aars_impl(ctx):
 
     artifacts = []
     outputs = []
-    seen = {}
-    for entry in app[FlutterApplicationInfo].android_libs.to_list():
+    for entry in plugin_android_libraries(ctx.label, app[FlutterApplicationInfo]):
         lib = entry.lib
-        if lib.label in seen:
-            continue
-        seen[lib.label] = True
         package = entry.package
         group = entry.group
         if not group:
@@ -640,8 +636,11 @@ def flutter_android_plugin_aars(
     module: the classes the plugin's library compiles itself (with its
     generated `BuildConfig`, not its dependencies'), its resources, `R.txt`,
     manifest, consumer R8 rules (`proguard_specs`), and under `jni/<abi>/`
-    the shared libraries of its own package and those of its `native_deps`,
-    stripped as a Gradle build strips them. Each is published under the `group`
+    the shared libraries its library links (but those it links through
+    another plugin's, which are in that plugin's AAR) and those of its
+    `native_deps`, stripped as a Gradle build strips them. A plugin with two
+    Android libraries in its `exports` fails the build: its AAR is one
+    Gradle module. Each is published under the `group`
     of the plugin's Android `flutter_plugin_platform` (a pub plugin's is the
     group its `android/build.gradle` sets), and its POM lists the Maven
     artifacts a pub plugin's Gradle build declares (and the Kotlin standard

@@ -89,6 +89,20 @@ flutter_android_plugin_native_libs(
     tags = ["manual"],
 )
 
+flutter_application(
+    name = "app_uses_two",
+    main = "main.dart",
+    package = ":pubspec-metadata",
+    tags = ["manual"],
+    deps = ["//flutter/tests/android_plugin_libs_fixture/two:plugin_two"],
+)
+
+flutter_android_plugin_native_libs(
+    name = "native_libs_of_two",
+    application = ":app_uses_two",
+    tags = ["manual"],
+)
+
 flutter_android_plugin_libs(
     name = "libs_of_two_apps",
     tags = ["manual"],
