@@ -352,7 +352,7 @@ class AttachCommand {
           // DevTools process, and the first-frame wait, whose timer would
           // otherwise hold the tool up after `daemon.shutdown` was answered.
           session.stopWaitingForFirstFrame();
-          session.devToolsProcess?.kill();
+          await session.stopDevTools();
         });
       }
 

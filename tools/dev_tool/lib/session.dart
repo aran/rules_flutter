@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:dds/dds.dart';
 
 import 'app_extension_channel.dart';
+import 'child_processes.dart';
 import 'command_failure.dart';
 import 'command_report.dart';
 import 'command_runner.dart';
@@ -60,7 +61,24 @@ class DeviceSession {
 
   final String appId;
   String? devToolsUrl;
+
+  /// The `dart devtools` server this tool started for the app, if any.
   Process? devToolsProcess;
+
+  /// Stop [devToolsProcess] and wait, bounded, for it to exit.
+  ///
+  /// Waited for because it is a recorded child (`ChildProcesses`): one still
+  /// exiting when the tool does is reported as a child the teardown missed.
+  Future<void> stopDevTools() async {
+    final process = devToolsProcess;
+    if (process == null) return;
+    process.kill();
+    await boundedTeardownStep(
+      'DevTools (pid ${process.pid}) to exit',
+      process.exitCode,
+      device.teardownBound,
+    );
+  }
 
   /// The Dart Tooling Daemon this app is registered with, or null when it is
   /// registered with none. The DevTools this tool launches joins it, as
@@ -320,9 +338,10 @@ class DeviceSession {
 
   Future<void> _shutDownOnce(MachineProtocol protocol) async {
     _shutDown = true;
+    // Started first and awaited last, so DevTools exits while the rest stops.
+    final devToolsStopped = stopDevTools();
     try {
       stopWaitingForFirstFrame();
-      devToolsProcess?.kill();
       protocol.appStop(appId, error: _death);
       // Retired, not merely disconnected: this session is over, and a client
       // that could still be dialled would be — an RPC in flight when this lands
@@ -357,6 +376,7 @@ class DeviceSession {
       // would leave the live one running.
       await device.stop(appInstance);
       if (device.sharesHostFilesystem) await vmClient?.removeAbandonedDevFS();
+      await devToolsStopped;
     }
   }
 
@@ -1355,7 +1375,7 @@ Future<({Process process, String? serverUrl})> _launchDevTools(
   Uri vmServiceUri, {
   Uri? dtdUri,
 }) async {
-  final process = await Process.start(dartExecutable, [
+  final process = await startChildProcess(dartExecutable, [
     'devtools',
     '--no-launch-browser',
     '--vm-uri=$vmServiceUri',

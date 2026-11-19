@@ -1074,6 +1074,68 @@ void main() {
       expect(process.signals, contains(ProcessSignal.sigterm));
     });
 
+    // DevTools is a recorded child: one still exiting as the tool exits is
+    // reported as a child the teardown missed, and killed.
+    test('waits for DevTools to exit, up to the bound', () {
+      fakeAsync((async) {
+        final devTools = FakeProcess()..ignoresSigterm = true;
+        final device = _TrackingDevice('test_device', onStop: () {})
+          ..teardownBound = const Duration(seconds: 5);
+        final session = DeviceSession(
+          device: device,
+          appInstance: AppInstance(process: FakeProcess()),
+          vmClient: null,
+          appId: 'app-1',
+        )..devToolsProcess = devTools;
+        var done = false;
+        unawaited(
+          session
+              .shutdown(MachineProtocol(enabled: false, output: BufferSink()))
+              .then((_) => done = true),
+        );
+
+        async.flushMicrotasks();
+        expect(devTools.signals, [ProcessSignal.sigterm]);
+        expect(done, isFalse, reason: 'DevTools has not exited yet');
+
+        devTools.complete(0);
+        async.flushMicrotasks();
+        expect(done, isTrue);
+      });
+    });
+
+    test('a DevTools that will not exit holds the shutdown only as long as '
+        'the bound', () {
+      fakeAsync((async) {
+        final records = <LogRecord>[];
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
+        final device = _TrackingDevice('test_device', onStop: () {})
+          ..teardownBound = const Duration(seconds: 5);
+        final session = DeviceSession(
+          device: device,
+          appInstance: AppInstance(process: FakeProcess()),
+          vmClient: null,
+          appId: 'app-1',
+        )..devToolsProcess = (FakeProcess()..ignoresSigterm = true);
+        var done = false;
+        unawaited(
+          session
+              .shutdown(MachineProtocol(enabled: false, output: BufferSink()))
+              .then((_) => done = true),
+        );
+
+        async.elapse(const Duration(seconds: 4));
+        expect(done, isFalse);
+        async.elapse(const Duration(seconds: 1));
+        expect(done, isTrue);
+        expect(
+          records.map((r) => (r.object as Map)['message']),
+          contains('teardown_step_timed_out'),
+        );
+      });
+    });
+
     // `app.stop` runs beside everything, the run's teardown included, and the
     // teardown shuts every session down again. Returning at once to it would
     // let the process exit with the app still being stopped.
