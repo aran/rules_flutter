@@ -238,6 +238,17 @@ _MACHINES = {
     ("windows", "x64"): struct(key = "windows-x64", os = "windows", arch = "x64", exe = ".exe", prebuilt = "windows-x64", os_prefix = "win"),
 }
 
+def unread_machine_message(os):
+    """Why no out dirs are read on the machine Bazel runs on, which `machine_of` does not know.
+
+    Args:
+        os: The machine's `repository_os`.
+
+    Returns:
+        The message.
+    """
+    return "The engine out dirs are read on macOS, Linux and Windows machines; this one is {} on {}.".format(os.name, os.arch)
+
 def machine_of(repository_ctx):
     """The machine that reads the out dirs, which is the host their `host_*` directories were built for.
 

@@ -35,13 +35,15 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
    `framework`, `engine` and `material_fonts_sha256` are removed. Each form
    of custom SDK has a tag of its own, which requires the attributes that
    form needs:
-   - `framework` and `engine` → `flutter.custom_sdk(name, framework, engine)`.
+   - `framework` and `engine` → `flutter.custom_sdk(name, framework, engine, hosts)`,
+     where `hosts` names the machines the engine serves (`["host"]` for
+     `flutter_local_engine`).
      For a flutter/flutter checkout and the engine built in it,
      `flutter.checkout(name)` replaces both repositories and reads the
      engine from `$FLUTTER_CHECKOUT/engine/src/out`, never from
      `FLUTTER_ENGINE`.
    - `engine` with `flutter_version` →
-     `flutter.custom_engine(name, engine, flutter_version)`.
+     `flutter.custom_engine(name, engine, hosts, flutter_version)`.
    - `framework` with `flutter_version` →
      `flutter.custom_framework(name, framework, flutter_version)`.
    - `material_fonts_sha256` → the same attribute on `flutter.custom_sdk`,
@@ -3090,6 +3092,7 @@ flutter.custom_sdk(
     name = "mixed",
     engine = "@flutter_local_engine",
     framework = "@flutter_local_framework",
+    hosts = ["host"],
 )
 
 local_framework = use_repo_rule("@rules_flutter//flutter:local_sdk.bzl", "flutter_local_framework")
@@ -3107,7 +3110,9 @@ common --repo_env=FLUTTER_CHECKOUT=/Users/me/src/flutter
 common --repo_env=FLUTTER_ENGINE=/Users/me/src/engine/src
 ```
 
-To replace only one half, keep the other a release's: `flutter.custom_engine(name, engine, flutter_version)` puts the release's framework over your engine, and `flutter.custom_framework(name, framework, flutter_version)` your framework over the release's engine. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, use `flutter.checkout`, which gives its framework too. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
+`hosts` names the machines the engine's host tools run on, which the SDK's toolchains are registered for alone: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64` or `windows-x64`, or `host`, the machine Bazel runs on. Out dirs are the build of the machine they were built on, so `flutter_local_engine` takes `["host"]`; an engine source with host tools for several machines lists them. Bazel runs an action on the first execution platform a toolchain is registered for, so with `--extra_execution_platforms` naming another OS, a host the engine doesn't serve would take the build and fail it. `flutter.checkout` needs no `hosts`: its engine is always the machine's.
+
+To replace only one half, keep the other a release's: `flutter.custom_engine(name, engine, hosts, flutter_version)` puts the release's framework over your engine, and `flutter.custom_framework(name, framework, flutter_version)` your framework over the release's engine. The two halves must agree on `dart:ui`: an engine built in a flutter/flutter checkout fits that checkout's framework, and a release's framework only as far as the checkout's `dart:ui` is still the release's. Pair them wrongly and the framework fails to compile against the engine's `dart:ui`, with an error such as a `switch` that misses a value of an engine enum. To build with a checkout's engine, use `flutter.checkout`, which gives its framework too. A framework whose `bin/internal/material_fonts.version` names a fonts archive that no pinned release uses also needs `material_fonts_sha256`.
 
 ### Choosing the SDK
 

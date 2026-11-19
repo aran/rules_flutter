@@ -6,7 +6,7 @@ links what each slice of the engine contract needs out of `<engine/src>/out`.
 
 load("@rules_dart//dart:repositories.bzl", "fetch_dart_kernel_source")
 load("//flutter/private:engine_labels.bzl", "contract_slices", "native_target")
-load("//flutter/private:engine_out_dirs.bzl", "dict_text", "effective_cpu", "first_existing", "link_files_into", "link_into", "machine_of", "out_dir_provenance", "parse_args_gn", "parse_out_dir_name", "select_out_dir")
+load("//flutter/private:engine_out_dirs.bzl", "dict_text", "effective_cpu", "first_existing", "link_files_into", "link_into", "machine_of", "out_dir_provenance", "parse_args_gn", "parse_out_dir_name", "select_out_dir", "unread_machine_message")
 load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets")
 load("//flutter/private:flutter_sky_engine_repo.bzl", "SKY_ENGINE_PACKAGE_BUILD")
 load("//flutter/private:out_dir_desktop.bzl", "desktop_slices")
@@ -116,7 +116,7 @@ def read_engine_out_dirs(repository_ctx, engine_src, named, unset, engines_env):
     if not engine_src:
         default_reason = unset
     elif machine == None:
-        default_reason = "The engine out dirs are read on macOS, Linux and Windows machines; this one is {} on {}.".format(repository_ctx.os.name, repository_ctx.os.arch)
+        default_reason = unread_machine_message(repository_ctx.os)
     elif scan == None:
         default_reason = "{} has no out: build the engine in it first.".format(named)
     elif unknown:

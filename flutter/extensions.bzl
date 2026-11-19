@@ -29,6 +29,7 @@ load("//flutter:local_sdk.bzl", "flutter_local_framework")
 load("//flutter/private:constants.bzl", "ANDROID_ABI_FOR_ARCH")
 load("//flutter/private:custom_sdks.bzl", "checkout_repo_names", "custom_sdks")
 load("//flutter/private:engine_labels.bzl", "android_arches")
+load("//flutter/private:engine_out_dirs.bzl", "unread_machine_message")
 load("//flutter/private:flutter_android_emulator_repo.bzl", "flutter_android_emulator_repo", "flutter_android_system_image_repo")
 load("//flutter/private:flutter_chrome_for_testing.bzl", "flutter_chrome_for_testing")
 load("//flutter/private:flutter_dev_root_repo.bzl", "flutter_dev_root_repo")
@@ -43,7 +44,7 @@ load("//flutter/private:local_engine.bzl", "flutter_checkout_engine")
 load("//flutter/private:pub_extension.bzl", "DEFAULT_SDK_NAME")
 load("//flutter/private:repositories.bzl", "flutter_register_toolchains")
 load("//flutter/private:toolchain_version.bzl", "select_flutter_version")
-load("//flutter/private:toolchains_repo.bzl", "flutter_toolchains_repo", "sdk_repo_name")
+load("//flutter/private:toolchains_repo.bzl", "HOST_PLATFORMS", "flutter_toolchains_repo", "sdk_repo_name")
 load("//flutter/private:versions.bzl", "ANDROID_EMULATOR", "ANDROID_SYSTEM_IMAGE", "CHROME_FOR_TESTING", "FLUTTER_VERSIONS", "flutter_source_sha256", "require_supported_flutter_version")
 
 flutter_toolchain = tag_class(
@@ -92,6 +93,15 @@ The checksum of the Material fonts archive the framework expects, when its
 `bin/internal/material_fonts.version` names an archive no pinned release does.
 """
 
+_HOSTS_DOC = """\
+The machines the engine's host tools run on, which the SDK's toolchains are
+registered for alone: any of `darwin-arm64`, `darwin-x64`, `linux-x64`,
+`linux-arm64` and `windows-x64`, or `host`, the machine Bazel runs on, for an
+engine built there such as `flutter_local_engine`'s out dirs. Bazel takes the
+first execution platform a toolchain is registered for, so a host the engine
+does not serve would take the build and fail it.
+"""
+
 flutter_custom_framework = tag_class(
     doc = "A release's engine under another framework. Root module only.",
     attrs = {
@@ -107,6 +117,7 @@ flutter_custom_engine = tag_class(
     attrs = {
         "name": attr.string(doc = _SDK_NAME_DOC, mandatory = True),
         "engine": attr.label(doc = _ENGINE_DOC, mandatory = True),
+        "hosts": attr.string_list(doc = _HOSTS_DOC, mandatory = True, allow_empty = False),
         "flutter_version": attr.string(doc = "Version of the Flutter release whose framework this uses.", mandatory = True),
     },
 )
@@ -121,6 +132,7 @@ declaration.
         "name": attr.string(doc = _SDK_NAME_DOC, mandatory = True),
         "framework": attr.label(doc = _FRAMEWORK_DOC, mandatory = True),
         "engine": attr.label(doc = _ENGINE_DOC, mandatory = True),
+        "hosts": attr.string_list(doc = _HOSTS_DOC, mandatory = True, allow_empty = False),
         "material_fonts_sha256": attr.string(doc = _MATERIAL_FONTS_DOC),
     },
 )
@@ -179,10 +191,24 @@ def _framework_json(sdk):
     """The label of the `flutter_framework.json` of an SDK whose framework is not the release's."""
     return sdk.framework + "//:flutter_framework.json"
 
-def _sdk(name, version = None, framework = None, engine = None, material_fonts_sha256 = "", checkout = None):
-    """One SDK: the release that supplies a half not given, and the halves given, as label prefixes."""
+# What `hosts` names the machine Bazel runs on by.
+_THIS_HOST = "host"
+
+def _sdk(name, version = None, framework = None, engine = None, material_fonts_sha256 = "", checkout = None, hosts = None):
+    """One SDK: the release that supplies a half not given, and the halves given, as label prefixes.
+
+    `hosts` are the hosts its engine serves (`_HOSTS_DOC`), None for every host.
+    """
     if version:
         require_supported_flutter_version(version)
+    for host in hosts or []:
+        if host != _THIS_HOST and host not in HOST_PLATFORMS:
+            fail("The Flutter SDK \"{}\" names the host \"{}\" in `hosts`, which is none of {} and {}.".format(
+                name,
+                host,
+                ", ".join(sorted(HOST_PLATFORMS.keys())),
+                _THIS_HOST,
+            ))
     return struct(
         name = name,
         version = version,
@@ -190,7 +216,30 @@ def _sdk(name, version = None, framework = None, engine = None, material_fonts_s
         engine = engine,
         material_fonts_sha256 = material_fonts_sha256,
         checkout = checkout,
+        hosts = hosts,
     )
+
+def _served_hosts(sdks, machine):
+    """The hosts each SDK whose engine does not serve every one serves, with `host` as the machine Bazel runs on."""
+    served = {}
+    for name, sdk in sdks.items():
+        if sdk.hosts != None:
+            served[name] = sorted({
+                (machine if h == _THIS_HOST else h): True
+                for h in sdk.hosts
+                if h != _THIS_HOST or machine
+            }.keys())
+    return served
+
+def _unknown_machine(sdks, machine, os):
+    """Why each SDK that serves the machine Bazel runs on cannot here, by SDK: none when the machine is one the engine is built for."""
+    if machine:
+        return {}
+    return {
+        name: "The Flutter SDK \"{}\" runs on the machine Bazel runs on alone. {}".format(name, unread_machine_message(os))
+        for name, sdk in sdks.items()
+        if sdk.hosts and _THIS_HOST in sdk.hosts
+    }
 
 def _custom_framework_sdk(tag):
     return _sdk(
@@ -201,7 +250,7 @@ def _custom_framework_sdk(tag):
     )
 
 def _custom_engine_sdk(tag):
-    return _sdk(tag.name, version = tag.flutter_version, engine = _label_prefix(tag.engine))
+    return _sdk(tag.name, version = tag.flutter_version, engine = _label_prefix(tag.engine), hosts = tag.hosts)
 
 def _custom_sdk_sdk(tag):
     return _sdk(
@@ -209,6 +258,7 @@ def _custom_sdk_sdk(tag):
         framework = _label_prefix(tag.framework),
         engine = _label_prefix(tag.engine),
         material_fonts_sha256 = tag.material_fonts_sha256,
+        hosts = tag.hosts,
     )
 
 def _checkout_sdk(tag):
@@ -220,6 +270,8 @@ def _checkout_sdk(tag):
         engine = "@" + repos.engine,
         material_fonts_sha256 = tag.material_fonts_sha256,
         checkout = tag,
+        # Out dirs hold the machine's own build.
+        hosts = [_THIS_HOST],
     )
 
 # The SDK each of the custom-SDK tags declares, by the tag's name.
@@ -446,6 +498,8 @@ def _toolchain_extension(module_ctx):
         name = "flutter_toolchains",
         sdks = sorted(sdks.keys()),
         default_sdk = declared.use,
+        hosts = _served_hosts(sdks, host),
+        unknown_machine = _unknown_machine(sdks, host, module_ctx.os),
     )
 
     # The browser web integration tests run in, one repository per host it is

@@ -405,6 +405,7 @@ bzl_library(
         "//flutter/private:constants",
         "//flutter/private:custom_sdks",
         "//flutter/private:engine_labels",
+        "//flutter/private:engine_out_dirs",
         "//flutter/private:flutter_android_emulator_repo",
         "//flutter/private:flutter_chrome_for_testing",
         "//flutter/private:flutter_dev_root_repo",

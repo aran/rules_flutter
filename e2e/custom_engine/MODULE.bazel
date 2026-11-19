@@ -58,6 +58,7 @@ flutter.custom_sdk(
     name = "mismatched",
     engine = "@mismatched_engine",
     framework = "@mismatched_framework",
+    hosts = ["host"],
 )
 
 # A checkout's framework over the release engine: its Material fonts are the
@@ -76,6 +77,7 @@ flutter.custom_engine(
     name = "engine_only",
     engine = "@stand_in_engine",
     flutter_version = "3.50.0",
+    hosts = ["host"],
 )
 
 # A checkout's halves whose paths are given the way a developer gives them:
@@ -85,6 +87,7 @@ flutter.custom_sdk(
     name = "env",
     engine = "@env_engine",
     framework = "@env_framework",
+    hosts = ["host"],
 )
 use_repo(
     flutter,

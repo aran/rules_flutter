@@ -34,7 +34,13 @@ local_framework(name = "flutter_local_framework")
 local_engine(name = "flutter_local_engine")
 
 flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
-flutter.custom_sdk(name = "local", framework = "@flutter_local_framework", engine = "@flutter_local_engine")
+flutter.custom_sdk(
+    name = "local",
+    framework = "@flutter_local_framework",
+    engine = "@flutter_local_engine",
+    # The out dirs are this machine's own build.
+    hosts = ["host"],
+)
 flutter.use_sdk(name = "local")
 ```
 

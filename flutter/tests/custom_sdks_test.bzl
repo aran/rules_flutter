@@ -150,6 +150,43 @@ def _without_a_choice_the_release_test_impl(ctx):
     asserts.false(env, "flag_unset" in _setting(build, "local"), build)
     return unittest.end(env)
 
+def _a_checkout_runs_on_the_machine_alone_test_impl(ctx):
+    """An SDK's toolchains are registered for the hosts its engine serves alone."""
+    env = unittest.begin(ctx)
+    build = toolchains_build_content(["flutter", "local"], "local", {"local": ["darwin-arm64"]})
+    for name in [
+        "local__darwin-arm64_toolchain",
+        "local__darwin-arm64_exec_tools_toolchain",
+        "local__darwin-arm64_to_android-arm64_toolchain",
+        "local__darwin-arm64_to_linux-x64_desktop_toolchain",
+        # The release serves every host.
+        "linux-x64_toolchain",
+        "linux-x64_exec_tools_toolchain",
+        "linux-x64_to_android-arm64_toolchain",
+    ]:
+        asserts.true(env, 'name = "{}"'.format(name) in build, name)
+    for name in [
+        "local__linux-x64_toolchain",
+        "local__linux-x64_exec_tools_toolchain",
+        "local__darwin-x64_toolchain",
+        "local__linux-x64_to_android-arm64_toolchain",
+        "local__windows-x64_to_linux-x64_desktop_toolchain",
+    ]:
+        asserts.false(env, 'name = "{}"'.format(name) in build, name)
+
+    # On a machine no engine is built for, it serves no host, and its
+    # toolchains there fail saying why, not "no matching toolchains".
+    nowhere = toolchains_build_content(["flutter", "local"], "local", {"local": []}, {"local": "not this machine"})
+    asserts.false(env, 'name = "local__darwin-arm64_toolchain"' in nowhere, nowhere)
+    for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
+        asserts.true(env, 'name = "local__unknown_machine_{}"'.format(toolchain_type) in nowhere, nowhere)
+    asserts.true(env, "exec_compatible_with = HOST_CONSTRAINTS" in nowhere, nowhere)
+    asserts.true(env, 'message = "not this machine"' in nowhere, nowhere)
+    asserts.false(env, "unknown_machine" in build, build)
+    asserts.false(env, "HOST_CONSTRAINTS" in build, build)
+    return unittest.end(env)
+
+_a_checkout_runs_on_the_machine_alone_test = unittest.make(_a_checkout_runs_on_the_machine_alone_test_impl)
 _without_use_sdk_the_release_test = unittest.make(_without_use_sdk_the_release_test_impl)
 _use_sdk_chooses_a_declared_sdk_test = unittest.make(_use_sdk_chooses_a_declared_sdk_test_impl)
 _use_sdk_of_an_undeclared_name_test = unittest.make(_use_sdk_of_an_undeclared_name_test_impl)
@@ -167,6 +204,7 @@ _repositories_are_the_checkouts_own_test = unittest.make(_repositories_are_the_c
 def custom_sdks_test_suite(name):
     unittest.suite(
         name,
+        _a_checkout_runs_on_the_machine_alone_test,
         _root_declares_each_form_test,
         _dependency_may_not_declare_test,
         _default_name_is_the_release_test,
