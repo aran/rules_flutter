@@ -29,12 +29,29 @@ dart_package_metadata(
 # consumer's `@rules_flutter//...` fails to analyse.
 dart_library(
     name = "e2e_testing",
-    srcs = glob(["lib/**/*.dart"]),
+    srcs = glob(
+        ["lib/**/*.dart"],
+        exclude = ["lib/gradle_host_record.dart"],
+    ),
     package = ":pubspec-metadata",
     visibility = ["//visibility:public"],
     deps = [
         "//tools/macos_gui_session",
         "@rules_dart//dart/runfiles",
+    ],
+)
+
+# Records the lock of a Gradle host app's offline Maven repository: what an e2e
+# workspace's `record_gradle_host_repository` runs. Apart from the library
+# above, so that only it brings `package:crypto`.
+dart_library(
+    name = "gradle_host_record",
+    srcs = ["lib/gradle_host_record.dart"],
+    package = ":pubspec-metadata",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":e2e_testing",
+        "@dev_tool_deps//:crypto",
     ],
 )
 

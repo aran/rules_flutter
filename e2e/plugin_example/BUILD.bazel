@@ -42,10 +42,10 @@ load("@rules_flutter//flutter/tests:purls.bzl", "package_metadata_files")
 load("@rules_flutter//tools/e2e_testing:apple_analysis_test.bzl", "one_application_configuration_test")
 load("@rules_flutter//tools/e2e_testing:apple_release_build.bzl", "apple_release_build")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
+load("@rules_flutter//tools/e2e_testing:gradle_host.bzl", "gradle_host_config")
 load(":add_to_app_app_settings_test.bzl", "add_to_app_module_environment_test", "add_to_app_module_settings_test")
 load(":android_apk.bzl", "android_apk")
 load(":desktop_link_libraries_test.bzl", "linux_link_libraries_test", "windows_link_libraries_test")
-load(":gradle_host.bzl", "gradle_host_config")
 load(":ignored_package_test.bzl", "ignored_package_test")
 load(":maven_repo_in_mode.bzl", "maven_repo_in_mode")
 
@@ -1488,13 +1488,19 @@ dart_test(
 
 # A native host app built by Gradle (add_to_app_host/android), taking the
 # module from the repositories above as Flutter's add-to-app guide shows.
-# The Gradle distribution, the JDK, the Android SDK and every Maven artifact
-# the build resolves are pinned and downloaded by Bazel (MODULE.bazel), and
-# Gradle runs offline.
+# The Gradle distribution, the JDK, the Android SDK and NDK and every Maven
+# artifact the build resolves are pinned and downloaded by Bazel (MODULE.bazel),
+# and Gradle runs offline.
 _GRADLE_HOST_PROJECT = glob(
     ["add_to_app_host/android/**"],
     exclude = ["add_to_app_host/android/gradle_repository.json"],
 )
+
+_GRADLE_HOST_VARIANTS = [
+    "debug",
+    "profile",
+    "release",
+]
 
 _GRADLE_HOST_MODULE_REPOSITORIES = [
     ":plugin_module_repo_debug",
@@ -1512,6 +1518,7 @@ gradle_host_config(
         "android",
         "deep",
     ],
+    variants = _GRADLE_HOST_VARIANTS,
 )
 
 # Builds the host's debug, profile and release APKs and checks each one's
@@ -1521,7 +1528,6 @@ gradle_host_config(
 dart_test(
     name = "gradle_host_test",
     size = "medium",
-    srcs = ["test/gradle_host.dart"],
     args = ["$(rlocationpath :gradle_host_offline)"],
     data = [
         ":gradle_host_offline",
@@ -1534,10 +1540,7 @@ dart_test(
         "block-network",
         "deep",
     ],
-    deps = [
-        "@rules_dart//dart/runfiles",
-        "@rules_flutter//tools/e2e_testing",
-    ],
+    deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
 # The same build against the remote repositories, which records the lock of
@@ -1556,11 +1559,11 @@ gradle_host_config(
         "android",
         "deep",
     ],
+    variants = _GRADLE_HOST_VARIANTS,
 )
 
 dart_binary(
     name = "record_gradle_host_repository",
-    srcs = ["test/gradle_host.dart"],
     args = ["$(rlocationpath :gradle_host_online)"],
     data = [":gradle_host_online"],
     main = "test/record_gradle_host_repository.dart",
@@ -1568,10 +1571,7 @@ dart_binary(
         "android",
         "deep",
     ],
-    deps = [
-        "@deps//:crypto",
-        "@rules_dart//dart/runfiles",
-    ],
+    deps = ["@rules_flutter//tools/e2e_testing:gradle_host_record"],
 )
 
 # Each package fetched from pub.dev says what it is, for any SBOM tool, whichever

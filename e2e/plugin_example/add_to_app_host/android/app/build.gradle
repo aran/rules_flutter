@@ -7,6 +7,10 @@ android {
     // Flutter's compileSdkVersion and targetSdkVersion, the SDK platform the
     // workspace's MODULE.bazel downloads.
     compileSdk = 36
+    // The NDK the plugin strips the native libraries it packages with, as
+    // Android Studio's installed one: the test names the one Bazel downloads,
+    // the version Flutter's Gradle plugin sets as `ndkVersion`.
+    ndkPath = providers.gradleProperty('hostNdkPath').get()
 
     defaultConfig {
         applicationId = 'com.example.add_to_app_host'

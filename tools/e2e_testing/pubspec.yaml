@@ -8,6 +8,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  crypto: ^3.0.8
   # The session probe, re-exported. Bazel builds take it from
   # `//tools/macos_gui_session`; this is how `dart test` finds it.
   rules_flutter_macos_gui_session:

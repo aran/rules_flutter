@@ -294,7 +294,7 @@ filegroup(
     url = "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip",
 )
 
-gradle_offline_repository = use_repo_rule("//:gradle_offline_repository.bzl", "gradle_offline_repository")
+gradle_offline_repository = use_repo_rule("@rules_flutter//tools/e2e_testing:gradle_offline_repository.bzl", "gradle_offline_repository")
 
 gradle_offline_repository(
     name = "gradle_host_maven",

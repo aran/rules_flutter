@@ -2,8 +2,8 @@
 /// the repositories `flutter_android_aar` built for `plugin_app` in debug,
 /// profile and release, and checks what each APK holds: the engine, the
 /// module's AOT code or kernel, and the plugins' native libraries for each
-/// ABI; the plugins' and the module's classes dexed; and the manifests of the
-/// host and the plugins merged.
+/// ABI, all stripped; the plugins' and the module's classes dexed; and the
+/// manifests of the host and the plugins merged.
 ///
 /// Only the Android Gradle plugin consumes an AAR as a host app does: it maps
 /// the host's `profile` build type to the module's `flutter_profile`, packages
@@ -16,8 +16,7 @@ import 'package:rules_flutter_e2e_testing/apk_contents.dart';
 import 'package:rules_flutter_e2e_testing/archive.dart';
 import 'package:rules_flutter_e2e_testing/bundle_check.dart';
 import 'package:rules_flutter_e2e_testing/elf.dart';
-
-import 'gradle_host.dart';
+import 'package:rules_flutter_e2e_testing/gradle_host.dart';
 
 /// A class each of `plugin_app`'s plugins with Android code defines.
 const _pluginClasses = [
@@ -47,34 +46,16 @@ Future<void> main(List<String> args) async {
     exitCode = 2;
     return;
   }
-  final work = Directory(
-    Platform.environment['TEST_TMPDIR'] ?? Directory.systemTemp.path,
-  ).createTempSync('gradle_host');
-  final host = GradleHost(args.single, work);
-  final stopwatch = Stopwatch()..start();
-  final built = await host.run([
-    for (final variant in hostVariants)
-      'assemble${variant[0].toUpperCase()}${variant.substring(1)}',
-  ], offline: true);
-  stdout.writeln('Gradle ran for ${stopwatch.elapsed.inSeconds}s.');
-  if (built != 0) {
-    work.deleteSync(recursive: true);
-    stderr.writeln(
-      'The offline Gradle build failed. If it names an artifact it could not '
-      'find, record the lock again: '
-      'bazel run --config=deep //:record_gradle_host_repository',
-    );
+  final check = BundleCheck();
+  final built = await buildGradleHostOffline(args.single, (host) {
+    for (final variant in host.variants) {
+      _verifyApk(check, variant, host.apk(variant));
+    }
+  });
+  if (!built) {
     exitCode = 1;
     return;
   }
-
-  final check = BundleCheck();
-  for (final variant in hostVariants) {
-    _verifyApk(check, variant, host.apk(variant));
-  }
-  // The APKs, the engine's unstripped libraries and Gradle's caches come to
-  // gigabytes, which Bazel would keep until the test runs again.
-  work.deleteSync(recursive: true);
   check.finish(
     'The Gradle-built host app packages the module of every build mode.',
   );
@@ -125,6 +106,20 @@ void _verifyApk(BundleCheck check, String variant, File apk) {
             : 'missing';
         check.expect(
           '$variant: lib/$abi/$library is an ELF library for $abi',
+          condition: problem == null,
+          detail: problem,
+        );
+      }
+      // The Android Gradle plugin strips what it packages, with the NDK: the
+      // engine Google publishes unstripped as well as the module's own.
+      for (final library in entries.where(
+        (e) => e.startsWith('lib/$abi/') && e.endsWith('.so'),
+      )) {
+        final problem = ElfImage.fromFile(
+          File('$root/$library'),
+        ).unstrippedSections();
+        check.expect(
+          '$variant: $library is stripped',
           condition: problem == null,
           detail: problem,
         );
