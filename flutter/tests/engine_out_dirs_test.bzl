@@ -1,7 +1,7 @@
 """Unit tests for reading an engine checkout's out dirs."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//flutter/private:engine_out_dirs.bzl", "effective_cpu", "parse_args_gn", "parse_out_dir_name", "select_out_dir")
+load("//flutter/private:engine_out_dirs.bzl", "effective_cpu", "machine_of", "parse_args_gn", "parse_out_dir_name", "select_out_dir")
 
 def _shape(name):
     parsed = parse_out_dir_name(name)
@@ -32,6 +32,24 @@ def _names_test_impl(ctx):
     asserts.equals(env, None, _shape("host_jit_release"))
     asserts.equals(env, None, _shape("host"))
     asserts.equals(env, None, _shape("flutter"))
+    return unittest.end(env)
+
+def _machine(name, arch):
+    machine = machine_of(struct(os = struct(name = name, arch = arch)))
+    return machine.key if machine else None
+
+def _machine_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, "darwin-arm64", _machine("Mac OS X", "aarch64"))
+    asserts.equals(env, "linux-x64", _machine("Linux", "amd64"))
+    asserts.equals(env, "linux-arm64", _machine("linux", "arm64"))
+    asserts.equals(env, "windows-x64", _machine("Windows 11", "x86_64"))
+
+    # A CPU the engine is not built for is no machine, not an x64 one.
+    asserts.equals(env, None, _machine("Linux", "riscv64"))
+    asserts.equals(env, None, _machine("Linux", "ppc64le"))
+    asserts.equals(env, None, _machine("FreeBSD", "amd64"))
     return unittest.end(env)
 
 def _args_gn_test_impl(ctx):
@@ -182,10 +200,11 @@ def _desktop_slots_test_impl(ctx):
     return unittest.end(env)
 
 _names_test = unittest.make(_names_test_impl)
+_machine_test = unittest.make(_machine_test_impl)
 _args_gn_test = unittest.make(_args_gn_test_impl)
 _slots_test = unittest.make(_slots_test_impl)
 _mobile_slots_test = unittest.make(_mobile_slots_test_impl)
 _desktop_slots_test = unittest.make(_desktop_slots_test_impl)
 
 def engine_out_dirs_test_suite(name):
-    unittest.suite(name, _names_test, _args_gn_test, _slots_test, _mobile_slots_test, _desktop_slots_test)
+    unittest.suite(name, _names_test, _machine_test, _args_gn_test, _slots_test, _mobile_slots_test, _desktop_slots_test)

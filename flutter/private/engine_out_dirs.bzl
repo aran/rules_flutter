@@ -223,6 +223,10 @@ def link_files_into(repository_ctx, source, destination):
                 repository_ctx.symlink(entry, target + "/" + entry.basename)
     repository_ctx.watch_tree(source)
 
+# What `repository_os.arch` calls each CPU the out dirs are built for; any
+# other CPU is no machine, not an x64 one.
+_HOST_CPUS = {"aarch64": "arm64", "arm64": "arm64", "amd64": "x64", "x64": "x64", "x86_64": "x64"}
+
 # The machines whose out dirs can be read. `prebuilt` is the directory name
 # `flutter/prebuilts` uses for the machine's Dart SDK; `os_prefix` is the
 # machine's OS in an out dir name (`mac_release_arm64`).
@@ -249,5 +253,5 @@ def machine_of(repository_ctx):
     """
     name = repository_ctx.os.name.lower()
     os = "mac" if name.startswith("mac") else ("windows" if name.startswith("windows") else ("linux" if name.startswith("linux") else ""))
-    arch = "arm64" if repository_ctx.os.arch in ["aarch64", "arm64"] else "x64"
+    arch = _HOST_CPUS.get(repository_ctx.os.arch.lower(), "")
     return _MACHINES.get((os, arch))
