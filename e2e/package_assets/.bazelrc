@@ -31,9 +31,27 @@ common --incompatible_check_testonly_for_output_files
 common --incompatible_disable_starlark_host_transitions
 common --incompatible_resolve_select_keys_eagerly
 
-try-import %workspace%/.bazelrc.user
+# Share the results of identical actions between configurations (one
+# Android ABI and the next, -c dbg and -c fastbuild, platform transitions).
+# Bazel rewrites `bazel-out/<config>` only in actions that declare they
+# support it, and only where it can sandbox them: on Windows it fails a
+# path-mapped action rather than run it unsandboxed. See README.md, ".bazelrc".
+common --enable_platform_specific_config
+common:linux --experimental_output_paths=strip
+common:macos --experimental_output_paths=strip
+
+# `dart analyze` and the `dart format` check run as an aspect over every Dart
+# target a `bazel test` names. The config line is `common` because `bazel run`
+# of `@rules_dart//dart/fix` and `@rules_dart//dart/format` reads it too.
+test --aspects=@rules_dart//dart:analyze.bzl%dart_analyze
+test --output_groups=+dart_analyze
+test --output_groups=+dart_format
+common --@rules_dart//dart:analysis_config=//:analysis_config
 
 # Start a `dart_test`'s `package:test` runner from a snapshot cached on the
 # machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
 # see the root .bazelrc.
 build --@rules_dart//dart:runner_snapshot
+
+# Last, so a checkout's own settings override everything above.
+try-import %workspace%/.bazelrc.user

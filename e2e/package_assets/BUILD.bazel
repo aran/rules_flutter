@@ -14,7 +14,7 @@
 # tests here read what a release build ships and, under `-c dbg`, what a debug
 # build does (it links nothing, so it ships every declared asset).
 
-load("@rules_dart//dart:defs.bzl", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
 load("@rules_flutter//flutter:defs.bzl", "dart_data_asset", "dart_package_metadata", "flutter_application")
 load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
@@ -113,4 +113,17 @@ dart_test(
     ],
     main = "bundle_test.dart",
     deps = ["@rules_dart//dart/runfiles"],
+)
+
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+)
+
+# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
+# aspect `.bazelrc` enables: each Dart file is checked against the nearest
+# listed one above it.
+dart_analysis_config(
+    name = "analysis_config",
+    options = [":options"],
 )

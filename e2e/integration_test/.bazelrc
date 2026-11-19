@@ -78,5 +78,10 @@ common --@rules_dart//dart:analysis_config=//:analysis_config
 test --test_tag_filters=-requires-gui,-requires-simulator,-requires-emulator
 test:machine --test_tag_filters=
 
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
+# see the root .bazelrc.
+build --@rules_dart//dart:runner_snapshot
+
 # Last, so a checkout's own settings override everything above.
 try-import %workspace%/.bazelrc.user

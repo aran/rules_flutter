@@ -1,0 +1,13 @@
+# Formatting rules for this workspace's Dart files, enforced with the
+# analyzer's own checks by `bazel test //...`.
+#
+# A bare file rather than a `dart_analysis_options` target with a `package:`
+# include: a lint package would be one more entry in the workspace's
+# pubspec.lock, and the e2e workspaces are being merged with their locks
+# unchanged, so that each move can be compared exactly.
+
+formatter:
+  # Matches the root's setting. `dart format` falls back to `automate` when
+  # this is unstated, which collapses trailing commas kept to force a
+  # construct multi-line.
+  trailing_commas: preserve

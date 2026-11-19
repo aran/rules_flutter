@@ -12,11 +12,7 @@ import 'package:runfiles/runfiles.dart';
 
 void main(List<String> args) {
   final runfiles = Runfiles.create();
-  String resolve(String path) {
-    final resolved = runfiles.rlocation(path);
-    if (resolved == null) throw StateError('no runfiles entry for $path');
-    return resolved;
-  }
+  String resolve(String path) => runfiles.rlocation(path);
 
   final debug = args.contains('--debug');
   final paths = args.where((a) => a != '--debug').toList();

@@ -16,8 +16,7 @@ import 'package:runfiles/runfiles.dart';
 
 void main(List<String> args) {
   final runfiles = Runfiles.create();
-  String resolve(String path) =>
-      runfiles.rlocation(path) ?? (throw StateError('no runfile $path'));
+  String resolve(String path) => runfiles.rlocation(path);
 
   final positional = args.where((a) => !a.startsWith('--')).toList();
   String? option(String name) {

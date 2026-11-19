@@ -42,8 +42,7 @@ List<Entry> parse(List<String> components) => [
 
 void main(List<String> args) {
   final runfiles = Runfiles.create();
-  String resolve(String path) =>
-      runfiles.rlocation(path) ?? (throw StateError('no runfile $path'));
+  String resolve(String path) => runfiles.rlocation(path);
   List<String> options(String name) => [
     for (final a in args)
       if (a.startsWith('--$name=')) a.substring(name.length + 3),

@@ -14,9 +14,9 @@ void main(List<String> args) {
   final bundles = <String>[
     for (final path in args.where((a) => a != '--debug'))
       if (path.endsWith('_flutter_assets'))
-        runfiles.rlocation(path)!
+        runfiles.rlocation(path)
       else if (path.endsWith('_web'))
-        '${runfiles.rlocation(path)!}/assets',
+        '${runfiles.rlocation(path)}/assets',
   ];
   if (bundles.length != 2) {
     throw StateError('want the native assets and a web bundle, got $bundles');

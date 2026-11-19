@@ -47,5 +47,11 @@ common --@rules_dart//dart:analysis_config=//:analysis_config
 # see the root .bazelrc.
 build --@rules_dart//dart:runner_snapshot
 
+# Swift compiles use explicit Clang modules, each precompiled by an action of
+# its own, rather than rules_swift's shared, undeclared module cache. See
+# README.md, "Explicit Clang modules on macOS and iOS".
+common --features=swift.emit_c_module --host_features=swift.emit_c_module
+common --features=swift.use_c_modules --host_features=swift.use_c_modules
+
 # Last, so a checkout's own settings override everything above.
 try-import %workspace%/.bazelrc.user

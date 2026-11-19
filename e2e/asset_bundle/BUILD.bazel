@@ -1,3 +1,4 @@
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_asset_bundle")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("//tools:bundle.bzl", "bundled_app", "tree_of")
@@ -279,4 +280,17 @@ flutter_asset_bundle(
     tags = ["manual"],
     visibility = ["//visibility:public"],
     deps = ["@rules_flutter//flutter:material_icons"],
+)
+
+dart_analysis_options(
+    name = "options",
+    src = "analysis_options.yaml",
+)
+
+# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
+# aspect `.bazelrc` enables: each Dart file is checked against the nearest
+# listed one above it.
+dart_analysis_config(
+    name = "analysis_config",
+    options = [":options"],
 )

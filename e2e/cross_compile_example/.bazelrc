@@ -42,5 +42,16 @@ test --output_groups=+dart_analyze
 test --output_groups=+dart_format
 common --@rules_dart//dart:analysis_config=//:analysis_config
 
+# Swift compiles use explicit Clang modules, each precompiled by an action of
+# its own, rather than rules_swift's shared, undeclared module cache. See
+# README.md, "Explicit Clang modules on macOS and iOS".
+common --features=swift.emit_c_module --host_features=swift.emit_c_module
+common --features=swift.use_c_modules --host_features=swift.use_c_modules
+
+# Start a `dart_test`'s `package:test` runner from a snapshot cached on the
+# machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
+# see the root .bazelrc.
+build --@rules_dart//dart:runner_snapshot
+
 # Last, so a checkout's own settings override everything above.
 try-import %workspace%/.bazelrc.user

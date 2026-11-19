@@ -12,7 +12,6 @@ void main(List<String> args) {
   // The app's files; the bundle is the `_flutter_assets` one.
   final path = args.singleWhere((p) => p.endsWith('_flutter_assets'));
   final bundle = runfiles.rlocation(path);
-  if (bundle == null) throw StateError('no runfiles entry for $path');
 
   final blob = File('$bundle/$_key').readAsStringSync().trim();
   if (blob != 'native-assets-synthetic-data-blob-v1') {
