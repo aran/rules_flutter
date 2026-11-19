@@ -32,9 +32,28 @@ flutter_linux_app(
     target_compatible_with = ["@platforms//os:linux"],
 )
 
-# Every Linux target of the workspace, built for linux_x64 in debug mode with
-# the LLVM toolchains MODULE.bazel registers. The test runs on the host;
-# only these are built for Linux.
+# Linux x86_64 with the hermetic LLVM CC toolchains, from each Mac and Linux
+# host and from a Linux arm64 remote worker. The platform names them through
+# `flags`, so they resolve only for a build on this platform. Registered
+# module-wide instead, `linux_x86_64_to_linux_x86_64` would take every C++
+# compile for Linux on a Linux host from the host's toolchain (and its system
+# GTK). A constraint of our own cannot gate them: `@llvm` keeps its
+# `cc_toolchain` targets private, so they cannot be wrapped in a `toolchain()`
+# with one. Only these pairs, not `:all`, which would also claim macOS-target
+# compiles from Apple's toolchain.
+platform(
+    name = "linux_x64_llvm",
+    flags = [
+        "--extra_toolchains=@llvm//toolchain:macos_aarch64_to_linux_x86_64",
+        "--extra_toolchains=@llvm//toolchain:macos_x86_64_to_linux_x86_64",
+        "--extra_toolchains=@llvm//toolchain:linux_aarch64_to_linux_x86_64",
+        "--extra_toolchains=@llvm//toolchain:linux_x86_64_to_linux_x86_64",
+    ],
+    parents = ["@rules_flutter//flutter/platforms:linux_x64"],
+)
+
+# Every Linux target of the workspace, built for `:linux_x64_llvm` in debug
+# mode. The test runs on the host; only these are built for Linux.
 linux_x64_debug_build(
     name = "linux_x64_debug",
     targets = [

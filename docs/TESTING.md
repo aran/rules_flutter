@@ -900,13 +900,14 @@ cd e2e/package_assets && bazel test //...   # the link hook tests on any host; t
   `<workspace>/.dart_tool/hooks_runner/<pkg>/<hash>/stderr.txt`.
 - `cross_compile_example` sets no `--platforms` for the workspace. Its
   `:linux_x64_debug_test` is a `build_test` of every Linux target built for
-  `linux_x64` with `-c dbg` by a transition, so a plain `bazel test //...` on a
+  `:linux_x64_llvm` (`linux_x64` with the LLVM toolchains, which only that
+  platform names) with `-c dbg` by a transition, so a plain `bazel test //...` on a
   Mac checks the cross build, and the Linux targets themselves, compatible with
   Linux alone, are skipped in the host's configuration. To build the bundle
   itself for a VM, name the platform on the command line:
   ```sh
   cd e2e/cross_compile_example
-  bazel build --platforms=@rules_flutter//flutter/platforms:linux_x64 -c dbg :cross_linux
+  bazel build --platforms=//:linux_x64_llvm -c dbg :cross_linux
   ```
 
 ### `e2e/integration_test`
@@ -1920,7 +1921,7 @@ Cross-compile a Linux debug bundle from macOS, deploy to a GCP VM, and verify th
 
 ```sh
 # 1. Cross-compile (requires LLVM toolchain — use cross_compile_example)
-cd e2e/cross_compile_example && bazel build --platforms=@rules_flutter//flutter/platforms:linux_x64 -c dbg :cross_linux
+cd e2e/cross_compile_example && bazel build --platforms=//:linux_x64_llvm -c dbg :cross_linux
 
 # 2. Create a Linux VM
 bazel run //tools/vm:create_linux_vm -- flutter-linux-test

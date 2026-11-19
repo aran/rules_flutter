@@ -1,4 +1,4 @@
-"""Builds targets for Linux x86_64 in debug mode, whatever host and mode the command line has."""
+"""Builds targets for Linux x86_64 with the LLVM toolchains in debug mode, whatever host and mode the command line has."""
 
 _PLATFORMS = "//command_line_option:platforms"
 _COMPILATION_MODE = "//command_line_option:compilation_mode"
@@ -7,7 +7,7 @@ _COMPILATION_MODE = "//command_line_option:compilation_mode"
 # another, so a release or profile bundle cannot be cross-compiled.
 def _transition_impl(_settings, _attr):
     return {
-        _PLATFORMS: [str(Label("@rules_flutter//flutter/platforms:linux_x64"))],
+        _PLATFORMS: [str(Label("//:linux_x64_llvm"))],
         _COMPILATION_MODE: "dbg",
     }
 
@@ -22,7 +22,7 @@ def _impl(ctx):
 
 linux_x64_debug_build = rule(
     implementation = _impl,
-    doc = """Builds `targets` for `@rules_flutter//flutter/platforms:linux_x64` with `-c dbg`, and forwards their files.
+    doc = """Builds `targets` for `//:linux_x64_llvm` with `-c dbg`, and forwards their files.
 
 A `build_test` of it checks the cross build in a plain `bazel test`, with no
 `--platforms` for the workspace: the build_test runs on the host, and only
