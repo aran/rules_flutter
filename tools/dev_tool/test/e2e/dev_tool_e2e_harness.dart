@@ -1053,14 +1053,18 @@ class DevToolProcess {
     await _eventController.close();
     await _stderrController.close();
     if (!_exited) {
-      process.kill();
-      await process.exitCode.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          process.kill(ProcessSignal.sigkill);
-          return -9;
-        },
-      );
+      // A second signal before SIGKILL: the first waits for a teardown that
+      // is already stuck, the second exits at once and kills the children the
+      // tool started on its way out. SIGKILL runs no code, so a tool killed
+      // that way leaves its DTD, its `adb logcat` and its app running.
+      for (final signal in [ProcessSignal.sigterm, ProcessSignal.sigterm]) {
+        process.kill(signal);
+        if (await _exitsWithin(const Duration(seconds: 5))) break;
+      }
+      if (!_exited) {
+        process.kill(ProcessSignal.sigkill);
+        await process.exitCode;
+      }
     }
     // Every e2e test is a lifetime guard, not just the two that say so:
     // swallowing the timeout and killing would leave a tool that can no longer
@@ -1168,6 +1172,10 @@ class DevToolProcess {
   /// The two tests that assert the exit *deliberately* keep their own tighter
   /// bounds; this is the backstop under every other test.
   static const _stopBound = Duration(seconds: 60);
+
+  /// Whether the tool exits within [bound].
+  Future<bool> _exitsWithin(Duration bound) =>
+      process.exitCode.then((_) => true).timeout(bound, onTimeout: () => false);
 
   /// Send `daemon.shutdown` and wait for the process to exit.
   ///
