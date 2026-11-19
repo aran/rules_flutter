@@ -6,20 +6,7 @@ Bazel rules for building Flutter apps.
 
 rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and packages the result for macOS, iOS, Android, Linux, Windows, and the web. It builds on [rules_dart](https://github.com/aran/rules_dart) for Dart compilation and hands platform packaging to the rulesets that already do it well: `rules_apple`, `rules_android`, and friends. It also ships a dev tool, `flutter_bazel`, that gives you hot reload, hot restart, and an HTTP channel for driving a running app from an AI agent or script. It also supports [frustrate](https://github.com/aran/frustrate), which allows Rust code to be used in apps built with rules_flutter.
 
-## What's New
-
-- **Many breaking API changes.** See detailed changelog notes. In general the
-  reasons are:
-  - More idiomatic Bazel APIs
-  - Improving consistency across rules_dart and rules_flutter
-  - Handling various edge cases
-  - Added features where the new feature's ideal name was already taken
-- **Integration tests.** package:integration_test suites run as `bazel test`.
-- **Add-to-app.** Existing iOS, macOS and Android apps can embed Flutter.
-- **Custom engines.** Build against customized Flutter, e.g. Shorebird.
-- **Flavors.** Support for Flutter's flavors for managing e.g. dev vs. staging vs. prod app variants.
-
-### Migrating from 0.1.0
+## Migrating from 0.1.0
 
 1. Bazel 9.3 or newer.
 2. Flutter 3.50.0 or later. rules_flutter asks for 3.50.0, and 3.47 is no
