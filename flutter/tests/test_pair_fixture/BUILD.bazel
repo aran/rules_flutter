@@ -61,6 +61,7 @@ write_file(
         "flutter_test rule //flutter/tests/test_pair_fixture:suite",
         "",
     ],
+    newline = "unix",
 )
 
 write_file(
@@ -70,6 +71,7 @@ write_file(
         "flutter_test_program rule //flutter/tests/test_pair_fixture:suite.program",
         "",
     ],
+    newline = "unix",
 )
 
 write_file(
@@ -79,6 +81,7 @@ write_file(
         "//flutter/tests/test_pair_fixture:suite",
         "",
     ],
+    newline = "unix",
 )
 
 write_file(
@@ -89,6 +92,7 @@ write_file(
         "//flutter/tests/test_pair_fixture:suite.program",
         "",
     ],
+    newline = "unix",
 )
 
 diff_test(
