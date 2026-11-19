@@ -121,6 +121,7 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_android//android:rules.bzl", _android_application = "android_application", _android_binary = "android_binary", _android_library = "android_library")
 load("@rules_dart//dart:defs.bzl", "dart_binary")
 load("@rules_java//java:java_import.bzl", _java_import = "java_import")
+load("@rules_jvm_external//:defs.bzl", "artifact")
 load("@rules_kotlin//kotlin:android.bzl", _kt_android_library = "kt_android_library")
 load("@rules_kotlin//kotlin:core.bzl", _kt_kotlinc_options = "kt_kotlinc_options")
 load("//flutter/private:android_debug_info.bzl", _flutter_android_debug_info = "flutter_android_debug_info")
@@ -160,8 +161,7 @@ ANDROID_TARGET_SDK_VERSION = _ANDROID_TARGET_SDK_VERSION
 # that contract. It adds nothing to the APK that the engine target wasn't
 # already carrying at runtime.
 _ANDROIDX_EMBEDDING_DEPS = [
-    # rules_jvm_external names an artifact's target by its coordinate.
-    Label("@rules_flutter_maven//:" + coordinate.replace(".", "_").replace(":", "_").replace("-", "_"))
+    Label(artifact(coordinate, repository_name = "rules_flutter_maven"))
     for coordinate in _ANDROID_EMBEDDING_MAVEN_DEPS
 ]
 

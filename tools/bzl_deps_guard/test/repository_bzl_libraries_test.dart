@@ -36,6 +36,7 @@ const _exceptions = ExternalExceptions(
         '@rules_java//java/common:proguard_spec_info_bzl',
     '@rules_java//java:java_import.bzl': '@rules_java//java:core_rules',
     '@rules_java//java:java_library.bzl': '@rules_java//java:core_rules',
+    '@rules_jvm_external//:defs.bzl': '@rules_jvm_external//:implementation',
   },
   // No library a dependent may use holds the file.
   noLibrary: {
