@@ -17,6 +17,7 @@ import 'dart:io';
 
 import 'agent_command.dart';
 import 'bazel.dart';
+import 'child_processes.dart';
 import 'chrome_profile.dart';
 import 'command_failure.dart';
 import 'command_runner.dart';
@@ -575,13 +576,14 @@ class SessionHost {
   }
 }
 
-/// Exit now, ending any browser this process started first.
+/// Exit now, ending any browser and other child this process started first.
 ///
 /// The exit a second signal asks for does not wait for the orderly shutdown,
 /// and a browser left running by a tool that has gone is an orphan: nothing
-/// is left to stop it or to delete its profile.
+/// is left to stop it or to delete its profile. So is every other child.
 Never exitReleasingBrowsers(int code) {
   ChromeProfile.releaseAllNow();
+  ChildProcesses.killAllNow();
   exit(code);
 }
 

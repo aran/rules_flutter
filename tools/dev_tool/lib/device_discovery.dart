@@ -16,6 +16,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'android_sdk.dart';
+import 'child_processes.dart';
 import 'dev_tool_exception.dart';
 import 'device.dart';
 import 'logging.dart';
@@ -157,7 +158,7 @@ class DeviceLookup {
 /// A [ProcessRunSync] whose every command is killed after [bound].
 ProcessRunSync boundedRunner(Duration bound) =>
     (executable, arguments) => runProcessBounded(
-      (exe, args, env) => Process.start(exe, args, environment: env),
+      (exe, args, env) => startChildProcess(exe, args, environment: env),
       executable,
       arguments,
       environment: Platform.environment,

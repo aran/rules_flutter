@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'child_processes.dart';
 import 'dev_tool_exception.dart';
 import 'launch_bundle_parts.dart';
 import 'local_packages.dart';
@@ -1272,7 +1273,7 @@ Future<Process> _spawnInGroup(
 Future<Process> _spawnDirectly(
   List<String> args, {
   required String workingDirectory,
-}) => Process.start('bazel', args, workingDirectory: workingDirectory);
+}) => startChildProcess('bazel', args, workingDirectory: workingDirectory);
 
 /// Signal the command's whole process group.
 void _interruptGroup(Process process) =>

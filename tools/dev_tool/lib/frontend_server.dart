@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:pool/pool.dart';
 
+import 'child_processes.dart';
 import 'compiler_config.dart';
 import 'logging.dart';
 import 'process_cpu_time.dart';
@@ -122,7 +123,7 @@ class FrontendServer {
        _frontendServerPath = frontendServerPath,
        _config = config,
        _packageConfig = packageConfig,
-       _processFactory = processFactory ?? Process.start;
+       _processFactory = processFactory ?? startChildProcess;
 
   late final String _outputDillPath;
 

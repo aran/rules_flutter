@@ -148,6 +148,7 @@ void main() {
 
     test('AndroidDevice name includes deviceId when provided', () {
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         adbPath: 'adb',
         aapt2Path: 'aapt2',
         deviceId: 'emulator-5554',
@@ -157,6 +158,7 @@ void main() {
 
     test('AndroidDevice name is "Android" when no deviceId', () {
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         adbPath: 'adb',
         aapt2Path: 'aapt2',
       );
@@ -199,6 +201,7 @@ void main() {
     test('AndroidDevice builds for the ABI it was told', () {
       expect(
         AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
           abi: 'arm64-v8a',
@@ -209,6 +212,7 @@ void main() {
       );
       expect(
         AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
           abi: 'x86_64',
@@ -225,6 +229,7 @@ void main() {
     // those without building the artifact.
     test('AndroidDevice names the bundle parts a restart reads', () {
       final parts = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         adbPath: 'adb',
         aapt2Path: 'aapt2',
         abi: 'x86_64',
@@ -272,6 +277,7 @@ void main() {
     test('AndroidDevice does not guess an ABI it has not been told', () {
       expect(
         () => AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
         ).buildArgs,
@@ -286,6 +292,7 @@ void main() {
       }) async {
         final calls = <String>[];
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           deviceId: deviceId,
           adbPath: 'adb',
@@ -349,6 +356,7 @@ void main() {
       test('a told ABI is not asked again', () async {
         final calls = <String>[];
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           abi: 'x86_64',
           adbPath: 'adb',
@@ -363,6 +371,7 @@ void main() {
 
       test('an adb failure is reported with the device it asked', () async {
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           deviceId: 'PIXEL',
           adbPath: 'adb',
@@ -1005,14 +1014,17 @@ void main() {
     test('stops the app before it installs and starts it', () async {
       final calls = <List<String>>[];
       final fakeLogcat = FakeProcess();
+      Future<ProcessResult> adb(String exe, List<String> args) async {
+        calls.add(args);
+        return ProcessResult(0, 0, '', '');
+      }
+
       final device = AndroidDevice(
+        startForceStopProcess: answeringAs(adb),
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
-        runProcess: (exe, args) async {
-          calls.add(args);
-          return ProcessResult(0, 0, '', '');
-        },
+        runProcess: adb,
         startProcess: (exe, args) async => fakeLogcat,
       );
       unawaited(fakeLogcat.outputAttached.then((_) => fakeLogcat.complete(0)));
@@ -1037,17 +1049,20 @@ void main() {
     // a launch depends on.
     group('a stop that does not work', () {
       AndroidDevice deviceWhoseStop(
-        Future<ProcessResult> Function() onStop,
+        Future<Process> Function() onStop,
         List<List<String>> calls,
         FakeProcess logcat,
       ) => AndroidDevice(
+        startForceStopProcess: (exe, args) {
+          calls.add(args);
+          return onStop();
+        },
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
-        runProcess: (exe, args) {
+        runProcess: (exe, args) async {
           calls.add(args);
-          if (args.contains('force-stop')) return onStop();
-          return Future.value(ProcessResult(0, 0, '', ''));
+          return ProcessResult(0, 0, '', '');
         },
         startProcess: (exe, args) async => logcat,
       );
@@ -1060,7 +1075,9 @@ void main() {
         final logcat = FakeProcess();
         unawaited(logcat.outputAttached.then((_) => logcat.complete(0)));
         final device = deviceWhoseStop(
-          () async => ProcessResult(0, 1, '', 'Error: device offline'),
+          () => answeringAs(
+            (_, _) async => ProcessResult(0, 1, '', 'Error: device offline'),
+          )('adb', const []),
           calls,
           logcat,
         );
@@ -1079,11 +1096,8 @@ void main() {
           final calls = <List<String>>[];
           final logcat = FakeProcess();
           unawaited(logcat.outputAttached.then((_) => logcat.complete(0)));
-          final device = deviceWhoseStop(
-            () => Completer<ProcessResult>().future,
-            calls,
-            logcat,
-          );
+          final wedged = FakeProcess();
+          final device = deviceWhoseStop(() async => wedged, calls, logcat);
 
           // What follows the install reads real files, which fake time does
           // not reach; that the install is reached is what this asks.
@@ -1097,6 +1111,11 @@ void main() {
 
           async.elapse(const Duration(seconds: 2));
           expect(calls.any((c) => c.contains('install')), isTrue);
+          expect(
+            wedged.signals,
+            [ProcessSignal.sigkill],
+            reason: 'an adb left running holds the tool open after the run',
+          );
         });
       });
     });
@@ -1106,6 +1125,7 @@ void main() {
       final fakeLogcat = FakeProcess();
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         deviceId: 'emulator-5554',
         packageName: 'com.example.app',
@@ -1142,6 +1162,7 @@ void main() {
         final calls = <(String, List<String>)>[];
         final fakeLogcat = FakeProcess();
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           activityName: '.FlutterActivity',
@@ -1172,6 +1193,7 @@ void main() {
       final calls = <(String, List<String>)>[];
       final fakeLogcat = FakeProcess();
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1196,6 +1218,7 @@ void main() {
       final fakeLogcat = FakeProcess();
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         activityName: '.FlutterActivity',
@@ -1226,6 +1249,7 @@ void main() {
       final fakeLogcat = FakeProcess();
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1248,6 +1272,7 @@ void main() {
 
     test('throws on adb install failure', () async {
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1277,6 +1302,7 @@ void main() {
       // A reader who cannot see the serial the tool used has nothing to compare
       // against the one they would have typed.
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         deviceId: '58051JEBF01271',
         packageName: 'com.example.app',
@@ -1306,6 +1332,7 @@ void main() {
       // `-d android` lets adb choose, and its message says which it chose or
       // why it would not. Quoting a serial we never passed would be a fiction.
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1351,6 +1378,7 @@ void main() {
         required int availableKb,
         bool alreadyInstalled = false,
       }) => AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1443,6 +1471,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         // else — a bad signature, an ABI mismatch — is passed through
         // unembellished rather than dressed up as a storage problem.
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           adbPath: 'adb',
@@ -1475,6 +1504,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       FakeProcess logcat,
       ProcessResult Function() onForward,
     ) => AndroidDevice(
+      startForceStopProcess: exitsAtOnce,
       aapt2Path: 'aapt2',
       packageName: 'com.example.app',
       adbPath: 'adb',
@@ -1530,6 +1560,58 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       );
     });
 
+    // A launch that fails returns no AppInstance, so nothing would ever stop
+    // its logcat: an `adb logcat` left running after the tool has gone.
+    test('stops its logcat when the launch fails', () async {
+      final fakeLogcat = FakeProcess();
+      final device = launchableDevice(
+        fakeLogcat,
+        () => ProcessResult(0, 1, '', 'error: device offline'),
+      );
+      announceVmService(fakeLogcat);
+
+      await expectLater(
+        device.launch('/path/to/app.apk'),
+        throwsA(isA<StateError>()),
+      );
+      expect(fakeLogcat.killed, isTrue);
+    });
+
+    test('abandoning a launch in flight stops its logcat', () async {
+      final fakeLogcat = FakeProcess();
+      final device = launchableDevice(
+        fakeLogcat,
+        () => ProcessResult(0, 0, '41234\n', ''),
+      );
+      // No announcement: the launch waits for the VM service, which is where
+      // a teardown finds it.
+      final launched = device.launch('/path/to/app.apk');
+      await fakeLogcat.outputAttached;
+
+      await device.abandonLaunch();
+      expect(fakeLogcat.killed, isTrue);
+      // What the kill does to a real logcat's pipes, and the launch's cue to
+      // stop waiting.
+      fakeLogcat.complete(-1);
+      expect((await launched).vmServiceUri, isNull);
+    });
+
+    test(
+      'abandoning a launch that returned leaves its logcat to stop',
+      () async {
+        final fakeLogcat = FakeProcess();
+        final device = launchableDevice(
+          fakeLogcat,
+          () => ProcessResult(0, 0, '41234\n', ''),
+        );
+        announceVmService(fakeLogcat);
+        await device.launch('/path/to/app.apk');
+
+        await device.abandonLaunch();
+        expect(fakeLogcat.killed, isFalse);
+      },
+    );
+
     test(
       'throws when the forward reports success but allocates no port',
       () async {
@@ -1581,6 +1663,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         final calls = <List<String>>[];
         var asked = 0;
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           adbPath: 'adb',
@@ -1934,6 +2017,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final fakeLogcat = FakeProcess();
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -1963,6 +2047,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     }) {
       final calls = <List<String>>[];
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -2062,7 +2147,11 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     test('an Android run needs nothing installed', () async {
       expect(
         await namesFor(
-          AndroidDevice(adbPath: '/sdk/adb', aapt2Path: '/sdk/aapt2'),
+          AndroidDevice(
+            startForceStopProcess: exitsAtOnce,
+            adbPath: '/sdk/adb',
+            aapt2Path: '/sdk/aapt2',
+          ),
         ),
         isEmpty,
       );
@@ -2182,6 +2271,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       () async {
         final calls = <String>[];
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
           runProcess: (exe, args) async {
@@ -2214,6 +2304,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       'fails when the artifact is not an APK and no package was given',
       () async {
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
           runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
@@ -2239,6 +2330,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         final calls = <(String, List<String>)>[];
         final fakeLogcat = FakeProcess();
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           adbPath: 'adb',
           aapt2Path: 'aapt2',
           runProcess: (exe, args) async {
@@ -2301,6 +2393,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       required FakeProcess logcat,
     }) {
       return AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -2475,6 +2568,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final calls = <(String, List<String>)>[];
       final fakeLogcat = FakeProcess();
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -3295,6 +3389,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final logcat = FakeProcess();
       final forwards = <String>[];
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -3333,6 +3428,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       () async {
         final calls = <List<String>>[];
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           adbPath: 'adb',
@@ -3372,6 +3468,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     test('an Android launch on an empty log reads all of it', () async {
       final calls = <List<String>>[];
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',
@@ -3395,6 +3492,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       'an Android launch that cannot read the log fails, saying so',
       () async {
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           packageName: 'com.example.app',
           adbPath: 'adb',
@@ -4003,6 +4101,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final calls = <(String, List<String>)>[];
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         deviceId: '58051JEBF01271',
         adbPath: 'adb',
@@ -4034,6 +4133,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       () async {
         final wedged = FakeProcess();
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           deviceId: '58051JEBF01271',
           adbPath: 'adb',
@@ -4074,6 +4174,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       /// it is handed — the emulator names the file itself, so a caller can
       /// only look for what turned up.
       AndroidDevice emulator(List<String> files) => AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         deviceId: 'emulator-5554',
         adbPath: 'adb',
@@ -4102,6 +4203,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       test('passes the console command a directory of its own', () async {
         final calls = <List<String>>[];
         final device = AndroidDevice(
+          startForceStopProcess: exitsAtOnce,
           aapt2Path: 'aapt2',
           deviceId: 'emulator-5554',
           adbPath: 'adb',
@@ -4174,6 +4276,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       const budget = Duration(milliseconds: 500);
       final started = <FakeProcess>[];
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         deviceId: '58051JEBF01271',
         adbPath: 'adb',

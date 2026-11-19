@@ -312,6 +312,7 @@ void main() {
       final fakeLogcat = FakeProcess();
 
       final device = AndroidDevice(
+        startForceStopProcess: exitsAtOnce,
         aapt2Path: 'aapt2',
         packageName: 'com.example.app',
         adbPath: 'adb',

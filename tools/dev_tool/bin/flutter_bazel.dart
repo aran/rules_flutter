@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:flutter_bazel_dev_tool/attach_command.dart';
 import 'package:flutter_bazel_dev_tool/build_command.dart';
+import 'package:flutter_bazel_dev_tool/child_processes.dart';
 import 'package:flutter_bazel_dev_tool/chrome_profile.dart';
 import 'package:flutter_bazel_dev_tool/cli_args.dart';
 import 'package:flutter_bazel_dev_tool/devices_command.dart';
@@ -30,6 +31,7 @@ void main(List<String> args) {
   // their profiles. The exit is the same one the VM would have made.
   runZonedGuarded(() => _run(args), (error, stack) {
     ChromeProfile.releaseAllNow();
+    ChildProcesses.killAllNow();
     stderr.writeln('Unhandled exception:\n$error\n$stack');
     exit(255);
   });
@@ -62,19 +64,26 @@ Future<void> _run(List<String> args) async {
     }
     requireNoPositionalArgs(command.name!, command.rest);
 
-    switch (command.name) {
-      case 'build':
-        await BuildCommand(command).execute();
-      case 'run':
-        await RunCommand(command).execute();
-      case 'attach':
-        await AttachCommand(command).execute();
-      case 'devices':
-        await DevicesCommand(command).execute();
-      default:
-        stderr.writeln('Unknown command: ${command.name}');
-        _printUsage(parser);
-        exit(1);
+    try {
+      switch (command.name) {
+        case 'build':
+          await BuildCommand(command).execute();
+        case 'run':
+          await RunCommand(command).execute();
+        case 'attach':
+          await AttachCommand(command).execute();
+        case 'devices':
+          await DevicesCommand(command).execute();
+        default:
+          stderr.writeln('Unknown command: ${command.name}');
+          _printUsage(parser);
+          exit(1);
+      }
+    } finally {
+      // The command has released what it owns, however it ended; a child
+      // still running now is one its teardown never reached, such as a spawn
+      // that was still starting when the teardown ran.
+      ChildProcesses.killAllNow(report: true);
     }
   } on DevToolException catch (e) {
     // Through the logger rather than straight to stderr: under

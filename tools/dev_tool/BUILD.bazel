@@ -377,6 +377,7 @@ _UNIT_TESTS = {
         "fakes": True,
         "deps": ["@dev_tool_deps//:watcher"],
     },
+    "child_processes_test": {"deps": ["@dev_tool_deps//:logging"]},
     "teardown_test": {},
     "temp_dir_test": {},
     "test_lifetime_test": {

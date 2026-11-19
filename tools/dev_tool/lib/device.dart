@@ -55,6 +55,7 @@ import 'browser_extension_channel.dart';
 import 'build_mode.dart';
 import 'cdp_app_page.dart';
 import 'cdp_console.dart';
+import 'child_processes.dart';
 import 'chrome_profile.dart';
 import 'compiler_config.dart';
 import 'devicectl_screens.dart';
@@ -83,12 +84,6 @@ export 'host_tools.dart' show HostTool, MissingHostToolException;
 
 final _logger = Logger('dev_tool.device');
 
-/// Report a process the OS would not let us kill.
-///
-/// Every `stop` implementation kills the process it launched; a refused kill
-/// leaves an app (or a log tailer) running that the next run will collide with,
-/// so it must be said out loud rather than swallowed by the `await exitCode`
-/// that follows.
 /// Stop [process], escalating past a SIGTERM it refuses.
 ///
 /// SIGTERM is a request: a wedged process can take it and keep running, so
@@ -171,7 +166,7 @@ Future<ProcessResult> runProcessBounded(
     exitCode = await process.exitCode.timeout(bound);
   } on TimeoutException {
     process.kill(ProcessSignal.sigkill);
-    throw StateError(
+    throw HelperTimedOut(
       '$what (pid ${process.pid}) did not answer within '
       '${bound.inMilliseconds}ms and was killed. What it had written by then, '
       'on stderr: ${err.isEmpty ? '(nothing)' : err}',
@@ -179,6 +174,14 @@ Future<ProcessResult> runProcessBounded(
   }
   await drained;
   return ProcessResult(process.pid, exitCode, out.toString(), err.toString());
+}
+
+/// What [runProcessBounded] throws for a helper it killed at its bound.
+///
+/// A [StateError], as it always was to the callers that report any failure
+/// alike; its own type for a caller that answers a timeout differently.
+class HelperTimedOut extends StateError {
+  HelperTimedOut(super.message);
 }
 
 /// Called for each line of a running app's console output.
@@ -656,11 +659,12 @@ class MacOSDevice extends Device {
   /// injected [_startProcess] bypasses this entirely, which is why the
   /// environment it builds lives in [desktopLaunchEnvironment] where a test
   /// can reach it.
-  Future<Process> _defaultStart(String exe, List<String> args) => Process.start(
-    exe,
-    args,
-    environment: desktopLaunchEnvironment(startPaused: startPaused),
-  );
+  Future<Process> _defaultStart(String exe, List<String> args) =>
+      startChildProcess(
+        exe,
+        args,
+        environment: desktopLaunchEnvironment(startPaused: startPaused),
+      );
 
   @override
   NativePatchDelivery? get nativePatchDelivery => const MacOSPatchDelivery();
@@ -788,7 +792,7 @@ class MacOSDevice extends Device {
     try {
       final result = await runProcessBounded(
         (exe, args, _) =>
-            (_injectedActivationStart ?? Process.start)(exe, args),
+            (_injectedActivationStart ?? startChildProcess)(exe, args),
         'osascript',
         [
           '-e',
@@ -901,7 +905,7 @@ class MacOSDevice extends Device {
     Map<String, String> environment,
   ) => _injectedScreenshotStart != null
       ? _injectedScreenshotStart(exe, args)
-      : Process.start(exe, args, environment: environment);
+      : startChildProcess(exe, args, environment: environment);
 
   /// Extract .app bundle from a .zip archive.
   ///
@@ -970,12 +974,13 @@ class LinuxDevice extends Device {
   Map<String, String> get launchEnvironment =>
       desktopLaunchEnvironment(startPaused: startPaused, base: environment);
 
-  Future<Process> _defaultStart(String exe, List<String> args) => Process.start(
-    exe,
-    args,
-    environment: launchEnvironment,
-    includeParentEnvironment: environment == null,
-  );
+  Future<Process> _defaultStart(String exe, List<String> args) =>
+      startChildProcess(
+        exe,
+        args,
+        environment: launchEnvironment,
+        includeParentEnvironment: environment == null,
+      );
 
   @override
   LaunchBundleParts? get launchBundleParts => const LaunchBundleParts(
@@ -1111,11 +1116,12 @@ class WindowsDevice extends Device {
   /// injected [_startProcess] bypasses this entirely, which is why the
   /// environment it builds lives in [desktopLaunchEnvironment] where a test
   /// can reach it.
-  Future<Process> _defaultStart(String exe, List<String> args) => Process.start(
-    exe,
-    args,
-    environment: desktopLaunchEnvironment(startPaused: startPaused),
-  );
+  Future<Process> _defaultStart(String exe, List<String> args) =>
+      startChildProcess(
+        exe,
+        args,
+        environment: desktopLaunchEnvironment(startPaused: startPaused),
+      );
 
   @override
   bool get usesWindowsPaths => true;
@@ -1321,7 +1327,7 @@ class WindowsDevice extends Device {
     Map<String, String> environment,
   ) => _injectedScreenshotStart != null
       ? _injectedScreenshotStart(exe, args)
-      : Process.start(exe, args, environment: environment);
+      : startChildProcess(exe, args, environment: environment);
 }
 
 /// Signature for running a process and returning its result (allows test injection).
@@ -1457,6 +1463,15 @@ class AndroidDevice extends Device {
   /// that fakes a launch must not thereby fake every capture too.
   final ProcessStarter? _injectedScreenshotStart;
 
+  /// Starts the `adb shell am force-stop` before a launch, when a test
+  /// supplies one. Separate from [_startProcess] for the same reason
+  /// [_injectedScreenshotStart] is.
+  final ProcessStarter? _injectedForceStopStart;
+
+  /// How long the stop before a launch may take: flutter_tools' `stopApp`
+  /// bound. A parameter so tests can drive the expiry.
+  final Duration forceStopBound;
+
   /// The host port `adb forward tcp:0` allocated for this launch, if any.
   ///
   /// Held so [stop] can remove exactly the forward this launch created. The
@@ -1465,6 +1480,11 @@ class AndroidDevice extends Device {
   /// reclaims it on its own. Clearing all forwards instead would take out
   /// another session's on the same host.
   int? _forwardedHostPort;
+
+  /// The logcat [launch] started, until [launch] returns it in its
+  /// [AppInstance]. A child process, so a launch that fails or is abandoned
+  /// part way has to stop it: nothing else would.
+  Process? _launchLogcat;
 
   /// Whether the upcoming launch expects the app to host a Dart VM service
   /// (debug/JIT builds). Set by the run command before [launch]; enables the
@@ -1481,12 +1501,15 @@ class AndroidDevice extends Device {
     ProcessRunSync? runProcess,
     ProcessStarter? startProcess,
     ProcessStarter? startScreenshotProcess,
+    ProcessStarter? startForceStopProcess,
+    this.forceStopBound = const Duration(seconds: 30),
   }) : _packageName = packageName,
        _activityName = activityName,
        _abi = abi,
        _runProcess = runProcess ?? Process.run,
-       _startProcess = startProcess ?? Process.start,
-       _injectedScreenshotStart = startScreenshotProcess;
+       _startProcess = startProcess ?? startChildProcess,
+       _injectedScreenshotStart = startScreenshotProcess,
+       _injectedForceStopStart = startForceStopProcess;
 
   @override
   NativePatchDelivery? get nativePatchDelivery {
@@ -1601,26 +1624,29 @@ class AndroidDevice extends Device {
       ? 'adb $what failed: $stderr'
       : 'adb $what failed (adb -s $deviceId): $stderr';
 
-  /// How long the stop before a launch may take: flutter_tools' `stopApp`
-  /// bound. Settable so tests can drive the expiry.
-  Duration forceStopBound = const Duration(seconds: 30);
-
   /// `am force-stop` [packageName], reporting rather than throwing when it
   /// fails or does not answer within [forceStopBound]. See [launch].
+  ///
+  /// Started rather than run, so that an `adb` that does not answer is killed
+  /// at the bound: one left running holds the tool open after the run ends.
   Future<void> _forceStopBeforeLaunch(String packageName) async {
     String? failure;
     try {
-      final stopped = await _runProcess(
+      final stopped = await runProcessBounded(
+        (exe, args, environment) => _injectedForceStopStart != null
+            ? _injectedForceStopStart(exe, args)
+            : startChildProcess(exe, args, environment: environment),
         adbPath,
         _adbArgs(['shell', 'am', 'force-stop', packageName]),
-      ).timeout(forceStopBound);
+        environment: const {},
+        bound: forceStopBound,
+        what: 'adb shell am force-stop',
+      );
       if (stopped.exitCode != 0) {
         failure = _adbFailure('am force-stop', '${stopped.stderr}'.trim());
       }
-    } on TimeoutException {
-      failure =
-          'adb am force-stop did not answer within '
-          '${forceStopBound.inSeconds}s';
+    } on HelperTimedOut catch (e) {
+      failure = e.message;
     } on ProcessException catch (e) {
       failure = _adbFailure('am force-stop', e.message);
     }
@@ -1685,7 +1711,7 @@ class AndroidDevice extends Device {
     // The device keeps its log, so every record after that one is read
     // whenever logcat gets to it. flutter_tools' AdbLogReader does the same.
     final since = await _lastLogcatTimestamp();
-    final logcat = await _startProcess(
+    final logcat = _launchLogcat = await _startProcess(
       adbPath,
       _adbArgs([
         'logcat',
@@ -1703,7 +1729,26 @@ class AndroidDevice extends Device {
       stderrIsError: false,
       transform: androidLogFilter,
     );
+    try {
+      final instance = await _launchWithLogcat(packageName, logcat, logs);
+      _launchLogcat = null;
+      return instance;
+    } catch (_) {
+      // Nothing else holds this logcat: the [AppInstance] that [stop] would
+      // end it through is never made.
+      await _stopLaunchLogcat();
+      await logs.close();
+      rethrow;
+    }
+  }
 
+  /// The rest of [launch], once its logcat is reading: start the activity,
+  /// wait for its VM service and forward it.
+  Future<AppInstance> _launchWithLogcat(
+    String packageName,
+    Process logcat,
+    AppLogStream logs,
+  ) async {
     // Step 3: Launch the activity. `-W` makes `am` wait for the launch to
     // complete and say how it went (`Status`, `LaunchState`), which is what
     // tells a process that started from one that never did. It is not awaited
@@ -2146,10 +2191,22 @@ class AndroidDevice extends Device {
     await instance.logs.close();
   }
 
-  /// The launch's logcat ends with this process; the app and the forward,
-  /// which live on the device and in the adb server, do not.
+  /// A logcat started by a launch still in flight: the app, the forward and
+  /// that logcat are all this run's to release.
   @override
-  Future<void> abandonLaunch() => _releaseApp();
+  Future<void> abandonLaunch() async {
+    await _releaseApp();
+    await _stopLaunchLogcat();
+  }
+
+  /// Stop the logcat of a launch that has not returned, if there is one.
+  Future<void> _stopLaunchLogcat() async {
+    final logcat = _launchLogcat;
+    _launchLogcat = null;
+    if (logcat != null) {
+      await _stopProcess('Android logcat', logcat, teardownBound);
+    }
+  }
 
   /// Stop the app and remove the forward this launch created.
   Future<void> _releaseApp() async {
@@ -2334,7 +2391,7 @@ class AndroidDevice extends Device {
     Map<String, String> environment,
   ) => _injectedScreenshotStart != null
       ? _injectedScreenshotStart(exe, args)
-      : Process.start(exe, args, environment: environment);
+      : startChildProcess(exe, args, environment: environment);
 }
 
 /// One attempt to reach a local TCP listener: completes when it accepts,
@@ -2922,7 +2979,7 @@ class IOSSimulatorDevice extends Device {
   }) : _udid = udid,
        _bundleId = bundleId,
        _runProcess = runProcess ?? Process.run,
-       _startProcess = startProcess ?? Process.start;
+       _startProcess = startProcess ?? startChildProcess;
 
   /// Create a device targeting the first booted simulator.
   factory IOSSimulatorDevice.booted({
@@ -2932,7 +2989,7 @@ class IOSSimulatorDevice extends Device {
     final run = runProcess ?? Process.run;
     return _IOSSimulatorDeviceBooted(
       runProcess: run,
-      startProcess: startProcess ?? Process.start,
+      startProcess: startProcess ?? startChildProcess,
     );
   }
 
@@ -3536,7 +3593,7 @@ class IOSDevice extends Device {
   }) : requestedUdid = udid,
        _bundleId = bundleId,
        _runProcess = runProcess ?? Process.run,
-       _startProcess = startProcess ?? Process.start,
+       _startProcess = startProcess ?? startChildProcess,
        _mdns = mdns ?? MdnsVmServiceDiscovery(),
        _forwardProbe = forwardProbe ?? _connectToLocalPort;
 
@@ -5143,7 +5200,7 @@ class WebDevice extends Device {
     ProcessStarter? startProcess,
     ChromeProfiles? profiles,
     String? chromePath,
-  }) : _startProcess = startProcess ?? Process.start,
+  }) : _startProcess = startProcess ?? startChildProcess,
        _profiles = profiles ?? ChromeProfiles(),
        _chromePath = chromePath;
 

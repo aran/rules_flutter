@@ -18,6 +18,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/child_processes.dart';
+import 'package:flutter_bazel_dev_tool/process_group.dart';
 import 'package:flutter_bazel_dev_tool/runfiles_helper.dart';
 import 'package:test/test.dart';
 
@@ -181,6 +183,26 @@ while kill -0 "$child" 2>/dev/null; do wait "$child"; done
     await stdout.ended;
     await process.exitCode;
     expect(stdout.seen, contains('child got TERM'));
+  });
+
+  // What a crash or a forced exit relies on to leave no `bazel` behind.
+  test('a group started through startInProcessGroup ends whole when the '
+      "tool's children are killed", () async {
+    final process = await startInProcessGroup('/bin/sh', [
+      '-c',
+      "sh -c 'echo ready; while :; do sleep 1; done' & wait",
+    ], binary: '//tools/dev_tool:process_group_exec_test');
+    final stdout = _Lines(process.stdout);
+    addTearDown(stdout.cancel);
+    unawaited(process.stderr.drain<void>());
+    await stdout.waitFor('ready');
+
+    ChildProcesses.killAllNow();
+
+    // The pipe closes only once the grandchild, which the leader's death
+    // alone would not end, has gone too.
+    await stdout.ended;
+    expect(await process.exitCode, -9);
   });
 
   test("the program's exit status is the caller's", () async {

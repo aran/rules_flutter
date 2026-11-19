@@ -29,6 +29,7 @@ import 'dart:io';
 import 'package:dtd/dtd.dart';
 import 'package:logging/logging.dart';
 
+import 'child_processes.dart';
 import 'dev_tool_exception.dart';
 import 'machine_protocol.dart';
 import 'process_cpu_time.dart';
@@ -218,7 +219,7 @@ class ToolingDaemon {
     String executable,
     List<String> arguments, {
     required String workingDirectory,
-  }) => Process.start(
+  }) => startChildProcess(
     executable,
     arguments,
     workingDirectory: workingDirectory,

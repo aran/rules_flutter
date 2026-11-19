@@ -15,6 +15,7 @@ library;
 
 import 'dart:io';
 
+import 'child_processes.dart';
 import 'dev_tool_exception.dart';
 import 'runfiles_helper.dart';
 
@@ -35,15 +36,17 @@ Future<Process> startInProcessGroup(
   String? workingDirectory,
   Map<String, String>? environment,
   bool includeParentEnvironment = true,
-}) {
+}) async {
   final exec = _processGroupExec ??= _resolveProcessGroupExec(binary);
-  return Process.start(
+  final process = await Process.start(
     exec,
     [executable, ...arguments],
     workingDirectory: workingDirectory,
     environment: environment,
     includeParentEnvironment: includeParentEnvironment,
   );
+  ChildProcesses.add(process, executable, group: true);
+  return process;
 }
 
 String _resolveProcessGroupExec(String binary) {
