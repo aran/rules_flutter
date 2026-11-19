@@ -2282,6 +2282,8 @@ For arm64-v8a and x86_64, the build checks the native libraries the application 
 
 An app that doesn't need 16 KB support can turn both checks off with `--@rules_flutter//flutter:allow_4kb_aligned_native_libraries`. That is an app that runs only on 4 KB devices, or one that sets `android:pageSizeCompat` for Android 16's page size compatibility mode.
 
+`--norun_validations` skips the check of the plugins' libraries and not that of the application's own (`libapp.so`, `native_deps` and code assets). Those are checked as a step of packaging them, so that the check runs only where an APK takes them, and not again for the copy `android_binary` builds for its assets. Use the flag above to turn it off.
+
 #### `flutter_android_app` attributes
 
 | Attribute | Description |

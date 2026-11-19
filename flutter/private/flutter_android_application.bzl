@@ -196,10 +196,18 @@ def _package_native_libs(ctx, tools, app_info, abi):
     no symbol table or debug info of them. The `.symbols` of `libapp.so` are
     the application's `debug_info`.
 
-    Every library is validated (`validate_android_native_libs`) before the APK
-    is packaged: a library a device cannot load fails the build instead of
-    producing an APK that crashes on device. Two libraries under one name fail
-    the packaging action: the APK could hold only one of them.
+    Every library is validated (`validate_android_native_libs`) before it is
+    stripped: a library a device cannot load fails the build instead of
+    producing an APK that crashes on device. Stripping changes no more than a
+    library's symbols and debug info, none of which the check reads. The
+    validation is an input of the strip, not an `_validation` output, so that
+    a bundle whose zip nothing takes runs none of this: the one an
+    `android_binary` builds in its own configuration for its `assets`. Both
+    are the same rule, and an `_validation` output runs for every configured
+    target, so the check cannot be one without running there too; so
+    `--norun_validations` does not skip it. Two
+    libraries under one name fail the packaging action: the APK could hold
+    only one of them.
 
     Args:
         ctx: Rule context.
@@ -208,7 +216,7 @@ def _package_native_libs(ctx, tools, app_info, abi):
         abi: Android ABI string (e.g. "arm64-v8a").
 
     Returns:
-        A tuple of the zip and the validation stamp the build must produce.
+        The zip.
     """
     unstripped = ctx.actions.declare_file("%s_native_libs/unstripped.zip" % ctx.label.name)
     code_assets = program_assets_action_args(ctx.actions, app_info.program_assets, data = False)
@@ -231,6 +239,13 @@ def _package_native_libs(ctx, tools, app_info, abi):
         mnemonic = "FlutterAndroidNativeLibs",
         progress_message = "Packaging the %s native libraries of %%{label}" % abi,
     )
+    validated = validate_android_native_libs(
+        ctx,
+        tools,
+        abi,
+        [unstripped],
+        ctx.label.name + "_native_libs.validated",
+    )
     zip = ctx.actions.declare_file("%s_native_libs/libs.zip" % ctx.label.name)
     run_strip_native_libs(
         ctx,
@@ -238,15 +253,9 @@ def _package_native_libs(ctx, tools, app_info, abi):
         libs = [zip],
         mnemonic = "FlutterStripNativeLibs",
         progress_message = "Stripping the %s native libraries of %%{label}" % abi,
+        requires = [validated],
     )
-    validated = validate_android_native_libs(
-        ctx,
-        tools,
-        abi,
-        [zip],
-        ctx.label.name + "_native_libs.validated",
-    )
-    return zip, validated
+    return zip
 
 # -- The configurations of an APK's ABIs ---------------------------------------
 
@@ -294,6 +303,31 @@ _SPLIT_SETTINGS = [
 
 _abi_split = transition(
     implementation = _abi_split_impl,
+    inputs = _SPLIT_SETTINGS,
+    outputs = _SPLIT_SETTINGS,
+)
+
+def _primary_abi_impl(settings, attr):
+    """The configuration of the first ABI of `_abi_split`, or this one where there is no split.
+
+    As rules_android's `android_transition` does (private to rules_android):
+    what an `android_binary` itself depends on is built in the configuration
+    its native-code dependencies of its first platform already are, and not
+    once more in its own. Outside one (`--@rules_android//flags:android_platforms`
+    unset), nothing changes.
+    """
+    platforms = android_utils.get_android_platforms({
+        android_utils.ANDROID_PLATFORMS_SETTING: settings[_ANDROID_PLATFORMS_SETTING],
+        android_utils.add_cls_prefix("android_platforms"): settings[android_utils.add_cls_prefix("android_platforms")],
+    })
+    if not platforms:
+        return settings
+    return _abi_split_impl(settings, attr)[platforms[0].name]
+
+# For the attributes of a rule an `android_binary` depends on, such as its
+# `manifest`, that reach the app's Dart or Android libraries.
+android_primary_abi = transition(
+    implementation = _primary_abi_impl,
     inputs = _SPLIT_SETTINGS,
     outputs = _SPLIT_SETTINGS,
 )
@@ -400,7 +434,7 @@ def _flutter_android_bundle_impl(ctx):
         additions.append(("NativeAssetsManifest.json", merged))
     flutter_assets = _apk_assets(ctx, tools, app_info.flutter_assets, additions)
 
-    packaged, validated = _package_native_libs(ctx, tools, app_info, abi)
+    packaged = _package_native_libs(ctx, tools, app_info, abi)
 
     outputs = [flutter_assets, packaged]
 
@@ -425,7 +459,6 @@ def _flutter_android_bundle_impl(ctx):
                 bundled_program_info(app)[0].debug_info
                 for app in ctx.split_attr.application.values()
             ]),
-            _validation = depset([validated]),
         ),
     ] + (
         # The application's `debug_info` group, built for this ABI: the

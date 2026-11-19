@@ -634,6 +634,8 @@ bzl_library(
         ":app_version",
         ":application_version",
         ":exec_groups",
+        ":flutter_android_application",
+        "//flutter:providers",
         "@rules_android//providers:providers_bzl",
         "@rules_dart//dart:utils",
     ],

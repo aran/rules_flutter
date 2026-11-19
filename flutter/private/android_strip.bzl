@@ -101,7 +101,7 @@ def _no_strip_reason(ctx):
         "native libraries with. Register the NDK's (README, \"Android\")."
     ) % ctx.label
 
-def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output = None):
+def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output = None, requires = []):
     """Strips the native libraries of each of `inputs` into the zip of `libs` in its place, in one action.
 
     The rule needs `STRIP_ATTRS`, `STRIP_EXEC_GROUPS` and the `cpp` fragment,
@@ -119,6 +119,8 @@ def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output 
         mnemonic: The action's mnemonic.
         progress_message: The action's progress message.
         output: The jar of the other entries of the one jar of `inputs`.
+        requires: Files the action does not read and runs only once they are
+            built, such as the stamp of a check of `inputs`.
     """
     outputs = libs
     if len(inputs) != len(outputs):
@@ -144,7 +146,7 @@ def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output 
         executable = flutter_tools.dart,
         arguments = [args],
         inputs = depset(
-            direct = [ctx.file._strip_native_libs_tool] + inputs,
+            direct = [ctx.file._strip_native_libs_tool] + inputs + requires,
             transitive = [flutter_tools.sdk_files.run] + ([tool.files] if tool else []),
         ),
         tools = [ctx.executable._strip_zipper],

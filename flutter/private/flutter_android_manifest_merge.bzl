@@ -44,9 +44,11 @@ silently mis-merge a variant manifest it does not fully understand.
 
 load("@rules_android//providers:providers.bzl", "StarlarkAndroidResourcesInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING")
+load("//flutter:providers.bzl", "FlutterApplicationInputsInfo")
 load("//flutter/private:app_version.bzl", "android_version")
-load("//flutter/private:application_version.bzl", "APPLICATION_VERSION_ATTR", "application_version", "version_names")
+load("//flutter/private:application_version.bzl", "application_version", "version_names")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
+load("//flutter/private:flutter_android_application.bzl", "android_primary_abi")
 
 visibility("//flutter/...")
 
@@ -88,7 +90,8 @@ def _flutter_android_manifest_merge_impl(ctx):
     if ctx.attr.set_version:
         given = application_version(
             ctx.label,
-            ctx.attr.application,
+            # Through a transition, a label arrives as a list of one.
+            ctx.attr.application[0] if ctx.attr.application else None,
             ctx.attr.build_name,
             ctx.attr.build_number,
             stated_as = ctx.attr.version_stated_as,
@@ -126,7 +129,18 @@ def _flutter_android_manifest_merge_impl(ctx):
 
 flutter_android_manifest_merge = rule(
     implementation = _flutter_android_manifest_merge_impl,
-    attrs = APPLICATION_VERSION_ATTR | {
+    # An `android_binary`'s `manifest` is built in the binary's own
+    # configuration. The application and the libraries are read in that of
+    # the APK's first ABI, where its native code already builds them, so that
+    # none of them is analysed, or checked, a second time.
+    attrs = {
+        "application": attr.label(
+            doc = "The `flutter_application` the app is built over, whose " +
+                  "`build_name` and `build_number` the app takes when it sets none " +
+                  "of its own.",
+            providers = [FlutterApplicationInputsInfo],
+            cfg = android_primary_abi,
+        ),
         "base": attr.label(
             doc = "The main AndroidManifest.xml (already preprocessed for " +
                   "Gradle variables) the overlay merges into.",
@@ -143,6 +157,7 @@ flutter_android_manifest_merge = rule(
         "libraries": attr.label_list(
             doc = "Android libraries (and AARs) the app is built with; the " +
                   "permissions their manifests export merge into the base.",
+            cfg = android_primary_abi,
         ),
         "placeholders": attr.string_list(
             doc = "The `${name}` placeholders the binary substitutes later " +
@@ -187,6 +202,9 @@ flutter_android_manifest_merge = rule(
         "_merge_tool": attr.label(
             default = _TOOL,
             allow_single_file = True,
+        ),
+        "_allowlist_function_transition": attr.label(
+            default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
         ),
     },
     exec_groups = PORTABLE_EXEC_GROUPS,

@@ -79,13 +79,25 @@ def _libraries_impl(ctx):
             "checks 16 KB alignment: %s" % argv,
         )
 
-        # The validation is a requirement of the build, not an output nobody
-        # asks for.
-        stamps = getattr(target[OutputGroupInfo], "_validation").to_list()
+        # The validation is an input of the zip the APK packages, so a bundle
+        # whose zip nothing takes (the one in `android_binary`'s own
+        # configuration, for its `assets`) runs neither.
+        stamp = validations[0].outputs.to_list()[0]
+        strips = [
+            a
+            for a in analysistest.target_actions(env)
+            if a.mnemonic == "FlutterStripNativeLibs"
+        ]
         asserts.true(
             env,
-            validations[0].outputs.to_list()[0] in stamps,
-            "the validation is a requirement of the target: %s" % stamps,
+            len(strips) == 1 and stamp in strips[0].inputs.to_list(),
+            "the strip of the libraries waits for their validation",
+        )
+        validation = target[OutputGroupInfo]._validation.to_list() if "_validation" in target[OutputGroupInfo] else []
+        asserts.false(
+            env,
+            stamp in validation,
+            "the validation is not one the build runs whether the zip is used or not",
         )
 
     # Nothing in the bundle needs a POSIX shell: its actions run on whatever
