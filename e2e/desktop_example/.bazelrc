@@ -34,8 +34,6 @@ common --incompatible_check_testonly_for_output_files
 common --incompatible_disable_starlark_host_transitions
 common --incompatible_resolve_select_keys_eagerly
 
-try-import %workspace%/.bazelrc.user
-
 # `dart analyze` and the `dart format` check run as an aspect over every Dart
 # target a `bazel test` names. The config line is `common` because `bazel run`
 # of `@rules_dart//dart/fix` and `@rules_dart//dart/format` reads it too.
@@ -48,3 +46,6 @@ common --@rules_dart//dart:analysis_config=//:analysis_config
 # machine (rules_dart README, "Faster tests and builds"). `build`, not `test`:
 # see the root .bazelrc.
 build --@rules_dart//dart:runner_snapshot
+
+# Last, so a checkout's own settings override everything above.
+try-import %workspace%/.bazelrc.user
