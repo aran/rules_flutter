@@ -3,8 +3,10 @@ a `native_deps` entry brings, and how the records of one library merge."""
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter/private:native_dynamic_deps_aspect.bzl", "native_dynamic_deps_aspect")
 load("//flutter/private:native_libraries.bzl", "merge_native_libraries", "native_library_records")
+load(":linked_objects.bzl", "linked_objects")
 
 _FIXTURE = "//flutter/tests/native_sources_fixture:"
 
@@ -86,8 +88,8 @@ def _loaded_libraries_impl(ctx):
         asserts.equals(env, ["bridge.c", "bridge.h", "helper.c"], sorted([f.basename for f in bridge.sources]), "the loaded library's own sources")
         asserts.equals(
             env,
-            ["libbridge_cc.a", "libhelper.a"],
-            sorted([f.basename for f in bridge.link_inputs.to_list() if f.extension in ("o", "a")]),
+            ["bridge", "generated", "helper"],
+            linked_objects(bridge.link_inputs.to_list(), ctx.attr._libraries),
             "the loaded library's own link",
         )
         asserts.equals(env, (), bridge.contract)
@@ -103,6 +105,10 @@ _loaded_libraries_test = unittest.make(
         "bridge": attr.label(),
         "native_deps": attr.label_list(aspects = [native_dynamic_deps_aspect]),
         "top": attr.label(),
+        "_libraries": attr.label_list(
+            default = [_FIXTURE + "bridge_cc", _FIXTURE + "helper"],
+            providers = [CcInfo],
+        ),
     },
 )
 

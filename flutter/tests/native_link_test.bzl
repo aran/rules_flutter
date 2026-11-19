@@ -7,12 +7,11 @@ a genrule it is not, and the `Rustc` action of a Rust library.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//flutter/private:native_link_aspect.bzl", "NativeLinkInfo", "native_link_aspect")
+load(":linked_objects.bzl", "linked_objects")
 
 _FIXTURE = "//flutter/tests/native_sources_fixture:"
-
-def _archives(info):
-    return sorted([f.basename for f in info.link_inputs.to_list() if f.extension in ("o", "a")])
 
 def _link_impl(ctx):
     env = analysistest.begin(ctx)
@@ -32,15 +31,19 @@ def _link_impl(ctx):
     else:
         asserts.equals(env, None, info.link_inputs_unset_reason)
         asserts.equals(env, None, info.dsym)
-        asserts.equals(env, ctx.attr.archives, _archives(info))
+        asserts.equals(env, ctx.attr.objects, linked_objects(info.link_inputs.to_list(), ctx.attr._libraries))
     return analysistest.end(env)
 
 _link_test = analysistest.make(
     _link_impl,
     attrs = {
-        "archives": attr.string_list(doc = "The object files and static archives among the inputs of the link found."),
+        "objects": attr.string_list(doc = "The objects the link found read, by the sources they were compiled from (`linked_objects`)."),
         "dsym": attr.string(doc = "The basename of the dSYM the link made."),
         "reason": attr.string(doc = "A part of the reason the link is unknown."),
+        "_libraries": attr.label_list(
+            default = [_FIXTURE + "bridge_cc", _FIXTURE + "helper"],
+            providers = [CcInfo],
+        ),
     },
     extra_target_under_test_aspects = [native_link_aspect],
 )
@@ -52,25 +55,25 @@ def native_link_test_suite(name):
         name: The test_suite name.
     """
 
-    # The `CppLink` of a `cc_shared_library` reads the archives of the
+    # The `CppLink` of a `cc_shared_library` reads the objects of the
     # libraries below it.
-    archives = ["libbridge_cc.a", "libhelper.a"]
+    objects = ["bridge", "generated", "helper"]
     tests = {
-        "cc_link": dict(target = "bridge", archives = archives),
-        "through_a_copy": dict(target = "vendored_bridge", archives = archives),
-        "through_a_filegroup_and_a_copy": dict(target = "bridge_files", archives = archives),
-        "through_a_dart_code_asset": dict(target = "bridge_code_asset", archives = archives),
+        "cc_link": dict(target = "bridge", objects = objects),
+        "through_a_copy": dict(target = "vendored_bridge", objects = objects),
+        "through_a_filegroup_and_a_copy": dict(target = "bridge_files", objects = objects),
+        "through_a_dart_code_asset": dict(target = "bridge_code_asset", objects = objects),
         "not_through_a_genrule": dict(target = "renamed_bridge", reason = "with a `Genrule` action"),
         # rustc deletes the objects it links in its action; its dSYM is the
         # library's.
         "rust_with_its_dsym": dict(target = "rust_bridge", dsym = "librust_bridge.dylib.dSYM"),
         # Nothing holds the line tables: the dSYM is the symbol table's.
-        "rust_without_a_dsym": dict(target = "rust_bridge_without_dsym", archives = []),
+        "rust_without_a_dsym": dict(target = "rust_bridge_without_dsym", objects = []),
         # As a code asset, whose objects rules_dart says are gone; macOS only,
         # as the fixture is.
         "rust_code_asset_without_a_dsym": dict(
             target = "rust_bridge_code_asset",
-            archives = [],
+            objects = [],
             target_compatible_with = ["@platforms//os:macos"],
         ),
     }
