@@ -210,6 +210,32 @@ def _different_commits_are_refused_test_impl(ctx):
 
 different_commits_are_refused_test = unittest.make(_different_commits_are_refused_test_impl)
 
+def _one_git_package_spelled_two_ways_is_one_test_impl(ctx):
+    """Two locks' entries are one package when rules_dart's `pub_git_source` gives them one identity."""
+    env = unittest.begin(ctx)
+
+    # `path` spelled with and without `./`.
+    r = reconcile_package("foo", [_git("0123abc", path = "pkgs/foo"), _git("0123abc", hub = "tools", lock = "//tools:pubspec.lock", path = "./pkgs/foo")])
+    asserts.equals(env, [], r.errors)
+
+    # One repository of the workspace, named relative to each lock.
+    r = reconcile_package("foo", [
+        _git("0123abc", url = "../repos/foo", git_lock = "//app:pubspec.lock"),
+        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../../repos/foo", git_lock = "//tools/sub:pubspec.lock"),
+    ])
+    asserts.equals(env, [], r.errors)
+
+    # One text relative to two locks names two repositories.
+    r = reconcile_package("foo", [
+        _git("0123abc", url = "../repos/foo", git_lock = "//app:pubspec.lock"),
+        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../repos/foo", git_lock = "//tools/sub:pubspec.lock"),
+    ])
+    asserts.equals(env, 1, len(r.errors))
+
+    return unittest.end(env)
+
+one_git_package_spelled_two_ways_is_one_test = unittest.make(_one_git_package_spelled_two_ways_is_one_test_impl)
+
 def _unsupported_entries_name_every_lock_test_impl(ctx):
     env = unittest.begin(ctx)
 
@@ -256,6 +282,7 @@ def pub_reconcile_test_suite(name):
     unittest.suite(
         name,
         one_lock_is_its_own_entry_test,
+        one_git_package_spelled_two_ways_is_one_test,
         locks_that_agree_share_the_package_test,
         the_runner_command_names_the_lock_test,
         the_highest_version_wins_test,

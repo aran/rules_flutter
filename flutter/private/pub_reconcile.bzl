@@ -22,6 +22,7 @@ An entry is a `struct` the extension makes of one lock entry:
 * `lock_dir`: the lock's directory within its repository (`lock_directory`).
 """
 
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_git_source")
 load("@rules_dart//dart/pub:pub_versions.bzl", "pub_version_request", "select_pub_version")
 load("//flutter/private:lock_entry_kind.bzl", "GIT", "HOSTED", "IGNORED", "LOCAL", "UNSUPPORTED")
 
@@ -118,11 +119,28 @@ def _hosted_selection(name, entries, check):
     winner = [e for e in entries if e.version == selection.request.version][0]
     return struct(entry = winner, errors = [], warnings = [selection.warning] if selection.warning else [])
 
-def _git_key(entry):
-    return (entry.git_url, entry.git_lock, entry.resolved_ref, entry.git_path)
+def _git_key(name, entry):
+    """What two git entries share when they are one package: `pub_git_source`'s identity.
+
+    One repository directory at one commit is one identity however each lock
+    spells the repository's place or the directory, as rules_dart's `pub`
+    takes it. An entry with none (a relative url leaving the lock's
+    repository) is one only with an entry of the same text and lock.
+    """
+    identity = pub_git_source(
+        name,
+        entry.version,
+        entry.git_url,
+        entry.resolved_ref,
+        entry.git_path,
+        Label(entry.git_lock) if entry.git_lock else None,
+    ).identity
+    if identity != None:
+        return ("identity", identity)
+    return ("text", entry.git_url, entry.git_lock, entry.resolved_ref, entry.git_path)
 
 def _git_errors(name, entries):
-    keys = {_git_key(e): True for e in entries}
+    keys = {_git_key(name, e): True for e in entries}
     if len(keys) > 1:
         return [(
             "Package \"{name}\" is pinned to different git sources across flutter_pub.from_lock() locks:\n" +

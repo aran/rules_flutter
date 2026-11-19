@@ -2095,6 +2095,7 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":lock_entry_kind",
+        "@rules_dart//dart/pub:pub_lock_package",
         "@rules_dart//dart/pub:pub_versions",
     ],
 )
