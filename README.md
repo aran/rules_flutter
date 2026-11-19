@@ -4661,6 +4661,8 @@ A command sent in that window waits it out rather than failing, so you can send 
 
 `app.stop` stops the one app its `appId` names, as `flutter run`'s does, and a run driving two devices carries on with the other. A bare `app.stop` with no `appId` is refused, rather than read as "all of them". `daemon.shutdown` ends the run: every app, the browser, the compiler and the tool itself.
 
+Both answer at once, even while a reload is waiting for the first build or a rebuild. When the run ends, any command still waiting or running is answered with an error saying the run is shutting down (HTTP 503 on the control channel).
+
 An app that dies under a connected run ends the run too. The tool says why, in the platform's words and with the app's last output, and exits with a failure status. The `app.stop` event carries the reason in `error`, as `flutter run`'s does. An app that exits with code 0, one you stopped, and one closed on its device are not failures. On the iOS Simulator, for example, closing the app from the app switcher or with `xcrun simctl terminate` ends the run with status 0, while a crash fails it. An `attach` run ends with status 0 when the app's VM service closes for good.
 
 #### Web runs

@@ -287,6 +287,7 @@ class HttpControlChannel {
     CommandFailureKind.badRequest => HttpStatus.badRequest,
     CommandFailureKind.unavailable => HttpStatus.notImplemented,
     CommandFailureKind.failed => HttpStatus.unprocessableEntity,
+    CommandFailureKind.shuttingDown => HttpStatus.serviceUnavailable,
   };
 
   Future<void> _handleFlutterScreenshot(

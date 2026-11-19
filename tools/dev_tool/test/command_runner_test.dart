@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_bazel_dev_tool/command_failure.dart';
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/logging.dart';
@@ -417,6 +418,176 @@ void main() {
       await runner.run('app.getText', {});
 
       expect(lines, isEmpty);
+    });
+  });
+
+  // A reload held for a cold startup or a rebuild runs for minutes, and a
+  // client ending the run is owed its answer now. Each case runs on a fake
+  // clock with work that takes ten minutes, so "at once" is checked as no time
+  // passing at all rather than as a deadline a slow machine could miss.
+  group('ending the run', () {
+    const tenMinutes = Duration(minutes: 10);
+    final isShuttingDown = throwsA(
+      isA<CommandFailure>().having(
+        (e) => e.kind,
+        'kind',
+        CommandFailureKind.shuttingDown,
+      ),
+    );
+
+    test('a control command runs beside one holding the queue', () {
+      fakeAsync((async) {
+        final runner = CommandRunner();
+        runner.register('app.hotReload', (_) async {
+          await Future<void>.delayed(tenMinutes);
+          return {'reloaded': true};
+        }, longRunning: true);
+        runner.register(
+          'daemon.shutdown',
+          (_) async => {'message': 'shutdown'},
+          control: true,
+        );
+
+        unawaited(runner.run('app.hotReload', {}));
+        Map<String, dynamic>? answer;
+        runner.run('daemon.shutdown', {}).then((a) => answer = a);
+        async.flushMicrotasks();
+
+        expect(answer, {'message': 'shutdown'});
+        async.elapse(tenMinutes);
+      });
+    });
+
+    test('what runs and what waits are both answered when the run ends', () {
+      fakeAsync((async) {
+        final stopping = Completer<void>();
+        final runner = CommandRunner(stopping: stopping.future);
+        var queuedRan = false;
+        runner.register('app.hotReload', (_) async {
+          await Future<void>.delayed(tenMinutes);
+          return {'reloaded': true};
+        }, longRunning: true);
+        runner.register('app.getText', (_) async {
+          queuedRan = true;
+          return {'text': 'x'};
+        });
+
+        Object? running;
+        Object? queued;
+        runner.run('app.hotReload', {}).catchError((Object e) {
+          running = e;
+          return <String, dynamic>{};
+        });
+        runner.run('app.getText', {}).catchError((Object e) {
+          queued = e;
+          return <String, dynamic>{};
+        });
+        async.elapse(const Duration(minutes: 1));
+        expect(running, isNull);
+        expect(queued, isNull);
+
+        stopping.complete();
+        async.flushMicrotasks();
+        expect(
+          running,
+          isA<CommandFailure>()
+              .having((e) => e.kind, 'kind', CommandFailureKind.shuttingDown)
+              .having((e) => e.message, 'message', contains('abandoned')),
+        );
+        expect(
+          queued,
+          isA<CommandFailure>()
+              .having((e) => e.kind, 'kind', CommandFailureKind.shuttingDown)
+              .having((e) => e.message, 'message', contains('not run')),
+        );
+
+        // The abandoned reload finishing later neither runs what was queued
+        // nor surfaces as an unhandled error.
+        async.elapse(tenMinutes);
+        expect(queuedRan, isFalse);
+      });
+    });
+
+    // A run that lasts all day sends thousands of commands, and the run's end
+    // is one future they all wait on. A wait that left its listener there would
+    // keep every command's closure alive until then.
+    test('a finished command leaves nothing waiting on the run ending', () {
+      fakeAsync((async) {
+        final stopping = Completer<void>();
+        final runner = CommandRunner(stopping: stopping.future);
+        runner.register('app.getText', (_) async => {'text': 'x'});
+        runner.register(
+          'app.hotReload',
+          (_) async => throw StateError('failed'),
+        );
+
+        for (var i = 0; i < 100; i++) {
+          runner.run('app.getText', {});
+          runner
+              .run('app.hotReload', {})
+              .catchError(
+                (Object _) => <String, dynamic>{},
+              );
+        }
+        expect(runner.pendingStopWaits, greaterThan(0));
+        async.flushMicrotasks();
+
+        expect(runner.pendingStopWaits, 0);
+      });
+    });
+
+    test('an abandoned command that fails later is not an unhandled error', () {
+      fakeAsync((async) {
+        final stopping = Completer<void>();
+        final runner = CommandRunner(stopping: stopping.future);
+        runner.register('app.restart', (_) async {
+          await Future<void>.delayed(tenMinutes);
+          throw StateError('the compiler went away under it');
+        });
+
+        expect(runner.run('app.restart', {}), isShuttingDown);
+        async.flushMicrotasks();
+        stopping.complete();
+        async.flushMicrotasks();
+        // fake_async rethrows an uncaught error here if the abandoned
+        // handler's failure was left unhandled.
+        async.elapse(tenMinutes);
+      });
+    });
+
+    test('a command sent after the run started to end is not started', () {
+      fakeAsync((async) {
+        final stopping = Completer<void>()..complete();
+        final runner = CommandRunner(stopping: stopping.future);
+        var ran = false;
+        runner.register('app.hotReload', (_) async {
+          ran = true;
+          return {};
+        });
+        async.flushMicrotasks();
+
+        expect(runner.run('app.hotReload', {}), isShuttingDown);
+        async.flushMicrotasks();
+        expect(ran, isFalse);
+      });
+    });
+
+    test('a control command still runs once the run is ending', () {
+      fakeAsync((async) {
+        final stopping = Completer<void>()..complete();
+        final runner = CommandRunner(stopping: stopping.future);
+        runner.register(
+          'daemon.shutdown',
+          (_) async => {'message': 'shutdown'},
+          control: true,
+        );
+        async.flushMicrotasks();
+
+        Map<String, dynamic>? answer;
+        runner.run('daemon.shutdown', {}).then((a) => answer = a);
+        async.flushMicrotasks();
+        expect(answer, {'message': 'shutdown'});
+      });
     });
   });
 }

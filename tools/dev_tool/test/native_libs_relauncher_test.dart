@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_bazel_dev_tool/command_failure.dart';
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/device.dart';
 import 'package:flutter_bazel_dev_tool/hot_reload/applied_versions.dart';
@@ -52,16 +53,38 @@ class _RelaunchDevice extends Device {
   /// Run inside [stop], once the old process is being stopped.
   void Function()? onStop;
 
+  /// When set, [launch] waits for it before returning its replacement: a
+  /// launch still in flight.
+  Future<void>? launchGate;
+
+  /// Completed by [launch] once it has started.
+  final launchStarted = Completer<void>();
+
+  /// How many times the device was told to start nothing more.
+  int abandons = 0;
+
+  /// The instances [launch] returned, and those [stop] was given.
+  final launched = <AppInstance>[];
+  final stopped = <AppInstance>[];
+
   @override
   Future<AppInstance> launch(String appPath, {AppLogListener? onLog}) async {
     launches++;
+    if (!launchStarted.isCompleted) launchStarted.complete();
+    if (launchGate case final gate?) await gate;
     if (launchError case final error?) throw error;
-    return AppInstance(process: FakeProcess());
+    final instance = AppInstance(process: FakeProcess());
+    launched.add(instance);
+    return instance;
   }
+
+  @override
+  Future<void> abandonLaunch() async => abandons++;
 
   @override
   Future<void> stop(AppInstance instance) async {
     stops++;
+    stopped.add(instance);
     onStop?.call();
     await instance.logs.close();
   }
@@ -152,9 +175,11 @@ class _Harness {
     Future<void> Function({required bool newProcess})? catchUpPatcher,
     NativeLibsWatch? nativeLibs,
     Future<Map<String, String>?> Function()? probeLibs,
+    bool Function()? runEnding,
   }) async {
     return Relauncher(
       appFile: appDir,
+      runEnding: runEnding ?? () => false,
       rebuild: rebuild,
       probeLibs: probeLibs,
       sessions: [session],
@@ -425,6 +450,165 @@ void main() {
     expect(wire['relaunched'], isFalse);
     expect(wire['error'], contains('out of room'));
     expect(wire['message'], contains('not running'));
+  });
+
+  // `app.stop`, `daemon.shutdown` and `q` run beside a restart, so the session
+  // a restart is relaunching can be shut down at any point of it. A
+  // replacement launched or kept after that is an app left on the device when
+  // the run has ended.
+  group('a relaunch whose app is stopped while it runs', () {
+    final protocol = MachineProtocol(enabled: false);
+
+    // With the run ending, answered as any command the run's end overtakes
+    // is, and not as a failed relaunch: the terminal reports that below
+    // severe, as the `q` working.
+    final shutsDown = throwsA(
+      isA<CommandFailure>().having(
+        (e) => e.kind,
+        'kind',
+        CommandFailureKind.shuttingDown,
+      ),
+    );
+
+    // With only the app ended (an `app.stop`), the run goes on, and saying it
+    // is shutting down would be false: the restart failed, and says why.
+    final stoppedDuringRestart = completion(
+      isA<RelaunchFailed>().having(
+        (f) => f.failures.values.single,
+        'failure',
+        'the app was stopped during the restart',
+      ),
+    );
+
+    test('launches nothing when the stop lands with the old process', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      Future<void>? shutdown;
+      h.device.onStop = () => shutdown ??= h.session.shutdown(protocol);
+      final r = await h.relauncher(
+        rebuild: () async {
+          h.changeNativeLib('machine code v2 — longer');
+          return true;
+        },
+      );
+
+      await expectLater(r.relaunchIfNeeded(), stoppedDuringRestart);
+      await shutdown;
+
+      expect(h.device.launches, 0);
+      await h.session.terminated.timeout(const Duration(seconds: 5));
+    });
+
+    test(
+      'is answered as shutting down when the run ends with the app',
+      () async {
+        final h = await _Harness.create();
+        addTearDown(h.dispose);
+        var ending = false;
+        Future<void>? shutdown;
+        h.device.onStop = () {
+          ending = true;
+          shutdown ??= h.session.shutdown(protocol);
+        };
+        final r = await h.relauncher(
+          rebuild: () async {
+            h.changeNativeLib('machine code v2 — longer');
+            return true;
+          },
+          runEnding: () => ending,
+        );
+
+        await expectLater(r.relaunchIfNeeded(), shutsDown);
+        await shutdown;
+        expect(h.device.launches, 0);
+      },
+    );
+
+    test('launches nothing once the run has started to end', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      final r = await h.relauncher(
+        rebuild: () async {
+          h.changeNativeLib('machine code v2 — longer');
+          return true;
+        },
+        runEnding: () => true,
+      );
+
+      await expectLater(r.relaunchIfNeeded(), shutsDown);
+      expect(h.device.launches, 0);
+    });
+
+    test('abandons a launch in flight and stops the replacement it '
+        'returns', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      final gate = Completer<void>();
+      h.device
+        ..launchGate = gate.future
+        // Longer than the gate is held below, so the shutdown is still
+        // waiting for the relaunch when the replacement arrives.
+        ..teardownBound = const Duration(seconds: 5);
+      final r = await h.relauncher(
+        rebuild: () async {
+          h.changeNativeLib('machine code v2 — longer');
+          return true;
+        },
+      );
+
+      final restart = r.relaunchIfNeeded();
+      await h.device.launchStarted.future;
+      var shutDown = false;
+      final shutdown = h.session.shutdown(protocol)
+        ..then((_) => shutDown = true);
+      await pumpEventQueue();
+      expect(h.device.abandons, 1);
+      expect(
+        shutDown,
+        isFalse,
+        reason: 'the shutdown waits for the launch it abandoned',
+      );
+
+      final answered = expectLater(restart, stoppedDuringRestart);
+      gate.complete();
+      await shutdown;
+      await answered;
+
+      final replacement = h.device.launched.single;
+      expect(h.device.stopped, contains(same(replacement)));
+      expect(identical(h.session.appInstance, replacement), isFalse);
+      expect(h.session.vmClient, isNull);
+      await h.session.terminated.timeout(const Duration(seconds: 5));
+    });
+
+    test('stops a replacement that arrives after the shutdown gave up '
+        'waiting for it', () async {
+      final h = await _Harness.create();
+      addTearDown(h.dispose);
+      final gate = Completer<void>();
+      h.device
+        ..launchGate = gate.future
+        // No wait at all: the shutdown finishes before the launch returns.
+        ..teardownBound = Duration.zero;
+      final r = await h.relauncher(
+        rebuild: () async {
+          h.changeNativeLib('machine code v2 — longer');
+          return true;
+        },
+      );
+
+      final restart = r.relaunchIfNeeded();
+      await h.device.launchStarted.future;
+      await h.session.shutdown(protocol);
+      expect(h.device.launched, isEmpty);
+
+      gate.complete();
+      await expectLater(restart, stoppedDuringRestart);
+
+      final replacement = h.device.launched.single;
+      expect(h.device.stopped, contains(same(replacement)));
+      expect(identical(h.session.appInstance, replacement), isFalse);
+    });
   });
 
   // A relaunch repoints the units; it does not rebuild them. Each unit owns

@@ -267,7 +267,21 @@ class ReloadPipeline {
   Future<void> _attempts = Future<void>.value();
   bool _attemptInFlight = false;
 
-  ReloadPipeline({required this.host});
+  ReloadPipeline({required this.host}) {
+    // A request still waiting when the run ends would otherwise go on waiting
+    // after its client has been answered (`CommandRunner` answers it at once),
+    // and the tool exits only when nothing is left pending: a request waiting
+    // out [_checkReady]'s bound kept a run that had answered its shutdown
+    // alive for the rest of that bound. Settling the gate and ending the
+    // startup's hold ends every such wait where the run ends.
+    host.teardown.started.then((_) {
+      ready.signalUnavailable('The run is shutting down');
+      _startupHold?.call();
+    });
+  }
+
+  /// Ends the hold [holdForStartup] took, or null when none is held.
+  void Function()? _startupHold;
 
   /// Counts the run's own startup as an attempt in flight, until the returned
   /// function is called.
@@ -289,9 +303,11 @@ class ReloadPipeline {
     final done = Completer<void>();
     final previous = _attempts;
     _attempts = previous.then((_) => done.future);
-    return () {
+    void end() {
       if (!done.isCompleted) done.complete();
-    };
+    }
+
+    return _startupHold = end;
   }
 
   /// Whether this run can hot reload at all.

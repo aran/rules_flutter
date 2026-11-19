@@ -36,8 +36,20 @@
 /// reasoning fragile. With every handler bounded, the pool is provably
 /// free of deadlock and the contract is one short sentence: "every
 /// command finishes."
+///
+/// ## Ending the run is not queued
+///
+/// "Finishes" can still mean minutes: a reload sent during startup waits for
+/// the startup, and one behind a rebuild waits for the build. A command that
+/// ends the run must not wait behind that, so it is registered with
+/// `control: true` and runs at once, outside the pool. Once the run starts to
+/// end ([CommandRunner.stopping]), every other command that is queued or
+/// running is answered with [CommandFailure.shuttingDown] at that moment rather
+/// than when its work would have finished, and a command sent after that is
+/// refused the same way without being started.
 import 'dart:async';
 
+import 'package:logging/logging.dart';
 import 'package:pool/pool.dart';
 
 import 'command_failure.dart';
@@ -64,9 +76,12 @@ typedef CommandProgress = void Function(
 /// Transports (MachineProtocol, HttpControlChannel, keyboard, file watcher)
 /// all call [run] to execute commands. The pool ensures only one command
 /// executes at a time.
+final _logger = Logger('dev_tool.command_runner');
+
 class CommandRunner {
   final _handlers = <String, CommandHandler>{};
   final _slow = <String>{};
+  final _control = <String>{};
   final _pool = Pool(1);
   var _nextProgressId = 0;
 
@@ -89,7 +104,27 @@ class CommandRunner {
   List<Map<String, Object>>? _announced;
   var _announcementScheduled = false;
 
-  CommandRunner({this.onProgress, this.onCommandsChanged});
+  /// Completes when the run starts to end. See the library comment: from then
+  /// on, every command but a control one is answered as shutting down.
+  final Future<void>? stopping;
+  var _stopped = false;
+
+  /// One per wait in progress on [stopping], each removed when its wait ends.
+  ///
+  /// [stopping] itself is listened to once, here. A listener added to it per
+  /// command would stay on it until the run ends: every reload and every
+  /// `app.*` call of a run that lasts all day.
+  final _stopWaits = <Completer<void>>{};
+
+  CommandRunner({this.onProgress, this.onCommandsChanged, this.stopping}) {
+    stopping?.then((_) {
+      _stopped = true;
+      for (final wait in [..._stopWaits]) {
+        wait.complete();
+      }
+      _stopWaits.clear();
+    });
+  }
 
   /// Every command registered right now, sorted by name.
   ///
@@ -150,16 +185,27 @@ class CommandRunner {
   /// it their only communication is the response, so one that never finishes is
   /// indistinguishable from one that was never received. Short commands stay
   /// quiet; an event per `app.getText` would be noise.
+  ///
+  /// [control] marks a command that ends the run, or one app of it: it runs at
+  /// once, beside whatever holds the queue, because waiting behind a reload is
+  /// waiting on work the command is about to make pointless. Its handler must
+  /// be safe to run concurrently with any other.
   void register(
     String method,
     CommandHandler handler, {
     bool longRunning = false,
+    bool control = false,
   }) {
     _handlers[method] = handler;
     if (longRunning) {
       _slow.add(method);
     } else {
       _slow.remove(method);
+    }
+    if (control) {
+      _control.add(method);
+    } else {
+      _control.remove(method);
     }
     _scheduleAnnouncement();
   }
@@ -185,6 +231,12 @@ class CommandRunner {
         '`daemon.commandsChanged` event.',
       );
     }
+    if (_control.contains(method)) return handler(params);
+    if (_stopped) {
+      throw CommandFailure.shuttingDown(
+        'The run is shutting down, so $method was not run.',
+      );
+    }
     // Announced before the pool is requested, not after it is granted: a
     // command queued behind one that never finishes has also not started, and
     // that is exactly the state worth being able to see.
@@ -207,7 +259,19 @@ class CommandRunner {
             'been running for ${formatElapsed(ahead.since.elapsed)}',
       );
     }
-    final resource = await _pool.request();
+    final request = _pool.request();
+    final PoolResource resource;
+    try {
+      resource = await _orStopping(request);
+    } on _Stopping {
+      // Granted later to nobody; given straight back so the queue behind it
+      // keeps moving for whatever still runs during the teardown.
+      unawaited(request.then((r) => r.release()));
+      report?.call(method, params, id, finished: true);
+      throw CommandFailure.shuttingDown(
+        'The run is shutting down, so $method was not run.',
+      );
+    }
     _active = (method: method, since: Stopwatch()..start());
     if (slow) {
       logPhase(
@@ -218,13 +282,68 @@ class CommandRunner {
         took: queued.elapsed,
       );
     }
+    final work = handler(params);
+    var abandoned = false;
     try {
-      return await handler(params);
+      return await _orStopping(work);
+    } on _Stopping {
+      abandoned = true;
+      // The handler goes on under the teardown and ends however the teardown
+      // leaves it. Its ending is logged rather than left unhandled, and the
+      // queue is released only then, so nothing overlaps it.
+      _abandoned(method, work, resource);
+      throw CommandFailure.shuttingDown(
+        'The run is shutting down, so $method was abandoned before it '
+        'finished.',
+      );
     } finally {
-      _active = null;
-      resource.release();
+      if (!abandoned) {
+        _active = null;
+        resource.release();
+      }
       report?.call(method, params, id, finished: true);
     }
+  }
+
+  /// [work], unless the run starts to end first, in which case a [_Stopping].
+  Future<T> _orStopping<T>(Future<T> work) {
+    if (stopping == null) return work;
+    if (_stopped) return Future.error(const _Stopping());
+    // Sync, so the wait ends in the turn [stopping] completes, as a listener
+    // on it directly would: a handler that the same shutdown answers must not
+    // get its answer in first.
+    final stop = Completer<void>.sync();
+    _stopWaits.add(stop);
+    return Future.any<T>([
+      work,
+      stop.future.then<T>((_) => throw const _Stopping()),
+    ]).whenComplete(() => _stopWaits.remove(stop));
+  }
+
+  /// How many waits on [stopping] are in progress. For tests: it returns to
+  /// zero whenever no command is waiting or running.
+  int get pendingStopWaits => _stopWaits.length;
+
+  void _abandoned(
+    String method,
+    Future<Map<String, dynamic>> work,
+    PoolResource resource,
+  ) {
+    unawaited(
+      work
+          .then<void>(
+            (_) {},
+            onError: (Object e) => _logger.fine({
+              'message': 'abandoned_command_ended',
+              'text': '$method, abandoned at shutdown, ended with: $e',
+              'error': '$e',
+            }),
+          )
+          .whenComplete(() {
+            _active = null;
+            resource.release();
+          }),
+    );
   }
 
   /// The command holding the pool, and since when. Read by a command that has
@@ -233,4 +352,10 @@ class CommandRunner {
 
   /// Whether [method] has a registered handler.
   bool hasCommand(String method) => _handlers.containsKey(method);
+}
+
+/// The run started to end while a command waited or ran. Private, so a
+/// handler's own failure can never be mistaken for it.
+class _Stopping implements Exception {
+  const _Stopping();
 }

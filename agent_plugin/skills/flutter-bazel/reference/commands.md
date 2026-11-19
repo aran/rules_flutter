@@ -27,7 +27,9 @@ Plain HTTP/1.1. If your `curl` tries HTTP/2, add `--http1.1`.
 
 Commands run one at a time. A command that waits (a long `timeoutMs`, a settle
 on an app that never goes idle) holds up every command behind it, screenshots
-included.
+included. `app.stop` and `daemon.shutdown` are the exceptions: they run at
+once, and when the run ends, a command still waiting or running answers with an
+error saying the run is shutting down (HTTP 503).
 
 ## Seeing the UI
 

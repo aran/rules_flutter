@@ -67,6 +67,17 @@ class Teardown {
   /// Whether [run] has already happened.
   bool get hasRun => _run != null;
 
+  final _started = Completer<void>();
+
+  /// Completes when [run] is first called, before anything is disposed.
+  ///
+  /// What a piece of work that is waiting on the run listens to, so it can stop
+  /// waiting and say the run is ending rather than finish against resources
+  /// being released under it. [run]'s own future is the wrong one: it completes
+  /// only once everything is released, and the shutdown that started it may be
+  /// waiting on that work.
+  Future<void> get started => _started.future;
+
   /// Take ownership of [dispose], or run it now if teardown is already past.
   ///
   /// Register as soon as the resource exists, not where it is convenient: the
@@ -103,6 +114,7 @@ class Teardown {
     // a list that has already been read.
     final done = Completer<void>();
     _run = done.future;
+    _started.complete();
     done.complete(_dispose());
     return done.future;
   }

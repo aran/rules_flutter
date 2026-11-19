@@ -1073,6 +1073,33 @@ void main() {
 
       expect(process.signals, contains(ProcessSignal.sigterm));
     });
+
+    // `app.stop` runs beside everything, the run's teardown included, and the
+    // teardown shuts every session down again. Returning at once to it would
+    // let the process exit with the app still being stopped.
+    test('a second caller waits for the first to stop the app', () async {
+      final stopping = Completer<void>();
+      var stops = 0;
+      final session = DeviceSession(
+        device: _TrackingDevice('test_device', onStop: () => stops++),
+        appInstance: AppInstance(process: FakeProcess()),
+        vmClient: null,
+        appId: 'app-1',
+        dds: _GatedDds(stopping.future),
+      );
+      final protocol = MachineProtocol(enabled: false, output: BufferSink());
+
+      unawaited(session.shutdown(protocol));
+      var secondReturned = false;
+      final second = session.shutdown(protocol)
+        ..then((_) => secondReturned = true);
+      await pumpEventQueue();
+      expect(secondReturned, isFalse);
+
+      stopping.complete();
+      await second;
+      expect(stops, 1);
+    });
   });
 
   /// What the watcher does with an edit it cannot map.
@@ -1347,10 +1374,7 @@ void main() {
   });
 }
 
-/// A DDS whose `shutdown()` never completes.
-///
-/// It closes its socket to the app's VM service on the way out
-/// (`dds_impl.dart:311`), and that peer is not ours to trust.
+/// A DDS whose `shutdown()` fails.
 class _FailingDds implements DartDevelopmentService {
   @override
   Future<void> shutdown() => throw StateError('the DDS would not shut down');
@@ -1359,6 +1383,22 @@ class _FailingDds implements DartDevelopmentService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// A DDS whose `shutdown()` finishes when [_done] does.
+class _GatedDds implements DartDevelopmentService {
+  final Future<void> _done;
+  _GatedDds(this._done);
+
+  @override
+  Future<void> shutdown() => _done;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A DDS whose `shutdown()` never completes.
+///
+/// It closes its socket to the app's VM service on the way out
+/// (`dds_impl.dart:311`), and that peer is not ours to trust.
 class _HangingDds implements DartDevelopmentService {
   @override
   Future<void> shutdown() => Completer<void>().future;

@@ -16,6 +16,7 @@ library;
 import 'dart:async';
 
 import 'app_log_sink.dart';
+import 'command_failure.dart';
 import 'hot_reload/app_instance.dart' as hr;
 import 'hot_reload/reload_orchestrator.dart';
 import 'logging.dart';
@@ -111,8 +112,18 @@ class Relauncher {
   /// stayed because its bundle already matched what the tree builds.
   final Future<void> Function({required bool newProcess})? catchUpPatcher;
 
+  /// Whether the run has started to end (`Teardown.hasRun`).
+  ///
+  /// A restart is not stopped by the teardown that abandons it, so it can still
+  /// reach a relaunch after the run's own sessions were shut down, or between
+  /// the teardown starting and it reaching them. A launch started then would
+  /// leave an app on the device that nothing stops. The first launch is
+  /// guarded the same way (`LaunchAbandoned`).
+  final bool Function() runEnding;
+
   Relauncher({
     required this.appFile,
+    required this.runEnding,
     required this.rebuild,
     this.probeLibs,
     required this.sessions,
@@ -171,6 +182,8 @@ class Relauncher {
 
     final relaunched = <DeviceSession>[];
     final failures = <String, String>{};
+    // The sessions among [failures] that were stopped on purpose mid-restart.
+    final abandoned = <String>{};
     // Whether every relaunched app reported a first frame, i.e. can take an
     // `app.*` command now. Reported rather than assumed: a caller that gets
     // `ready: false` knows to wait instead of reading a `Method not found` as a
@@ -195,6 +208,11 @@ class Relauncher {
           // never doubles up with the previous instance's.
           await session.device.stop(session.appInstance);
           if (local) await session.vmClient?.removeAbandonedDevFS();
+          // Asked here, after the stop: an `app.stop`, a `daemon.shutdown` or
+          // a `q` runs beside a restart and can land at any point of it.
+          if (session.isShutDown || runEnding()) {
+            throw RelaunchAbandoned(session.appId);
+          }
           return session.device.launch(
             appFile,
             onLog: appLogSinkFor(
@@ -206,6 +224,21 @@ class Relauncher {
           );
         });
       } catch (e) {
+        if (e is RelaunchAbandoned || session.isShutDown || runEnding()) {
+          // Stopped on purpose, by whoever ended the session or the run: not
+          // a failure to report, and nothing to reconnect to or announce.
+          failures[session.appId] = 'the app was stopped during the restart';
+          abandoned.add(session.appId);
+          logger.fine({
+            'message': 'relaunch_abandoned',
+            'text':
+                'The relaunch of ${session.appId} was abandoned: the app was '
+                'stopped while it ran.',
+            'appId': session.appId,
+            'error': '$e',
+          });
+          continue;
+        }
         // The old process is already gone, so this session has ended; what is
         // left to do is say why, in the log and in the restart's reply, before
         // the run ends with it. A device's launch failures are StateErrors
@@ -225,13 +258,29 @@ class Relauncher {
       }
       relaunched.add(session);
       allReady &= await _reconnect(session);
-      protocol.appStarted(session.appId);
+      // A session stopped while it reconnected has already sent `app.stop`.
+      if (!session.isShutDown) protocol.appStarted(session.appId);
     }
 
     // Point the units at the processes that came back. A session whose VM
     // service did not return is marked disconnected, so a request naming it is
     // told why instead of failing to apply a kernel to a closed socket.
     orchestrator.syncLiveApps(_appInstances());
+    if (runEnding() &&
+        relaunched.isEmpty &&
+        failures.isNotEmpty &&
+        failures.keys.every(abandoned.contains)) {
+      // The run is ending as someone asked, and took every app this restart
+      // was replacing with it: the restart is answered the way any command
+      // the run's end overtakes is, not as a failed relaunch.
+      //
+      // Only then. An `app.stop` ends one app and the run goes on, so a
+      // "shutting down" (HTTP 503) would tell the client a lie about the run;
+      // that restart is answered as failed, each app with the reason above.
+      throw const CommandFailure.shuttingDown(
+        'The app was stopped during the restart, so it was not relaunched.',
+      );
+    }
     if (failures.isNotEmpty) {
       // Not re-baselined: nothing running took the new libraries from this
       // attempt that the baseline could describe as a whole.
@@ -292,7 +341,7 @@ class Relauncher {
     VmServiceClient? client;
     Object? lastConnectFailure;
     if (uri != null) {
-      for (var attempt = 0; attempt < 5; attempt++) {
+      for (var attempt = 0; attempt < 5 && !session.isShutDown; attempt++) {
         client = VmServiceClient(services: services);
         try {
           await client.connect(uri);
@@ -305,6 +354,13 @@ class Relauncher {
           }
         }
       }
+    }
+    // The session's shutdown retired the client it found, which was the old
+    // one, and stopped the app; a client connected after it would be one
+    // nothing retires, and it holds the process open.
+    if (session.isShutDown) {
+      await client?.retire(leaveDevFS: session.device.sharesHostFilesystem);
+      return false;
     }
     session.vmClient = client;
     if (client == null || uri == null) {

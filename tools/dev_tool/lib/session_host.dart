@@ -41,6 +41,9 @@ class SessionHost {
   /// Serialized dispatch for every transport (stdin protocol, HTTP channel,
   /// keyboard, file watcher).
   late final CommandRunner commandRunner = CommandRunner(
+    // A shutdown answers what is queued or running at once rather than after
+    // it: see `CommandRunner`'s library comment.
+    stopping: teardown.started,
     // Same lazy-read trick as onProgress below: `protocol` is built from this
     // object, so it can only be reached when the callback actually fires.
     onCommandsChanged: () => protocol.commandsChanged(),
@@ -328,11 +331,16 @@ class SessionHost {
       }
       await session.shutdown(protocol);
       return {'message': 'stopped', 'appId': appId};
-    });
+    }, control: true);
+    // Both are control commands: they run beside a reload rather than behind
+    // it. A reload held for a cold startup or a rebuild can take minutes, and
+    // a client ending the run is owed its answer now, not when that work it no
+    // longer wants has finished. Stopping the last app ends the run the same
+    // way, through [endWhenEveryAppHasEnded].
     commandRunner.register('daemon.shutdown', (_) async {
       await performCleanup();
       return {'message': 'shutdown'};
-    });
+    }, control: true);
   }
 
   /// Offer the `app.*` agent surface, for a run whose app carries the

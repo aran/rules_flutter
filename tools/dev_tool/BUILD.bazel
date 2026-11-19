@@ -221,7 +221,7 @@ _UNIT_TESTS = {
     "chrome_profile_test": {"deps": _PATH_DEP + ["@dev_tool_deps//:logging"]},
     "chrome_session_test": {"fakes": True},
     "cli_args_test": {"deps": ["@dev_tool_deps//:args"]},
-    "command_runner_test": {},
+    "command_runner_test": {"deps": ["@dev_tool_deps//:fake_async"]},
     "compiler_config_test": {},
     "compiler_test": {"fakes": True},
     "dependency_compiler_fake_test": {"fakes": True},

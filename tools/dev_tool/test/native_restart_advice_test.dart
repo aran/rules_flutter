@@ -346,6 +346,7 @@ Future<SessionHost> _assemble(_World world, {required bool launched}) async {
 
   final relauncher = Relauncher(
     appFile: world.bundle,
+    runEnding: () => false,
     rebuild: world.buildLaunch,
     // No session to swap: the device is what this does not model.
     sessions: <DeviceSession>[],

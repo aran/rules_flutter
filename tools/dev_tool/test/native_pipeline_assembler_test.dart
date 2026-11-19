@@ -267,7 +267,7 @@ void main() {
           shuttingDown: true,
         );
 
-        expect(pipeline.ready.unavailableReason, contains('shut down'));
+        expect(pipeline.ready.unavailableReason, contains('shutting down'));
         expect(pipeline.ready.unavailableReason, isNot(contains('frontend')));
       },
     );

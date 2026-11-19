@@ -38,6 +38,23 @@ void main() {
       );
     });
 
+    // What a waiting command listens to: it has to fire as the teardown
+    // begins, because the shutdown that began it may be waiting on that
+    // command, and the run's own future would fire only after both.
+    test('says it has started before anything is disposed', () async {
+      final teardown = Teardown();
+      final release = Completer<void>();
+      await teardown.add(() => release.future);
+      var started = false;
+      unawaited(teardown.started.then((_) => started = true));
+
+      final running = teardown.run();
+      await Future<void>.delayed(Duration.zero);
+      expect(started, isTrue);
+      release.complete();
+      await running;
+    });
+
     test('reports whether it has run', () async {
       final teardown = Teardown();
       expect(teardown.hasRun, isFalse);

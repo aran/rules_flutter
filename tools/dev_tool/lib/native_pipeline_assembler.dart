@@ -945,6 +945,7 @@ class NativePipelineAssembler {
     final hotPatcher = await _armHotPatcher(launched, nativeLibs);
     final relauncher = Relauncher(
       appFile: launched.appFile,
+      runEnding: () => host.teardown.hasRun,
       rebuild: _bundleRebuild.run,
       probeLibs: _parts == null ? null : _probeLibs,
       sessions: host.sessions,

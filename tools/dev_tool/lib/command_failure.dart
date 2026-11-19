@@ -29,6 +29,11 @@ enum CommandFailureKind {
   /// It was asked properly and could not be done: the app refused, or never
   /// answered.
   failed,
+
+  /// The run is ending: the command was not started, or was abandoned part
+  /// way, because a shutdown began while it waited or ran. Nothing to retry on
+  /// this run.
+  shuttingDown,
 }
 
 /// A command that could not be performed, and why.
@@ -48,6 +53,9 @@ class CommandFailure implements Exception {
     : kind = CommandFailureKind.unavailable;
 
   const CommandFailure.failed(this.message) : kind = CommandFailureKind.failed;
+
+  const CommandFailure.shuttingDown(this.message)
+    : kind = CommandFailureKind.shuttingDown;
 
   @override
   String toString() => message;

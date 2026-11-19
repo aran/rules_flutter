@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:dds/dds.dart';
 
 import 'app_extension_channel.dart';
+import 'command_failure.dart';
 import 'command_report.dart';
 import 'command_runner.dart';
 import 'device.dart';
@@ -301,8 +302,23 @@ class DeviceSession {
   /// Idempotent, because it has two callers: an `app.stop` naming this
   /// app, and the run's own teardown, which owns a disposer for every session
   /// it launched and cannot know one of them was already stopped by hand.
-  Future<void> shutdown(MachineProtocol protocol) async {
-    if (_shutDown) return;
+  ///
+  /// Every caller waits for the one shutdown to finish; a second does not
+  /// return at once. `app.stop` is a control command and runs beside
+  /// anything, and the run's teardown, finding this session already shutting
+  /// down, would otherwise let the process exit while the app is still being
+  /// stopped.
+  Future<void> shutdown(MachineProtocol protocol) =>
+      _shutdown ??= _shutDownOnce(protocol);
+
+  Future<void>? _shutdown;
+
+  /// Whether [shutdown] has started. A relaunch checks it before it starts a
+  /// replacement and again when one arrives: the session whose app it would
+  /// replace has ended.
+  bool get isShutDown => _shutDown;
+
+  Future<void> _shutDownOnce(MachineProtocol protocol) async {
     _shutDown = true;
     try {
       stopWaitingForFirstFrame();
@@ -324,6 +340,18 @@ class DeviceSession {
       // directory, an app on a device. And once only: the session is marked
       // shut down above, so a second caller returns without it.
       //
+      // A relaunch in flight is told to start nothing more, and waited for:
+      // the replacement it is launching would otherwise arrive after this
+      // stop, with nothing left to stop it. [relaunch] stops one that arrives
+      // after this wait has given up.
+      if (_relaunchInFlight case final relaunching?) {
+        await device.abandonLaunch();
+        await boundedTeardownStep(
+          'the relaunch in flight to settle',
+          relaunching,
+          device.teardownBound,
+        );
+      }
       // Read through the session, not a local: a restart that relaunches the
       // app replaces the instance, and stopping the one a caller saw earlier
       // would leave the live one running.
@@ -466,12 +494,28 @@ class DeviceSession {
   /// exactly what must not read as the session ending. If it throws, the
   /// session really is over: the old process is gone and nothing replaced it,
   /// so [terminated] completes.
+  ///
+  /// A session that has been shut down is not relaunched: [launchReplacement]
+  /// is not called, or, when the shutdown lands while it runs, the replacement
+  /// it returns is stopped. Either way this throws [RelaunchAbandoned].
+  /// [launchReplacement] checks [isShutDown] itself between stopping the old
+  /// process and launching the new one.
   Future<void> relaunch(
     Future<AppInstance> Function() launchReplacement,
   ) async {
+    if (_shutDown) throw RelaunchAbandoned(appId);
     _relaunching = true;
+    final settled = Completer<void>();
+    _relaunchInFlight = settled.future;
     try {
-      _appInstance = await launchReplacement();
+      final replacement = await launchReplacement();
+      if (_shutDown) {
+        // The shutdown stopped the instance it could see, the old one, and
+        // has gone on without this one.
+        await device.stop(replacement);
+        throw RelaunchAbandoned(appId);
+      }
+      _appInstance = replacement;
       _launch++;
       _watchForExit(_appInstance);
     } catch (_) {
@@ -479,8 +523,25 @@ class DeviceSession {
       rethrow;
     } finally {
       _relaunching = false;
+      _relaunchInFlight = null;
+      settled.complete();
     }
   }
+
+  /// Completes when the [relaunch] in flight has settled, either way; null
+  /// when none is.
+  Future<void>? _relaunchInFlight;
+}
+
+/// A relaunch that did not go ahead, or whose replacement was stopped, because
+/// its session was shut down while it ran.
+class RelaunchAbandoned implements Exception {
+  final String appId;
+  const RelaunchAbandoned(this.appId);
+
+  @override
+  String toString() =>
+      'The relaunch of $appId was abandoned: the app was stopped while it ran.';
 }
 
 /// Result of a compile + reload/restart operation.
@@ -1072,7 +1133,7 @@ Future<void> runInteractiveSession({
       case 'r':
         reportReloadCommand(
           'Hot reload',
-          await commandRunner.run('app.hotReload', {}),
+          await _runReload(commandRunner, 'app.hotReload', {}),
           log,
           method: 'app.hotReload',
           announce: announce,
@@ -1085,7 +1146,9 @@ Future<void> runInteractiveSession({
         if (hotReloadUnavailable == null) log('Performing hot restart...');
         reportReloadCommand(
           'Hot restart',
-          await commandRunner.run('app.restart', {'fullRestart': true}),
+          await _runReload(commandRunner, 'app.restart', {
+            'fullRestart': true,
+          }),
           log,
           method: 'app.restart',
           announce: announce,
@@ -1121,6 +1184,25 @@ Future<void> runInteractiveSession({
   // resources.
   await watcherSubscription?.cancel();
   await keys.cancel();
+}
+
+/// Dispatch a reload or restart from inside the run, a key or a save, and
+/// answer a refusal the way the command's own failures read.
+///
+/// The runner refuses by throwing: a command that was queued or running when
+/// the run started to end is answered as shutting down (see `CommandRunner`).
+/// A transport renders that to its client; here nothing above would catch it,
+/// and a run ending normally would end on an exception instead.
+Future<Map<String, dynamic>> _runReload(
+  CommandRunner commandRunner,
+  String method,
+  Map<String, dynamic> params,
+) async {
+  try {
+    return await commandRunner.run(method, params);
+  } on CommandFailure catch (e) {
+    return {'succeeded': false, 'error': e.message};
+  }
 }
 
 /// Why the keyboard loop woke up.
@@ -1179,7 +1261,7 @@ StreamSubscription<SourceChange> _watchAndReload({
 
     reportReloadCommand(
       'Hot reload',
-      await commandRunner.run('app.hotReload', {
+      await _runReload(commandRunner, 'app.hotReload', {
         'invalidatedFiles': invalidated,
       }),
       log,
