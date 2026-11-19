@@ -165,6 +165,42 @@ flutter_application(
     ],
 )
 
+# An app whose only Android plugin is image_picker_android, which imports
+# classes of flutter_plugin_android_lifecycle, a plugin its pubspec.yaml
+# depends on and its Gradle build does not name:
+# `:image_picker_android_build_test`.
+flutter_application(
+    name = "image_picker_app",
+    main = "lib/image_picker_only.dart",
+    package = ":pubspec-metadata",
+    deps = [
+        "@deps//:flutter",
+        "@deps//:image_picker_android",
+    ],
+)
+
+flutter_android_app(
+    name = "image_picker_android",
+    application = ":image_picker_app",
+    application_id = "com.example.image_picker",
+    namespace = "com.example.plugin_example",
+    proguard_specs = [],
+)
+
+flutter_android_build(
+    name = "image_picker_arm64_build",
+    android_platforms = ["@rules_android//:arm64-v8a"],
+    targets = [":image_picker_android"],
+)
+
+# image_picker_android compiles against flutter_plugin_android_lifecycle's
+# library.
+build_test(
+    name = "image_picker_android_build_test",
+    tags = ["android"],
+    targets = [":image_picker_arm64_build"],
+)
+
 # An app whose only Android plugin is `java17_plugin`, a Java plugin whose
 # Gradle build declares Java 17, which its sources need:
 # `:java17_android_build_test`.
@@ -1025,6 +1061,7 @@ flutter_library(
         "@deps//:firebase_core",
         "@deps//:flutter",
         "@deps//:geolocator_apple",
+        "@deps//:image_picker_android",
         "@deps//:kotlin_plugin_user",
         "@deps//:material_ui",
         "@deps//:package_info_plus",

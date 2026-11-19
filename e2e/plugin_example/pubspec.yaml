@@ -38,6 +38,9 @@ dependencies:
   # fields, LIBRARY_VERSION among them, set from each plugin's pubspec.
   firebase_core: 5.1.0
   cloud_firestore: 7.2.0
+  # Compiles against flutter_plugin_android_lifecycle, a plugin its pubspec
+  # depends on without naming its Gradle project.
+  image_picker_android: 0.8.12+23
 dev_dependencies:
   # A `path` package only a tool run outside Bazel uses, which the lock's
   # `ignored` keeps out of every Bazel build.

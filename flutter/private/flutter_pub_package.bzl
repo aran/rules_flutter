@@ -721,42 +721,56 @@ def _read_gradle_properties(ctx):
     path = ctx.path("android/gradle.properties")
     return parse_gradle_properties(ctx.read(path)) if path.exists and not path.is_dir else {}
 
-def _plugin_project_libraries(ctx, projects):
-    """The Android libraries of the plugins whose Gradle projects the plugin's build depends on.
+def _plugin_project_libraries(ctx, projects, pubspec_dependencies):
+    """The Android libraries of the other plugins the plugin's Android library depends on.
 
-    Flutter's Gradle build names each plugin's project after its package, so
-    `api project(":firebase_core")` is firebase_core's Android library, which
-    its own repository generates.
+    Flutter's Gradle build makes each plugin's project depend on the project
+    of every plugin with an Android implementation that its pubspec.yaml
+    lists under `dependencies:` (not `dev_dependencies:`), and names each
+    plugin's project after its package, so `api project(":firebase_core")`
+    in the plugin's own Gradle build is firebase_core's Android library too.
+    Each is the library its package's repository generates.
 
     Args:
         ctx: The repository context.
         projects: `parse_gradle_maven_dependencies`' `projects`.
+        pubspec_dependencies: The packages the plugin's pubspec.yaml lists
+            under `dependencies:`.
 
     Returns:
         `struct(labels, error)`: the libraries' labels, or the message the
-        plugin's Android build fails with when one names no plugin of the
-        locks with an Android library.
+        plugin's Android build fails with when a project its Gradle build
+        names is no plugin of the locks with an Android library.
     """
-    if not projects:
-        return struct(labels = [], error = "")
     index = read_index(ctx, ctx.attr.prefix)
+
+    def library_of(package):
+        if package not in index.built and package not in index.other:
+            return None
+        repo = source_repo(package, owner_prefix(index, package))
+        path = sibling_path(ctx, repo, MEMBER_FILE)
+
+        # Watched before the existence check, so the file appearing or
+        # going away refetches this repository.
+        ctx.watch(path)
+        if path.exists and json.decode(ctx.read(path)).get("android_lib", False):
+            return "@{}//android:lib".format(repo)
+        return None
+
     labels = []
+
+    # As Flutter's Gradle build, a dependency that is not a plugin with an
+    # Android implementation adds nothing.
+    for package in sorted(pubspec_dependencies):
+        label = library_of(package)
+        if label and label not in labels:
+            labels.append(label)
     missing = []
     for p in projects:
-        repo = source_repo(p.package, owner_prefix(index, p.package))
-        has_lib = False
-        if p.package in index.built or p.package in index.other:
-            path = sibling_path(ctx, repo, MEMBER_FILE)
-
-            # Watched before the existence check, so the file appearing or
-            # going away refetches this repository.
-            ctx.watch(path)
-            has_lib = path.exists and json.decode(ctx.read(path)).get("android_lib", False)
-        if not has_lib:
+        label = library_of(p.package)
+        if not label:
             missing.append(p)
-            continue
-        label = "@{}//android:lib".format(repo)
-        if label not in labels:
+        elif label not in labels:
             labels.append(label)
     if missing:
         return struct(labels = [], error = (
@@ -1978,8 +1992,8 @@ def make_android_subpackage_build_content(
             `flutter_pub.annotation` adds to the library's `deps`, for what
             the plugin's Gradle build declares in a form the reader does not
             read.
-        plugin_deps: Labels of other plugins' Android libraries, whose Gradle
-            projects the plugin's build depends on.
+        plugin_deps: Labels of the Android libraries of the other plugins
+            the plugin's pubspec.yaml or Gradle build depends on.
         android_manifest: Path to the plugin's
             `android/src/main/AndroidManifest.xml` if it ships one, or
             empty. When set, the generated `kt_android_library` declares
@@ -2134,8 +2148,8 @@ android_library(
     if annotated_deps:
         deps_expr += " + " + repr(annotated_deps)
 
-    # The Android libraries of other plugins whose Gradle projects this one's
-    # build depends on (`api project(":x")`).
+    # The Android libraries of the other plugins this one's pubspec.yaml
+    # depends on, or its Gradle build (`api project(":x")`).
     if plugin_deps:
         deps_expr += " + " + repr(plugin_deps)
 
@@ -3145,7 +3159,11 @@ def _flutter_pub_package_impl(ctx):
         android_jvm = _read_plugin_jvm_level(ctx)
         version = pubspec.fields.get("version")
         build_config = _read_plugin_build_config_fields(ctx, str(version) if version != None else None)
-        plugin_libs = _plugin_project_libraries(ctx, android_gradle_maven.projects if android_gradle_maven else [])
+        plugin_libs = _plugin_project_libraries(
+            ctx,
+            android_gradle_maven.projects if android_gradle_maven else [],
+            pubspec_dependencies,
+        )
         if android_jvm.error:
             write_android_build(ctx, build_prelude, make_android_failing_build_content(android_jvm.error))
         elif plugin_libs.error:

@@ -1,11 +1,11 @@
 {
-  "androidx.activity:activity-ktx:1.9.0": [
-    "androidx.activity:activity-compose:1.9.0",
-    "androidx.activity:activity:1.9.0"
+  "androidx.activity:activity-ktx:1.9.3": [
+    "androidx.activity:activity-compose:1.9.3",
+    "androidx.activity:activity:1.9.3"
   ],
-  "androidx.activity:activity:1.9.0": [
-    "androidx.activity:activity-compose:1.9.0",
-    "androidx.activity:activity-ktx:1.9.0"
+  "androidx.activity:activity:1.9.3": [
+    "androidx.activity:activity-compose:1.9.3",
+    "androidx.activity:activity-ktx:1.9.3"
   ],
   "androidx.annotation:annotation-experimental:1.4.1": [],
   "androidx.annotation:annotation-jvm:1.10.0": [
