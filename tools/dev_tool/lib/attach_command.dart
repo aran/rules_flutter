@@ -461,10 +461,11 @@ class AttachCommand {
       }
       await runInteractiveSession(
         sessions: sessions,
-        frontendServer: pipeline.frontendServer,
+        endRun: host.performCleanup,
         protocol: protocol,
         watcher: sourceWatcher,
         commandRunner: commandRunner,
+        onFailure: host.fail,
         devToolsEnabled: devToolsEnabled,
         dartExecutable: toolchain.dart,
         // Attach exists to connect a VM service and stand a compiler up.

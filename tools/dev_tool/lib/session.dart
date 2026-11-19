@@ -15,6 +15,7 @@ import 'child_processes.dart';
 import 'command_failure.dart';
 import 'command_report.dart';
 import 'command_runner.dart';
+import 'dev_tool_exception.dart';
 import 'device.dart';
 import 'frontend_server.dart';
 import 'hot_reload/source_uri_resolver.dart';
@@ -308,14 +309,13 @@ class DeviceSession {
     _watchConnection();
   }
 
-  /// Tear this session down: end DevTools, tell the client the app is going,
-  /// let go of the VM service and the DDS, and stop the app itself.
+  /// Stop this app and release what the session holds for it: end DevTools,
+  /// tell the client the app is going, let go of the VM service and the DDS,
+  /// and stop the app itself.
   ///
-  /// One method rather than two copies, for the launcher's teardown entry and
-  /// the interactive `q` alike, and one deadline on `dds.shutdown()`: DDS
-  /// closes its socket to the app's VM service on the way out, and what is on
-  /// the far end of that socket is not ours to trust.
-  /// Stop this app and release what the session holds for it.
+  /// One deadline on `dds.shutdown()`: DDS closes its socket to the app's VM
+  /// service on the way out, and what is on the far end of that socket is not
+  /// ours to trust.
   ///
   /// Idempotent, because it has two callers: an `app.stop` naming this
   /// app, and the run's own teardown, which owns a disposer for every session
@@ -828,18 +828,34 @@ typedef KeyboardReader = Stream<List<int>> Function();
 /// still work.
 Future<void> runInteractiveSession({
   required List<DeviceSession> sessions,
-  required FrontendServer? frontendServer,
   required MachineProtocol protocol,
+
+  /// Ends the run as `daemon.shutdown` does (`SessionHost.performCleanup`).
+  /// What `q` calls, and all it calls.
+  ///
+  /// The teardown has to start before anything is stopped. Starting it is what
+  /// tells the [commandRunner] the run is ending, so the reload in flight is
+  /// answered as shutting down there and then. Stopping an app or a compiler
+  /// first fails that reload against what was stopped, and a clean quit ends
+  /// on a severe "Hot reload failed".
+  required Future<void> Function() endRun,
 
   /// The dispatcher every transport shares. Required, and the keyboard
   /// dispatches through it unconditionally: both reload commands are
   /// registered before this loop can be reached, so a runner without them is
-  /// not a state to degrade gracefully into — [CommandRunner.run] throwing
-  /// 'Unknown command' is the honest answer to a broken invariant, and a
-  /// keypress is where such a throw is actually visible. The watcher below
-  /// still asks first, for the reason given there: the same throw inside a
-  /// stream listener is an unhandled async error nobody sees.
+  /// not a state to degrade gracefully into — [CommandRunner.run] refusing
+  /// with 'Unknown command' is the honest answer to a broken invariant, and a
+  /// keypress reports it as the reload's failure, where it is seen. The
+  /// watcher below still asks first, for the reason given there.
   required CommandRunner commandRunner,
+
+  /// Ends the run on a reload that failed in a way no command reports: a bug
+  /// in the tool rather than an answer (`SessionHost.fail`).
+  ///
+  /// A key's or a save's reload runs unawaited, so an error escaping it would
+  /// otherwise be unhandled and take the tool down with exit code 255, with
+  /// nothing stopped.
+  required void Function(DevToolException error) onFailure,
   required bool devToolsEnabled,
 
   /// Dart binary from the Flutter toolchain, used to serve DevTools. Required
@@ -910,6 +926,9 @@ Future<void> runInteractiveSession({
   Future<void>? shutdownSignal,
 }) async {
   log ??= sessionReportLog(protocol);
+  // The same, for the reload answers reported from callbacks, where a
+  // reassigned parameter is not promoted.
+  final say = log;
 
   // The machine-readable half of the same report. A no-op outside `--machine`
   // mode, like every other event — the terminal reader has [log].
@@ -1026,6 +1045,7 @@ Future<void> runInteractiveSession({
       awaitingAssembly: awaitingAssembly ?? () => false,
       isAsset: isAsset,
       commandRunner: commandRunner,
+      onFailure: onFailure,
       log: log,
       announce: announce,
     );
@@ -1096,133 +1116,172 @@ Future<void> runInteractiveSession({
   // being gone for good ends it whether or not anyone is at the keyboard.
   final keys = StreamIterator<List<int>>(inputStream);
   var keyboardOpen = true;
-  while (true) {
-    if (!keyboardOpen) {
-      // Nothing else to read. Wait out the run on the signals alone — the
-      // loop's return is what closes the transports, so returning here would
-      // take the advertised HTTP control channel down under a live app.
-      await exited!;
-      break;
+  try {
+    while (true) {
+      if (!keyboardOpen) {
+        // Nothing else to read. Wait out the run on the signals alone — the
+        // loop's return is what closes the transports, so returning here would
+        // take the advertised HTTP control channel down under a live app.
+        await exited!;
+        break;
+      }
+      final wake = await Future.any<_Wake>([
+        keys.moveNext().then((has) => has ? _Wake.key : _Wake.keyboardClosed),
+        if (exited != null) exited.then((_) => _Wake.exit),
+      ]);
+      if (wake == _Wake.exit) break;
+      if (wake == _Wake.keyboardClosed) {
+        // stdin reaching EOF means there is no keyboard — not that the run is
+        // over. A terminal losing its pty is the rarer half of this; the common
+        // one is a script, a CI job or an agent starting the tool with stdin at
+        // /dev/null, which reaches EOF at once. Ending the loop there would take
+        // the run's transports with it: the channel's URL has just been printed,
+        // and its port would already be dead with nothing said. Advertised
+        // lifetime and actual lifetime have to be the same lifetime.
+        //
+        // With nothing left that could ever end the run — no app to exit, no
+        // transport to be told — there is also nothing left to control, so the
+        // loop returns and lets the caller tear down.
+        keyboardOpen = false;
+        if (exited == null) break;
+        final ways = <String>[
+          if (sessions.isNotEmpty) 'the app exiting',
+          if (shutdownSignal != null) 'an `app.stop` on a control transport',
+        ];
+        log(
+          'stdin closed, so the keys above no longer do anything. The run '
+          'continues, and everything it advertised — the HTTP control channel '
+          'included — stays up. It ends on ${ways.join(' or ')}.',
+        );
+        continue;
+      }
+      final input = keys.current;
+      final char = String.fromCharCode(input.first);
+      switch (char) {
+        // Both keys are pure dispatch, with no private fallback behind them: the
+        // commands are always registered before this loop exists, and a fallback
+        // would only diverge — invalidating the entrypoint alone where the
+        // pipeline diffs a snapshot of the whole workspace, with nothing able to
+        // execute it and notice. A run with no way to reload still answers here,
+        // through the pipeline's readiness gate.
+        //
+        // Unconditional, including on a run that cannot reload: a keypress that
+        // produces nothing at all cannot be told from one the terminal never
+        // received. Refusing here instead would put a second answer to "can this
+        // run reload" beside the readiness gate's, and they can only drift; the
+        // gate already holds the reason, and it is the same reason the HTTP
+        // channel and the machine protocol get.
+        //
+        // Dispatched without awaiting the answer, so the loop goes on reading
+        // keys: a reload waiting for a rebuild can take minutes, and a `q`
+        // pressed meanwhile has to end the run now, as a `daemon.shutdown`
+        // would, not once that reload is done. Order is still the runner's: a
+        // second `r` queues behind the first there, exactly as it did here.
+        case 'r':
+          unawaited(
+            _reload(
+              commandRunner,
+              'app.hotReload',
+              {},
+              action: 'Hot reload',
+              log: say,
+              announce: announce,
+              onFailure: onFailure,
+            ),
+          );
+        case 'R':
+          // Presentation, like the banner, so it is gated the way the banner is:
+          // announcing a restart and then refusing it reads worse than saying
+          // nothing. Through `log` rather than `stdout` so it is the same stream
+          // as the answer that follows.
+          if (hotReloadUnavailable == null) log('Performing hot restart...');
+          unawaited(
+            _reload(
+              commandRunner,
+              'app.restart',
+              {'fullRestart': true},
+              action: 'Hot restart',
+              log: say,
+              announce: announce,
+              onFailure: onFailure,
+            ),
+          );
+        case 'p':
+          await _reportToggle(
+            sessions,
+            log,
+            'Performance overlay',
+            (client) => client.togglePerformanceOverlay(),
+          );
+        case 'i':
+          await _reportToggle(
+            sessions,
+            log,
+            'Widget inspector',
+            (client) => client.toggleWidgetInspector(),
+          );
+        case 'q':
+          await endRun();
+          return;
+      }
     }
-    final wake = await Future.any<_Wake>([
-      keys.moveNext().then((has) => has ? _Wake.key : _Wake.keyboardClosed),
-      if (exited != null) exited.then((_) => _Wake.exit),
-    ]);
-    if (wake == _Wake.exit) break;
-    if (wake == _Wake.keyboardClosed) {
-      // stdin reaching EOF means there is no keyboard — not that the run is
-      // over. A terminal losing its pty is the rarer half of this; the common
-      // one is a script, a CI job or an agent starting the tool with stdin at
-      // /dev/null, which reaches EOF at once. Ending the loop there would take
-      // the run's transports with it: the channel's URL has just been printed,
-      // and its port would already be dead with nothing said. Advertised
-      // lifetime and actual lifetime have to be the same lifetime.
-      //
-      // With nothing left that could ever end the run — no app to exit, no
-      // transport to be told — there is also nothing left to control, so the
-      // loop returns and lets the caller tear down.
-      keyboardOpen = false;
-      if (exited == null) break;
-      final ways = <String>[
-        if (sessions.isNotEmpty) 'the app exiting',
-        if (shutdownSignal != null) 'an `app.stop` on a control transport',
-      ];
-      log(
-        'stdin closed, so the keys above no longer do anything. The run '
-        'continues, and everything it advertised — the HTTP control channel '
-        'included — stays up. It ends on ${ways.join(' or ')}.',
-      );
-      continue;
-    }
-    final input = keys.current;
-    final char = String.fromCharCode(input.first);
-    switch (char) {
-      // Both keys are pure dispatch, with no private fallback behind them: the
-      // commands are always registered before this loop exists, and a fallback
-      // would only diverge — invalidating the entrypoint alone where the
-      // pipeline diffs a snapshot of the whole workspace, with nothing able to
-      // execute it and notice. A run with no way to reload still answers here,
-      // through the pipeline's readiness gate.
-      //
-      // Unconditional, including on a run that cannot reload: a keypress that
-      // produces nothing at all cannot be told from one the terminal never
-      // received. Refusing here instead would put a second answer to "can this
-      // run reload" beside the readiness gate's, and they can only drift; the
-      // gate already holds the reason, and it is the same reason the HTTP
-      // channel and the machine protocol get.
-      case 'r':
-        reportReloadCommand(
-          'Hot reload',
-          await _runReload(commandRunner, 'app.hotReload', {}),
-          log,
-          method: 'app.hotReload',
-          announce: announce,
-        );
-      case 'R':
-        // Presentation, like the banner, so it is gated the way the banner is:
-        // announcing a restart and then refusing it reads worse than saying
-        // nothing. Through `log` rather than `stdout` so it is the same stream
-        // as the answer that follows.
-        if (hotReloadUnavailable == null) log('Performing hot restart...');
-        reportReloadCommand(
-          'Hot restart',
-          await _runReload(commandRunner, 'app.restart', {
-            'fullRestart': true,
-          }),
-          log,
-          method: 'app.restart',
-          announce: announce,
-        );
-      case 'p':
-        await _reportToggle(
-          sessions,
-          log,
-          'Performance overlay',
-          (client) => client.togglePerformanceOverlay(),
-        );
-      case 'i':
-        await _reportToggle(
-          sessions,
-          log,
-          'Widget inspector',
-          (client) => client.toggleWidgetInspector(),
-        );
-      case 'q':
-        await watcherSubscription?.cancel();
-        for (final session in sessions) {
-          await session.shutdown(protocol);
-        }
-        if (frontendServer != null) {
-          await frontendServer.shutdown();
-        }
-        await keys.cancel();
-        return;
-    }
+  } finally {
+    // The run is over: `q`, the app gone, or a teardown signalled by whoever
+    // stopped the sessions. Only this loop's own resources are left.
+    await watcherSubscription?.cancel();
+    await keys.cancel();
   }
-  // The run is over — the app is gone, or a teardown was signalled and the
-  // sessions were torn down by whoever signalled it. Just release local
-  // resources.
-  await watcherSubscription?.cancel();
-  await keys.cancel();
 }
 
 /// Dispatch a reload or restart from inside the run, a key or a save, and
-/// answer a refusal the way the command's own failures read.
+/// report how it went. Never throws: nothing above it would catch the error.
 ///
 /// The runner refuses by throwing: a command that was queued or running when
 /// the run started to end is answered as shutting down (see `CommandRunner`).
-/// A transport renders that to its client; here nothing above would catch it,
-/// and a run ending normally would end on an exception instead.
-Future<Map<String, dynamic>> _runReload(
+/// A refusal is reported the way the command's own failures read. Any other
+/// error is a bug in the tool, not an answer, and ends the run through
+/// [onFailure] with what went wrong.
+Future<void> _reload(
   CommandRunner commandRunner,
   String method,
-  Map<String, dynamic> params,
-) async {
+  Map<String, dynamic> params, {
+  required String action,
+  required void Function(String message) log,
+  required void Function(Map<String, dynamic> params) announce,
+  required void Function(DevToolException error) onFailure,
+}) async {
+  Map<String, dynamic> result;
   try {
-    return await commandRunner.run(method, params);
+    result = await commandRunner.run(method, params);
   } on CommandFailure catch (e) {
-    return {'succeeded': false, 'error': e.message};
+    if (e.kind == CommandFailureKind.shuttingDown) {
+      // The run is ending because someone asked it to (a `q`, a
+      // `daemon.shutdown`): the reload it overtook did not fail, and a severe
+      // "Hot reload failed" would be the last thing a clean exit printed.
+      _logger.fine({
+        'message': 'reload_command_abandoned',
+        'text': '$action not finished: ${e.message}',
+        'action': action,
+      });
+      return;
+    }
+    // A refusal is a whole sentence; a reload's `error` is a bare reason the
+    // renderer finishes with its own full stop.
+    final message = e.message;
+    final reason = message.endsWith('.')
+        ? message.substring(0, message.length - 1)
+        : message;
+    result = {'succeeded': false, 'error': reason};
+  } catch (e, stack) {
+    _logger.fine({
+      'message': 'reload_command_crashed',
+      'text': '$method threw: $e\n$stack',
+      'error': '$e',
+    });
+    onFailure(DevToolException('$action failed unexpectedly: $e'));
+    return;
   }
+  reportReloadCommand(action, result, log, method: method, announce: announce);
 }
 
 /// Why the keyboard loop woke up.
@@ -1247,6 +1306,7 @@ StreamSubscription<SourceChange> _watchAndReload({
   /// `app.hotReload`: both callers register the pair before anything can
   /// watch, and the handler is the only path to the per-app compilers.
   required CommandRunner commandRunner,
+  required void Function(DevToolException error) onFailure,
   required void Function(String message) log,
 
   /// Where the outcome of a watched edit's reload goes for a machine reader.
@@ -1279,14 +1339,14 @@ StreamSubscription<SourceChange> _watchAndReload({
     // exists, so an empty `invalidatedFiles` costs nothing.
     if (invalidated.isEmpty && !assetsChanged && !awaitingAssembly()) return;
 
-    reportReloadCommand(
-      'Hot reload',
-      await _runReload(commandRunner, 'app.hotReload', {
-        'invalidatedFiles': invalidated,
-      }),
-      log,
-      method: 'app.hotReload',
+    await _reload(
+      commandRunner,
+      'app.hotReload',
+      {'invalidatedFiles': invalidated},
+      action: 'Hot reload',
+      log: log,
       announce: announce,
+      onFailure: onFailure,
     );
   });
 }

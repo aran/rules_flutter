@@ -653,9 +653,10 @@ class RunCommand {
         if (sessions.isNotEmpty) {
           await runInteractiveSession(
             sessions: sessions,
-            frontendServer: pipeline.frontendServer,
+            endRun: host.performCleanup,
             protocol: protocol,
             commandRunner: commandRunner,
+            onFailure: host.fail,
             devToolsEnabled: plan.devToolsEnabled,
             dartExecutable: toolchain.dart,
             hotReloadUnavailable: plan.hotReloadOff,
@@ -676,9 +677,10 @@ class RunCommand {
       else if (hasVmClient || isWebDevice) {
         await runInteractiveSession(
           sessions: sessions,
-          frontendServer: pipeline.frontendServer,
+          endRun: host.performCleanup,
           protocol: protocol,
           commandRunner: commandRunner,
+          onFailure: host.fail,
           devToolsEnabled: plan.devToolsEnabled,
           dartExecutable: toolchain.dart,
           hotReloadUnavailable: plan.hotReloadOff,
