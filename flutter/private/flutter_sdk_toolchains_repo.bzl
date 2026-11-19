@@ -173,7 +173,7 @@ def _sdk_defines(repository_ctx):
         return sdk_dart_defines(version)
     return custom_sdk_dart_defines(
         framework.get("version") or version,
-        framework["commit"] if framework else (meta.framework_revision if meta else ""),
+        framework.get("commit", "") if framework else (meta.framework_revision if meta else ""),
         _engine_revision(repository_ctx),
         engine["dart_version"] if "dart_version" in engine else (meta.dart_version if meta else ""),
         framework.get("channel", RELEASE_CHANNEL),
