@@ -1399,7 +1399,6 @@ bzl_library(
         ":flutter_unsupported_package",
         ":lock_entry_kind",
         ":pub_cycles",
-        ":pub_lock_sdks",
         ":pub_reconcile",
         ":pub_resolve",
         ":pub_settings",

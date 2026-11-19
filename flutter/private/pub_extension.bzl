@@ -31,7 +31,6 @@ load("//flutter/private:flutter_source_files.bzl", "flutter_source_files", "miss
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
-load("//flutter/private:pub_lock_sdks.bzl", "parse_lock_sdk_constraints")
 load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
 load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "published_here_targets", "resolve_errors", "resolve_failure", "resolved_targets")
 load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settings", "unknown_annotation")
@@ -402,8 +401,8 @@ def pub_extension(module_ctx):
                     "`{}` or start with `{}_` or `{}-`, which name the repositories " +
                     "shared by every hub."
                 ).format(hub_name, SPOKE_PREFIX, SPOKE_PREFIX, SPOKE_PREFIX))
-            lock_content = module_ctx.read(pub_tag.lock)
-            lock_pkgs = parse_pubspec_lock(lock_content, str(pub_tag.lock))
+            lock = parse_pubspec_lock(module_ctx.read(pub_tag.lock), str(pub_tag.lock))
+            lock_pkgs = lock.packages
 
             # Before anything else is checked, so a wrong map is not masked.
             resolve_problems = resolve_errors(pub_tag.lock, lock_pkgs, pub_tag.resolve, pub_tag.build_from_pubspec, pub_tag.ignored)
@@ -413,7 +412,7 @@ def pub_extension(module_ctx):
             # The lock is checked against each SDK's framework by that SDK's own
             # `package:flutter` spoke, which only the SDK a build selects
             # fetches.
-            flutter_constraint = parse_lock_sdk_constraints(lock_content).get("flutter", "")
+            flutter_constraint = lock.sdks.get("flutter", "")
 
             # A `path` entry's path is relative to the lock's directory, as pub
             # reads it: the real one, for a lock of a module whose repository

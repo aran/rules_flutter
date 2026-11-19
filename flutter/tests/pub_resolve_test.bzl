@@ -29,7 +29,7 @@ def _lock(entries):
     return packages + "sdks:\n  dart: \">=3.0.0 <4.0.0\"\n"
 
 def _errors(entries, resolve, lock = _LOCK, build_from_pubspec = [], ignored = {}):
-    return resolve_errors(lock, parse_pubspec_lock(_lock(entries), str(lock)), resolve, build_from_pubspec, ignored)
+    return resolve_errors(lock, parse_pubspec_lock(_lock(entries), str(lock)).packages, resolve, build_from_pubspec, ignored)
 
 def _mentions(env, text, fragments):
     for fragment in fragments:

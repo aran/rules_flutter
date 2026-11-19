@@ -1,11 +1,12 @@
-"""Reads the `sdks:` block a resolver writes at the end of `pubspec.lock`.
+"""Compares a framework with the Flutter floor of the `sdks:` block a resolver writes at the end of `pubspec.lock`.
 
 Pub records the *constraints* its solution requires, not the SDK that produced
 it — so a lock cannot tell you which Flutter resolved it. What it can tell you
 is the floor: `flutter: ">=3.18.0-18.0.pre.54"` means no SDK below that can
 honour the pinned versions. Checking the pinned toolchain against that floor
 catches the direction that ends in a confusing compile error — a lock resolved
-by a *newer* Flutter than the build uses.
+by a *newer* Flutter than the build uses. rules_dart's `parse_pubspec_lock`
+reads the block (its `sdks`).
 
 The other direction (an older resolver silently capping packages at older
 versions) leaves no trace in the lock at all: the result is a perfectly valid
@@ -15,38 +16,6 @@ is the only thing that prevents it.
 """
 
 visibility("//flutter/...")
-
-def parse_lock_sdk_constraints(lock_content):
-    """Extracts the `sdks:` block from a pubspec.lock.
-
-    Args:
-        lock_content: The full text of a `pubspec.lock`.
-
-    Returns:
-        A dict of SDK name to constraint string, e.g.
-        `{"dart": ">=3.9.0 <4.0.0", "flutter": ">=3.18.0"}`. Empty when the
-        lock records no `sdks:` block.
-    """
-    constraints = {}
-    in_block = False
-    for line in lock_content.split("\n"):
-        if line.startswith("sdks:"):
-            in_block = True
-            continue
-        if not in_block:
-            continue
-
-        # The block runs to the end of the file; any unindented line ends it.
-        if not line.startswith("  "):
-            if line.strip():
-                break
-            continue
-
-        parts = line.strip().split(":", 1)
-        if len(parts) != 2:
-            continue
-        constraints[parts[0].strip()] = parts[1].strip().strip('"')
-    return constraints
 
 def constraint_lower_bound(constraint):
     """The `>=` floor of a pub version constraint, as a list of ints.
