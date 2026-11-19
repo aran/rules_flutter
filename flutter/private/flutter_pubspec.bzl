@@ -43,6 +43,8 @@ Schema reference (Flutter's pubspec):
             ...
 """
 
+load("@rules_dart//dart/pub:pub_versions.bzl", "version_constraint_allows")
+
 visibility("//flutter/...")
 
 def flutter_block(fields):
@@ -70,62 +72,18 @@ def _coerce_plugin_value(v):
         return ""
     return str(v)
 
-def _version_key(text):
-    # A semantic version's order (`2.11.0-0` before `2.11.0`), or None for
-    # text that is not one.
-    core = text.split("+")[0]
-    pre = ""
-    if "-" in core:
-        core, pre = core.split("-", 1)
-    parts = core.split(".")
-    if len(parts) != 3 or not all([p.isdigit() for p in parts]):
-        return None
-    return (int(parts[0]), int(parts[1]), int(parts[2]), 0 if pre else 1)
-
-def _constraint_min(constraint):
-    """The lower bound of a pub version constraint, as a `_version_key`; None when it has none.
-
-    What pub_semver's `VersionRange.min` is: of `^2.11.0`, `>=2.11.0 <4.0.0`,
-    `>2.11.0` or `2.11.0` it is 2.11.0. `any`, an upper bound alone and a
-    union (`||`) have none.
-    """
-    if type(constraint) != "string" or "||" in constraint:
-        return None
-    text = constraint.replace(">= ", ">=").replace("> ", ">").replace("<= ", "<=").replace("< ", "<")
-    lowest = None
-    for comparator in [c for c in text.split(" ") if c]:
-        if comparator.startswith("^"):
-            bound = comparator[1:]
-        elif comparator.startswith(">="):
-            bound = comparator[2:]
-        elif comparator.startswith(">"):
-            bound = comparator[1:]
-        elif comparator.startswith("<") or comparator == "any":
-            continue
-        else:
-            bound = comparator
-        key = _version_key(bound)
-        if key == None:
-            return None
-        if lowest == None or key > lowest:
-            lowest = key
-    return lowest
-
 # Flutter 2.11, from which flutter_tools takes an app-facing package's own
 # Dart implementation on a desktop platform as its implementation.
-_DESKTOP_DART_SELF_IMPLEMENTATION = (2, 11, 0, 1)
+_DESKTOP_DART_SELF_IMPLEMENTATION = ">=2.11.0"
 
-def _drops_desktop_dart_class(fields):
+def _drops_desktop_dart_class(flutter_minimum):
     # flutter_tools' `_isEligibleDartSelfImpl`: desktop platforms once took no
     # package's own `dartPluginClass` as its implementation, and to keep
     # published plugins working still do not unless the package requires
     # Flutter 2.11 or later.
-    environment = fields.get("environment")
-    flutter = environment.get("flutter") if type(environment) == "dict" else None
-    lowest = _constraint_min(flutter)
-    return lowest == None or lowest < _DESKTOP_DART_SELF_IMPLEMENTATION
+    return not flutter_minimum or not version_constraint_allows(_DESKTOP_DART_SELF_IMPLEMENTATION, flutter_minimum)
 
-def flutter_plugin_block(fields):
+def flutter_plugin_block(fields, flutter_minimum = ""):
     """Project `flutter.plugin` out of a pubspec's fields.
 
     The platforms are as flutter_tools reads them for registering: on Linux,
@@ -136,6 +94,8 @@ def flutter_plugin_block(fields):
 
     Args:
         fields: A pubspec's `fields`, as `read_pubspec` returns them.
+        flutter_minimum: The lower bound of its `environment: flutter:`, as
+            `read_pubspec` returns it: "" for none.
 
     Returns:
         A struct with:
@@ -165,7 +125,7 @@ def flutter_plugin_block(fields):
     implements_raw = plugin.get("implements", "")
     implements = str(implements_raw) if implements_raw != None else ""
 
-    if not implements and _drops_desktop_dart_class(fields):
+    if not implements and _drops_desktop_dart_class(flutter_minimum):
         for name in ("linux", "macos", "windows"):
             info = platforms.get(name)
             if info != None and "dartPluginClass" in info and not info.get("default_package"):

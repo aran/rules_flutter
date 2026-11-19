@@ -198,7 +198,9 @@ def _federated_impl_test_impl(ctx):
 
 def _monolithic_plugin_test_impl(ctx):
     env = unittest.begin(ctx)
-    result = flutter_plugin_block(_PACKAGE_INFO_PLUS)
+
+    # `read_pubspec`'s lower bound of its `flutter: ">=3.22.0"`.
+    result = flutter_plugin_block(_PACKAGE_INFO_PLUS, "3.22.0")
     asserts.true(env, result.present)
     asserts.equals(env, "", result.implements)
     asserts.equals(env, 6, len(result.platforms))
@@ -559,7 +561,7 @@ _assets_accepted_test = unittest.make(_assets_accepted_test_impl)
 # A desktop Dart class flutter_tools does not register
 # ---------------------------------------------------------------------------
 
-def _self_implementing(flutter_constraint = None, implements = None, default_package = None):
+def _self_implementing(implements = None, default_package = None):
     macos = {"dartPluginClass": "SelfMacOS", "dartFileName": "src/self_macos.dart", "pluginClass": "SelfPlugin"}
     if default_package:
         macos["default_package"] = default_package
@@ -570,24 +572,25 @@ def _self_implementing(flutter_constraint = None, implements = None, default_pac
     }}
     if implements:
         plugin["implements"] = implements
-    fields = {"name": "self", "flutter": {"plugin": plugin}}
-    if flutter_constraint != None:
-        fields["environment"] = {"sdk": "^3.0.0", "flutter": flutter_constraint}
-    return fields
+    return {"name": "self", "flutter": {"plugin": plugin}}
 
 def _desktop_dart_self_implementation_test_impl(ctx):
-    """flutter_tools takes a package's own desktop Dart class only when it requires Flutter 2.11 or later (`_isEligibleDartSelfImpl`)."""
+    """flutter_tools takes a package's own desktop Dart class only when it requires Flutter 2.11 or later (`_isEligibleDartSelfImpl`).
+
+    What it requires is the lower bound of its `environment: flutter:`, which
+    `read_pubspec` reads as pub_semver does: "" for none.
+    """
     env = unittest.begin(ctx)
-    for constraint in [None, "any", "<4.0.0", ">=2.10.0", ">=2.11.0-0", "^1.20.0", ">=2.11.0 || >=3.0.0", "not a constraint"]:
-        platforms = flutter_plugin_block(_self_implementing(constraint)).platforms
-        asserts.equals(env, {"pluginClass": "SelfPlugin"}, platforms["macos"], "macOS's Dart class is not taken under %r" % constraint)
-        asserts.equals(env, {}, platforms["linux"], "nor Linux's, under %r" % constraint)
-        asserts.equals(env, "SelfAndroid", platforms["android"]["dartPluginClass"], "a mobile platform's is, under %r" % constraint)
-    for constraint in [">=2.11.0", "^3.0.0", ">2.11.0", ">= 3.0.0 <4.0.0", "3.22.0", ">=2.11.0+1"]:
-        platforms = flutter_plugin_block(_self_implementing(constraint)).platforms
-        asserts.equals(env, "SelfMacOS", platforms["macos"]["dartPluginClass"], "macOS's Dart class is taken under %r" % constraint)
+    for minimum in ["", "2.10.0", "2.11.0-0", "1.20.0"]:
+        platforms = flutter_plugin_block(_self_implementing(), minimum).platforms
+        asserts.equals(env, {"pluginClass": "SelfPlugin"}, platforms["macos"], "macOS's Dart class is not taken from %r" % minimum)
+        asserts.equals(env, {}, platforms["linux"], "nor Linux's, from %r" % minimum)
+        asserts.equals(env, "SelfAndroid", platforms["android"]["dartPluginClass"], "a mobile platform's is, from %r" % minimum)
+    for minimum in ["2.11.0", "3.0.0", "3.22.0", "2.11.0+1"]:
+        platforms = flutter_plugin_block(_self_implementing(), minimum).platforms
+        asserts.equals(env, "SelfMacOS", platforms["macos"]["dartPluginClass"], "macOS's Dart class is taken from %r" % minimum)
         asserts.equals(env, "src/self_macos.dart", platforms["macos"]["dartFileName"])
-        asserts.equals(env, "SelfLinux", platforms["linux"]["dartPluginClass"], "and Linux's, under %r" % constraint)
+        asserts.equals(env, "SelfLinux", platforms["linux"]["dartPluginClass"], "and Linux's, from %r" % minimum)
 
     # A package that implements another is that one's implementation, however
     # old the Flutter it requires.

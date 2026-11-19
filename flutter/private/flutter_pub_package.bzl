@@ -2776,7 +2776,7 @@ def _flutter_pub_package_impl(ctx):
     language_version = pubspec.language_version
     if problems:
         return _write_unbuildable(ctx, identity, version, pubspec_dependencies, problems[0])
-    plugin_block = flutter_plugin_block(pubspec.fields)
+    plugin_block = flutter_plugin_block(pubspec.fields, pubspec.flutter_minimum)
     manifest_errors = flutter_manifest_errors(pubspec.fields)
     if manifest_errors:
         return _write_unbuildable(ctx, identity, version, pubspec_dependencies, (

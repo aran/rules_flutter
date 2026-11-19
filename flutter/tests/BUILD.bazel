@@ -80,7 +80,6 @@ load(":plugin_resolution_test.bzl", "plugin_resolution_test_suite")
 load(":profile_mode_test.bzl", "profile_mode_test_suite")
 load(":pub_cycle_test.bzl", "pub_cycle_test_suite")
 load(":pub_cycles_test.bzl", "pub_cycles_test_suite")
-load(":pub_lock_sdks_test.bzl", "pub_lock_sdks_test_suite")
 load(":pub_reconcile_test.bzl", "pub_reconcile_test_suite")
 load(":pub_resolve_test.bzl", "pub_resolve_test_suite")
 load(":pub_settings_test.bzl", "pub_settings_test_suite")
@@ -377,8 +376,6 @@ widget_creation_flag_test_suite(name = "widget_creation_flag_test")
 recorded_uses_test_suite(name = "recorded_uses_test")
 
 engine_out_dirs_test_suite(name = "engine_out_dirs_test")
-
-pub_lock_sdks_test_suite(name = "pub_lock_sdks_test")
 
 shader_compile_test_suite(name = "shader_compile_test")
 

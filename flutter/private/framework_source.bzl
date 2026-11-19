@@ -17,8 +17,8 @@ The repositories that read one take the label of its `flutter_framework.json`
 as an attribute, so Bazel fetches the source before they run.
 """
 
+load("@rules_dart//dart/pub:pub_versions.bzl", "is_semver", "version_constraint_allows", "version_constraint_error")
 load("//flutter/private:failing_targets.bzl", "write_failing_build")
-load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
 load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
 visibility("//flutter/...")
@@ -162,8 +162,15 @@ def lock_floor_message(index, sdks, framework_version):
     Returns:
         The message for the first lock that needs a newer one, or None.
     """
+    if not is_semver(framework_version):
+        return "The version of {} is {}, which pub cannot compare with a lock's Flutter constraint.".format(_framework_of(sdks), repr(framework_version))
     for lock, constraint in sorted(index.flutter_constraints.items()):
-        if constraint and version_below_lower_bound(framework_version, constraint):
+        # The constraint pub writes in a lock's `sdks:` block is the floor its
+        # solution needs, which is all pub checks of Flutter.
+        error = version_constraint_error(constraint) if constraint else None
+        if error:
+            return "{} requires flutter {}, which pub cannot read: {}.".format(lock, repr(constraint), error)
+        if constraint and not version_constraint_allows(constraint, framework_version):
             return (
                 "{lock} was resolved against a newer Flutter than {framework}: the lock " +
                 "requires flutter {constraint}, and the framework is {version}.\n" +

@@ -101,6 +101,19 @@ def _a_lock_above_the_framework_is_refused_test_impl(ctx):
     ]:
         asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
 
+    # As pub_semver orders them: a release after its pre-releases, and a
+    # checkout's pre-release of the next version after the release.
+    floor = struct(flutter_constraints = {_APP: ">=3.18.0-18.0.pre.54"})
+    for version in ["3.18.0", "3.50.1-0.0.pre-1"]:
+        asserts.equals(env, None, lock_floor_message(floor, ["beta"], version), version)
+    asserts.true(env, lock_floor_message(floor, ["beta"], "3.18.0-17.0.pre") != None)
+
+    # What pub cannot read is said, not taken to fit.
+    unreadable = lock_floor_message(struct(flutter_constraints = {_APP: ">=3.x"}), ["beta"], "3.40.1")
+    asserts.true(env, unreadable and "which pub cannot read" in unreadable, unreadable)
+    unversioned = lock_floor_message(index, ["beta"], "main")
+    asserts.true(env, unversioned and "which pub cannot compare" in unversioned, unversioned)
+
     return unittest.end(env)
 
 a_lock_above_the_framework_is_refused_test = unittest.make(_a_lock_above_the_framework_is_refused_test_impl)

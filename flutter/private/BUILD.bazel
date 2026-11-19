@@ -452,8 +452,8 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":failing_targets",
-        ":pub_lock_sdks",
         ":pub_resolve",
+        "@rules_dart//dart/pub:pub_versions",
     ],
 )
 
@@ -478,12 +478,6 @@ bzl_library(
         ":pinned",
         ":versions",
     ],
-)
-
-bzl_library(
-    name = "pub_lock_sdks",
-    srcs = ["pub_lock_sdks.bzl"],
-    visibility = ["//flutter:__subpackages__"],
 )
 
 bzl_library(
@@ -1946,6 +1940,7 @@ bzl_library(
     name = "flutter_pubspec",
     srcs = ["flutter_pubspec.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = ["@rules_dart//dart/pub:pub_versions"],
 )
 
 bzl_library(
