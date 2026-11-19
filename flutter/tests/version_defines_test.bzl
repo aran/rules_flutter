@@ -13,7 +13,7 @@ load("@flutter_version_pin//:version.bzl", "FLUTTER_VERSION")
 load("//flutter:defs.bzl", "flutter_application")
 load("//flutter/private:flutter_kernel.bzl", "flutter_kernel")
 load("//flutter/private:flutter_test.bzl", "flutter_test")
-load("//flutter/private:sdk_defines.bzl", "VERSION_DEFINE_KEYS", "sdk_dart_defines", "sdk_engine_revision", "version_dart_defines")
+load("//flutter/private:sdk_defines.bzl", "VERSION_DEFINE_KEYS", "custom_sdk_dart_defines", "sdk_dart_defines", "sdk_engine_revision", "version_dart_defines")
 load("//flutter/private:validation.bzl", "is_valid_dart_define")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 load(":action_content.bzl", "written_json")
@@ -57,6 +57,18 @@ def _sdk_defines_test_impl(ctx):
         "FLUTTER_ENGINE_REVISION=371f77202a",
         "FLUTTER_DART_VERSION=3.14.0",
     ], sdk_dart_defines("3.50.0"))
+
+    # A checkout's channel is its branch's, and its repository its remote's,
+    # or `null` when it has none, as flutter_tools writes them.
+    asserts.equals(env, [
+        "FLUTTER_VERSION=3.50.1-0.0.pre-2",
+        "FLUTTER_CHANNEL=[user-branch]",
+        "FLUTTER_GIT_URL=git@github.com:me/flutter.git",
+        "FLUTTER_FRAMEWORK_REVISION=0123456789",
+        "FLUTTER_ENGINE_REVISION=",
+        "FLUTTER_DART_VERSION=",
+    ], custom_sdk_dart_defines("3.50.1-0.0.pre-2", "0123456789abcdef", "", "", "[user-branch]", "git@github.com:me/flutter.git"))
+    asserts.true(env, "FLUTTER_GIT_URL=null" in custom_sdk_dart_defines("1.2.3", "", "", "", "main", None))
     asserts.equals(env, [
         "FLUTTER_BUILD_NAME=1.0.0",
         "FLUTTER_BUILD_NUMBER=1",

@@ -3257,7 +3257,7 @@ flutter_missing_slice(
 
 `cpus` is what the CPU check reads. `binary` is the file whose snapshot hash the check reads. For Android that is `flutter.jar`, with `binary_entry = "lib/<abi>/libflutter.so"`. An iOS slice also lists its `xcframework_slices`. The same `FlutterSdkCheck` runs on your pieces as on a checkout's.
 
-A *framework source* is the other half: a repository whose root is a flutter/flutter tree, with `packages/`, `bin/internal/material_fonts.version`, and a `flutter_framework.json` saying what it is: `{"version": "...", "commit": "...", "dirty": false, "origin": "..."}`.
+A *framework source* is the other half: a repository whose root is a flutter/flutter tree, with `packages/`, `bin/internal/material_fonts.version`, and a `flutter_framework.json` saying what it is: `{"version": "...", "commit": "...", "dirty": false, "origin": "..."}`. `commit` may be empty. It may also hold `channel` and `repository_url` (a URL, or `null` for none), the channel and repository `flutter --version` reports, which programs are told as `FLUTTER_CHANNEL` and `FLUTTER_GIT_URL`. Left out, they are the release's: `stable`, and `https://github.com/flutter/flutter.git`.
 
 ### Limitations
 

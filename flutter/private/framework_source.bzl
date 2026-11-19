@@ -7,7 +7,11 @@ A framework source is a repository whose root is a flutter/flutter tree:
 what the tree is:
 
     {"version": "<flutterVersion>", "commit": "<sha or empty>",
-     "dirty": false, "origin": "<release|local|archive|...>"}
+     "dirty": false, "origin": "<release|local|archive|...>",
+     "channel": "<channel>", "repository_url": "<url or null>"}
+
+`channel` and `repository_url` are what `flutter --version` reports: a
+source that leaves them out is the release's `stable`, from GitHub.
 
 The repositories that read one take the label of its `flutter_framework.json`
 as an attribute, so Bazel fetches the source before they run.

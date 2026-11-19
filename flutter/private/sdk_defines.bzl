@@ -34,9 +34,9 @@ SDK_DEFINE_KEYS = (
 VERSION_DEFINE_KEYS = (APP_BUILD_NAME_DEFINE, APP_BUILD_NUMBER_DEFINE) + SDK_DEFINE_KEYS
 
 # What `flutter --version` reports for a release tag, and the repository it is
-# cloned from.
-_CHANNEL = "stable"
-_GIT_URL = "https://github.com/flutter/flutter.git"
+# cloned from: what a framework that does not say otherwise is.
+RELEASE_CHANNEL = "stable"
+RELEASE_GIT_URL = "https://github.com/flutter/flutter.git"
 
 # `FlutterVersion.frameworkRevisionShort` and `engineRevisionShort`.
 _SHORT_REVISION = 10
@@ -55,14 +55,14 @@ def sdk_dart_defines(flutter_version):
         fail("Flutter %s is not a version versions.bzl lists: %s" % (flutter_version, ", ".join(FLUTTER_VERSIONS.keys())))
     return [
         "FLUTTER_VERSION=" + flutter_version,
-        "FLUTTER_CHANNEL=" + _CHANNEL,
-        "FLUTTER_GIT_URL=" + _GIT_URL,
+        "FLUTTER_CHANNEL=" + RELEASE_CHANNEL,
+        "FLUTTER_GIT_URL=" + RELEASE_GIT_URL,
         "FLUTTER_FRAMEWORK_REVISION=" + meta.framework_revision[:_SHORT_REVISION],
         "FLUTTER_ENGINE_REVISION=" + meta.engine_revision[:_SHORT_REVISION],
         "FLUTTER_DART_VERSION=" + meta.dart_version,
     ]
 
-def custom_sdk_dart_defines(version, framework_revision, engine_revision, dart_version):
+def custom_sdk_dart_defines(version, framework_revision, engine_revision, dart_version, channel, repository_url):
     """The defines that describe an SDK whose pieces are not all the release's.
 
     Args:
@@ -70,14 +70,17 @@ def custom_sdk_dart_defines(version, framework_revision, engine_revision, dart_v
         framework_revision: Its commit, or empty.
         engine_revision: The engine's commit, or empty.
         dart_version: The Dart the engine bundles, or empty.
+        channel: The framework's channel, as `flutter --version` reports it.
+        repository_url: The repository it is from, or None when it has none,
+            which flutter_tools writes as `null`.
 
     Returns:
         The `KEY=VALUE` defines, in `SDK_DEFINE_KEYS` order.
     """
     return [
         "FLUTTER_VERSION=" + version,
-        "FLUTTER_CHANNEL=" + _CHANNEL,
-        "FLUTTER_GIT_URL=" + _GIT_URL,
+        "FLUTTER_CHANNEL=" + channel,
+        "FLUTTER_GIT_URL=" + (repository_url if repository_url != None else "null"),
         "FLUTTER_FRAMEWORK_REVISION=" + framework_revision[:_SHORT_REVISION],
         "FLUTTER_ENGINE_REVISION=" + engine_revision[:_SHORT_REVISION],
         "FLUTTER_DART_VERSION=" + dart_version,

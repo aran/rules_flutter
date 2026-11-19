@@ -10,7 +10,7 @@ downloads: the slices an analysed toolchain names are the files fetched.
 
 load("//flutter/private:engine_helpers.bzl", "platform_to_arch", "platform_to_os")
 load("//flutter/private:engine_labels.bzl", "engine_label", "gen_snapshot_label", "host_tools_label", "kernel_label", "mode_select", "native_target")
-load("//flutter/private:sdk_defines.bzl", "custom_sdk_dart_defines", "sdk_dart_defines", "sdk_engine_revision")
+load("//flutter/private:sdk_defines.bzl", "RELEASE_CHANNEL", "RELEASE_GIT_URL", "custom_sdk_dart_defines", "sdk_dart_defines", "sdk_engine_revision")
 load("//flutter/private:toolchains_repo.bzl", "CROSS_COMPILATION_PAIRS", "DESKTOP_CROSS_PAIRS", "HOST_PLATFORMS")
 load("//flutter/private:versions.bzl", "FLUTTER_VERSIONS")
 
@@ -176,6 +176,8 @@ def _sdk_defines(repository_ctx):
         framework["commit"] if framework else (meta.framework_revision if meta else ""),
         _engine_revision(repository_ctx),
         engine["dart_version"] if "dart_version" in engine else (meta.dart_version if meta else ""),
+        framework.get("channel", RELEASE_CHANNEL),
+        framework.get("repository_url", RELEASE_GIT_URL),
     )
 
 def _engine_revision(repository_ctx):

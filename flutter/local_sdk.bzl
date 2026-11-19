@@ -52,7 +52,7 @@ When the out dirs of a slot are ambiguous (both `host_debug_arm64` and
 A pin chooses only for the slots it fits.
 """
 
-load("//flutter/private:checkout_version.bzl", "checkout_framework_version")
+load("//flutter/private:checkout_version.bzl", "checkout_channel", "checkout_framework_version", "checkout_repository_url")
 load("//flutter/private:framework_source.bzl", "FRAMEWORK_JSON")
 load("//flutter/private:local_engine.bzl", "read_engine_out_dirs", "unset_message")
 
@@ -120,6 +120,9 @@ def _local_framework_impl(repository_ctx):
             repository_ctx.watch(git_dir.get_child(ref[len("ref: "):]))
         repository_ctx.watch(git_dir.get_child("packed-refs"))
         repository_ctx.watch_tree(git_dir.get_child("refs").get_child("tags"))
+
+        # The branch's upstream and the remotes, which name the repository.
+        repository_ctx.watch(git_dir.get_child("config"))
     commit = git(["log", "-n", "1", "--pretty=format:%H"]).stdout.strip()
     version = checkout_framework_version(git, commit)
     status = git(["status", "--porcelain"])
@@ -131,6 +134,8 @@ def _local_framework_impl(repository_ctx):
         "dirty": dirty,
         "origin": "local",
         "path": checkout,
+        "channel": checkout_channel(git),
+        "repository_url": checkout_repository_url(git),
     }) + "\n")
 
 flutter_local_framework = repository_rule(
