@@ -14,6 +14,12 @@
 /// three systems. A workspace added without an entry fails the `plan` job, as
 /// does an entry for a workspace that is gone, a run without a purpose, or the
 /// same purpose given for two systems (which says the second adds nothing).
+///
+/// The `deep` tier (each workspace's `.bazelrc`) is not in a plain
+/// `bazel test //...`, so the runs above never reach it. A workspace with
+/// `deep` targets says in [E2eWorkspace.deep] what its weekly run of them
+/// exercises, and the `E2E deep` job runs them; one with `deep` targets and no
+/// such entry fails the `plan` job.
 library;
 
 /// An operating system a CI job runs on.
@@ -37,6 +43,7 @@ class E2eWorkspace {
     this.command = 'test',
     this.commands = const {},
     this.testsNamed = const {},
+    this.deep,
   });
 
   /// The directory under `e2e/`, with `/` separators.
@@ -66,6 +73,13 @@ class E2eWorkspace {
   /// added under a prefix is picked up without touching the table.
   /// [targetProblems] holds each prefix to matching something.
   final Map<Os, List<String>> testsNamed;
+
+  /// What the workspace's `deep`-tagged tests exercise that nothing else in CI
+  /// does, when the weekly `E2E deep` job runs them; null for a workspace with
+  /// none. They run on Linux only: the job has no other system's setup, and
+  /// what they need (a JDK, the Android SDK) Bazel downloads on any host, so
+  /// the cheapest runner will do.
+  final String? deep;
 
   /// The Bazel command CI runs in the workspace on [os].
   String commandOn(Os os) => commands[os] ?? command;
@@ -212,6 +226,13 @@ const e2eWorkspaces = <E2eWorkspace>[
     testsNamed: {
       Os.windows: ['windows_', 'android_bundle_'],
     },
+    deep:
+        'a real Gradle consumer of the add-to-app output: gradle_host_test '
+        'builds a native host app with Gradle, offline, against the debug, '
+        'profile and release repositories of the module and checks each APK\'s '
+        'native libraries per ABI, dexed plugin classes and merged manifest; '
+        'and gradle_module_metadata_live_test, the pinned Gradle module '
+        'metadata against the live Maven repositories',
   ),
   E2eWorkspace(
     'ffi_example',
@@ -255,6 +276,12 @@ const e2eWorkspaces = <E2eWorkspace>[
       Os.linux: _customEngineJob,
       Os.windows: _customEngineJob,
     },
+    deep:
+        'a real Gradle consumer of a custom engine\'s add-to-app output: '
+        'gradle_host_test builds a native host app with Gradle, offline, '
+        'against the stand-in engine\'s module, from a repository with no '
+        '`io.flutter` artifact of its own, and checks that the APK\'s '
+        'libflutter.so is the one the module\'s repository carries',
   ),
   E2eWorkspace(
     'pub_resolve',
@@ -498,6 +525,135 @@ List<Map<String, String>> matrixInclude(
               .join(' '),
         },
 ];
+
+/// The workspaces the weekly `E2E deep` job runs, as the `include` list of a
+/// GitHub Actions matrix, in table order.
+List<Map<String, String>> deepInclude(List<E2eWorkspace> table) => [
+  for (final workspace in table)
+    if (workspace.deep != null) {'workspace': workspace.name},
+];
+
+/// Whether a target in [buildFile], the text of a BUILD file, has the tag
+/// `deep`: the string `"deep"` in the expression a `tags =` argument is given,
+/// as in `tags = ["android", "deep"]` and `tags = ["android"] + (["deep"] if
+/// profile else [])`. A string elsewhere (a target named `"deep"`) and a
+/// comment are no tag. A tag list kept in a variable is not seen.
+bool hasDeepTag(String buildFile) {
+  final text = buildFile;
+
+  // The string literal that starts at [i]: its value and where it ends; null
+  // when none starts there.
+  (String, int)? stringAt(int i) {
+    final quote = text[i];
+    if (quote != '"' && quote != "'") return null;
+    final triple = text.startsWith(quote * 3, i);
+    final width = triple ? 3 : 1;
+    final value = StringBuffer();
+    var j = i + width;
+    while (j < text.length) {
+      if (text[j] == r'\' && j + 1 < text.length) {
+        value.write(text[j + 1]);
+        j += 2;
+      } else if (text.startsWith(quote * width, j)) {
+        return (value.toString(), j + width);
+      } else if (!triple && text[j] == '\n') {
+        break;
+      } else {
+        value.write(text[j++]);
+      }
+    }
+    return (value.toString(), j);
+  }
+
+  int endOfComment(int i) {
+    final end = text.indexOf('\n', i);
+    return end < 0 ? text.length : end;
+  }
+
+  final assignment = RegExp(r'\s*=(?!=)');
+  final wordCharacter = RegExp(r'[A-Za-z0-9_.]');
+
+  // Where the expression a `tags =` argument is given starts, when one does at
+  // [i]; null for anything else, `test_tags =` and `tags ==` included.
+  int? tagsExpressionAt(int i) {
+    if (!text.startsWith('tags', i)) return null;
+    if (i > 0 && wordCharacter.hasMatch(text[i - 1])) return null;
+    return assignment.matchAsPrefix(text, i + 4)?.end;
+  }
+
+  var i = 0;
+  while (i < text.length) {
+    if (text[i] == '#') {
+      i = endOfComment(i);
+    } else if (stringAt(i) case (_, final end)) {
+      i = end;
+    } else if (tagsExpressionAt(i) case final start?) {
+      // The expression runs to the `,` or the closing bracket that ends the
+      // argument; a `,` inside a bracket belongs to the expression.
+      var depth = 0;
+      var j = start;
+      while (j < text.length) {
+        final c = text[j];
+        if (c == '#') {
+          j = endOfComment(j);
+        } else if (stringAt(j) case (final value, final end)) {
+          if (value == 'deep') return true;
+          j = end;
+        } else if ('([{'.contains(c)) {
+          depth++;
+          j++;
+        } else if (')]}'.contains(c)) {
+          if (depth == 0) break;
+          depth--;
+          j++;
+        } else if (c == ',' && depth == 0) {
+          break;
+        } else {
+          j++;
+        }
+      }
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return false;
+}
+
+/// What is wrong with the `deep` entries of [table]: one that says nothing, one
+/// whose workspace has no `deep`-tagged target in any of its BUILD files, and a
+/// workspace with such a target and no entry, whose `deep` tests no job would
+/// run. [buildFiles] returns the text of every BUILD file of a workspace, the
+/// subpackages' as well as the root's.
+List<String> deepProblems(
+  List<E2eWorkspace> table,
+  Iterable<String> Function(String workspace) buildFiles,
+) {
+  final problems = <String>[];
+  for (final workspace in table) {
+    final tagged = buildFiles(workspace.name).any(hasDeepTag);
+    final purpose = workspace.deep;
+    if (purpose == null) {
+      if (tagged) {
+        problems.add(
+          '${workspace.name} has `deep` targets that no CI job runs: say what '
+          'they exercise in its `deep` entry',
+        );
+      }
+    } else if (purpose.trim().isEmpty) {
+      problems.add(
+        '${workspace.name} runs its deep tier without saying what it '
+        'exercises that no other job does',
+      );
+    } else if (!tagged) {
+      problems.add(
+        '${workspace.name} runs its deep tier, but no BUILD file of '
+        'e2e/${workspace.name} has a target tagged "deep"',
+      );
+    }
+  }
+  return problems..sort();
+}
 
 /// The workspaces each `Lock files` job of ci.yaml checks with
 /// `@overhead//locks:check`, as directories relative to the repository root

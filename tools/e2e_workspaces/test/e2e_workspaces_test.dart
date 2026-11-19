@@ -50,4 +50,33 @@ void main() {
       expect(findWorkspaces(e2e), ['e2e/app']);
     });
   });
+
+  group('readBuildFiles', () {
+    late Directory tmp;
+
+    setUp(() => tmp = Directory.systemTemp.createTempSync('read_build_files'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    void file(String path, String text) {
+      File('${tmp.path}/$path')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(text);
+    }
+
+    test('reads the BUILD files of every package, whatever their name', () {
+      file('BUILD.bazel', 'root');
+      file('a/BUILD', 'a');
+      file('a/b/c/BUILD.bazel', 'abc');
+      file('a/lib/main.dart', 'not a BUILD file');
+      expect(readBuildFiles(tmp), unorderedEquals(['root', 'a', 'abc']));
+    });
+
+    test('skips node_modules, hidden directories and bazel output links', () {
+      file('BUILD.bazel', 'root');
+      file('node_modules/x/BUILD', 'x');
+      file('.git/BUILD', 'git');
+      file('bazel-out/BUILD', 'out');
+      expect(readBuildFiles(tmp), ['root']);
+    });
+  });
 }

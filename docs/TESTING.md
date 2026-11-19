@@ -1078,9 +1078,12 @@ fourth thing to do when none applies.
   no desktop. The table names the prefixes (`testsNamed`), not the targets: the
   plan reads every `<prefix>...test` target from the workspace's `BUILD.bazel`,
   so a new `web_*_test` runs in CI without a table edit, and a prefix that
-  matches nothing fails the plan.
+  matches nothing fails the plan;
+- weekly only, `bazel test --config=deep --test_tag_filters=deep --build_tests_only //...`
+  in each e2e workspace that has `deep` tests, on Linux (the `E2E deep` jobs,
+  below).
 
-The last is a matrix of one job per workspace and system, named `E2E
+The matrix of one job per workspace and system is named `E2E
 (<workspace>, <runner>)`. It is generated: the `Plan E2E jobs` job runs
 `tools/ci_matrix/e2e_matrix.dart`, and that table is the one place that says
 where a workspace runs and why. A job costs runner time (a macOS minute costs
@@ -1116,6 +1119,19 @@ finds a gap before a push.
 | `asset_bundle` | macOS | the `flutter_assets/` tree of every platform against `flutter build`'s, once | Linux, Windows: no other host can analyse its iOS targets |
 | `desktop_example` | Linux, Windows | Tier-2 Linux rules on Linux, Tier-2 Windows rules on Windows | macOS: its targets are Linux-only or Windows-only |
 | `package_assets` | Linux, macOS | on Linux the package link hooks over a release compile's recorded uses (platform-neutral, run once, on the cheapest runner); on macOS a hand-linked code asset and a data asset on the app's own package, loaded by the macOS app | Windows: the same again |
+
+The `E2E deep` jobs run on the weekly schedule only, one per workspace whose
+table entry has a `deep` field saying what its run exercises. The `deep` tier
+is left out of the jobs above, and these are the only tests of a real Gradle
+build consuming our Android add-to-app output. They run on Linux because a
+Gradle host needs only the JDK and the Android SDK, which Bazel downloads on any
+host. The plan fails when a workspace has a `deep`-tagged target and no `deep`
+entry, or an entry and no such target.
+
+| Workspace | What the weekly deep run adds |
+|---|---|
+| `plugin_example` | `gradle_host_test`: a Gradle-built host app, offline, against the debug, profile and release repositories of the module, with each APK's native libraries per ABI, dexed plugin classes and merged manifest checked; `gradle_module_metadata_live_test`: the pinned Gradle module metadata against the live Maven repositories |
+| `custom_engine` | `gradle_host_test`: a Gradle-built host app, offline, against the stand-in engine's module, whose APK must carry the module repository's `libflutter.so` |
 
 The table in `e2e_matrix.dart` is the source; if this one disagrees, that one is
 right. The macOS and Linux jobs run exactly `bazel test //...` (`build` for

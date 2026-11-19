@@ -39,3 +39,26 @@ List<String> findWorkspaces(Directory e2e) {
 
 String _relative(String path, String root) =>
     path.substring(root.length + 1).replaceAll(Platform.pathSeparator, '/');
+
+/// The text of every BUILD file in [workspace], at any depth: `BUILD` and
+/// `BUILD.bazel`. Bazel's `bazel-*` output links, `node_modules` and hidden
+/// directories are skipped, and links are not followed.
+List<String> readBuildFiles(Directory workspace) {
+  final found = <String>[];
+  void walk(Directory dir) {
+    for (final entry in dir.listSync(followLinks: false)) {
+      final name = entry.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+      if (entry is File && (name == 'BUILD' || name == 'BUILD.bazel')) {
+        found.add(entry.readAsStringSync());
+      } else if (entry is Directory &&
+          !name.startsWith('bazel-') &&
+          !name.startsWith('.') &&
+          name != 'node_modules') {
+        walk(entry);
+      }
+    }
+  }
+
+  walk(workspace);
+  return found;
+}

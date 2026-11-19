@@ -290,6 +290,118 @@ void main() {
     });
   });
 
+  group('deep tier', () {
+    const tagged = 'a(name = "t", tags = ["android", "deep"])\n';
+    const plain = 'a(name = "t", tags = ["android"])\n';
+    const runs = E2eWorkspace('x', deep: 'the Gradle host');
+    const silent = E2eWorkspace('y');
+
+    test('lists the workspaces that run it, in table order', () {
+      expect(deepInclude([silent, runs, const E2eWorkspace('z', deep: 'b')]), [
+        {'workspace': 'x'},
+        {'workspace': 'z'},
+      ]);
+    });
+
+    test('accepts an entry for a workspace with deep targets', () {
+      expect(
+        deepProblems([runs, silent], (w) => [w == 'x' ? tagged : plain]),
+        isEmpty,
+      );
+    });
+
+    test('names deep targets that no entry runs', () {
+      expect(deepProblems([silent], (_) => [tagged]), [
+        contains('y has `deep` targets that no CI job runs'),
+      ]);
+    });
+
+    test('names an entry whose workspace has no deep target', () {
+      expect(deepProblems([runs], (_) => [plain]), [
+        contains('x runs its deep tier, but no BUILD file of e2e/x has a'),
+      ]);
+    });
+
+    test('rejects a blank purpose', () {
+      expect(
+        deepProblems([const E2eWorkspace('x', deep: ' ')], (_) => [tagged]),
+        [contains('x runs its deep tier without saying what it exercises')],
+      );
+    });
+
+    test('finds a deep target in any BUILD file of the workspace', () {
+      expect(deepProblems([silent], (_) => [plain, plain, tagged]), [
+        contains('y has `deep` targets'),
+      ]);
+      expect(deepProblems([runs], (_) => [plain, tagged]), isEmpty);
+    });
+
+    group('hasDeepTag', () {
+      test('sees the tag in a list among others', () {
+        expect(hasDeepTag(tagged), isTrue);
+        expect(hasDeepTag('a(tags=["deep"])'), isTrue);
+        expect(hasDeepTag("a(tags = ['deep'])"), isTrue);
+      });
+
+      test('sees the tag in a list that spans lines', () {
+        expect(
+          hasDeepTag('a(\n  tags = [\n    "android",\n    "deep",\n  ],\n)'),
+          isTrue,
+        );
+      });
+
+      test('sees the tag in an expression', () {
+        expect(
+          hasDeepTag(
+            'a(tags = ["android"] + (["deep"] if variant == "x" else []))',
+          ),
+          isTrue,
+        );
+      });
+
+      test('does not take a name that merely contains deep for a tag', () {
+        expect(hasDeepTag('a(name = "deep_lib")\n'), isFalse);
+        expect(hasDeepTag('a(tags = ["deep_lib", "not-deep"])'), isFalse);
+      });
+
+      test('does not take a target named deep for a deep target', () {
+        expect(hasDeepTag('a(name = "deep", tags = ["android"])'), isFalse);
+        expect(hasDeepTag('a(tags = ["android"], name = "deep")'), isFalse);
+        expect(hasDeepTag('a(name = "deep", srcs = ["deep"])'), isFalse);
+      });
+
+      test('does not take another attribute for the tags', () {
+        expect(hasDeepTag('a(test_tags = ["deep"])'), isFalse);
+        expect(hasDeepTag('a(my.tags = ["deep"])'), isFalse);
+        expect(hasDeepTag('a(tags == ["deep"])'), isFalse);
+      });
+
+      test('does not take a comment or a docstring for a tag', () {
+        expect(hasDeepTag('# tags = ["deep"]\na(tags = ["android"])'), isFalse);
+        expect(
+          hasDeepTag('a(tags = [\n  "android",\n  # "deep",\n])'),
+          isFalse,
+        );
+        expect(hasDeepTag(r'a(doc = "tags = [\"deep\"]")'), isFalse);
+      });
+
+      test('stops at the end of the argument', () {
+        expect(hasDeepTag('a(tags = ["android"], srcs = ["deep"])'), isFalse);
+        expect(
+          hasDeepTag('a(tags = ["android"])\nb(srcs = ["deep"])'),
+          isFalse,
+        );
+      });
+    });
+
+    test('is run by the committed workspaces that have gradle hosts', () {
+      expect(
+        deepInclude(e2eWorkspaces).map((e) => e['workspace']),
+        ['plugin_example', 'custom_engine'],
+      );
+    });
+  });
+
   group('lockCheckWorkspaces', () {
     const table = [
       E2eWorkspace(
