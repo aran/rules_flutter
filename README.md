@@ -142,6 +142,15 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
     in its `deps` fail with `conflicting direct dependency implementations`:
     keep one. The native code of an implementation it does not choose is no
     longer bundled. See [flutter_plugin](#flutter_plugin).
+13. A macOS app ships each code asset in a framework of its own, as
+    `flutter build macos` does: `libfoo.dylib` is
+    `Contents/Frameworks/foo.framework/foo`, under the install name
+    `@rpath/foo.framework/foo`, with its dSYM `foo.framework.dSYM`, and so is
+    a code asset's xcframework in macOS add-to-app (`foo.xcframework`, a
+    framework now). `@Native` bindings find it as before. Code that opens a
+    code asset's library by its file name, `DynamicLibrary.open('libfoo.dylib')`,
+    opens `@rpath/foo.framework/foo` instead. A `native_deps` library still
+    ships as itself.
 
 ## Road to 1.0
 
@@ -479,7 +488,7 @@ bazel build -c opt //:my_app_macos --output_groups=+dsyms
 
 With `--apple_generate_dsym`, the group also holds the runner's dSYM and the engine's: `Flutter.framework.dSYM` on iOS, and on macOS `FlutterMacOS.framework.dSYM` in a release build, the one mode Flutter ships it for. Only that flag downloads the macOS engine's dSYM, which comes in a 165 MB archive.
 
-The native libraries the app bundles beside its binary (a `native_deps` library, a code asset) are treated as rules_apple treats the runner's binary. With `--apple_generate_dsym` each has a dSYM in the group, `<name>.framework.dSYM` on iOS and `<library>.dylib.dSYM` on macOS. With `--objc_enable_binary_stripping` in `-c opt`, each is shipped without its local symbols and debugging map. A library's dSYM is read from the object files and static archives it was linked from, as `flutter build` reads it, so a crash in it symbolicates to the file and line. That takes the library's debugging map, which the link keeps in `-c opt` and Bazel's default `--strip=sometimes` removes in `fastbuild`, where the dSYM holds the library's symbol table, as a prebuilt library's does: a crash in it symbolicates to the function. The build has to see the link: a `native_deps` entry or a `dart_code_asset` `file` that is the `cc_shared_library` (or `cc_binary`) linking the library, or a `copy_file` or `filegroup` of one in `native_deps`. A `rust_shared_library`, in `native_deps` or as a code asset's `file`, is linked by rustc from objects it deletes, so its dSYM is the one rustc writes beside it on macOS. It has line tables when rustc compiled with debug information, which rules_rust turns on in `-c dbg` only; pass `--@rules_rust//rust/settings:extra_rustc_flag=-Cdebuginfo=2` for them in `-c opt`. Without debug information, and on iOS, where rules_rust keeps no dSYM, the library's dSYM holds its symbol table. A library another action wrote, a genrule that renames or strips one say, fails a build with `--apple_generate_dsym`, saying why, unless the rule that provides it states what the library was linked from in rules_dart's `DartLinkInputsInfo`: empty `inputs` for a library linked outside the build, `gone = True` for one whose objects its link deleted, which then gets a dSYM of its symbol table.
+The native libraries the app bundles beside its binary (a `native_deps` library, a code asset) are treated as rules_apple treats the runner's binary. With `--apple_generate_dsym` each has a dSYM in the group: `<name>.framework.dSYM` for one the app ships in a framework (on iOS each, on macOS each code asset), and `<library>.dylib.dSYM` for a `native_deps` library on macOS. With `--objc_enable_binary_stripping` in `-c opt`, each is shipped without its local symbols and debugging map. A library's dSYM is read from the object files and static archives it was linked from, as `flutter build` reads it, so a crash in it symbolicates to the file and line. That takes the library's debugging map, which the link keeps in `-c opt` and Bazel's default `--strip=sometimes` removes in `fastbuild`, where the dSYM holds the library's symbol table, as a prebuilt library's does: a crash in it symbolicates to the function. The build has to see the link: a `native_deps` entry or a `dart_code_asset` `file` that is the `cc_shared_library` (or `cc_binary`) linking the library, or a `copy_file` or `filegroup` of one in `native_deps`. A `rust_shared_library`, in `native_deps` or as a code asset's `file`, is linked by rustc from objects it deletes, so its dSYM is the one rustc writes beside it on macOS. It has line tables when rustc compiled with debug information, which rules_rust turns on in `-c dbg` only; pass `--@rules_rust//rust/settings:extra_rustc_flag=-Cdebuginfo=2` for them in `-c opt`. Without debug information, and on iOS, where rules_rust keeps no dSYM, the library's dSYM holds its symbol table. A library another action wrote, a genrule that renames or strips one say, fails a build with `--apple_generate_dsym`, saying why, unless the rule that provides it states what the library was linked from in rules_dart's `DartLinkInputsInfo`: empty `inputs` for a library linked outside the build, `gone = True` for one whose objects its link deleted, which then gets a dSYM of its symbol table.
 
 `extra_gen_snapshot_options = ["--no-strip"]` on the `flutter_application` keeps the symbols in the binary, as it does for `flutter build`. The dSYM is still made. A `flutter_aot_snapshot` on its own isn't stripped, and its object file is in the `macho_object` output group.
 
@@ -1256,7 +1265,7 @@ flutter_application(
 
 What a library loads at run time is bundled beside it, as a native build that links it installs it: the libraries a `cc_shared_library` names in `dynamic_deps`, theirs in turn, and a prebuilt shared library (a `cc_import`) its `deps` link against. So `native_deps` needs only the libraries your Dart code opens. A library one of them links by another route, such as a `linkopts` flag, is not found this way: name it in `native_deps` too.
 
-You can instead bind with `@Native(assetId: ...)` and let the Dart VM find the library. Declare it as a code asset with rules_dart's `dart_code_asset`, and name it in the `code_assets` of the package's `dart_package_metadata`, as a pub package's build hook would supply it. Every program that depends on the package then bundles the library under its file name, wrapped in a framework on iOS, and maps the id to it. An application maps it in `flutter_assets/NativeAssetsManifest.json`, which the engine reads at startup, as `flutter build` ships it. [`e2e/ffi_example`](e2e/ffi_example/BUILD.bazel) shows both styles side by side.
+You can instead bind with `@Native(assetId: ...)` and let the Dart VM find the library. Declare it as a code asset with rules_dart's `dart_code_asset`, and name it in the `code_assets` of the package's `dart_package_metadata`, as a pub package's build hook would supply it. Every program that depends on the package then bundles the library, wrapped in a framework of its own on iOS and macOS (`libfoo.dylib` as `foo.framework/foo`, as `flutter build` wraps it) and under its file name elsewhere, and maps the id to it. An application maps it in `flutter_assets/NativeAssetsManifest.json`, which the engine reads at startup, as `flutter build` ships it. [`e2e/ffi_example`](e2e/ffi_example/BUILD.bazel) shows both styles side by side.
 
 #### Choosing the library that serves an asset id
 
@@ -1281,7 +1290,7 @@ flutter_application(
 )
 ```
 
-The library is bundled once, as one file or one `.framework` on iOS, and each id's manifest entry names it. So the process loads one image of it: one runtime and one copy of its static state, whichever id a call goes through.
+The library is bundled once, as one file or one `.framework` on iOS and macOS, and each id's manifest entry names it. So the process loads one image of it: one runtime and one copy of its static state, whichever id a call goes through.
 
 To give each id the binding contract of its own bindings (see the next section), wrap each `dart_code_asset` in a `flutter_native_library`. The wrappers of one library may name a `hot_patch`. If several do, it must be the same one, since one patch of the shared library serves every id.
 

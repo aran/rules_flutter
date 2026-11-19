@@ -43,7 +43,7 @@ load("//flutter/private:apple_xcode.bzl", "XCODE_TOOL_ATTRS", "XCODE_TOOL_FRAGME
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION", "MACOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
 load("//flutter/private:flutter_apple_plugin_library.bzl", "FlutterAppleLinkedTargetsInfo", "linked_targets_aspect")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_ios_framework_names", "bundled_library_debug_info", "candidate_code_asset_libraries", "run_code_assets_tool")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "app_apple_framework_names", "app_macos_framework_names", "bundled_library_debug_info", "candidate_code_asset_libraries", "run_code_assets_tool")
 load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibrariesInfo", "SWIFTPM_APP_LIBRARIES", "app_library_entry", "check_swift_package_environment")
 load("//flutter/private:unbuilt_native_code.bzl", "fail_on_unbuilt_native_code")
@@ -809,18 +809,21 @@ def _code_asset_xcframeworks_impl(ctx):
     # which reads each slice's program assets. `flutter_application` has
     # checked that no two of a slice's share a name.
     #
-    # On iOS each is named by its framework, `ios_framework_names` of the
-    # slice's libraries, as the slice's own manifest names it; a library is
-    # one framework in every slice, so the slices must agree on its name.
+    # A library the app wraps in a framework (on iOS each, on macOS each code
+    # asset's) is named by it, `apple_framework_names` of the slice's
+    # libraries, as the slice's own manifest names it; a library is one
+    # framework in every slice, so the slices must agree on its name. Any
+    # other is named by its file name.
     per_name = {}
     file_names = {}
     always = {}
     program_assets = {}
     framework_of = {}
+    wrapped = {}
     for slice in slices:
         app_info = ctx.split_attr.application[slice.id][FlutterApplicationInfo]
         program_assets[slice.id] = app_info.program_assets
-        frameworks = app_ios_framework_names(native_library_files(app_info), app_info.program_assets) if platform == "ios" else {}
+        frameworks = (app_apple_framework_names if platform == "ios" else app_macos_framework_names)(native_library_files(app_info), app_info.program_assets)
         for file_name, framework in frameworks.items():
             other = framework_of.setdefault(file_name, (framework, slice.id))
             if other[0] != framework:
@@ -831,11 +834,13 @@ def _code_asset_xcframeworks_impl(ctx):
                     "xcframework holds a library for every slice, under one name."
                 ) % (ctx.label, file_name, other[0], other[1], framework, slice.id))
         for dylib in list(native_library_files(app_info)) + candidate_code_asset_libraries(app_info.program_assets):
-            name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
+            name = frameworks.get(dylib.basename, dylib.basename)
             per_name.setdefault(name, {})[slice.id] = dylib
             file_names[name] = dylib.basename
+            if dylib.basename in frameworks:
+                wrapped[name] = True
         for dylib in native_library_files(app_info):
-            name = frameworks[dylib.basename] if platform == "ios" else dylib.basename
+            name = frameworks.get(dylib.basename, dylib.basename)
             always.setdefault(name, []).append(slice.id)
 
     # The libraries a slice bundles, each with its install name there: a
@@ -847,7 +852,7 @@ def _code_asset_xcframeworks_impl(ctx):
             ctx,
             "%s_slices/%s_install_names" % (ctx.label.name, slice.id),
             [
-                (dylibs[slice.id], _code_asset_install_name(platform, name))
+                (dylibs[slice.id], _code_asset_install_name(name, name in wrapped))
                 for name, dylibs in sorted(per_name.items())
                 if len(dylibs) == len(slices)
             ],
@@ -877,39 +882,42 @@ def _code_asset_xcframeworks_impl(ctx):
         for slice in slices:
             dylib = dylibs[slice.id]
 
-            # On iOS a framework, as the app's bundle has it and its
-            # native-assets manifest names it. On macOS a library, as the
-            # app's bundle has it (`Contents/Frameworks/<name>`) and its
-            # manifest names it, its install name its own name there: a host
-            # that links it (a Swift package's binary target is linked) finds
-            # it through `@rpath`. Its dSYM is `<name>.framework.dSYM` or
-            # `<name>.dSYM`, as the app's.
-            path = "%s.framework/%s" % (name, name) if platform == "ios" else name
-            bundle = name + ".framework" if platform == "ios" else name
-            binary = ctx.actions.declare_file("%s_slices/%s/%s" % (ctx.label.name, slice.id, path))
+            # A framework, as the app's bundle has it and its native-assets
+            # manifest names it: on iOS each library, on macOS each code
+            # asset, versioned as `flutter build macos-framework` makes it,
+            # under upstream's install name `@rpath/<name>.framework/<name>`.
+            # Any other a library, as the app's bundle has it
+            # (`Contents/Frameworks/<name>`), its install name its own name
+            # there. A host that links either (a Swift package's binary target
+            # is linked) finds it through `@rpath`. Its dSYM is
+            # `<name>.framework.dSYM` or `<name>.dSYM`, as the app's.
+            framework = name in wrapped
+            path = "%s/%s" % (framework_root(slice, name), name) if framework else "%s/%s" % (slice.id, name)
+            bundle = name + ".framework" if framework else name
+            binary = ctx.actions.declare_file("%s_slices/%s/%s" % (ctx.label.name, slice.id, path[len(slice.id) + 1:]))
             dsym = declare_library_dsym(ctx, "%s_slices/%s/dSYMs" % (ctx.label.name, slice.id), bundle, name) if symbols[slice.id].dsym else None
             process_native_library(
                 ctx,
                 library = dylib,
                 output = binary,
                 symbols = symbols[slice.id],
-                mnemonic = "FlutterCodeAsset" + ("Framework" if platform == "ios" else "Library"),
+                mnemonic = "FlutterCodeAsset" + ("Framework" if framework else "Library"),
                 dsym = dsym,
                 debug_info = debug_info[slice.id].get(dylib),
-                install_name = _code_asset_install_name(platform, name),
+                install_name = _code_asset_install_name(name, framework),
                 install_name_changes = install_name_changes[slice.id],
             )
-            steps.append(("file", "%s/%s" % (slice.id, path), binary))
-            if platform == "ios":
+            steps.append(("file", path, binary))
+            if framework:
                 plist = ctx.actions.declare_file("%s_slices/%s/%s.framework/Info.plist" % (ctx.label.name, slice.id, name))
                 _framework_info_plist(ctx, plist, name, "io.flutter.flutter.native-assets.", platform)
-                steps.append(("file", "%s/%s.framework/Info.plist" % (slice.id, name), plist))
+                steps.append(("file", framework_resources(slice, name) + "/Info.plist", plist))
             if dsym:
                 steps.extend(_dsym_steps(dsym, "%s/dSYMs/%s.dSYM" % (slice.id, bundle)))
                 dsyms.append(slice.id)
         plist = ctx.actions.declare_file("%s_slices/%s.xcframework.plist" % (ctx.label.name, name))
         base = name[:-len(".dylib")] if name.endswith(".dylib") else name
-        if platform == "ios":
+        if name in wrapped:
             xcframework_info_plist(ctx, plist, name, slices, dsyms = dsyms)
         else:
             _library_xcframework_plist(ctx, plist, name, slices, dsyms = dsyms)
@@ -967,9 +975,9 @@ _LIBRARY_XCFRAMEWORK_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
-def _code_asset_install_name(platform, name):
-    """The install name of the code asset `name` in an add-to-app slice."""
-    return "@rpath/%s.framework/%s" % (name, name) if platform == "ios" else "@rpath/" + name
+def _code_asset_install_name(name, framework):
+    """The install name of the library `name` in an add-to-app slice, in a `framework` of its own or not."""
+    return "@rpath/%s.framework/%s" % (name, name) if framework else "@rpath/" + name
 
 def _library_xcframework_plist(ctx, output, name, slices, dsyms = []):
     """The `Info.plist` of an xcframework of a dynamic library, not a framework.

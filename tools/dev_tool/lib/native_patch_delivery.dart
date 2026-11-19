@@ -33,8 +33,8 @@ abstract class NativePatchDelivery {
   /// This delivery, for the app the native hot patch build's [files] describe.
   ///
   /// Where a platform needs more of the build than a library's file name to
-  /// find it. Only iOS does: its libraries ship in frameworks the build names
-  /// (see [IosFrameworks]).
+  /// find it. Apple platforms do: a library ships in a framework the build
+  /// names (see [AppleFrameworks]), on iOS each, on macOS each code asset.
   NativePatchDelivery forBuild(Iterable<String> files) => this;
 
   /// The path the app opens [libraryFileName] by — the name of a bundled native
@@ -87,14 +87,26 @@ Future<ProcessResult> _require(
 /// A macOS app: the dev tool and the app share a filesystem, and the app's
 /// container is a directory this user can write to.
 class MacOSPatchDelivery extends NativePatchDelivery {
-  const MacOSPatchDelivery();
+  /// The framework each code asset ships in, as the build named them.
+  final AppleFrameworks frameworks;
 
-  /// `native_deps` land in `Contents/Frameworks`, which is what the app's rpath
-  /// names; `@executable_path` is resolved by dyld itself, so this holds
+  const MacOSPatchDelivery({this.frameworks = AppleFrameworks.none});
+
+  @override
+  MacOSPatchDelivery forBuild(Iterable<String> files) =>
+      MacOSPatchDelivery(frameworks: AppleFrameworks.ofBuild(files));
+
+  /// The libraries land in `Contents/Frameworks`, which is what the app's
+  /// rpath names: a code asset in its framework, a `native_deps` library as
+  /// itself. `@executable_path` is resolved by dyld itself, so this holds
   /// wherever the bundle was launched from.
   @override
-  String libraryLoadPath(String libraryFileName) =>
-      '@executable_path/../Frameworks/$libraryFileName';
+  String libraryLoadPath(String libraryFileName) {
+    final framework = frameworks.of(libraryFileName);
+    return framework == null
+        ? '@executable_path/../Frameworks/$libraryFileName'
+        : '@executable_path/../Frameworks/$framework.framework/$framework';
+  }
 
   @override
   Future<String> deliver({
@@ -108,36 +120,37 @@ class MacOSPatchDelivery extends NativePatchDelivery {
   }
 }
 
-/// The framework each native library of an iOS app ships in, by the library's
-/// file name: `libbridge.dylib` ships as `bridge.framework/bridge`, because
-/// iOS refuses loose dylibs.
+/// The framework each native library of an Apple app ships in, by the
+/// library's file name: `libbridge.dylib` ships as `bridge.framework/bridge`,
+/// on iOS because it refuses loose dylibs, and on macOS for a code asset, as
+/// flutter_tools wraps one.
 ///
-/// The build names them (`ios_framework_names` in
+/// The build names them (`apple_framework_names` in
 /// `flutter/private/flutter_native_assets.bzl`, which renames a framework whose
 /// name another library's took, as flutter_tools does) and writes them to
 /// [fileName], which the hot patch aspect's group carries.
-class IosFrameworks {
+class AppleFrameworks {
   /// The framework names by library file name.
   final Map<String, String> byFileName;
 
-  const IosFrameworks(this.byFileName);
+  const AppleFrameworks(this.byFileName);
 
   /// None: a delivery not yet told the build.
-  static const none = IosFrameworks({});
+  static const none = AppleFrameworks({});
 
   /// The name of the file the build writes them to.
-  static const fileName = 'rules_flutter_ios_frameworks.json';
+  static const fileName = 'rules_flutter_apple_frameworks.json';
 
   /// The framework names in a build's [files]: every [fileName] among them.
-  static IosFrameworks ofBuild(Iterable<String> files) => read([
+  static AppleFrameworks ofBuild(Iterable<String> files) => read([
     for (final f in files)
       if (p.basename(f) == fileName) f,
   ]);
 
   /// The framework names of [files], every [fileName] a build wrote: one per
-  /// iOS app it reached. Throws [DevToolException] when two name one library's
+  /// Apple app it reached. Throws [DevToolException] when two name one library's
   /// framework differently, since the dev tool could not tell which runs.
-  static IosFrameworks read(Iterable<String> files) {
+  static AppleFrameworks read(Iterable<String> files) {
     final names = <String, String>{};
     final from = <String, String>{};
     for (final path in files) {
@@ -157,15 +170,16 @@ class IosFrameworks {
         from[library] = path;
       }
     }
-    return IosFrameworks(names);
+    return AppleFrameworks(names);
   }
 
   /// The framework [libraryFileName] ships in, or null when the build named
-  /// none for it: a library this iOS app does not bundle.
+  /// none for it: a library the app does not bundle, or on macOS one that
+  /// ships as itself.
   String? of(String libraryFileName) => byFileName[libraryFileName];
 }
 
-String _iosLoadPath(String libraryFileName, IosFrameworks frameworks) {
+String _iosLoadPath(String libraryFileName, AppleFrameworks frameworks) {
   final framework = frameworks.of(libraryFileName);
   if (framework == null) {
     throw DevToolException(
@@ -182,18 +196,18 @@ class IOSSimulatorPatchDelivery extends NativePatchDelivery {
   final DeliveryProcessRunner _run;
 
   /// The framework each library ships in, as the build named them.
-  final IosFrameworks frameworks;
+  final AppleFrameworks frameworks;
 
   const IOSSimulatorPatchDelivery({
     required DeliveryProcessRunner run,
-    this.frameworks = IosFrameworks.none,
+    this.frameworks = AppleFrameworks.none,
   }) : _run = run;
 
   @override
   IOSSimulatorPatchDelivery forBuild(Iterable<String> files) =>
       IOSSimulatorPatchDelivery(
         run: _run,
-        frameworks: IosFrameworks.ofBuild(files),
+        frameworks: AppleFrameworks.ofBuild(files),
       );
 
   @override
@@ -232,7 +246,7 @@ class IOSDevicePatchDelivery extends NativePatchDelivery {
   final DeliveryProcessRunner _run;
 
   /// The framework each library ships in, as the build named them.
-  final IosFrameworks frameworks;
+  final AppleFrameworks frameworks;
 
   String? _identity;
 
@@ -241,7 +255,7 @@ class IOSDevicePatchDelivery extends NativePatchDelivery {
     required this.bundleId,
     required this.appPath,
     required DeliveryProcessRunner run,
-    this.frameworks = IosFrameworks.none,
+    this.frameworks = AppleFrameworks.none,
   }) : _run = run;
 
   @override
@@ -251,7 +265,7 @@ class IOSDevicePatchDelivery extends NativePatchDelivery {
         bundleId: bundleId,
         appPath: appPath,
         run: _run,
-        frameworks: IosFrameworks.ofBuild(files),
+        frameworks: AppleFrameworks.ofBuild(files),
       );
 
   @override

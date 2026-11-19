@@ -186,7 +186,9 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsBytesSync(machO(0xaa));
       final names =
-          File('$execRoot/bazel-out/ios/bin/rules_flutter_ios_frameworks.json')
+          File(
+              '$execRoot/bazel-out/ios/bin/rules_flutter_apple_frameworks.json',
+            )
             ..createSync(recursive: true)
             ..writeAsStringSync('{"libmul.dylib": "mul1", "mul.dylib": "mul"}');
       builtFiles = [declare('ios', 0xaa), names.path];

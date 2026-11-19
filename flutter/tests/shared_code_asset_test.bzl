@@ -342,7 +342,7 @@ def _renamed_framework_bundle_impl(ctx):
         if f.basename != "Info.plist"
     ])
     asserts.equals(env, ["combined.framework/combined", "combined1.framework/combined1"], binaries)
-    names = written_json(env, "rules_flutter_ios_frameworks.json")
+    names = written_json(env, "rules_flutter_apple_frameworks.json")
     asserts.equals(env, {"combined.dylib": "combined", "libcombined.dylib": "combined1"}, names)
     return analysistest.end(env)
 

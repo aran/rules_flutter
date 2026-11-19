@@ -24,7 +24,7 @@ load("//flutter/private:common.bzl", "FLUTTER_APPLICATION_ATTRS", "PLATFORM_CONS
 load("//flutter/private:dev_config.bzl", "dev_config_file", "dev_search_roots", "dev_source_dir", "write_dev_config")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_aot_compile.bzl", "flutter_aot_elf_action", "flutter_aot_macho_action", "gen_snapshot_options")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "add_ios_framework_args", "app_ios_framework_names", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
+load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_DOC", "CODE_ASSETS_TOOL_ATTRS", "add_apple_framework_args", "app_apple_framework_names", "app_macos_framework_names", "candidate_code_asset_libraries", "check_bundled_library_names", "native_assets_target_string", "run_code_assets_tool")
 load("//flutter/private:link_hooks.bzl", "link_hooks_plan", "native_code_config", "program_assets")
 load("//flutter/private:native_libraries.bzl", "merge_native_libraries", "native_library_records")
 load("//flutter/private:plugin_resolution.bzl", "chosen_native_code", "chosen_native_libraries")
@@ -282,15 +282,18 @@ def flutter_application_build(ctx, inputs):
     ]))
     native_libs = list(native_libraries.keys())
 
-    # The manifest names an iOS library by its framework, which analysis
-    # names over every library the app bundles (`ios_framework_names`).
+    # The manifest names a library an Apple app wraps in a framework by the
+    # framework, which analysis names over every library the app bundles
+    # (`apple_framework_names`): on iOS each, on macOS each code asset's.
     manifest_code_assets = program_assets_action_args(ctx.actions, shipped.info, data = False, code = "names")
     manifest_args = ctx.actions.args()
     manifest_args.add("--os", target_platform)
     manifest_args.add("--target", dart_target)
     manifest_args.add("--output", native_assets_manifest_file)
     if is_ios:
-        add_ios_framework_args(manifest_args, app_ios_framework_names(native_libs, shipped.info))
+        add_apple_framework_args(manifest_args, app_apple_framework_names(native_libs, shipped.info))
+    elif is_macos:
+        add_apple_framework_args(manifest_args, app_macos_framework_names(native_libs, shipped.info))
     run_code_assets_tool(
         ctx,
         "manifest",

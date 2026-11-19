@@ -241,7 +241,7 @@ class NativeHotPatcher {
     final running = await _runningManifests(
       manifests,
       executionRoot,
-      IosFrameworks.ofBuild(built.files),
+      AppleFrameworks.ofBuild(built.files),
     );
     if (running.isEmpty) {
       final declared = {for (final m in manifests) p.basename(m.library)};
@@ -292,11 +292,11 @@ class NativeHotPatcher {
   /// `native_image_identity.dart` for why bundling defeats a byte comparison and
   /// why a build can hold several copies of one library.
   ///
-  /// [frameworks] names the framework an iOS app ships each library in.
+  /// [frameworks] names the framework an Apple app ships each library in.
   Future<List<NativeHotPatchManifest>> _runningManifests(
     List<NativeHotPatchManifest> manifests,
     String executionRoot,
-    IosFrameworks frameworks,
+    AppleFrameworks frameworks,
   ) async {
     final bundled = (await nativeLibsFingerprint(appFile)).keys.toList();
     final byName = <String, List<NativeHotPatchManifest>>{};
@@ -306,7 +306,7 @@ class NativeHotPatcher {
 
     final running = <NativeHotPatchManifest>[];
     for (final MapEntry(key: name, value: candidates) in byName.entries) {
-      // On iOS the framework the build named for it, which may not be the
+      // In an Apple app the framework the build named for it, which may not be the
       // one its file name gives: a framework whose name another library's
       // took is renamed.
       final framework = frameworks.of(name);

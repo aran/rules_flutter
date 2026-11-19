@@ -117,9 +117,24 @@ void main() {
       expect(
         CodeAssetPlacement(
           'ios',
-          frameworks: IosFrameworks({'libfoo.dylib': 'foo1'}),
+          frameworks: AppleFrameworks({'libfoo.dylib': 'foo1'}),
         ).bundlePath('libfoo.dylib'),
         'Frameworks/foo1.framework/foo1',
+      );
+    });
+
+    test('places a macOS code asset in its framework, any other as itself', () {
+      final placement = CodeAssetPlacement(
+        'macos',
+        frameworks: AppleFrameworks({'libadd.dylib': 'add'}),
+      );
+      expect(
+        placement.bundlePath('libadd.dylib'),
+        'Contents/Frameworks/add.framework/add',
+      );
+      expect(
+        placement.bundlePath('libmul.dylib'),
+        'Contents/Frameworks/libmul.dylib',
       );
     });
 
@@ -128,7 +143,7 @@ void main() {
       expect(
         CodeAssetPlacement(
           'ios',
-          frameworks: IosFrameworks({'objective_c.dylib': 'objective_c'}),
+          frameworks: AppleFrameworks({'objective_c.dylib': 'objective_c'}),
         ).pathInDirectory('objective_c.dylib'),
         'objective_c.framework/objective_c',
       );
@@ -140,7 +155,7 @@ void main() {
     });
 
     test('names an iOS library by the framework analysis named', () {
-      final frameworks = IosFrameworks.fromArgs([
+      final frameworks = AppleFrameworks.fromArgs([
         '--framework', 'libfoo.dylib', 'foo', //
         '--framework', 'foo.dylib', 'foo1',
       ]);
@@ -228,6 +243,49 @@ void main() {
           reason: os,
         );
       }
+    });
+
+    test('places a macOS code asset in its framework, from its copy', () {
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final params = fixture('program.params');
+      final program = ProgramCodeAssets.read(
+        params,
+        base: File(params).parent.path,
+      );
+      final copy = File('${dir.path}/prepared/add.framework/add')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('prepared');
+      final out = '${dir.path}/out';
+      place(
+        program,
+        CodeAssetPlacement(
+          'macos',
+          frameworks: AppleFrameworks({'libadd.so': 'add'}),
+        ),
+        out,
+        [],
+        copiesAs: {'libadd.so': copy.path},
+      );
+      // Each one's place in the bundle, `/`-separated whatever the host's.
+      final placed = [
+        for (final f in Directory(out).listSync(recursive: true))
+          if (f is File)
+            f.path
+                .substring(out.length + 1)
+                .replaceAll(Platform.pathSeparator, '/'),
+      ]..sort();
+      expect(placed, [
+        'add.framework/Resources/Info.plist',
+        'add.framework/add',
+        'libtrim.so',
+      ]);
+      expect(File('$out/add.framework/add').readAsStringSync(), 'prepared');
+      final plist = File(
+        '$out/add.framework/Resources/Info.plist',
+      ).readAsStringSync();
+      expect(plist, contains('<string>io.flutter.flutter.native-assets.add'));
+      expect(plist, contains('<key>CFBundleExecutable</key>\n\t<string>add<'));
     });
 
     test('refuses a file that holds the code assets by name', () {
@@ -422,7 +480,7 @@ void main() {
           program(),
           'ios',
           'ios_arm64',
-          frameworks: IosFrameworks({
+          frameworks: AppleFrameworks({
             'libadd.so': 'libadd.so',
             'libtrim.so': 'libtrim.so1',
           }),
@@ -441,6 +499,26 @@ void main() {
         'absolute',
         '@rpath/libtrim.so1.framework/libtrim.so1',
       ]);
+    });
+
+    test('names a macOS code asset in a framework by the framework', () {
+      final manifest = jsonDecode(
+        nativeAssetsManifest(
+          program(),
+          'macos',
+          'macos_arm64',
+          frameworks: AppleFrameworks({'libadd.so': 'add'}),
+        ),
+      ) as Map<String, Object?>;
+      final section =
+          (manifest['native-assets']! as Map)['macos_arm64']
+              as Map<String, Object?>;
+      expect(section['package:pick/add'], [
+        'absolute',
+        '@rpath/add.framework/add',
+      ]);
+      // A `native_deps` library, which ships as itself.
+      expect(section['package:trim/ops'], ['absolute', 'libtrim.so']);
     });
 
     test('is empty with nothing to ship, and needs a target otherwise', () {
@@ -567,7 +645,10 @@ void main() {
     );
     expect(program.droppedFileNames, {'libmul.so'});
     expect(
-      iosDroppedFrameworks(program, IosFrameworks({'libmul.so': 'libmul.so1'})),
+      iosDroppedFrameworks(
+        program,
+        AppleFrameworks({'libmul.so': 'libmul.so1'}),
+      ),
       'libmul.so1.framework\n',
     );
   });
@@ -583,7 +664,7 @@ void main() {
     expect(
       () => iosDroppedFrameworks(
         program,
-        IosFrameworks({'libmul.so': 'libmul.so'}),
+        AppleFrameworks({'libmul.so': 'libmul.so'}),
         conflict: '//app:post',
       ),
       throwsA(
@@ -601,7 +682,7 @@ void main() {
     expect(
       iosDroppedFrameworks(
         ProgramCodeAssets.read(none.path),
-        IosFrameworks({}),
+        AppleFrameworks({}),
         conflict: '//app:post',
       ),
       '',

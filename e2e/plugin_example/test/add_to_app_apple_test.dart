@@ -27,8 +27,9 @@
 ///   Its module compiles: an Objective-C file that `@import`s every plugin,
 ///   and a Swift file that `import`s every plugin with a Swift interface,
 ///   type-check against each slice.
-/// * One xcframework per code asset of `--code-assets`: on iOS a framework
-///   per slice, on macOS the library itself.
+/// * One xcframework per code asset of `--code-assets`, a framework per
+///   slice, versioned on macOS, under the install name
+///   `@rpath/<name>.framework/<name>`.
 /// * Each profile or release slice of a plugin or code asset has a dSYM of
 ///   its binary in `dSYMs/`, as `flutter build ios-framework` makes one; a
 ///   debug slice, the iOS simulator's in every mode, has none. A code
@@ -330,7 +331,9 @@ void _checkCodeAsset(
     xcframework,
   ).entries) {
     final binary = '$xcframework/$id/${library['BinaryPath']}';
-    final want = platform == 'ios' ? '$name.framework/$name' : '$name.dylib';
+    final want = platform == 'ios'
+        ? '$name.framework/$name'
+        : '$name.framework/Versions/A/$name';
     _check(
       library['BinaryPath'] == want,
       '$name $id: binary ${library['BinaryPath']}, not $want',
@@ -340,16 +343,17 @@ void _checkCodeAsset(
       '$xcframework/$id',
       library,
       binary,
-      platform == 'ios' ? '$name.framework' : '$name.dylib',
+      '$name.framework',
       debug: mode == 'debug' || id.endsWith('-simulator'),
       stripped: true,
       lineTables: lineTables,
     );
-    if (platform == 'ios') {
-      _check(
-        _installName(binary) == '@rpath/$name.framework/$name',
-        '$name $id: install name ${_installName(binary)}',
-      );
+    _check(
+      _installName(binary) == '@rpath/$name.framework/$name',
+      '$name $id: install name ${_installName(binary)}',
+    );
+    if (platform == 'macos') {
+      _checkVersioned('$xcframework/$id/$name.framework', name);
     }
   }
 }

@@ -120,17 +120,17 @@ def native_asset_framework_name(filename):
             name = name[len("lib"):]
     return "".join([c for c in name.elems() if c in _FRAMEWORK_NAME_CHARACTERS])
 
-# The file the iOS app's framework rule writes `ios_framework_names` to, which
-# `flutter_native_hot_patch_aspect` hands the dev tool.
-IOS_FRAMEWORK_NAMES_FILE = "rules_flutter_ios_frameworks.json"
+# The file an Apple app's framework rule writes `apple_framework_names` to,
+# which `flutter_native_hot_patch_aspect` hands the dev tool.
+APPLE_FRAMEWORK_NAMES_FILE = "rules_flutter_apple_frameworks.json"
 
-IosFrameworkNamesInfo = provider(
-    doc = "The framework each bundled library of an iOS app ships in.",
-    fields = {"file": "File: `IOS_FRAMEWORK_NAMES_FILE`, a JSON object from library file name to framework name."},
+AppleFrameworkNamesInfo = provider(
+    doc = "The framework each bundled library of an Apple app ships in.",
+    fields = {"file": "File: `APPLE_FRAMEWORK_NAMES_FILE`, a JSON object from library file name to framework name."},
 )
 
-def ios_framework_names(libraries):
-    """The framework each of an iOS app's bundled libraries ships in, by file name.
+def apple_framework_names(libraries):
+    """The framework each of an Apple app's bundled libraries ships in, by file name.
 
     flutter_tools' `frameworkUri` (native_assets_host.dart) over the libraries
     in the order of their file names: each is named by
@@ -164,8 +164,8 @@ def ios_framework_names(libraries):
         names[file_name] = name
     return names
 
-def app_ios_framework_names(native_libs, program_assets):
-    """`ios_framework_names` of an app: its `native_deps` libraries and every code-asset candidate.
+def app_apple_framework_names(native_libs, program_assets):
+    """`apple_framework_names` of an app: its `native_deps` libraries and every code-asset candidate.
 
     Args:
       native_libs: The app's `native_deps` libraries (of `FlutterApplicationInfo.native_libraries`).
@@ -174,9 +174,33 @@ def app_ios_framework_names(native_libs, program_assets):
     Returns:
       A dict from file name to framework name.
     """
-    return ios_framework_names(list(native_libs) + candidate_code_asset_libraries(program_assets))
+    return apple_framework_names(list(native_libs) + candidate_code_asset_libraries(program_assets))
 
-def add_ios_framework_args(args, names):
+def app_macos_framework_names(native_libs, program_assets):
+    """The frameworks of a macOS app: those of `app_apple_framework_names` its code assets ship in.
+
+    flutter_tools 3.50 wraps each code asset of a macOS app in a framework of
+    its own, as it does on iOS. A `native_deps` library is not one: it ships
+    as itself in `Contents/Frameworks`, where `DynamicLibrary.open` finds it
+    by its file name, and so does a code asset whose library is one, which
+    the process then loads once. The names are the iOS app's, so the two
+    apps agree on them.
+
+    Args:
+      native_libs: The app's `native_deps` libraries.
+      program_assets: The app's `DartProgramAssetsInfo`.
+
+    Returns:
+      A dict from file name to framework name.
+    """
+    loose = {library.basename: None for library in native_libs}
+    return {
+        file_name: name
+        for file_name, name in app_apple_framework_names(native_libs, program_assets).items()
+        if file_name not in loose
+    }
+
+def add_apple_framework_args(args, names):
     """Adds `--framework <file name> <name>` to `args` for each of `names`, as `code_assets.dart` reads them."""
     for file_name, name in sorted(names.items()):
         args.add_all("--framework", [file_name, name])
@@ -443,7 +467,7 @@ def check_bundled_library_names(label, libraries):
     flutter_tools' application check fails on two code assets of one file
     name. Names that differ only in case count as one (`_bundled_name`).
     (On iOS two file names may lead to one framework name; the second is
-    renamed, `ios_framework_names`.) Checked over every candidate, kept or
+    renamed, `apple_framework_names`.) Checked over every candidate, kept or
     not, because which a link hook keeps is known only when the bundle is
     built: the check holds whatever it keeps.
 

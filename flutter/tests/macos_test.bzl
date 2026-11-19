@@ -207,6 +207,8 @@ def _bundling_tests(name):
         fake_application_name = staged_app,
         expected_libraries = ["libadd.dylib", "vendor/lib/libsub.dylib"],
         expected_inputs = ["libadd.dylib", "vendor/lib/libsub.dylib", "assets/libasset.dylib", "assets/libdropped.dylib"],
+        # A code asset's framework gets its install name from Xcode's tools.
+        target_compatible_with = ["@platforms//os:macos"],
     )
 
     # The libraries the bundle carries beside its binary, stripped and with a
@@ -221,16 +223,30 @@ def _bundling_tests(name):
         expected_dsyms = [
             "libadd.dylib.dSYM/libadd.dylib",
             "libsub.dylib.dSYM/libsub.dylib",
-            "libasset.dylib.dSYM/libasset.dylib",
-            "libdropped.dylib.dSYM/libdropped.dylib",
         ],
         expected_always = ["libadd.dylib.dSYM", "libsub.dylib.dSYM"],
-        expected_candidates = ["libasset.dylib.dSYM", "libdropped.dylib.dSYM"],
+        expected_candidates = ["asset.framework.dSYM", "dropped.framework.dSYM"],
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+
+    # A code asset ships in a framework of its own, as `flutter build macos`
+    # wraps it, and its dSYM is `<name>.framework.dSYM`.
+    native_library_symbols_test(
+        name = name + "_native_frameworks_symbols",
+        target_under_test = name + "_native_libs",
+        mnemonic = "FlutterMacOSNativeAssetFramework",
+        expected_dsyms = [
+            "asset.framework.dSYM/asset",
+            "dropped.framework.dSYM/dropped",
+        ],
+        expected_always = ["libadd.dylib.dSYM", "libsub.dylib.dSYM"],
+        expected_candidates = ["asset.framework.dSYM", "dropped.framework.dSYM"],
         target_compatible_with = ["@platforms//os:macos"],
     )
     native_library_untouched_test(
         name = name + "_native_libs_untouched",
         target_under_test = name + "_native_libs",
+        target_compatible_with = ["@platforms//os:macos"],
     )
 
     fake_application(
@@ -272,12 +288,27 @@ def _bundling_tests(name):
         application = name + "_fake_app_other",
         tags = ["manual"],
     )
+
+    # Built from an app with `native_deps` only: a code asset's framework
+    # gets its install name from `install_name_tool`, which rejects the fake's
+    # placeholder libraries, so `_native_libs` is only analysed.
+    fake_application(
+        name = name + "_fake_app_loose",
+        debug = True,
+        native_libs = ["vendor/lib/libsub.dylib"],
+        tags = ["manual"],
+    )
+    flutter_macos_native_libs(
+        name = name + "_native_libs_loose",
+        application = name + "_fake_app_loose",
+        tags = ["manual"],
+    )
     build_test(
         name = name + "_two_apps_one_package",
         targets = [
             staged_app + "_framework",
             name + "_fake_app_other_framework",
-            name + "_native_libs",
+            name + "_native_libs_loose",
             name + "_native_libs_other",
         ],
     )
@@ -309,6 +340,7 @@ def _bundling_tests(name):
         name + "_framework_outputs_under_target_dir",
         name + "_native_libs_staged",
         name + "_native_libs_symbols",
+        name + "_native_frameworks_symbols",
         name + "_native_libs_untouched",
         name + "_native_libs_nothing_to_bundle",
         name + "_two_apps_one_package",

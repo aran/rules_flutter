@@ -1,7 +1,9 @@
 /// Verifies the add-to-app xcframeworks of a release build carry the code
 /// asset `pick`'s link hook kept, with its dSYM, and not the one it dropped,
 /// that the Swift package lists the same, and that a code asset linking
-/// another links it by the install name it ships with.
+/// another links it by the install name it ships with. Each is a versioned
+/// framework, `@rpath/<name>.framework/<name>`, as `flutter build
+/// macos-framework` makes it.
 ///
 /// Arguments: the layout target, the kept and the dropped xcframework, then
 /// the linking and the linked one, each named without `.xcframework`. The
@@ -23,16 +25,18 @@ void main(List<String> args) {
     ..exists('the kept $kept.xcframework', '$release/$kept.xcframework')
     ..exists(
       'the dSYM of the kept $kept',
-      '$release/$kept.xcframework/macos-arm64/dSYMs/$kept.dylib.dSYM/'
-          'Contents/Resources/DWARF/$kept.dylib',
+      '$release/$kept.xcframework/macos-arm64/dSYMs/$kept.framework.dSYM/'
+          'Contents/Resources/DWARF/$kept',
     )
     ..absent(
       'the dropped $dropped.xcframework',
       '$release/$dropped.xcframework',
     );
   final package = File('$release/Package.swift').readAsStringSync();
-  final topBinary = '$release/$top.xcframework/macos-arm64/$top.dylib';
-  final baseBinary = '$release/$base.xcframework/macos-arm64/$base.dylib';
+  String binary(String name) =>
+      '$release/$name.xcframework/macos-arm64/$name.framework/Versions/A/$name';
+  final topBinary = binary(top);
+  final baseBinary = binary(base);
   final baseName = _otool('-D', baseBinary).trim().split('\n').last;
   final links = _otool('-L', topBinary);
   check
@@ -47,8 +51,8 @@ void main(List<String> args) {
       detail: package,
     )
     ..expect(
-      '$base ships as @rpath/$base.dylib',
-      condition: baseName == '@rpath/$base.dylib',
+      '$base ships as @rpath/$base.framework/$base',
+      condition: baseName == '@rpath/$base.framework/$base',
       detail: baseName,
     )
     ..expect(

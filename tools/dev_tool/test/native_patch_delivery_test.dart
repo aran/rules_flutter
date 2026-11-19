@@ -37,7 +37,7 @@ void main() {
       ..writeAsStringSync('{"libfoo.dylib": "foo", "foo.dylib": "foo1"}');
     final b = File('${dir.path}/b.json')
       ..writeAsStringSync('{"foo.dylib": "foo1"}');
-    final frameworks = IosFrameworks.read([a.path, b.path]);
+    final frameworks = AppleFrameworks.read([a.path, b.path]);
     expect(frameworks.of('foo.dylib'), 'foo1');
     expect(frameworks.of('libbar.dylib'), isNull);
     final simulator = IOSSimulatorPatchDelivery(
@@ -55,7 +55,7 @@ void main() {
     final conflicting = File('${dir.path}/c.json')
       ..writeAsStringSync('{"foo.dylib": "foo"}');
     expect(
-      () => IosFrameworks.read([a.path, conflicting.path]),
+      () => AppleFrameworks.read([a.path, conflicting.path]),
       throwsA(isA<DevToolException>()),
     );
   });
@@ -65,6 +65,13 @@ void main() {
     expect(
       delivery.libraryLoadPath('libmul.dylib'),
       '@executable_path/../Frameworks/libmul.dylib',
+    );
+    // A code asset, which ships in a framework of its own.
+    expect(
+      const MacOSPatchDelivery(
+        frameworks: AppleFrameworks({'libadd.dylib': 'add'}),
+      ).libraryLoadPath('libadd.dylib'),
+      '@executable_path/../Frameworks/add.framework/add',
     );
     final appDirectory = Directory('${tmp.path}/container/tmp')
       ..createSync(recursive: true);
@@ -79,7 +86,7 @@ void main() {
 
   test('the simulator copies, then signs ad hoc', () async {
     final delivery = IOSSimulatorPatchDelivery(run: recording());
-    final frameworks = File('${tmp.path}/${IosFrameworks.fileName}')
+    final frameworks = File('${tmp.path}/${AppleFrameworks.fileName}')
       ..writeAsStringSync('{"libmul.dylib": "mul"}');
     expect(
       delivery

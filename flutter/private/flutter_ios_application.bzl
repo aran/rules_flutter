@@ -28,7 +28,7 @@ load("//flutter/private:apple_xcode.bzl", "NATIVE_LIBRARY_SYMBOLS_ATTRS", "decla
 load("//flutter/private:assemble_directory.bzl", "ASSEMBLE_DIRECTORY_ATTRS", "assemble_directory")
 load("//flutter/private:constants.bzl", "IOS_MINIMUM_OS_VERSION")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
-load("//flutter/private:flutter_native_assets.bzl", "CODE_ASSETS_TOOL_ATTRS", "IOS_FRAMEWORK_NAMES_FILE", "IosFrameworkNamesInfo", "add_ios_framework_args", "app_ios_framework_names", "bundled_library_debug_info", "candidate_code_asset_libraries", "run_code_assets_tool", "shipped_dsyms")
+load("//flutter/private:flutter_native_assets.bzl", "APPLE_FRAMEWORK_NAMES_FILE", "AppleFrameworkNamesInfo", "CODE_ASSETS_TOOL_ATTRS", "add_apple_framework_args", "app_apple_framework_names", "bundled_library_debug_info", "candidate_code_asset_libraries", "run_code_assets_tool", "shipped_dsyms")
 load("//flutter/private:mobile_engine_check.bzl", "check_ios_engine")
 load("//flutter/private:native_libraries.bzl", "native_library_files")
 load("//flutter/private:program_analysis.bzl", "bundled_program_info")
@@ -330,9 +330,9 @@ def _flutter_ios_native_frameworks_impl(ctx):
     rules_apple has to know each framework it embeds when the app is
     analysed, and which code assets ship is known only when the app is built
     (a release build's link hooks choose), so every candidate is wrapped.
-    Each framework's name is the one `ios_framework_names` gives its library,
+    Each framework's name is the one `apple_framework_names` gives its library,
     as every rule that names one has it; the names are also written to
-    `rules_flutter_ios_frameworks.json`, for the dev tool to find each
+    `rules_flutter_apple_frameworks.json`, for the dev tool to find each
     library's framework in the running app.
     """
     app_info = ctx.attr.application[FlutterApplicationInfo]
@@ -347,9 +347,9 @@ def _flutter_ios_native_frameworks_impl(ctx):
     always_dsyms = []
     candidate_dsyms = []
     native_libs = native_library_files(app_info)
-    by_file_name = app_ios_framework_names(native_library_files(app_info), app_info.program_assets)
+    by_file_name = app_apple_framework_names(native_library_files(app_info), app_info.program_assets)
     names = {dylib: by_file_name[dylib.basename] for dylib in dylibs}
-    framework_names = ctx.actions.declare_file("%s/%s" % (ctx.label.name, IOS_FRAMEWORK_NAMES_FILE))
+    framework_names = ctx.actions.declare_file("%s/%s" % (ctx.label.name, APPLE_FRAMEWORK_NAMES_FILE))
     ctx.actions.write(framework_names, json.encode_indent(by_file_name, indent = "  ") + "\n")
     debug_info = bundled_library_debug_info(ctx.attr.application) if symbols.dsym else {}
 
@@ -404,7 +404,7 @@ def _flutter_ios_native_frameworks_impl(ctx):
             # app's `dsyms` output group.
             dsyms = [dsyms] if dsyms else [],
         ),
-        IosFrameworkNamesInfo(file = framework_names),
+        AppleFrameworkNamesInfo(file = framework_names),
         # For the app to pass on to analysis (`flutter_apple_app`).
     ] + bundled_program_info(ctx.attr.application)
 
@@ -449,7 +449,7 @@ def _flutter_ios_dropped_frameworks_impl(ctx):
     args.add("--output", output)
     if ctx.attr.conflict:
         args.add("--conflict", ctx.attr.conflict)
-    add_ios_framework_args(args, app_ios_framework_names(native_library_files(app_info), app_info.program_assets))
+    add_apple_framework_args(args, app_apple_framework_names(native_library_files(app_info), app_info.program_assets))
     run_code_assets_tool(
         ctx,
         "ios-dropped-frameworks",

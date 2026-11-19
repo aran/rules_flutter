@@ -18,7 +18,7 @@ load("@rules_dart//dart:providers.bzl", "DartCodeAssetInfo", "DartInfo")
 load("@rules_dart//dart:utils.bzl", "PROGRAM_ASSETS_TOOLCHAINS", "program_assets_attrs")
 load("//flutter/private:common.bzl", "check_unreplaced_hooks")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS")
-load("//flutter/private:flutter_native_assets.bzl", "ios_framework_names", "native_asset_framework_name", "native_assets_target_string", "resolve_native_assets", "write_native_assets_manifest")
+load("//flutter/private:flutter_native_assets.bzl", "apple_framework_names", "native_asset_framework_name", "native_assets_target_string", "resolve_native_assets", "write_native_assets_manifest")
 
 # -- Pure-function tests for the manifest helpers ----------------------
 
@@ -95,11 +95,11 @@ def _framework_names_impl(ctx):
             "atoolongfilenameforaframework.dylib": "atoolongfilenameforaframework",
             "libatoolongfilenameforaframework.dylib": "atoolongfilenameforaframework1",
         },
-        ios_framework_names(files),
+        apple_framework_names(files),
     )
 
     # A name no other takes is the one its file name gives.
-    asserts.equals(env, {"libmul.dylib": "mul"}, ios_framework_names([struct(basename = "libmul.dylib")]))
+    asserts.equals(env, {"libmul.dylib": "mul"}, apple_framework_names([struct(basename = "libmul.dylib")]))
     return unittest.end(env)
 
 _target_string_t0_test = unittest.make(_target_string_macos_arm64_impl)
