@@ -11,14 +11,21 @@
 ///     one out of the repository, and a target in another module or another
 ///     Bazel package than the path names are all accepted.
 ///  3. The hub reaches the workspace target, and so does a hosted package that
-///     depends on the mapped one; a target built once however it is reached; a
-///     dependency cycle through a hosted package is Bazel's cycle error.
+///     depends on the mapped one; a target built once however it is reached.
+///     The mapped package's pubspec is read where the lock says it is, inside
+///     the repository or out, so a dependency cycle through it and a hosted
+///     package is refused when the packages are planned, naming the target;
+///     a pubspec outside the repository that is not there fails nothing, and
+///     one inside it that is not there fails the builds reaching it.
 ///  4. A hosted package mapped to a workspace target replaces it for the whole
 ///     graph and is never fetched; a target that declares another package name
 ///     than its key fails analysis, naming both.
 @Tags(['e2e'])
 library;
 
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'pub_inputs_fixture.dart';
@@ -96,6 +103,23 @@ PubInputsFixture greetingFixture({
       (lockEntry ?? pathEntry('greeting', '../../packages/greeting')) +
       extraLockEntries,
 );
+
+/// That [result] refused the cycle between `greeting`, which a target of the
+/// workspace builds, and the hosted `uses_greeting`, when the packages were
+/// planned, rather than leaving it to Bazel's own cycle error.
+void _expectRefusedCycle(BazelResult result) {
+  expect(result.succeeded, isFalse, reason: '$result');
+  for (final words in [
+    'depend on each other',
+    'greeting',
+    'uses_greeting',
+    'a target of yours',
+    'flutter_pub.from_lock()',
+    'flutter_pub.cycle(',
+  ]) {
+    expect(result.output, contains(words), reason: '$result');
+  }
+}
 
 void main() {
   group(
@@ -191,14 +215,20 @@ void main() {
 
     PubInputsFixture fixture({
       List<String> greetingDeps = const [],
+      String path = '../../packages/greeting',
+      bool withPubspec = true,
     }) => greetingFixture(
       hosted: [usesGreeting],
-      lockEntry: pathEntry(
+      lockEntry: pathEntry('greeting', path, dependency: 'direct overridden'),
+      package: pathPackage(
         'greeting',
-        '../../packages/greeting',
-        dependency: 'direct overridden',
+        deps: greetingDeps,
+        withPubspec: withPubspec,
+        // What pub sees it depend on, as its BUILD file says.
+        dependencies: greetingDeps.isEmpty
+            ? ''
+            : 'dependencies:\n  uses_greeting: ^1.0.0\n',
       ),
-      package: pathPackage('greeting', deps: greetingDeps),
       files: {
         'BUILD.bazel':
             'load("@rules_dart//dart:defs.bzl", "dart_library", "dart_package_metadata")\n'
@@ -272,13 +302,73 @@ void main() {
         final ws = await fixture(
           greetingDeps: ['@pubhub//:uses_greeting'],
         ).materialize();
-        final result = await ws.bazel(['build', '--nobuild', '//:app']);
-        expect(result.succeeded, isFalse, reason: '$result');
-        expect(result.output, contains('cycle'), reason: '$result');
-        expect(result.output, contains('greeting'), reason: '$result');
-        expect(result.output, contains('uses_greeting'), reason: '$result');
+        _expectRefusedCycle(await ws.bazel(['build', '--nobuild', '//:app']));
       },
     );
+
+    test('whose pubspec is not there fails the builds reaching it', () async {
+      final ws = await fixture(withPubspec: false).materialize();
+      final result = await ws.bazel(['build', '--nobuild', '//:app']);
+      expect(result.succeeded, isFalse, reason: '$result');
+      expect(result.output, contains('pubspec.yaml'), reason: '$result');
+      expect(result.output, contains('does not exist'), reason: '$result');
+      expect(
+        result.output,
+        contains('flutter_pub.from_lock()'),
+        reason: '$result',
+      );
+    });
+
+    group('whose pubspec is outside the repository', () {
+      /// Beside the generated workspace, as a sibling checkout is: the lock
+      /// reaches it through `..`s past the repository's root.
+      Future<(PubInputsWorkspace, Directory)> outside({
+        bool cycle = false,
+        bool pubspec = true,
+      }) async {
+        final ws = await fixture(
+          greetingDeps: cycle ? ['@pubhub//:uses_greeting'] : const [],
+        ).materialize();
+        final sibling = Directory('${ws.root}_sibling');
+        addTearDown(() => sibling.delete(recursive: true));
+        sibling.createSync();
+        if (pubspec) {
+          File(p.join(sibling.path, 'greeting', 'pubspec.yaml'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(
+              'name: greeting\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\n'
+              '${cycle ? 'dependencies:\n  uses_greeting: ^1.0.0\n' : ''}',
+            );
+        }
+        ws.writeLock(
+          ws.lockWith(
+            pathEntry(
+              'greeting',
+              '../../../${p.basename(sibling.path)}/greeting',
+              dependency: 'direct overridden',
+            ),
+          ),
+        );
+        return (ws, sibling);
+      }
+
+      test('builds', () async {
+        final (ws, _) = await outside();
+        final build = await ws.bazel(['build', '--nobuild', '//:app']);
+        expect(build.succeeded, isTrue, reason: '$build');
+      });
+
+      test('finds a cycle through it', () async {
+        final (ws, _) = await outside(cycle: true);
+        _expectRefusedCycle(await ws.bazel(['build', '--nobuild', '//:app']));
+      });
+
+      test('that is not there fails nothing', () async {
+        final (ws, _) = await outside(pubspec: false);
+        final build = await ws.bazel(['build', '--nobuild', '//:app']);
+        expect(build.succeeded, isTrue, reason: '$build');
+      });
+    });
   });
 
   group('a hosted package mapped to a workspace target', () {

@@ -710,6 +710,8 @@ flutter_pub.from_lock(
 
 [`e2e/pub_resolve`](e2e/pub_resolve/MODULE.bazel) is set up this way. Depend on a mapped package as `@deps//:greeting`, or by its own label.
 
+Bazel also reads a mapped `path` package's pubspec, where the lock says it is, inside the repository or outside it. A hosted package that depends on the mapped one while the mapped one depends back on it is a cycle that no target can build. Bazel refuses it when it plans the packages, and the message says how to build the package from its pubspec instead. A pubspec outside the repository that isn't there fails nothing. One inside the repository that isn't there, or that pub refuses, fails the builds that reach the package, saying why.
+
 - The target is a `flutter_library`, `flutter_plugin` or `dart_library`, with any name. The `package_name` of its `dart_package_metadata` must be the pub package's name. If it isn't, analysis fails, naming the target, the key and the name it declares.
 - For a package with assets, fonts or shaders, your target is also what bundles them, at `packages/<package>/<path>`, as `flutter build` does.
 - The target must be `//visibility:public`, because the hub forwards to it.

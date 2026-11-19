@@ -440,9 +440,11 @@ bzl_library(
     srcs = ["flutter_pub_library_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
     deps = [
+        ":failing_targets",
         ":flutter_pub_index",
         ":pub_cycles",
         "@rules_dart//dart/pub:pub_graph",
+        "@rules_dart//dart/pub:pub_lock_package",
     ],
 )
 

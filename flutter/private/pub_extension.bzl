@@ -11,7 +11,7 @@ extension is identified by the file that defines it and its name.
 """
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_lock_entry", "pub_lock_mapping_error")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_lock_entry", "pub_lock_mapping_error", "pub_lock_resolved_pubspec")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven", "flutter_android_maven_requirements_repo")
@@ -21,7 +21,7 @@ load("//flutter/private:flutter_face_repo.bzl", "flutter_face_repo")
 load("//flutter/private:flutter_framework_package.bzl", "flutter_framework_package")
 load("//flutter/private:flutter_gen_l10n_repo.bzl", "flutter_gen_l10n_repo")
 load("//flutter/private:flutter_pub_goldens.bzl", "flutter_pub_goldens")
-load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "pubspec_repo", "sdk_prefix", "source_repo")
 load("//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package", "flutter_pub_path_package")
@@ -601,7 +601,27 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
     sdk_packages = sorted([n for n, e in chosen.items() if e.kind in [FLUTTER_FRAMEWORK, FLUTTER_SOURCE]])
     prefixes = _framework_variants(sdks)
     multi = len({p: True for p in prefixes.values()}) > 1
+
+    # The `resolve`-mapped `path` packages, whose pubspec is read where the
+    # first lock listing the package says it is, inside the repository or
+    # out, as rules_dart's `pub.from_lock` reads them: a cycle between one
+    # and the pub packages it depends on is then found when the packages are
+    # planned, naming the target, not left to Bazel's own cycle error.
+    served = {}
+    for t in tags:
+        for name in t.tag.resolve:
+            info = t.packages.get(name, {})
+            if name in served or name not in mapped.targets or info.get("source") != "path":
+                continue
+            served[name] = struct(
+                target = mapped.targets[name].target,
+                path = info.get("description", {}).get("path", ""),
+                version = info.get("version", ""),
+                lock = t.tag.lock,
+            )
+
     index_attrs = dict(
+        served = {name: str(pkg.target) for name, pkg in served.items()},
         built = sorted(built.keys()),
         other = other,
         sdk_packages = sdk_packages,
@@ -642,6 +662,15 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
             package_name = name,
             actual = target.target,
             lock = target.lock,
+        )
+    for name, pkg in served.items():
+        pub_lock_resolved_pubspec(
+            name = pubspec_repo(name),
+            package_name = name,
+            version = pkg.version,
+            lock = pkg.lock,
+            path = pkg.path,
+            from_lock = "flutter_pub.from_lock",
         )
 
     overlay_roots = user_overlay_roots + ["@rules_flutter//flutter/ext:BUILD.bazel"]

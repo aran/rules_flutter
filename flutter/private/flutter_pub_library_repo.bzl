@@ -21,8 +21,10 @@ with `flutter_info_forwarding_aspect`.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_graph", "read_pubspec_dependencies")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "sibling_label", "source_repo")
-load("//flutter/private:pub_cycles.bzl", "DECLARE")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "read_pubspec_refusal")
+load("//flutter/private:failing_targets.bzl", "write_failing_build")
+load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "library_repo", "owner_prefix", "pubspec_repo", "read_index", "read_sibling_file", "sibling_label", "source_repo")
+load("//flutter/private:pub_cycles.bzl", "DECLARE", "FROM_LOCK")
 
 visibility("//flutter/...")
 
@@ -159,21 +161,39 @@ def _flutter_pub_library_repo_impl(ctx):
     package = ctx.attr.package_name
     index = read_index(ctx, ctx.attr.prefix)
 
-    # Every package this one reaches through built packages. The lock's other
-    # entries (`package:flutter`, entries nothing supplies) are leaves:
-    # they depend on built packages, never the other way round to a package
-    # that depends on them.
+    # Every package this one reaches through built packages, and through the
+    # packages `resolve` maps whose pubspec says what they depend on
+    # (`served`), as rules_dart's `pub.from_lock` plans: a cycle through one of
+    # those is refused, naming the target. The lock's other entries
+    # (`package:flutter`, entries nothing supplies, other mapped packages) are
+    # leaves: they depend on built packages, never the other way round to a
+    # package that depends on them.
+    def source(p):
+        if p in index.served:
+            return sibling_label(ctx, pubspec_repo(p, index.main_prefix))
+        return sibling_label(ctx, source_repo(p, owner_prefix(index, p)))
+
     graph = dependency_graph(
         package,
-        lambda p: [d for d in read_pubspec_dependencies(ctx, sibling_label(ctx, source_repo(p, owner_prefix(index, p)))) if d in index.built or d in index.other],
-        follow = index.built,
+        lambda p: [d for d in read_pubspec_dependencies(ctx, source(p)) if d in index.built or d in index.other],
+        follow = dict(index.built, **index.served),
     )
+
+    # A mapped package whose pubspec is missing inside the repository, or
+    # that pub refuses, stops every build reaching it, as in rules_dart.
+    for member in graph:
+        refusal = read_pubspec_refusal(ctx, source(member)) if member in index.served else None
+        if refusal:
+            write_failing_build(ctx, [package], refusal)
+            return ctx.repo_metadata(reproducible = True)
     cycle = dependency_cycle(
         graph,
         package,
         declared = index.cycles,
         advisory = index.advisory_cycles,
         declare = DECLARE,
+        served = index.served,
+        from_lock = FROM_LOCK,
     )
     if cycle.owner != package:
         ctx.file("BUILD.bazel", make_alias_build_content(
