@@ -374,10 +374,11 @@ jobs:
       # checks every lock for stale entries too.
       #
       # The targets are `//...` unless the table in
-      # tools/ci_matrix/e2e_matrix.dart names others for the system.
-      - name: bazel test ${{ matrix.targets }} (e2e/${{ matrix.workspace }})
+      # tools/ci_matrix/e2e_matrix.dart names others; the flags select the
+      # tests of one tag where it runs only those on the system.
+      - name: bazel test ${{ matrix.flags }} ${{ matrix.targets }} (e2e/${{ matrix.workspace }})
         working-directory: e2e/${{ matrix.workspace }}
-        run: bazel test ${{ matrix.targets }}
+        run: bazel test ${{ matrix.flags }} ${{ matrix.targets }}
       # `bazel coverage` of a flutter_test, which `bazel test` never reaches:
       # the merged report names the sources of the test's package and of a
       # library in another by their workspace paths, and

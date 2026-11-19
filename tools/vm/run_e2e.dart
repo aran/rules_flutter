@@ -25,9 +25,8 @@ Future<void> main(List<String> args) => runE2e(
   usage:
       'Runs what CI runs on that system, as ci.yaml does: the root module on '
       'Linux, and every e2e workspace the matrix gives that system.',
-  items: (options, root) => flutterItems(
+  items: (options, _) => flutterItems(
     options,
-    root,
     rulesDart: options.repoOptions.containsKey('rules-dart'),
   ),
   setup: (vm, options) async {

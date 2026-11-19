@@ -29,7 +29,7 @@ void main() {
     );
     exit(2);
   }
-  final problems = matrixProblems(e2eWorkspaces, found);
+  final problems = matrixProblems(e2eEntries, found);
   if (problems.isNotEmpty) {
     stderr
       ..writeln('ci_matrix: the e2e matrix does not match e2e/:')
@@ -56,26 +56,23 @@ void main() {
       ..writeln(archiveIssues.map((p) => '  $p').join('\n'));
     exit(1);
   }
-  String buildFile(String workspace) =>
-      File('$repo/e2e/$workspace/BUILD.bazel').readAsStringSync();
-  final targetIssues = targetProblems(e2eWorkspaces, buildFile);
-  if (targetIssues.isNotEmpty) {
+  Iterable<String> buildFiles(String module) =>
+      readBuildFiles(Directory('$repo/e2e/$module'));
+  final tagIssues = tagProblems(e2eEntries, buildFiles);
+  if (tagIssues.isNotEmpty) {
     stderr
       ..writeln('ci_matrix: the e2e matrix selects tests that are not there:')
-      ..writeln(targetIssues.map((p) => '  $p').join('\n'));
+      ..writeln(tagIssues.map((p) => '  $p').join('\n'));
     exit(1);
   }
-  final deepIssues = deepProblems(
-    e2eWorkspaces,
-    (workspace) => readBuildFiles(Directory('$repo/e2e/$workspace')),
-  );
+  final deepIssues = deepProblems(e2eEntries, buildFiles);
   if (deepIssues.isNotEmpty) {
     stderr
       ..writeln('ci_matrix: the e2e matrix and the `deep` tests disagree:')
       ..writeln(deepIssues.map((p) => '  $p').join('\n'));
     exit(1);
   }
-  final locks = lockCheckWorkspaces(e2eWorkspaces);
+  final locks = lockCheckWorkspaces(e2eEntries);
   final listing = Process.runSync('git', [
     'ls-files',
     '--',
@@ -98,8 +95,8 @@ void main() {
   }
   stdout
     ..writeln(
-      'matrix=${jsonEncode({'include': matrixInclude(e2eWorkspaces, buildFile)})}',
+      'matrix=${jsonEncode({'include': matrixInclude(e2eEntries)})}',
     )
-    ..writeln('deep=${jsonEncode({'include': deepInclude(e2eWorkspaces)})}')
+    ..writeln('deep=${jsonEncode({'include': deepInclude(e2eEntries)})}')
     ..writeln('locks=${jsonEncode({'include': lockCheckInclude(locks)})}');
 }

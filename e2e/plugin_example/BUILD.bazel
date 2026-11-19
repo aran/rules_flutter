@@ -631,8 +631,11 @@ build_test(
     targets = [":plugin_linux"],
 )
 
+# Tagged `windows_host`, with the two build_tests below: what a Windows host
+# adds here, the tests CI's Windows job runs (tools/ci_matrix/e2e_matrix.dart).
 windows_link_libraries_test(
     name = "windows_link_libraries_test",
+    tags = ["windows_host"],
     target_under_test = "@deps//:url_launcher_windows",
 )
 
@@ -643,13 +646,18 @@ linux_link_libraries_test(
 
 build_test(
     name = "windows_bundle_build_test",
+    tags = ["windows_host"],
     target_compatible_with = ["@platforms//os:windows"],
     targets = [":plugin_windows"],
 )
 
+# Tagged `windows_host` too: on a Windows host, the longest paths aapt2 opens.
 build_test(
     name = "android_bundle_build_test",
-    tags = ["android"],
+    tags = [
+        "android",
+        "windows_host",
+    ],
     targets = [":plugin_android_arm64_build"],
 )
 

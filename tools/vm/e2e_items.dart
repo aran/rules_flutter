@@ -3,8 +3,6 @@
 /// (`@overhead//vm`, `lib/e2e.dart`).
 library;
 
-import 'dart:io';
-
 import 'package:overhead_vm/e2e.dart';
 
 import '../ci_matrix/e2e_matrix.dart';
@@ -21,46 +19,53 @@ String rulesDartOnVm({required bool windows}) =>
     windows ? 'C:/rules_dart' : '/tmp/rules_dart';
 
 /// On Linux the root module (CI's `unit-tests` job), then every workspace the
-/// e2e matrix runs on the VM's system, each with the targets CI gives it there; or, with
-/// `--folders=`, those named (a workspace the matrix runs on this system gets
-/// its matrix targets, any other folder `//...`).
+/// e2e matrix runs on the VM's system, each with the flags and targets CI gives it there; or, with
+/// `--folders=`, those named (a module the matrix runs on this system gets
+/// its matrix flags and targets, any other folder `//...`).
 ///
 /// With [rulesDart], every folder builds against the rules_dart checkout there
 /// (`--override_module`, and for the root its `overhead` too), as a local
 /// `.bazelrc.user` does; the lock stays as committed.
 List<E2eItem> flutterItems(
-  E2eOptions options,
-  String repoRoot, {
+  E2eOptions options, {
   required bool rulesDart,
 }) {
   final os = options.windows ? Os.windows : Os.linux;
-  E2eItem item(String folder) {
-    var targets = const ['//...'];
-    for (final workspace in e2eWorkspaces) {
-      if (folder == 'e2e/${workspace.name}' && workspace.runs.containsKey(os)) {
-        final build = File('$repoRoot/$folder/BUILD.bazel');
-        targets = workspace.targetsOn(
-          os,
-          build.existsSync() ? build.readAsStringSync() : '',
-        );
-      }
-    }
-    final rd = rulesDartOnVm(windows: options.windows);
-    return E2eItem.bazel(
-      folder,
-      [
-        'test',
-        '--test_output=errors',
-        if (rulesDart) ...[
-          '--override_module=rules_dart=$rd',
-          if (folder == '.') '--override_module=overhead=$rd/overhead',
-          '--lockfile_mode=off',
+  final rd = rulesDartOnVm(windows: options.windows);
+  E2eItem item(String folder, List<String> flags, List<String> targets) =>
+      E2eItem.bazel(
+        folder,
+        [
+          'test',
+          '--test_output=errors',
+          if (rulesDart) ...[
+            '--override_module=rules_dart=$rd',
+            if (folder == '.') '--override_module=overhead=$rd/overhead',
+            '--lockfile_mode=off',
+          ],
+          ...flags,
+          ...targets,
         ],
-        ...targets,
-      ],
-      passExitCodes: const {0, 4}, // 4: no test targets
-      timeout: folderTimeout,
-    );
+        passExitCodes: const {0, 4}, // 4: no test targets
+        timeout: folderTimeout,
+      );
+
+  // A folder's items: one per entry of the matrix that runs its module on
+  // this system, with the flags and targets CI gives it, or `//...`.
+  List<E2eItem> items(String folder) {
+    final entries = [
+      for (final entry in e2eEntries)
+        if (folder == 'e2e/${entry.module}' && entry.runs.containsKey(os))
+          entry,
+    ];
+    if (entries.isEmpty)
+      return [
+        item(folder, const [], const ['//...']),
+      ];
+    return [
+      for (final entry in entries)
+        item(folder, entry.flagsOn(os), entry.patterns),
+    ];
   }
 
   final folders =
@@ -68,8 +73,11 @@ List<E2eItem> flutterItems(
       [
         // CI runs the root module's tests on Linux only.
         if (!options.windows) '.',
-        for (final workspace in e2eWorkspaces)
-          if (workspace.runs.containsKey(os)) 'e2e/${workspace.name}',
+        for (final module in {
+          for (final entry in e2eEntries)
+            if (entry.runs.containsKey(os)) entry.module,
+        })
+          'e2e/$module',
       ];
-  return [for (final folder in folders) item(folder)];
+  return [for (final folder in folders) ...items(folder)];
 }

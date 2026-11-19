@@ -17,7 +17,7 @@
 ///
 /// The `deep` tier (each workspace's `.bazelrc`) is not in a plain
 /// `bazel test //...`, so the runs above never reach it. A workspace with
-/// `deep` targets says in [E2eWorkspace.deep] what its weekly run of them
+/// `deep` targets says in [E2eEntry.deep] what its weekly run of them
 /// exercises, and the `E2E deep` job runs them; one with `deep` targets and no
 /// such entry fails the `plan` job.
 library;
@@ -34,18 +34,28 @@ enum Os {
   final String runner;
 }
 
-/// One e2e workspace and what CI does with it on each operating system.
-class E2eWorkspace {
-  const E2eWorkspace(
-    this.name, {
+/// One set of targets of an e2e module, and what CI does with it on each
+/// operating system.
+///
+/// A module has one entry per target set CI runs separately: today each e2e
+/// workspace is one module with one entry for `//...`, and a module that holds
+/// several apps can split them over entries (`//macos_example/...` on one
+/// macOS job, `//integration_test/...` on another).
+class E2eEntry {
+  const E2eEntry(
+    this.module, {
+    this.patterns = const ['//...'],
     this.runs = const {},
     this.skips = const {},
-    this.testsNamed = const {},
+    this.testsTagged = const {},
     this.deep,
   });
 
-  /// The directory under `e2e/`, with `/` separators.
-  final String name;
+  /// The module's directory under `e2e/`, with `/` separators.
+  final String module;
+
+  /// The target patterns of the entry, as `bazel test` takes them.
+  final List<String> patterns;
 
   /// The systems it runs on, each with what it exercises there that no other
   /// job does.
@@ -55,42 +65,39 @@ class E2eWorkspace {
   /// instead, or that the system cannot build it.
   final Map<Os, String> skips;
 
-  /// The name prefixes that select what each system runs `bazel test` on,
-  /// where that is not `//...`: a system that adds only some of a workspace's
-  /// subject runs only those. (A test that needs a desktop session, a
-  /// simulator or an emulator is tagged for it instead, and the workspace's
-  /// `.bazelrc` leaves it out of every run.) Every
-  /// `<prefix>...test` target of the workspace root package is run, so a test
-  /// added under a prefix is picked up without touching the table.
-  /// [targetProblems] holds each prefix to matching something.
-  final Map<Os, List<String>> testsNamed;
+  /// The tag that selects, on a system, the tests it runs among [patterns],
+  /// where that is not all of them: a system that adds only some of the
+  /// entry's subject runs the tests tagged so, and builds only what they need
+  /// (`--build_tests_only`). A test added with the tag is picked up without
+  /// touching the table. [tagProblems] holds each tag to some target.
+  ///
+  /// (A test that needs a desktop session, a simulator or an emulator is not
+  /// selected here: it is tagged for what it needs, and its module's
+  /// `.bazelrc` leaves it out of every run.)
+  final Map<Os, String> testsTagged;
 
-  /// What the workspace's `deep`-tagged tests exercise that nothing else in CI
-  /// does, when the weekly `E2E deep` job runs them; null for a workspace with
+  /// What the module's `deep`-tagged tests exercise that nothing else in CI
+  /// does, when the weekly `E2E deep` job runs them; null for an entry with
   /// none. They run on Linux only: the job has no other system's setup, and
   /// what they need (a JDK, the Android SDK) Bazel downloads on any host, so
   /// the cheapest runner will do.
   final String? deep;
 
-  /// The target patterns CI runs `bazel test` on in the workspace on [os], given
-  /// the text of the workspace's `BUILD.bazel`.
-  List<String> targetsOn(Os os, String buildFile) {
-    final prefixes = testsNamed[os];
-    if (prefixes == null) return const ['//...'];
-    final names = {
-      for (final prefix in prefixes) ...testsFor(buildFile, prefix),
-    }.toList()..sort();
-    return [for (final name in names) '//:$name'];
-  }
-}
+  /// How problems name the entry: its module, and its patterns where they are
+  /// not `//...`.
+  String get id => patterns.length == 1 && patterns.single == '//...'
+      ? module
+      : '$module (${patterns.join(' ')})';
 
-/// The names of the `*_test` targets in [buildFile] that start with [prefix].
-List<String> testsFor(String buildFile, String prefix) => [
-  for (final match in RegExp(
-    r'name\s*=\s*"(' + RegExp.escape(prefix) + r'[\w.-]*_test)"',
-  ).allMatches(buildFile))
-    match.group(1)!,
-];
+  /// The flags CI gives `bazel test` for the entry on [os], before
+  /// [patterns].
+  List<String> flagsOn(Os os) => [
+    if (testsTagged[os] case final tag?) ...[
+      '--build_tests_only',
+      '--test_tag_filters=$tag',
+    ],
+  ];
+}
 
 const _appleOnly =
     'every test is target_compatible_with macOS: it builds Apple bundles, '
@@ -108,12 +115,12 @@ const _customEngineJob =
     'its targets are manual: the `custom-engine` job builds and checks them '
     'with the stand-in checkout through the dev tool e2e test, on macOS';
 
-const e2eWorkspaces = <E2eWorkspace>[
+const e2eEntries = <E2eEntry>[
   // The BCR presubmit module (.bcr/presubmit.yml), which BCR runs on Debian,
   // Ubuntu, macOS and Windows before it accepts a release. Each job is the
   // minimal consumer's toolchain resolving on that host, with none of the
   // modules a fuller workspace declares to hide a gap. About a minute each.
-  E2eWorkspace(
+  E2eEntry(
     'smoke',
     runs: {
       Os.macos: 'the BCR presubmit module resolving its toolchain on a Mac',
@@ -125,7 +132,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   ),
   // Not an E2E job: the `consumer-query` job in ci.yaml queries
   // `@rules_flutter//...` from it, on all three systems.
-  E2eWorkspace(
+  E2eEntry(
     'external_module',
     skips: {
       Os.macos: _consumerQuery,
@@ -133,7 +140,7 @@ const e2eWorkspaces = <E2eWorkspace>[
       Os.windows: _consumerQuery,
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'dual_hub',
     runs: {
       Os.linux:
@@ -147,7 +154,7 @@ const e2eWorkspaces = <E2eWorkspace>[
     },
   ),
   // Also the one job per system that saves the repository cache (ci.yaml).
-  E2eWorkspace(
+  E2eEntry(
     'hello_world',
     runs: {
       Os.macos:
@@ -170,7 +177,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // The codegen, gen-l10n and golden tests here are platform-neutral and ride
   // along; what each system adds is how its flutter_tester loads a native
   // library, which only this workspace tests.
-  E2eWorkspace(
+  E2eEntry(
     'codegen',
     runs: {
       Os.macos:
@@ -188,7 +195,7 @@ const e2eWorkspaces = <E2eWorkspace>[
           'flutter_tester_binary',
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'plugin_example',
     runs: {
       Os.macos:
@@ -209,11 +216,9 @@ const e2eWorkspaces = <E2eWorkspace>[
           'Windows host, and this workspace\'s Linux and macOS jobs build its '
           'plugins\' Android side',
     },
-    // `windows_*_test`: the bundle and its plugin's link libraries;
-    // `android_bundle_build_test`: the arm64 APK.
-    testsNamed: {
-      Os.windows: ['windows_', 'android_bundle_'],
-    },
+    // Tagged `windows_host`: the bundle and its plugin's link libraries, and
+    // the arm64 APK.
+    testsTagged: {Os.windows: 'windows_host'},
     deep:
         'a real Gradle consumer of the add-to-app output: gradle_host_test '
         'builds a native host app with Gradle, offline, against the debug, '
@@ -222,7 +227,7 @@ const e2eWorkspaces = <E2eWorkspace>[
         'and gradle_module_metadata_live_test, the pinned Gradle module '
         'metadata against the live Maven repositories',
   ),
-  E2eWorkspace(
+  E2eEntry(
     'ffi_example',
     runs: {
       Os.macos:
@@ -242,7 +247,7 @@ const e2eWorkspaces = <E2eWorkspace>[
           'bundle, and its platform-neutral targets build here too',
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'web_example',
     runs: {
       Os.linux:
@@ -257,7 +262,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // Not an E2E job: every target that exercises the checkout is manual, and
   // the `custom-engine` job in ci.yaml runs them through the dev tool's
   // custom_engine_e2e_test, which builds them with the checkout selected.
-  E2eWorkspace(
+  E2eEntry(
     'custom_engine',
     skips: {
       Os.macos: _customEngineJob,
@@ -271,7 +276,7 @@ const e2eWorkspaces = <E2eWorkspace>[
         '`io.flutter` artifact of its own, and checks that the APK\'s '
         'libflutter.so is the one the module\'s repository carries',
   ),
-  E2eWorkspace(
+  E2eEntry(
     'pub_resolve',
     runs: {
       Os.linux:
@@ -282,7 +287,7 @@ const e2eWorkspaces = <E2eWorkspace>[
     },
     skips: {Os.macos: _webElsewhere, Os.windows: _webElsewhere},
   ),
-  E2eWorkspace(
+  E2eEntry(
     'android_example',
     runs: {
       Os.linux:
@@ -300,7 +305,7 @@ const e2eWorkspaces = <E2eWorkspace>[
           'what depends on the host (aapt2, the NDK, gen_snapshot)',
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'cross_compile_example',
     runs: {
       Os.macos:
@@ -314,7 +319,7 @@ const e2eWorkspaces = <E2eWorkspace>[
       Os.windows: 'the Flutter toolchain has no Windows-to-Linux pair',
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'macos_example',
     runs: {
       Os.macos:
@@ -329,7 +334,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // are tagged for it, and the workspace's `.bazelrc` leaves them out of
   // `bazel test` (docs/TESTING.md, "What a test needs from the machine"). The
   // Linux and web tests need none of these, on the pinned Linux runtime.
-  E2eWorkspace(
+  E2eEntry(
     'integration_test',
     runs: {
       Os.macos:
@@ -345,7 +350,7 @@ const e2eWorkspaces = <E2eWorkspace>[
           'emulator pinned for macOS and Linux only, are skipped there)',
     },
   ),
-  E2eWorkspace(
+  E2eEntry(
     'ios_example',
     runs: {
       Os.macos:
@@ -355,7 +360,7 @@ const e2eWorkspaces = <E2eWorkspace>[
     },
     skips: {Os.linux: _appleOnly, Os.windows: _appleOnly},
   ),
-  E2eWorkspace(
+  E2eEntry(
     'multi_window_example',
     runs: {
       Os.macos:
@@ -368,7 +373,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // The link hooks' tests read the flutter_application's bundle, not the macOS
   // app, and the hook runs over the host's release AOT compile. The code
   // asset's dylib is macOS-only.
-  E2eWorkspace(
+  E2eEntry(
     'package_assets',
     runs: {
       Os.linux:
@@ -389,7 +394,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // Windows, web) is built from this one host by platform transition, so what
   // it checks does not depend on the OS it runs on. Only a Mac can analyse the
   // iOS targets among them.
-  E2eWorkspace(
+  E2eEntry(
     'asset_bundle',
     runs: {
       Os.macos:
@@ -413,7 +418,7 @@ const e2eWorkspaces = <E2eWorkspace>[
   // One Flutter project with `linux/` and `windows/` runners side by side. Every
   // target is compatible with its own OS only, so each runner skips the
   // other's targets and nothing is analysed on the wrong host.
-  E2eWorkspace(
+  E2eEntry(
     'desktop_example',
     runs: {
       Os.linux:
@@ -432,21 +437,21 @@ const e2eWorkspaces = <E2eWorkspace>[
   ),
 ];
 
-/// What is wrong with [table] as a description of [found], the workspaces
+/// What is wrong with [table] as a description of [found], the modules
 /// under `e2e/` (as `e2e/<name>`, the form `findWorkspaces` returns); empty
 /// when nothing is.
-List<String> matrixProblems(
-  List<E2eWorkspace> table,
-  Iterable<String> found,
-) {
+List<String> matrixProblems(List<E2eEntry> table, Iterable<String> found) {
   final problems = <String>[];
   final listed = <String>{};
-  for (final workspace in table) {
-    final name = workspace.name;
+  final modules = <String>{};
+  for (final entry in table) {
+    final name = entry.id;
+    modules.add(entry.module);
     if (!listed.add(name)) problems.add('$name is listed twice');
+    if (entry.patterns.isEmpty) problems.add('$name has no target patterns');
     for (final os in Os.values) {
-      final runs = workspace.runs[os];
-      final skips = workspace.skips[os];
+      final runs = entry.runs[os];
+      final skips = entry.skips[os];
       if (runs != null && skips != null) {
         problems.add('$name both runs and is skipped on ${os.name}');
       } else if (runs == null && skips == null) {
@@ -463,7 +468,7 @@ List<String> matrixProblems(
       }
     }
     final systems = <String, Os>{};
-    for (final MapEntry(key: os, value: purpose) in workspace.runs.entries) {
+    for (final MapEntry(key: os, value: purpose) in entry.runs.entries) {
       final first = systems.putIfAbsent(purpose.trim(), () => os);
       if (first != os && purpose.trim().isNotEmpty) {
         problems.add(
@@ -474,51 +479,47 @@ List<String> matrixProblems(
     }
   }
   final existing = {for (final path in found) path.replaceFirst('e2e/', '')};
-  for (final name in existing.difference(listed)) {
+  for (final name in existing.difference(modules)) {
     problems.add(
-      'e2e/$name is in no entry: add it to e2eWorkspaces in '
+      'e2e/$name is in no entry: add it to e2eEntries in '
       'tools/ci_matrix/e2e_matrix.dart, with what it exercises on each system '
       'it runs on',
     );
   }
-  for (final name in listed.difference(existing)) {
-    problems.add('e2eWorkspaces lists e2e/$name, which does not exist');
+  for (final name in modules.difference(existing)) {
+    problems.add('e2eEntries lists e2e/$name, which does not exist');
   }
   return problems..sort();
 }
 
 /// The jobs of [table] as the `include` list of a GitHub Actions matrix, in
-/// table order, one per workspace and system it runs on. [buildFile] returns
-/// the text of `e2e/<workspace>/BUILD.bazel`.
-List<Map<String, String>> matrixInclude(
-  List<E2eWorkspace> table,
-  String Function(String workspace) buildFile,
-) => [
-  for (final workspace in table)
+/// table order, one per entry and system it runs on.
+List<Map<String, String>> matrixInclude(List<E2eEntry> table) => [
+  for (final entry in table)
     for (final os in Os.values)
-      if (workspace.runs.containsKey(os))
+      if (entry.runs.containsKey(os))
         {
-          'workspace': workspace.name,
+          'workspace': entry.module,
           'os': os.runner,
-          'targets': workspace
-              .targetsOn(os, buildFile(workspace.name))
-              .join(' '),
+          'flags': entry.flagsOn(os).join(' '),
+          'targets': entry.patterns.join(' '),
         },
 ];
 
-/// The workspaces the weekly `E2E deep` job runs, as the `include` list of a
+/// The modules the weekly `E2E deep` job runs, as the `include` list of a
 /// GitHub Actions matrix, in table order.
-List<Map<String, String>> deepInclude(List<E2eWorkspace> table) => [
-  for (final workspace in table)
-    if (workspace.deep != null) {'workspace': workspace.name},
+List<Map<String, String>> deepInclude(List<E2eEntry> table) => [
+  for (final entry in table)
+    if (entry.deep != null) {'workspace': entry.module},
 ];
 
 /// Whether a target in [buildFile], the text of a BUILD file, has the tag
-/// `deep`: the string `"deep"` in the expression a `tags =` argument is given,
-/// as in `tags = ["android", "deep"]` and `tags = ["android"] + (["deep"] if
-/// profile else [])`. A string elsewhere (a target named `"deep"`) and a
-/// comment are no tag. A tag list kept in a variable is not seen.
-bool hasDeepTag(String buildFile) {
+/// [tag]: the string `"<tag>"` in the expression a `tags =` argument is
+/// given, as in `tags = ["android", "deep"]` and `tags = ["android"] +
+/// (["deep"] if profile else [])`. A string elsewhere (a target named
+/// `"deep"`) and a comment are no tag. A tag list kept in a variable is not
+/// seen.
+bool hasTag(String buildFile, String tag) {
   final text = buildFile;
 
   // The string literal that starts at [i]: its value and where it ends; null
@@ -577,7 +578,7 @@ bool hasDeepTag(String buildFile) {
         if (c == '#') {
           j = endOfComment(j);
         } else if (stringAt(j) case (final value, final end)) {
-          if (value == 'deep') return true;
+          if (value == tag) return true;
           j = end;
         } else if ('([{'.contains(c)) {
           depth++;
@@ -600,35 +601,44 @@ bool hasDeepTag(String buildFile) {
   return false;
 }
 
-/// What is wrong with the `deep` entries of [table]: one that says nothing, one
-/// whose workspace has no `deep`-tagged target in any of its BUILD files, and a
-/// workspace with such a target and no entry, whose `deep` tests no job would
-/// run. [buildFiles] returns the text of every BUILD file of a workspace, the
-/// subpackages' as well as the root's.
+/// What is wrong with the `deep` entries of [table]: one that says nothing,
+/// one whose module has no `deep`-tagged target in any of its BUILD files, two
+/// for one module, and a module with such a target and no entry, whose `deep`
+/// tests no job would run. [buildFiles] returns the text of every BUILD file
+/// of a module, the subpackages' as well as the root's.
 List<String> deepProblems(
-  List<E2eWorkspace> table,
-  Iterable<String> Function(String workspace) buildFiles,
+  List<E2eEntry> table,
+  Iterable<String> Function(String module) buildFiles,
 ) {
   final problems = <String>[];
-  for (final workspace in table) {
-    final tagged = buildFiles(workspace.name).any(hasDeepTag);
-    final purpose = workspace.deep;
-    if (purpose == null) {
+  final purposes = <String, List<String>>{};
+  for (final entry in table) {
+    purposes.putIfAbsent(entry.module, () => []);
+    if (entry.deep case final purpose?) purposes[entry.module]!.add(purpose);
+  }
+  for (final MapEntry(key: module, value: given) in purposes.entries) {
+    final tagged = buildFiles(module).any((file) => hasTag(file, 'deep'));
+    if (given.isEmpty) {
       if (tagged) {
         problems.add(
-          '${workspace.name} has `deep` targets that no CI job runs: say what '
-          'they exercise in its `deep` entry',
+          '$module has `deep` targets that no CI job runs: say what they '
+          'exercise in the `deep` field of one of its entries',
         );
       }
-    } else if (purpose.trim().isEmpty) {
+    } else if (given.length > 1) {
       problems.add(
-        '${workspace.name} runs its deep tier without saying what it '
-        'exercises that no other job does',
+        '$module gives its deep tier a purpose in ${given.length} entries: '
+        'the `E2E deep` job runs a module once',
+      );
+    } else if (given.single.trim().isEmpty) {
+      problems.add(
+        '$module runs its deep tier without saying what it exercises that no '
+        'other job does',
       );
     } else if (!tagged) {
       problems.add(
-        '${workspace.name} runs its deep tier, but no BUILD file of '
-        'e2e/${workspace.name} has a target tagged "deep"',
+        '$module runs its deep tier, but no BUILD file of e2e/$module has a '
+        'target tagged "deep"',
       );
     }
   }
@@ -640,22 +650,25 @@ List<String> deepProblems(
 /// (`.` for the root), keyed by the system the job runs on.
 ///
 /// The check runs `bazel build --nobuild //...`, which needs a host that can
-/// analyse every target. A workspace whose table entry runs it on macOS may
+/// analyse every target. A module one of whose table entries runs on macOS may
 /// have Apple targets, which only a Mac can analyse, so it is checked there;
 /// so is one that runs on no system, whose CI is a job of its own that the
 /// table does not describe. Every other workspace, and the root, analyses
 /// `//...` on Linux in its own jobs, so it is checked on Linux, where runners
 /// are cheaper and less scarce. No lock records an OS-dependent extension, so
 /// the host does not change what is checked.
-Map<Os, List<String>> lockCheckWorkspaces(List<E2eWorkspace> table) {
+Map<Os, List<String>> lockCheckWorkspaces(List<E2eEntry> table) {
   final hosts = <Os, List<String>>{
     Os.linux: ['.'],
     Os.macos: [],
   };
-  for (final workspace in table) {
-    final onMac =
-        workspace.runs.containsKey(Os.macos) || workspace.runs.isEmpty;
-    hosts[onMac ? Os.macos : Os.linux]!.add('e2e/${workspace.name}');
+  final runsOn = <String, Set<Os>>{};
+  for (final entry in table) {
+    runsOn.putIfAbsent(entry.module, () => {}).addAll(entry.runs.keys);
+  }
+  for (final MapEntry(key: module, value: systems) in runsOn.entries) {
+    final onMac = systems.contains(Os.macos) || systems.isEmpty;
+    hosts[onMac ? Os.macos : Os.linux]!.add('e2e/$module');
   }
   for (final list in hosts.values) {
     list.sort();
@@ -692,27 +705,23 @@ List<String> lockCheckProblems(
   ]..sort();
 }
 
-/// What is wrong with the test selections of [table]: a prefix that matches no
-/// `*_test` target in its workspace's BUILD file, or no prefix at all.
-/// [buildFile] returns the text of `e2e/<workspace>/BUILD.bazel`.
-List<String> targetProblems(
-  List<E2eWorkspace> table,
-  String Function(String workspace) buildFile,
+/// What is wrong with the test selections of [table]: a tag that no target of
+/// the entry's module has, in any of its BUILD files, or an empty one.
+/// [buildFiles] returns the text of every BUILD file of a module.
+List<String> tagProblems(
+  List<E2eEntry> table,
+  Iterable<String> Function(String module) buildFiles,
 ) {
   final problems = <String>[];
-  for (final workspace in table) {
-    for (final MapEntry(key: os, value: prefixes)
-        in workspace.testsNamed.entries) {
-      if (prefixes.isEmpty) {
-        problems.add('${workspace.name} on ${os.name} selects no tests');
-      }
-      for (final prefix in prefixes) {
-        if (testsFor(buildFile(workspace.name), prefix).isEmpty) {
-          problems.add(
-            '${workspace.name} on ${os.name}: no `$prefix...test` target in '
-            'e2e/${workspace.name}/BUILD.bazel',
-          );
-        }
+  for (final entry in table) {
+    for (final MapEntry(key: os, value: tag) in entry.testsTagged.entries) {
+      if (tag.trim().isEmpty) {
+        problems.add('${entry.id} on ${os.name} selects no tests');
+      } else if (!buildFiles(entry.module).any((f) => hasTag(f, tag))) {
+        problems.add(
+          '${entry.id} on ${os.name}: no target of e2e/${entry.module} is '
+          'tagged "$tag"',
+        );
       }
     }
   }

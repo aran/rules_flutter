@@ -18,21 +18,20 @@ void main() {
         for (final windows in [false, true]) {
           final items = flutterItems(
             parse([if (windows) '--windows']),
-            '/nonexistent',
             rulesDart: false,
           );
           final os = windows ? Os.windows : Os.linux;
           expect(items.map((i) => i.folder).toList(), [
             if (!windows) '.',
-            for (final w in e2eWorkspaces)
-              if (w.runs.containsKey(os)) 'e2e/${w.name}',
+            for (final e in e2eEntries)
+              if (e.runs.containsKey(os)) 'e2e/${e.module}',
           ]);
         }
       },
     );
 
     test('gives every folder the e2e job timeout and passes exit 4', () {
-      final items = flutterItems(parse([]), '/nonexistent', rulesDart: false);
+      final items = flutterItems(parse([]), rulesDart: false);
       expect(items.map((i) => i.timeout).toSet(), {folderTimeout});
       expect(folderTimeout, const Duration(minutes: 120));
       expect(items.map((i) => i.passExitCodes).toSet(), {
@@ -43,17 +42,29 @@ void main() {
     test('--folders names the folders, any other one runs //...', () {
       final items = flutterItems(
         parse(['--folders=e2e/not_a_workspace,.']),
-        '/nonexistent',
         rulesDart: false,
       );
       expect(items.map((i) => i.folder), ['e2e/not_a_workspace', '.']);
       expect(items.first.bazelArgs, ['test', '--test_output=errors', '//...']);
     });
 
+    test('gives a module the flags and targets of its entry', () {
+      final items = flutterItems(
+        parse(['--windows', '--folders=e2e/plugin_example']),
+        rulesDart: false,
+      );
+      expect(items.single.bazelArgs, [
+        'test',
+        '--test_output=errors',
+        '--build_tests_only',
+        '--test_tag_filters=windows_host',
+        '//...',
+      ]);
+    });
+
     test('--rules-dart overrides rules_dart, and overhead in the root', () {
       final items = flutterItems(
         parse(['--folders=.,e2e/hello_world', '--rules-dart=x']),
-        '/nonexistent',
         rulesDart: true,
       );
       expect(

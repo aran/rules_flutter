@@ -9,8 +9,8 @@ void main() {
       // holds the table to its own rules.
       expect(
         matrixProblems(
-          e2eWorkspaces,
-          e2eWorkspaces.map((w) => 'e2e/${w.name}'),
+          e2eEntries,
+          e2eEntries.map((e) => 'e2e/${e.module}'),
         ),
         isEmpty,
       );
@@ -38,7 +38,7 @@ void main() {
   });
 
   group('matrixProblems', () {
-    const ok = E2eWorkspace(
+    const ok = E2eEntry(
       'a',
       runs: {Os.linux: 'what Linux adds'},
       skips: {Os.macos: 'covered by b', Os.windows: 'cannot build'},
@@ -60,7 +60,7 @@ void main() {
       expect(
         matrixProblems([
           ok,
-          const E2eWorkspace(
+          const E2eEntry(
             'gone',
             skips: {Os.macos: 'x', Os.linux: 'x', Os.windows: 'x'},
           ),
@@ -72,7 +72,7 @@ void main() {
     test('requires every system to be run or skipped', () {
       expect(
         matrixProblems([
-          const E2eWorkspace('a', runs: {Os.macos: 'why'}),
+          const E2eEntry('a', runs: {Os.macos: 'why'}),
         ], found),
         unorderedEquals([
           contains('neither runs on linux nor says why not'),
@@ -84,7 +84,7 @@ void main() {
     test('requires a purpose for every system a workspace runs on', () {
       expect(
         matrixProblems([
-          const E2eWorkspace(
+          const E2eEntry(
             'a',
             runs: {Os.macos: 'why', Os.linux: ' '},
             skips: {Os.windows: 'why not'},
@@ -97,7 +97,7 @@ void main() {
     test('rejects the same purpose on two systems', () {
       expect(
         matrixProblems([
-          const E2eWorkspace(
+          const E2eEntry(
             'a',
             runs: {Os.macos: 'the same', Os.linux: 'the same'},
             skips: {Os.windows: 'why not'},
@@ -110,7 +110,7 @@ void main() {
     test('rejects a blank reason for a skip', () {
       expect(
         matrixProblems([
-          const E2eWorkspace(
+          const E2eEntry(
             'a',
             runs: {Os.macos: 'why', Os.linux: 'and why'},
             skips: {Os.windows: ' '},
@@ -123,7 +123,7 @@ void main() {
     test('rejects a system that both runs and is skipped', () {
       expect(
         matrixProblems([
-          const E2eWorkspace(
+          const E2eEntry(
             'a',
             runs: {Os.linux: 'why'},
             skips: {Os.linux: 'why not', Os.macos: 'x', Os.windows: 'x'},
@@ -133,139 +133,125 @@ void main() {
       );
     });
 
-    test('rejects a workspace listed twice', () {
+    test('rejects an entry listed twice', () {
       expect(matrixProblems([ok, ok], found), [contains('listed twice')]);
+    });
+
+    test('accepts two entries of one module with different patterns', () {
+      const second = E2eEntry(
+        'a',
+        patterns: ['//b/...'],
+        runs: {Os.macos: 'what macOS adds'},
+        skips: {Os.linux: 'covered by a', Os.windows: 'cannot build'},
+      );
+      expect(matrixProblems([ok, second], found), isEmpty);
+    });
+
+    test('names an entry by its patterns', () {
+      const bare = E2eEntry('a', patterns: ['//b/...'], runs: {Os.macos: 'x'});
+      expect(
+        matrixProblems([ok, bare], found),
+        contains(contains('a (//b/...) neither runs on linux')),
+      );
     });
   });
 
   group('matrixInclude', () {
-    test('has one job per workspace and system it runs on', () {
+    test('has one job per entry and system it runs on', () {
       expect(
         matrixInclude([
-          const E2eWorkspace(
+          const E2eEntry(
             'x',
             runs: {Os.windows: 'b', Os.macos: 'a'},
             skips: {Os.linux: 'why'},
           ),
-        ], (_) => ''),
+        ]),
         [
-          {'workspace': 'x', 'os': 'macos-latest', 'targets': '//...'},
-          {'workspace': 'x', 'os': 'windows-latest', 'targets': '//...'},
-        ],
-      );
-    });
-
-    test('gives a system the tests it names', () {
-      expect(
-        matrixInclude([
-          const E2eWorkspace(
-            'x',
-            runs: {Os.linux: 'a', Os.macos: 'b'},
-            skips: {Os.windows: 'why'},
-            testsNamed: {
-              Os.linux: ['one_', 'two_'],
-            },
-          ),
-        ], (_) => 'a(name = "two_b_test")\na(name = "one_a_test")\n'),
-        [
-          {'workspace': 'x', 'os': 'macos-latest', 'targets': '//...'},
           {
             'workspace': 'x',
-            'os': 'ubuntu-latest',
-            'targets': '//:one_a_test //:two_b_test',
+            'os': 'macos-latest',
+            'flags': '',
+            'targets': '//...',
+          },
+          {
+            'workspace': 'x',
+            'os': 'windows-latest',
+            'flags': '',
+            'targets': '//...',
           },
         ],
       );
     });
-  });
 
-  group('targetProblems', () {
-    const build =
-        'foo(\n    name = "web_one_test",\n)\n'
-        'bar(name="web_two_test")\n'
-        'bar(name="web_helper")\n'
-        'bar(name="linux_one_test")\n'
-        'bar(name="other_web_test")\n';
-    String file(String _) => build;
-    const web = E2eWorkspace(
-      'x',
-      runs: {Os.linux: 'a'},
-      testsNamed: {
-        Os.linux: ['web_'],
-      },
-    );
-
-    test('selects the tests with the prefix, sorted', () {
-      expect(web.targetsOn(Os.linux, build), [
-        '//:web_one_test',
-        '//:web_two_test',
-      ]);
-    });
-
-    test('picks up a test added to the BUILD file', () {
+    test('gives a system the tests of its tag, among the patterns', () {
       expect(
-        web.targetsOn(Os.linux, '$build\nbaz(name = "web_x_test")\n'),
-        ['//:web_one_test', '//:web_two_test', '//:web_x_test'],
-      );
-    });
-
-    test('joins several prefixes into one sorted list', () {
-      const both = E2eWorkspace(
-        'x',
-        testsNamed: {
-          Os.linux: ['web_', 'linux_'],
-        },
-      );
-      expect(both.targetsOn(Os.linux, build), [
-        '//:linux_one_test',
-        '//:web_one_test',
-        '//:web_two_test',
-      ]);
-    });
-
-    test('runs everything where nothing is named', () {
-      expect(web.targetsOn(Os.macos, build), ['//...']);
-    });
-
-    test('accepts prefixes that match a test', () {
-      expect(targetProblems([web], file), isEmpty);
-    });
-
-    test('names a prefix that matches no test', () {
-      expect(
-        targetProblems([
-          const E2eWorkspace(
+        matrixInclude([
+          const E2eEntry(
             'x',
-            testsNamed: {
-              Os.linux: ['web_', 'gone_', 'other_'],
-            },
+            patterns: ['//a/...', '//b/...'],
+            runs: {Os.linux: 'a', Os.macos: 'b'},
+            skips: {Os.windows: 'why'},
+            testsTagged: {Os.linux: 'linux_host'},
           ),
-        ], file),
+        ]),
         [
-          contains('no `gone_...test` target in e2e/x/BUILD.bazel'),
+          {
+            'workspace': 'x',
+            'os': 'macos-latest',
+            'flags': '',
+            'targets': '//a/... //b/...',
+          },
+          {
+            'workspace': 'x',
+            'os': 'ubuntu-latest',
+            'flags': '--build_tests_only --test_tag_filters=linux_host',
+            'targets': '//a/... //b/...',
+          },
         ],
       );
     });
 
-    test('does not count a target that is not a test', () {
+    test('runs two entries of one module as two jobs', () {
       expect(
-        targetProblems([
-          const E2eWorkspace(
-            'x',
-            testsNamed: {
-              Os.linux: ['web_helper'],
-            },
-          ),
-        ], file),
-        [contains('no `web_helper...test` target')],
+        matrixInclude([
+          const E2eEntry('x', patterns: ['//a/...'], runs: {Os.linux: 'a'}),
+          const E2eEntry('x', patterns: ['//b/...'], runs: {Os.linux: 'b'}),
+        ]).map((job) => job['targets']),
+        ['//a/...', '//b/...'],
+      );
+    });
+  });
+
+  group('tagProblems', () {
+    const build = 'a(name = "t", tags = ["windows_host"])\n';
+    const windows = E2eEntry(
+      'x',
+      runs: {Os.windows: 'a'},
+      testsTagged: {Os.windows: 'windows_host'},
+    );
+
+    test('accepts a tag that a target has', () {
+      expect(tagProblems([windows], (_) => [build]), isEmpty);
+    });
+
+    test('finds the tag in any BUILD file of the module', () {
+      expect(tagProblems([windows], (_) => ['b(name = "u")', build]), isEmpty);
+    });
+
+    test('names a tag that no target has', () {
+      expect(
+        tagProblems([
+          const E2eEntry('x', testsTagged: {Os.linux: 'gone'}),
+        ], (_) => [build]),
+        [contains('no target of e2e/x is tagged "gone"')],
       );
     });
 
     test('rejects an empty selection', () {
       expect(
-        targetProblems([
-          const E2eWorkspace('x', testsNamed: {Os.linux: []}),
-        ], file),
+        tagProblems([
+          const E2eEntry('x', testsTagged: {Os.linux: ' '}),
+        ], (_) => [build]),
         [contains('selects no tests')],
       );
     });
@@ -274,11 +260,11 @@ void main() {
   group('deep tier', () {
     const tagged = 'a(name = "t", tags = ["android", "deep"])\n';
     const plain = 'a(name = "t", tags = ["android"])\n';
-    const runs = E2eWorkspace('x', deep: 'the Gradle host');
-    const silent = E2eWorkspace('y');
+    const runs = E2eEntry('x', deep: 'the Gradle host');
+    const silent = E2eEntry('y');
 
     test('lists the workspaces that run it, in table order', () {
-      expect(deepInclude([silent, runs, const E2eWorkspace('z', deep: 'b')]), [
+      expect(deepInclude([silent, runs, const E2eEntry('z', deep: 'b')]), [
         {'workspace': 'x'},
         {'workspace': 'z'},
       ]);
@@ -303,9 +289,19 @@ void main() {
       ]);
     });
 
+    test('rejects a purpose given in two entries of one module', () {
+      expect(
+        deepProblems([
+          runs,
+          const E2eEntry('x', patterns: ['//b/...'], deep: 'again'),
+        ], (_) => [tagged]),
+        [contains('x gives its deep tier a purpose in 2 entries')],
+      );
+    });
+
     test('rejects a blank purpose', () {
       expect(
-        deepProblems([const E2eWorkspace('x', deep: ' ')], (_) => [tagged]),
+        deepProblems([const E2eEntry('x', deep: ' ')], (_) => [tagged]),
         [contains('x runs its deep tier without saying what it exercises')],
       );
     });
@@ -317,59 +313,74 @@ void main() {
       expect(deepProblems([runs], (_) => [plain, tagged]), isEmpty);
     });
 
-    group('hasDeepTag', () {
+    group('hasTag', () {
       test('sees the tag in a list among others', () {
-        expect(hasDeepTag(tagged), isTrue);
-        expect(hasDeepTag('a(tags=["deep"])'), isTrue);
-        expect(hasDeepTag("a(tags = ['deep'])"), isTrue);
+        expect(hasTag(tagged, 'deep'), isTrue);
+        expect(hasTag('a(tags=["deep"])', 'deep'), isTrue);
+        expect(hasTag("a(tags = ['deep'])", 'deep'), isTrue);
       });
 
       test('sees the tag in a list that spans lines', () {
         expect(
-          hasDeepTag('a(\n  tags = [\n    "android",\n    "deep",\n  ],\n)'),
+          hasTag(
+            'a(\n  tags = [\n    "android",\n    "deep",\n  ],\n)',
+            'deep',
+          ),
           isTrue,
         );
       });
 
       test('sees the tag in an expression', () {
         expect(
-          hasDeepTag(
+          hasTag(
             'a(tags = ["android"] + (["deep"] if variant == "x" else []))',
+            'deep',
           ),
           isTrue,
         );
       });
 
+      test('sees another tag the same way', () {
+        expect(hasTag('a(tags = ["windows_host"])', 'windows_host'), isTrue);
+        expect(hasTag('a(tags = ["windows_host"])', 'deep'), isFalse);
+      });
+
       test('does not take a name that merely contains deep for a tag', () {
-        expect(hasDeepTag('a(name = "deep_lib")\n'), isFalse);
-        expect(hasDeepTag('a(tags = ["deep_lib", "not-deep"])'), isFalse);
+        expect(hasTag('a(name = "deep_lib")\n', 'deep'), isFalse);
+        expect(hasTag('a(tags = ["deep_lib", "not-deep"])', 'deep'), isFalse);
       });
 
       test('does not take a target named deep for a deep target', () {
-        expect(hasDeepTag('a(name = "deep", tags = ["android"])'), isFalse);
-        expect(hasDeepTag('a(tags = ["android"], name = "deep")'), isFalse);
-        expect(hasDeepTag('a(name = "deep", srcs = ["deep"])'), isFalse);
+        expect(hasTag('a(name = "deep", tags = ["android"])', 'deep'), isFalse);
+        expect(hasTag('a(tags = ["android"], name = "deep")', 'deep'), isFalse);
+        expect(hasTag('a(name = "deep", srcs = ["deep"])', 'deep'), isFalse);
       });
 
       test('does not take another attribute for the tags', () {
-        expect(hasDeepTag('a(test_tags = ["deep"])'), isFalse);
-        expect(hasDeepTag('a(my.tags = ["deep"])'), isFalse);
-        expect(hasDeepTag('a(tags == ["deep"])'), isFalse);
+        expect(hasTag('a(test_tags = ["deep"])', 'deep'), isFalse);
+        expect(hasTag('a(my.tags = ["deep"])', 'deep'), isFalse);
+        expect(hasTag('a(tags == ["deep"])', 'deep'), isFalse);
       });
 
       test('does not take a comment or a docstring for a tag', () {
-        expect(hasDeepTag('# tags = ["deep"]\na(tags = ["android"])'), isFalse);
         expect(
-          hasDeepTag('a(tags = [\n  "android",\n  # "deep",\n])'),
+          hasTag('# tags = ["deep"]\na(tags = ["android"])', 'deep'),
           isFalse,
         );
-        expect(hasDeepTag(r'a(doc = "tags = [\"deep\"]")'), isFalse);
+        expect(
+          hasTag('a(tags = [\n  "android",\n  # "deep",\n])', 'deep'),
+          isFalse,
+        );
+        expect(hasTag(r'a(doc = "tags = [\"deep\"]")', 'deep'), isFalse);
       });
 
       test('stops at the end of the argument', () {
-        expect(hasDeepTag('a(tags = ["android"], srcs = ["deep"])'), isFalse);
         expect(
-          hasDeepTag('a(tags = ["android"])\nb(srcs = ["deep"])'),
+          hasTag('a(tags = ["android"], srcs = ["deep"])', 'deep'),
+          isFalse,
+        );
+        expect(
+          hasTag('a(tags = ["android"])\nb(srcs = ["deep"])', 'deep'),
           isFalse,
         );
       });
@@ -377,7 +388,7 @@ void main() {
 
     test('is run by the committed workspaces that have gradle hosts', () {
       expect(
-        deepInclude(e2eWorkspaces).map((e) => e['workspace']),
+        deepInclude(e2eEntries).map((e) => e['workspace']),
         ['plugin_example', 'custom_engine'],
       );
     });
@@ -385,17 +396,17 @@ void main() {
 
   group('lockCheckWorkspaces', () {
     const table = [
-      E2eWorkspace(
+      E2eEntry(
         'apple',
         runs: {Os.macos: 'a', Os.linux: 'b'},
         skips: {Os.windows: 'x'},
       ),
-      E2eWorkspace(
+      E2eEntry(
         'neutral',
         runs: {Os.linux: 'a', Os.windows: 'b'},
         skips: {Os.macos: 'x'},
       ),
-      E2eWorkspace(
+      E2eEntry(
         'own_job',
         skips: {Os.macos: 'x', Os.linux: 'x', Os.windows: 'x'},
       ),
@@ -417,9 +428,9 @@ void main() {
 
     test('covers every lock the committed table knows', () {
       expect(
-        lockCheckProblems(lockCheckWorkspaces(e2eWorkspaces), [
+        lockCheckProblems(lockCheckWorkspaces(e2eEntries), [
           'MODULE.bazel.lock',
-          for (final w in e2eWorkspaces) 'e2e/${w.name}/MODULE.bazel.lock',
+          for (final e in e2eEntries) 'e2e/${e.module}/MODULE.bazel.lock',
         ]),
         isEmpty,
       );

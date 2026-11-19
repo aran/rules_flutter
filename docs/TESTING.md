@@ -1096,12 +1096,13 @@ well, so a command that names one passes `--config=machine`. Only
   exercises something no other job does. A test that needs a desktop session, a
   simulator or an emulator is tagged for it and left out by the workspace's
   `.bazelrc` (§ "What a test needs from the machine"), so `//...` passes on a
-  runner. A system can have its own tests in the table: `plugin_example` on
-  Windows runs its `:windows_*` tests and `:android_bundle_build_test`. The
-  table names the prefixes (`testsNamed`), not the targets: the
-  plan reads every `<prefix>...test` target from the workspace's `BUILD.bazel`,
-  so a new `web_*_test` runs in CI without a table edit, and a prefix that
-  matches nothing fails the plan;
+  runner. An entry of the table is a module and its target patterns (`//...`
+  for every workspace today), and a system can run only the entry's tests of
+  one tag: `plugin_example` on Windows runs those tagged `windows_host`, with
+  `--build_tests_only --test_tag_filters=windows_host`. The table names the
+  tag (`testsTagged`), not the targets, so a test given the tag runs in CI
+  without a table edit, and a tag that no BUILD file of the module has fails
+  the plan;
 - weekly only, `bazel test --config=deep --test_tag_filters=deep --build_tests_only //...`
   in each e2e workspace that has `deep` tests, on Linux (the `E2E deep` jobs,
   below).
@@ -1131,7 +1132,7 @@ finds a gap before a push.
 | `smoke` | macOS, Linux, Windows | the BCR presubmit module, which BCR runs on each | |
 | `hello_world` | macOS, Linux, Windows | the Tier-1 app over each `flutter create` runner; profile bundles on Linux and Windows; Android and web from each host | |
 | `codegen` | macOS, Linux, Windows | Native Assets loaded by each host's `flutter_tester` | |
-| `plugin_example` | macOS, Linux, Windows (the `:windows_*` tests and `:android_bundle_build_test`) | each platform's implementations of real pub plugins; on Windows also one arm64 APK, whose AAR resources are the longest paths aapt2 opens ("Windows and MAX_PATH") | |
+| `plugin_example` | macOS, Linux, Windows (the tests tagged `windows_host`) | each platform's implementations of real pub plugins; on Windows also one arm64 APK, whose AAR resources are the longest paths aapt2 opens ("Windows and MAX_PATH") | |
 | `ffi_example` | macOS, Linux, Windows | native libraries in each platform's bundle, and a plugin with a Dart plugin class and `native_deps` (`//plugin_class`) | |
 | `cross_compile_example` | macOS | the Mac-to-Linux cross toolchain | Linux: a native build is `hello_world`'s; Windows: no such pair |
 | `macos_example`, `ios_example`, `multi_window_example` | macOS | Apple-only features | Linux, Windows: Apple-only |
