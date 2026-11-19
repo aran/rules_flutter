@@ -60,10 +60,105 @@ void main() {
       expect(entriesProblem([], [], split: false), isNull);
     });
 
-    test('refuses a zip of libraries with anything else in it', () {
+    test('takes a file under lib/ that is not a library, as Gradle does', () {
+      // An AAR's jni/<abi>/ may hold more than its .so files, and the
+      // Android Gradle Plugin packages them all, stripping only the .so.
+      const libs = ['lib/arm64-v8a/libfoo.so', 'lib/arm64-v8a/gdb.setup'];
+      expect(nativeLibraries(libs), ['lib/arm64-v8a/libfoo.so']);
+      expect(entriesProblem(libs, nativeLibraries(libs), split: false), isNull);
+    });
+
+    test('refuses a zip of libraries with an entry outside lib/', () {
       expect(
         entriesProblem(jar, nativeLibraries(jar), split: false),
-        'is not a zip of native libraries alone: it has META-INF/MANIFEST.MF',
+        'is not a zip of native libraries: it has META-INF/MANIFEST.MF '
+        'outside lib/',
+      );
+    });
+  });
+
+  group('parseArgs', () {
+    const tools = ['--zipper', 'zipper', '--strip', 'strip'];
+
+    test('pairs each zip with its stripped one, in order', () {
+      final options = parseArgs([
+        ...tools,
+        '--input',
+        'a.zip',
+        '--libs',
+        'a_stripped.zip',
+        '--input',
+        'b.zip',
+        '--libs',
+        'b_stripped.zip',
+      ]);
+      expect(options['--input'], ['a.zip', 'b.zip']);
+      expect(options['--libs'], ['a_stripped.zip', 'b_stripped.zip']);
+    });
+
+    test('splits one jar', () {
+      final options = parseArgs([
+        ...tools,
+        '--input',
+        'flutter.jar',
+        '--output',
+        'classes.jar',
+        '--libs',
+        'libs.zip',
+      ]);
+      expect(options['--output'], ['classes.jar']);
+    });
+
+    test('refuses a zip with no stripped one', () {
+      expect(
+        () => parseArgs([
+          ...tools,
+          '--input',
+          'a.zip',
+          '--input',
+          'b.zip',
+          '--libs',
+          'a_stripped.zip',
+        ]),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'each --input needs one --libs',
+          ),
+        ),
+      );
+    });
+
+    test('refuses to split more than one jar', () {
+      expect(
+        () => parseArgs([
+          ...tools,
+          '--input',
+          'a.jar',
+          '--libs',
+          'a.zip',
+          '--input',
+          'b.jar',
+          '--libs',
+          'b.zip',
+          '--output',
+          'classes.jar',
+        ]),
+        throwsArgumentError,
+      );
+    });
+
+    test('names what is missing', () {
+      expect(
+        () => parseArgs(['--zipper', 'zipper', '--input', 'a.zip']),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            'missing --strip',
+          ),
+        ),
       );
     });
   });

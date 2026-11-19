@@ -78,6 +78,10 @@ const _pluginDependencies = {
   ],
 };
 
+/// The native libraries of each plugin whose Android library links any from
+/// its own package: none of these does.
+const _pluginNativeLibraries = <String, List<String>>{};
+
 /// The plugins written in Kotlin, whose POMs name the standard library.
 const _kotlin = {
   'glass_plugin',
@@ -290,20 +294,7 @@ void _verifyRepo(
       condition: entries.contains('jni/$abi/libapp.so') == (mode != 'debug'),
     );
   }
-  // Every native library is stripped, as a Gradle build strips what it
-  // packages into an AAR, in every build type.
-  for (final library in entries.where(
-    (e) => e.startsWith('jni/') && e.endsWith('.so'),
-  )) {
-    final problem = ElfImage.fromFile(
-      File('${aar.path}/$library'),
-    ).unstrippedSections();
-    check.expect(
-      '$label: the module AAR has $library stripped',
-      condition: problem == null,
-      detail: problem,
-    );
-  }
+  _checkStripped(check, '$label: the module AAR', aar, entries);
   final manifest = File('${aar.path}/AndroidManifest.xml').readAsStringSync();
   check
     ..expect(
@@ -331,7 +322,30 @@ void _verifyRepo(
   );
 
   for (final plugin in plugins) {
-    _verifyPlugin(check, scratch, repo, label, mode, plugin);
+    _verifyPlugin(check, scratch, repo, label, mode, abis, plugin);
+  }
+}
+
+/// Checks that every native library of the AAR extracted to [aar] is
+/// stripped, as a Gradle build strips what it packages into an AAR, in every
+/// build type.
+void _checkStripped(
+  BundleCheck check,
+  String what,
+  Directory aar,
+  Set<String> entries,
+) {
+  for (final library in entries.where(
+    (e) => e.startsWith('jni/') && e.endsWith('.so'),
+  )) {
+    final problem = ElfImage.fromFile(
+      File('${aar.path}/$library'),
+    ).unstrippedSections();
+    check.expect(
+      '$what has $library stripped',
+      condition: problem == null,
+      detail: problem,
+    );
   }
 }
 
@@ -345,6 +359,7 @@ void _verifyPlugin(
   String repo,
   String label,
   String mode,
+  List<String> abis,
   String plugin,
 ) {
   final group = _pluginGroup(plugin);
@@ -393,6 +408,19 @@ void _verifyPlugin(
     ]),
     detail: 'entries: $entries',
   );
+  final jni = entries.where((e) => e.startsWith('jni/')).toSet();
+  final wantedJni = {
+    for (final abi in abis)
+      for (final library in _pluginNativeLibraries[plugin] ?? const [])
+        'jni/$abi/$library',
+  };
+  check.expect(
+    "$label: $plugin's AAR has its own native libraries for each ABI, and "
+    'no others',
+    condition: jni.length == wantedJni.length && jni.containsAll(wantedJni),
+    detail: 'expected $wantedJni, got $jni',
+  );
+  _checkStripped(check, "$label: $plugin's AAR", aar, entries);
   final classes = _files(_extract(scratch, '${aar.path}/classes.jar'))
       .where((c) => c.endsWith('.class'))
       .toSet();

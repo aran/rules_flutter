@@ -22,13 +22,13 @@ release):
   artifact; `bazel run` of it adds the repository to the one on disk.
 """
 
-load("@rules_android//providers:providers.bzl", "AndroidCcLinkParamsInfo", "AndroidNativeLibsInfo", "StarlarkAndroidResourcesInfo")
+load("@rules_android//providers:providers.bzl", "AndroidNativeLibsInfo", "StarlarkAndroidResourcesInfo")
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "runfiles_path")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "ANDROID_EMBEDDING_MAVEN_DEPS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
-load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "android_shared_libraries")
+load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "FlutterAndroidPluginNativeLibsInfo", "flutter_android_plugin_native_libs")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
 load("//flutter/private:rule_edges.bzl", "rule_attr_targets")
@@ -501,18 +501,12 @@ def _flutter_android_plugin_aars_impl(ctx):
     data = ctx.attr.maven[FlutterAndroidMavenInfo].data
     own_by_label = {lib.label: lib for lib in app[_OwnLibraryInfo].libraries.to_list()}
 
-    # The plugins' native libraries, from each ABI's build of the application.
-    native = {}
-    for abi in ctx.attr.abis:
-        for entry in ctx.split_attr.application_abis[abi][FlutterApplicationInfo].android_libs.to_list():
-            if AndroidCcLinkParamsInfo not in entry.lib:
-                continue
-            own = [
-                f
-                for f in android_shared_libraries(entry.lib[AndroidCcLinkParamsInfo])
-                if _same_package(f.owner, entry.lib.label)
-            ]
-            native.setdefault(entry.lib.label, {})[abi] = own
+    # The plugins' native libraries, stripped, from each ABI's build of the
+    # application.
+    native = {
+        abi: ctx.split_attr.native_libs[abi][FlutterAndroidPluginNativeLibsInfo].libraries
+        for abi in ctx.attr.abis
+    }
 
     artifacts = []
     outputs = []
@@ -575,7 +569,7 @@ def _flutter_android_plugin_aars_impl(ctx):
         args.add_all(own.jars, before_each = "--classes")
         args.add_all(own.proguard, before_each = "--proguard")
         for abi in ctx.attr.abis:
-            libs = native.get(lib.label, {}).get(abi, [])
+            libs = native[abi].get(lib.label, [])
             _jni_args(args, abi, libs)
             inputs.extend(libs)
 
@@ -604,11 +598,11 @@ _flutter_android_plugin_aars = rule(
             mandatory = True,
             providers = [FlutterApplicationInfo],
         ),
-        "application_abis": attr.label(
-            doc = "`application` again, built for each ABI of `abis`, for the plugins' native libraries.",
+        "native_libs": attr.label(
+            doc = "The plugins' native libraries, stripped (`flutter_android_plugin_native_libs` of `application`), built for each ABI of `abis`.",
             cfg = _abi_split,
             mandatory = True,
-            providers = [FlutterApplicationInfo],
+            providers = [FlutterAndroidPluginNativeLibsInfo],
         ),
         "abis": attr.string_list(
             doc = "The ABIs whose native libraries the AARs hold.",
@@ -634,8 +628,9 @@ def flutter_android_plugin_aars(
     `<plugin>_<mode>`, as `flutter build aar` publishes each plugin of a
     module: the classes the plugin's library compiles itself (with its
     generated `BuildConfig`, not its dependencies'), its resources, `R.txt`,
-    manifest, consumer R8 rules (`proguard_specs`), and the shared libraries
-    of its own package under `jni/<abi>/`. Each is published under the `group`
+    manifest, consumer R8 rules (`proguard_specs`), and under `jni/<abi>/`
+    the shared libraries of its own package, stripped as a Gradle build strips
+    them. Each is published under the `group`
     of the plugin's Android `flutter_plugin_platform` (a pub plugin's is the
     group its `android/build.gradle` sets), and its POM lists the Maven
     artifacts a pub plugin's Gradle build declares (and the Kotlin standard
@@ -650,10 +645,16 @@ def flutter_android_plugin_aars(
             pub hub's, is what a build with `flutter_pub` hubs uses.
         **kwargs: Common attributes (`tags`, `visibility`, `testonly`).
     """
+    flutter_android_plugin_native_libs(
+        name = "__%s_native_libs" % name,
+        application = application,
+        tags = kwargs.get("tags"),
+        testonly = kwargs.get("testonly"),
+    )
     _flutter_android_plugin_aars(
         name = name,
         application = application,
-        application_abis = application,
+        native_libs = "__%s_native_libs" % name,
         abis = abis,
         maven = maven,
         **kwargs

@@ -21,25 +21,30 @@
 ///   AAR's are, reaches the APK of the ABI it was built for. A jar with no
 ///   native library is an error: the engine always has one, so finding none
 ///   means the input is not what the caller thinks it is.
-/// * A zip of native libraries alone, without `--output`: an app's own
-///   (`libapp.so`, its `native_deps` libraries and its code assets), each at
-///   `lib/<abi>/<name>`. `--libs` is the same zip with every library
-///   stripped, its entries stored uncompressed as the input's are. It may be
-///   empty, as a debug app's with no native library is; an entry that is not
-///   a native library is an error.
+/// * Zips of native libraries alone, without `--output`: an app's own
+///   (`libapp.so`, its `native_deps` libraries and its code assets), or those
+///   `aar_import` takes out of a Maven AAR, each at `lib/<abi>/<name>`. Each
+///   `--input` pairs with the `--libs` in the same place: the same zip with
+///   every library stripped, its entries stored uncompressed. One may be
+///   empty, as a debug app's with no native library is and most AARs' are.
+///   Another file under `lib/`, which an AAR may have in `jni/<abi>/`, is
+///   packaged as it is, as the Android Gradle Plugin merges every file of
+///   `jni/` and strips only the `.so` ones; an entry outside `lib/` is an
+///   error.
 ///
 /// The tool has no package dependencies and runs with the bare Dart SDK. It
-/// unpacks the input with `zipper`, strips each `lib/**.so` entry in place and
-/// packs the results.
+/// unpacks each input with `zipper`, strips each `lib/**.so` entry in place
+/// and packs the results.
 ///
 /// Usage:
 ///   dart strip_native_libs.dart --zipper <path> --strip <path>
 ///       --input <jar> --output <jar> --libs <zip>
 ///   dart strip_native_libs.dart --zipper <path> --strip <path>
-///       --input <zip> --libs <zip>
+///       (--input <zip> --libs <zip>)...
+///   dart strip_native_libs.dart --no-strip <reason> [<argument>]...
 ///
-/// With `--no-strip <reason>` in place of `--strip`, the rule had no strip
-/// tool to give: the tool prints the reason and fails.
+/// With `--no-strip`, the rule had no strip tool to give: the tool prints the
+/// reason and fails, whatever else it was asked.
 import 'dart:io';
 
 /// The entries of [entries] that are native libraries: shared objects under
@@ -55,13 +60,16 @@ List<String> nativeLibraries(Iterable<String> entries) => [
 String jarEntryName(String relativePath, String separator) =>
     relativePath.replaceAll(separator, '/');
 
-/// The arguments the Android Gradle Plugin passes its strip tool.
+/// The arguments the Android Gradle Plugin passes its strip tool. A rule that
+/// strips a loose library runs the strip tool itself, with the same ones
+/// (android_strip.bzl).
 List<String> stripArguments({required String input, required String output}) =>
     ['--strip-unneeded', '-o', output, input];
 
 /// Why the entries of an input can't be stripped, or null if they can.
 /// [libraries] is the native libraries among [entries]; [split] is whether the
-/// input is a jar to split (`--output`) rather than a zip of libraries alone.
+/// input is a jar to split (`--output`) rather than a zip of what an APK
+/// packages under `lib/`.
 String? entriesProblem(
   List<String> entries,
   List<String> libraries, {
@@ -72,27 +80,43 @@ String? entriesProblem(
   }
   final others = [
     for (final entry in entries)
-      if (!libraries.contains(entry)) entry,
+      if (!entry.startsWith('lib/')) entry,
   ];
   return others.isEmpty
       ? null
-      : 'is not a zip of native libraries alone: it has ${others.join(', ')}';
+      : 'is not a zip of native libraries: it has ${others.join(', ')} '
+            'outside lib/';
 }
 
-Map<String, String> _parseArgs(List<String> args) {
-  const required = {'--zipper', '--input', '--libs'};
-  const names = {...required, '--strip', '--no-strip', '--output'};
-  final values = <String, String>{};
+/// The tool's arguments, each name with its values in order: `--input` and
+/// `--libs` once for each input, the others once. Throws an [ArgumentError]
+/// naming what is wrong.
+Map<String, List<String>> parseArgs(List<String> args) {
+  const names = {'--zipper', '--strip', '--input', '--output', '--libs'};
+  final values = <String, List<String>>{};
   for (var i = 0; i < args.length; i++) {
     final name = args[i];
     if (!names.contains(name) || i + 1 >= args.length) {
       throw ArgumentError('unexpected argument: $name');
     }
-    values[name] = args[++i];
+    values.putIfAbsent(name, () => []).add(args[++i]);
   }
-  final missing = required.difference(values.keys.toSet());
-  if (missing.isNotEmpty) {
-    throw ArgumentError('missing ${missing.join(', ')}');
+  for (final name in ['--zipper', '--strip', '--input', '--libs']) {
+    if (values[name] == null) throw ArgumentError('missing $name');
+  }
+  for (final name in ['--zipper', '--strip', '--output']) {
+    if (values[name] case [_, _, ...]) {
+      throw ArgumentError('$name given more than once');
+    }
+  }
+  final inputs = values['--input']!.length;
+  if (values['--libs']!.length != inputs) {
+    throw ArgumentError('each --input needs one --libs');
+  }
+  if (values['--output'] != null && inputs != 1) {
+    throw ArgumentError(
+      '--output splits one jar, and $inputs inputs are given',
+    );
   }
   return values;
 }
@@ -118,74 +142,91 @@ Future<void> _run(
 }
 
 Future<void> main(List<String> args) async {
-  final options = _parseArgs(args);
   // The rule found no strip tool, and says why.
-  if (options['--no-strip'] case final reason?) {
-    stderr.writeln(reason);
+  final noStrip = args.indexOf('--no-strip');
+  if (noStrip != -1 && noStrip + 1 < args.length) {
+    stderr.writeln(args[noStrip + 1]);
     exitCode = 1;
     return;
   }
-  final zipper = File(options['--zipper']!).absolute.path;
-  final strip = File(
-    options['--strip'] ?? (throw ArgumentError('missing --strip')),
-  ).absolute.path;
-  final input = File(options['--input']!).absolute.path;
+  final options = parseArgs(args);
+  String absolute(String path) => File(path).absolute.path;
+  final zipper = absolute(options['--zipper']!.single);
+  final strip = absolute(options['--strip']!.single);
   final output = switch (options['--output']) {
-    final String path => File(path).absolute.path,
-    null => null,
+    [final path] => absolute(path),
+    _ => null,
   };
-  final libsZip = File(options['--libs']!).absolute.path;
+  final inputs = options['--input']!.map(absolute).toList();
+  final libsZips = options['--libs']!.map(absolute).toList();
 
   final scratch = Directory.systemTemp.createTempSync('strip_native_libs');
   try {
-    final unpacked = Directory('${scratch.path}/jar')..createSync();
-    // zipper takes `-d` relative to its working directory, absolute or not.
-    await _run(zipper, ['x', input], workingDirectory: unpacked.path);
-
-    final entries = [
-      for (final file in unpacked.listSync(recursive: true).whereType<File>())
-        jarEntryName(
-          file.path.substring(unpacked.path.length + 1),
-          Platform.pathSeparator,
-        ),
-    ]..sort();
-
-    final libraries = nativeLibraries(entries);
-    final problem = entriesProblem(entries, libraries, split: output != null);
-    if (problem != null) {
-      throw StateError('$input $problem');
+    for (var i = 0; i < inputs.length; i++) {
+      final work = Directory('${scratch.path}/$i')..createSync();
+      await _strip(zipper, strip, inputs[i], libsZips[i], output, work.path);
     }
-    for (final library in libraries) {
-      final unstripped = '${unpacked.path}/$library';
-      final stripped = '${scratch.path}/stripped.so';
-      await _run(strip, stripArguments(input: unstripped, output: stripped));
-      File(stripped).renameSync(unstripped);
-    }
-
-    if (output == null) {
-      // Stored, as the app's libraries are, for the APK to keep them so.
-      await _pack(
-        zipper,
-        libsZip,
-        scratch.path,
-        unpacked.path,
-        libraries,
-        compress: false,
-      );
-      return;
-    }
-    // Compressed, as an AAR's libraries are.
-    await _pack(zipper, libsZip, scratch.path, unpacked.path, libraries);
-    await _pack(
-      zipper,
-      output,
-      scratch.path,
-      unpacked.path,
-      entries.where((e) => !libraries.contains(e)).toList(),
-    );
   } finally {
     scratch.deleteSync(recursive: true);
   }
+}
+
+/// Strips the libraries of [input] into [libsZip] and, for a jar, packs its
+/// other entries into [output], working in [scratch].
+Future<void> _strip(
+  String zipper,
+  String strip,
+  String input,
+  String libsZip,
+  String? output,
+  String scratch,
+) async {
+  final unpacked = Directory('$scratch/jar')..createSync();
+  // zipper takes `-d` relative to its working directory, absolute or not.
+  await _run(zipper, ['x', input], workingDirectory: unpacked.path);
+
+  final entries = [
+    for (final file in unpacked.listSync(recursive: true).whereType<File>())
+      jarEntryName(
+        file.path.substring(unpacked.path.length + 1),
+        Platform.pathSeparator,
+      ),
+  ]..sort();
+
+  final libraries = nativeLibraries(entries);
+  final problem = entriesProblem(entries, libraries, split: output != null);
+  if (problem != null) {
+    throw StateError('$input $problem');
+  }
+  for (final library in libraries) {
+    final unstripped = '${unpacked.path}/$library';
+    final stripped = '$scratch/stripped.so';
+    await _run(strip, stripArguments(input: unstripped, output: stripped));
+    File(stripped).renameSync(unstripped);
+  }
+
+  if (output == null) {
+    // Stored, as the app's libraries are, for the APK to keep them so, with
+    // the other files under lib/ as they are.
+    await _pack(
+      zipper,
+      libsZip,
+      scratch,
+      unpacked.path,
+      entries,
+      compress: false,
+    );
+    return;
+  }
+  // Compressed, as an AAR's libraries are.
+  await _pack(zipper, libsZip, scratch, unpacked.path, libraries);
+  await _pack(
+    zipper,
+    output,
+    scratch,
+    unpacked.path,
+    entries.where((e) => !libraries.contains(e)).toList(),
+  );
 }
 
 /// Packs [entries] of [root] into [zip], compressed unless [compress] is

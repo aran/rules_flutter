@@ -2,9 +2,11 @@
 
 The Android Gradle Plugin's `strip<Variant>DebugSymbols` task runs the NDK's
 `llvm-strip --strip-unneeded` over every native library it packages, in every
-build type, into an APK or an AAR alike; `android_binary` packages a library as
-it finds it. `run_strip_native_libs` strips the same way, with
-`//flutter/private/tools:strip_native_libs.dart`.
+build type, into an APK or an AAR alike: the app's own, a plugin's, and those
+of the Maven AARs it depends on. `android_binary` packages a library as it
+finds it. `run_strip_native_libs` strips the libraries of jars and zips the
+same way, with `//flutter/private/tools:strip_native_libs.dart`, and
+`strip_native_library` strips one library.
 
 The strip tool is the C++ toolchain's, resolved for the Android platform the
 rule is configured for: the NDK toolchain an Android build registers. The
@@ -42,7 +44,7 @@ STRIP_EXEC_GROUPS = {STRIP: exec_group(
     toolchains = [FLUTTER_EXEC_TOOLS] + use_cc_toolchain(mandatory = False),
 )}
 
-# The attributes `run_strip_native_libs` reads.
+# The attributes `run_strip_native_libs` and `strip_native_library` read.
 STRIP_ATTRS = {
     "_strip_native_libs_tool": attr.label(
         default = "//flutter/private/tools:strip_native_libs.dart",
@@ -55,37 +57,24 @@ STRIP_ATTRS = {
     ),
 }
 
-def run_strip_native_libs(ctx, input, libs, mnemonic, progress_message, output = None):
-    """Strips the native libraries of `input` into the zip `libs`.
+def android_strip_tool(ctx):
+    """The NDK's strip tool for the rule's Android platform, or None without a C++ toolchain.
 
-    The rule needs `STRIP_ATTRS`, `STRIP_EXEC_GROUPS` and the `cpp` fragment,
-    and must be configured for an Android platform, which picks the NDK's
-    strip tool.
+    The rule needs `STRIP_EXEC_GROUPS` and the `cpp` fragment.
 
     Args:
         ctx: Rule context.
-        input: A jar to split, given `output`; otherwise a zip of
-            `lib/<abi>/<name>` native libraries alone, possibly empty.
-        libs: The zip of the stripped libraries: compressed for a jar, stored
-            for a zip of libraries.
-        mnemonic: The action's mnemonic.
-        progress_message: The action's progress message.
-        output: The jar of `input`'s other entries, for a jar.
+
+    Returns:
+        None, or a struct of `strip` (the tool: its File when it is one of the
+        toolchain's files, so that path mapping rewrites it with the rest, or
+        else the path the toolchain names, an absolute host path that names no
+        configuration), `files` (depset of the toolchain's files, the action's
+        inputs), `cc_toolchain` and `feature_configuration`.
     """
-    toolchains = ctx.exec_groups[STRIP].toolchains
-    flutter_tools = toolchains[FLUTTER_EXEC_TOOLS].flutter_exec_tools_info
-    args = ctx.actions.args()
-    args.add(ctx.file._strip_native_libs_tool)
-    args.add("--zipper", ctx.executable._strip_zipper)
-    cc_info = toolchains[CC_TOOLCHAIN_TYPE]
+    cc_info = ctx.exec_groups[STRIP].toolchains[CC_TOOLCHAIN_TYPE]
     if not cc_info:
-        # Analysing the target needs no NDK; building it does, and says so.
-        args.add("--no-strip", (
-            "%s: no C++ toolchain for the Android platform it is built for, to strip its " +
-            "native libraries with. Register the NDK's (README, \"Android\")."
-        ) % ctx.label)
-        _run(ctx, args, flutter_tools, input, libs, output, depset(), mnemonic, progress_message)
-        return
+        return None
     cc_toolchain = cc_info.cc
     feature_configuration = cc_common.configure_features(
         ctx = ctx,
@@ -97,30 +86,111 @@ def run_strip_native_libs(ctx, input, libs, mnemonic, progress_message, output =
         feature_configuration = feature_configuration,
         action_name = ACTION_NAMES.strip,
     )
+    files = cc_toolchain.all_files
+    strip_file = [f for f in files.to_list() if f.path == strip]
+    return struct(
+        strip = strip_file[0] if strip_file else strip,
+        files = files,
+        cc_toolchain = cc_toolchain,
+        feature_configuration = feature_configuration,
+    )
 
-    # The toolchain names its tool by path. When that path is one of the
-    # toolchain's own files it is handed over as the File, so path mapping
-    # rewrites it with the rest; a path outside them (an absolute host path)
-    # names no configuration.
-    toolchain_files = cc_toolchain.all_files
-    strip_file = [f for f in toolchain_files.to_list() if f.path == strip]
-    args.add("--strip", strip_file[0] if strip_file else strip)
-    _run(ctx, args, flutter_tools, input, libs, output, toolchain_files, mnemonic, progress_message)
+def _no_strip_reason(ctx):
+    return (
+        "%s: no C++ toolchain for the Android platform it is built for, to strip its " +
+        "native libraries with. Register the NDK's (README, \"Android\")."
+    ) % ctx.label
 
-def _run(ctx, args, flutter_tools, input, libs, output, toolchain_files, mnemonic, progress_message):
-    args.add("--input", input)
+def run_strip_native_libs(ctx, inputs, libs, mnemonic, progress_message, output = None):
+    """Strips the native libraries of each of `inputs` into the zip of `libs` in its place, in one action.
+
+    The rule needs `STRIP_ATTRS`, `STRIP_EXEC_GROUPS` and the `cpp` fragment,
+    and must be configured for an Android platform, which picks the NDK's
+    strip tool.
+
+    Args:
+        ctx: Rule context.
+        inputs: List of Files: one jar to split, given `output`; otherwise
+            zips of `lib/<abi>/<name>` native libraries alone, any of them
+            possibly empty.
+        libs: List of Files, one for each of `inputs`: the zip of its
+            stripped libraries, compressed for a jar and stored for a zip of
+            libraries.
+        mnemonic: The action's mnemonic.
+        progress_message: The action's progress message.
+        output: The jar of the other entries of the one jar of `inputs`.
+    """
+    outputs = libs
+    if len(inputs) != len(outputs):
+        fail("%s: %d zips to strip into %d" % (ctx.label, len(inputs), len(outputs)))
+    if not inputs:
+        return
+    flutter_tools = ctx.exec_groups[STRIP].toolchains[FLUTTER_EXEC_TOOLS].flutter_exec_tools_info
+    args = ctx.actions.args()
+    args.add(ctx.file._strip_native_libs_tool)
+    args.add("--zipper", ctx.executable._strip_zipper)
+    tool = android_strip_tool(ctx)
+    if tool:
+        args.add("--strip", tool.strip)
+    else:
+        # Analysing the target needs no NDK; building it does, and says so.
+        args.add("--no-strip", _no_strip_reason(ctx))
+    for i, o in zip(inputs, outputs):
+        args.add("--input", i)
+        args.add("--libs", o)
     if output:
         args.add("--output", output)
-    args.add("--libs", libs)
     ctx.actions.run(
         executable = flutter_tools.dart,
         arguments = [args],
         inputs = depset(
-            direct = [ctx.file._strip_native_libs_tool, input],
-            transitive = [flutter_tools.sdk_files.run, toolchain_files],
+            direct = [ctx.file._strip_native_libs_tool] + inputs,
+            transitive = [flutter_tools.sdk_files.run] + ([tool.files] if tool else []),
         ),
         tools = [ctx.executable._strip_zipper],
-        outputs = [libs] + ([output] if output else []),
+        outputs = outputs + ([output] if output else []),
+        mnemonic = mnemonic,
+        exec_group = STRIP,
+        execution_requirements = PATH_MAPPING,
+        progress_message = progress_message,
+    )
+
+def strip_native_library(ctx, input, output, mnemonic, progress_message):
+    """Strips the native library `input` into `output`, as the Android Gradle Plugin does.
+
+    The NDK's strip tool runs with the arguments `stripArguments` of
+    strip_native_libs.dart gives it. The rule needs what
+    `run_strip_native_libs` does.
+
+    Args:
+        ctx: Rule context.
+        input: The library.
+        output: The stripped library.
+        mnemonic: The action's mnemonic.
+        progress_message: The action's progress message.
+    """
+    tool = android_strip_tool(ctx)
+    args = ctx.actions.args()
+    if not tool:
+        flutter_tools = ctx.exec_groups[STRIP].toolchains[FLUTTER_EXEC_TOOLS].flutter_exec_tools_info
+        args.add(ctx.file._strip_native_libs_tool)
+        args.add("--no-strip", _no_strip_reason(ctx))
+        ctx.actions.run(
+            executable = flutter_tools.dart,
+            arguments = [args],
+            inputs = depset([ctx.file._strip_native_libs_tool], transitive = [flutter_tools.sdk_files.run]),
+            outputs = [output],
+            mnemonic = mnemonic,
+            exec_group = STRIP,
+            progress_message = progress_message,
+        )
+        return
+    args.add_all(["--strip-unneeded", "-o", output, input])
+    ctx.actions.run(
+        executable = tool.strip,
+        arguments = [args],
+        inputs = depset([input], transitive = [tool.files]),
+        outputs = [output],
         mnemonic = mnemonic,
         exec_group = STRIP,
         execution_requirements = PATH_MAPPING,

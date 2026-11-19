@@ -1667,11 +1667,13 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":android_plugin_maven",
+        ":android_strip",
         ":exec_groups",
         ":flutter_android_application",
         "//flutter:providers",
         "@rules_android//providers:providers_bzl",
         "@rules_cc//cc/common:cc_common",
+        "@rules_cc//cc/common:cc_info",
         "@rules_java//java/common",
         "@rules_java//java/common:proguard_spec_info_bzl",
     ],

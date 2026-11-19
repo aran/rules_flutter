@@ -48,6 +48,7 @@ Future<void> main(List<String> args) async {
   }
   final check = BundleCheck();
   final built = await buildGradleHostOffline(args.single, (host) {
+    _verifyModuleRepositories(check, host);
     for (final variant in host.variants) {
       _verifyApk(check, variant, host.apk(variant));
     }
@@ -58,6 +59,61 @@ Future<void> main(List<String> args) async {
   }
   check.finish(
     'The Gradle-built host app packages the module of every build mode.',
+  );
+}
+
+/// The module's Maven group, a directory of each repository of the module.
+const _moduleGroupPath = 'com/example/plugin_example/module';
+
+/// Checks the AARs of each of the module's repositories the host builds
+/// against: the Android Gradle plugin strips the host's APK whatever they
+/// hold, so only they show what `flutter_android_aar` packaged. Every native
+/// library is stripped, as a Gradle build of the module strips them.
+void _verifyModuleRepositories(BundleCheck check, GradleHost host) {
+  var repositories = 0;
+  for (final uri in host.repositories) {
+    if (!uri.startsWith('file:')) continue;
+    final repository = Directory.fromUri(Uri.parse(uri));
+    if (!Directory('${repository.path}/$_moduleGroupPath').existsSync()) {
+      continue;
+    }
+    repositories++;
+    final aars = repository
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.aar'));
+    for (final aar in aars) {
+      final name = aar.uri.pathSegments.last;
+      final archive = ExtractedArchive.fromPath(
+        aar.path,
+        prefix: 'gradle_host_aar',
+        extractor: Extractor.zipper,
+      );
+      try {
+        final libraries = {
+          for (final f in archive.dir.listSync(recursive: true))
+            if (f is File && f.path.endsWith('.so'))
+              f.path.substring(archive.path.length + 1).replaceAll(r'\', '/'):
+                  f,
+        };
+        for (final MapEntry(key: library, value: file) in libraries.entries) {
+          final problem = ElfImage.fromFile(file).unstrippedSections();
+          check.expect(
+            '$name has $library stripped',
+            condition: problem == null,
+            detail: problem,
+          );
+        }
+      } finally {
+        archive.dispose();
+      }
+    }
+  }
+  check.expect(
+    "the host builds against the module's repository of each of "
+    '${host.variants.join(', ')}',
+    condition: repositories == host.variants.length,
+    detail: 'found $repositories in ${host.repositories}',
   );
 }
 

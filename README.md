@@ -536,7 +536,7 @@ rules_flutter's actions run where the tools they need are:
 
 - on a Mac: `gen_snapshot` for iOS and macOS, Xcode tools, and signing;
 - on any host with the Flutter SDK: kernel compiles, asset and shader bundling, and web compiles;
-- on the machine running Bazel: stripping the Android engine and the app's native libraries, which needs the NDK that machine has.
+- on the machine running Bazel: stripping the Android engine's, the app's and the plugins' native libraries, which needs the NDK that machine has.
 
 An Android app needs Linux x86_64 workers. Google publishes the Android SDK's build tools, aapt2 among them, for Linux only on x86_64, so a Linux arm64 worker can't build one. It also needs a fix to rules_go: see [Fixes to other rulesets](#fixes-to-other-rulesets).
 
@@ -2450,7 +2450,7 @@ The repository has upstream's coordinates and POMs:
 
 - The module's AAR is `<package_name>:flutter_<mode>:<build_number>`. Its POM depends on Flutter's engine artifacts, `io.flutter:flutter_embedding_<mode>` and `io.flutter:<abi>_<mode>` at version `1.0.0-<engine revision>`, which the host fetches from `download.flutter.io`.
 - With an engine that is not the release's (see [Custom engines and frameworks](#custom-engines-and-frameworks)), Google has no artifacts to fetch, so the repository holds that engine's own, as `flutter build aar --local-engine` does. `io.flutter:flutter_embedding_<mode>` holds the embedding's classes, and its POM names the AndroidX artifacts the embedding needs. Each `io.flutter:<abi>_<mode>` holds that ABI's `libflutter.so`, stripped. Both come from the engine's `flutter.jar`. The module's POM names them at the engine's revision, so the host takes them from this repository. Keep it listed before `download.flutter.io`, as the printed steps do.
-- Each plugin with Android code has an AAR at `<plugin group>:<plugin>_<mode>:<build_number>`. Its POM lists the Maven artifacts its Gradle build declares.
+- Each plugin with Android code has an AAR at `<plugin group>:<plugin>_<mode>:<build_number>`. Its POM lists the Maven artifacts its Gradle build declares. Its `jni/<abi>/` holds the native libraries its Android library links from its own package. Every native library in the repository is stripped, as a Gradle build strips what it packages.
 - Every artifact except the engine's has the build number as its version, plugins' included, as `flutter build aar` sets it. Each artifact's `maven-metadata.xml` lists the versions written so far.
 
 A pub plugin is published under the Maven group its `android/build.gradle` sets (`group = "..."`, which `flutter create` writes). A plugin written in your workspace sets `group` on its Android `flutter_plugin_platform`: `flutter_plugin_platform(platform = "android", group = "com.example.my_plugin", ...)`. There is no default, since a wrong group would publish under someone else's coordinates. A plugin with no group fails the build, naming the plugin.

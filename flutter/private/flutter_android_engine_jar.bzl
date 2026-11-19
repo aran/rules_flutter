@@ -61,9 +61,9 @@ def _flutter_android_engine_jar_impl(ctx):
     libs = ctx.actions.declare_file(ctx.label.name + "_native_libs.zip")
     run_strip_native_libs(
         ctx,
-        input = ctx.file.jar,
+        inputs = [ctx.file.jar],
         output = output,
-        libs = libs,
+        libs = [libs],
         mnemonic = "FlutterStripEngine",
         progress_message = "Stripping the Flutter engine's native libraries for %{label}",
     )

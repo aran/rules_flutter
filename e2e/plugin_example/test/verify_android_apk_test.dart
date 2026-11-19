@@ -58,10 +58,6 @@ const _requiredNativeLibs = <String, String>{
   "androidx.datastore's AAR library": 'libdatastore_shared_counter.so',
 };
 
-/// The engine's libraries, as flutter.jar ships them: the Vulkan validation
-/// layer is in the arm64 debug engine only.
-const _engineLibs = ['libflutter.so', 'libVkLayer_khronos_validation.so'];
-
 void main() {
   // Verify the ambient-configuration APK (release under a default
   // `bazel test`) and a copy force-built under `-c dbg` by the debug_apk
@@ -276,28 +272,28 @@ void _verifyApk(
   }
   apk.checkNativeLibraries();
 
-  // --- Engine stripping ---
-  // Google ships the engine's libraries with full debug info; a Gradle
-  // build strips them (llvm-strip --strip-unneeded) before packaging, in
-  // every build type. Unstripped, the debug APK carries ~600 MB of symbols
-  // the device never reads.
-  for (final engineLib in [
+  // --- Stripping ---
+  // A Gradle build strips every native library it packages (llvm-strip
+  // --strip-unneeded), in every build type: the engine Google ships with full
+  // debug info (unstripped, the debug APK carries ~600 MB of symbols the
+  // device never reads), the app's own, and those of the Maven AARs the
+  // plugins depend on (androidx.datastore's).
+  for (final library in [
     for (final abi in abis)
-      for (final name in _engineLibs) 'lib/$abi/$name',
+      if (Directory('${apk.path}/lib/$abi') case final dir
+          when dir.existsSync())
+        for (final f in dir.listSync())
+          if (f is File && f.path.endsWith('.so')) f,
   ]) {
-    final file = apk.file(engineLib);
-    if (!file.existsSync()) continue;
-    final sections = ElfImage.fromFile(file).sectionNames();
-    final debugInfo = sections.where(
-      (s) => s == '.symtab' || s.startsWith('.debug_'),
+    final name = library.path
+        .substring(apk.path.length + 1)
+        .replaceAll(r'\', '/');
+    final problem = ElfImage.fromFile(library).unstrippedSections();
+    check.expect(
+      '$name is stripped',
+      condition: problem == null,
+      detail: problem,
     );
-    if (sections.isEmpty) {
-      check.fail('$engineLib has no section headers to read');
-    } else if (debugInfo.isNotEmpty) {
-      check.fail('$engineLib is not stripped: has ${debugInfo.join(', ')}');
-    } else {
-      check.pass('$engineLib is stripped (no .symtab or .debug_* sections)');
-    }
   }
 
   // --- Plugin runtime class checks ---

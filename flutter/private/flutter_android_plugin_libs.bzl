@@ -9,21 +9,31 @@ and a BUILD file cannot name them, so this rule links them: it returns what a
 `android_binary` and the registrant compile and package them as ordinary
 dependencies.
 
+In an Android configuration it hands those libraries' native libraries over
+stripped, as a Gradle build strips every library it packages
+(android_strip.bzl): the shared libraries a plugin links, and those of the
+Maven AARs the plugins depend on, which `aar_import` takes out as they are.
+
 It also checks the Maven artifacts the linked plugins' Gradle builds declare
 against what `@rules_flutter_maven` resolved, for those plugins only: an app
 that does not link a plugin never needs its artifacts. And it checks that a
 device of the ABI can load the native libraries the plugins bring, prebuilt
 ones inside their AARs included: on a 64-bit ABI, that they are aligned for
 16 KB pages.
+
+`flutter_android_plugin_native_libs` gives each plugin's own native libraries,
+stripped, to the AAR of the plugin.
 """
 
 load("@rules_android//providers:providers.bzl", "AndroidCcLinkParamsInfo", "AndroidLibraryResourceClassJarProvider", "AndroidNativeLibsInfo", "StarlarkAndroidResourcesInfo")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("@rules_java//java/common:proguard_spec_info.bzl", "ProguardSpecInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
 load("//flutter/private:android_plugin_maven.bzl", "maven_app_report", "maven_check_message", "maven_warning_message")
+load("//flutter/private:android_strip.bzl", "STRIP_ATTRS", "STRIP_EXEC_GROUPS", "android_strip_tool", "run_strip_native_libs", "strip_native_library")
 load("//flutter/private:exec_groups.bzl", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_application.bzl", "ANDROID_NATIVE_LIBS_ATTRS", "android_abi", "validate_android_native_libs")
 
@@ -92,12 +102,16 @@ def _merge_resources(infos):
 def _providers_of(libs, provider_type):
     return [lib[provider_type] for lib in libs if provider_type in lib]
 
-def link_android_libs(libs):
+def link_android_libs(libs, strip = None):
     """The providers of a `kt_android_library` that exports `libs`.
 
     Args:
         libs: List of Targets: Android libraries (`JavaInfo`, and the rest of
             what `android_library` provides).
+        strip: None, or a struct of `ctx` (that of a rule with `STRIP_ATTRS`,
+            `STRIP_EXEC_GROUPS` and the `cpp` fragment) and `abi` (the Android
+            ABI it is built for), to hand the libraries' native libraries over
+            stripped (`_strip_aar_libs`, `_strip_linked_libs`).
 
     Returns:
         A list of providers: `JavaInfo`, and for each of the others a library
@@ -118,15 +132,22 @@ def link_android_libs(libs):
 
     native_libs = _providers_of(libs, AndroidNativeLibsInfo)
     if native_libs:
-        providers.append(AndroidNativeLibsInfo(
+        merged = AndroidNativeLibsInfo(
             native_libs = depset(transitive = [p.native_libs for p in native_libs], order = "preorder"),
-        ))
+        )
+        providers.append(_strip_aar_libs(strip.ctx, strip.abi, merged) if strip else merged)
 
     link_params = _providers_of(libs, AndroidCcLinkParamsInfo)
     if link_params:
-        providers.append(AndroidCcLinkParamsInfo(
+        merged = AndroidCcLinkParamsInfo(
             link_params = cc_common.merge_cc_infos(cc_infos = [p.link_params for p in link_params]),
-        ))
+        )
+        tool = android_strip_tool(strip.ctx) if strip else None
+
+        # With no C++ toolchain for the platform there is no strip tool, and
+        # the libraries an APK links are left as they are: the app's own fail
+        # to strip and say so (android_strip.bzl), so the build stops there.
+        providers.append(_strip_linked_libs(strip.ctx, strip.abi, tool, merged) if tool else merged)
 
     proguard = _providers_of(libs, ProguardSpecInfo)
     if proguard:
@@ -134,6 +155,10 @@ def link_android_libs(libs):
             specs = depset(transitive = [p.specs for p in proguard], order = "preorder"),
         ))
     return providers
+
+def _is_shared_only(lib):
+    """Whether `lib`, a `LibraryToLink`, is a shared library an APK packages as it is."""
+    return not lib.static_library and not lib.pic_static_library and lib.dynamic_library
 
 def android_shared_libraries(link_params):
     """The shared libraries an `AndroidCcLinkParamsInfo` brings the APK.
@@ -149,18 +174,75 @@ def android_shared_libraries(link_params):
         lib.resolved_symlink_dynamic_library or lib.dynamic_library
         for linker_input in link_params.link_params.linking_context.linker_inputs.to_list()
         for lib in linker_input.libraries
-        if not lib.static_library and not lib.pic_static_library and lib.dynamic_library
+        if _is_shared_only(lib)
     ]
 
-def _native_libs_validation(ctx, libs):
+def _strip_aar_libs(ctx, abi, info):
+    """`info`, an `AndroidNativeLibsInfo`, with each zip of libraries stripped, in one action."""
+    zips = info.native_libs.to_list()
+    stripped = [
+        ctx.actions.declare_file("%s_native_libs/%d/%s" % (ctx.label.name, i, z.basename))
+        for i, z in enumerate(zips)
+    ]
+    run_strip_native_libs(
+        ctx,
+        inputs = zips,
+        libs = stripped,
+        mnemonic = "FlutterStripPluginNativeLibs",
+        progress_message = "Stripping the %s native libraries of the AARs of %%{label}" % abi,
+    )
+    return AndroidNativeLibsInfo(native_libs = depset(stripped))
+
+def _strip_linked_libs(ctx, abi, tool, info):
+    """`info`, an `AndroidCcLinkParamsInfo`, with each shared library an APK packages as it is stripped.
+
+    The library keeps its name, and so its place in the APK, and links as it
+    did: `--strip-unneeded` keeps the dynamic symbol table. A static library
+    is linked into the APK's own and is left as it is.
+    """
+    linker_inputs = []
+    count = 0
+    for linker_input in info.link_params.linking_context.linker_inputs.to_list():
+        libraries = []
+        for lib in linker_input.libraries:
+            if not _is_shared_only(lib):
+                libraries.append(lib)
+                continue
+            source = lib.resolved_symlink_dynamic_library or lib.dynamic_library
+            stripped = ctx.actions.declare_file("%s_stripped/%d/%s" % (ctx.label.name, count, source.basename))
+            count += 1
+            strip_native_library(
+                ctx,
+                source,
+                stripped,
+                mnemonic = "FlutterStripPluginNativeLib",
+                progress_message = "Stripping %s %s for %%{label}" % (abi, source.short_path),
+            )
+            libraries.append(cc_common.create_library_to_link(
+                actions = ctx.actions,
+                feature_configuration = tool.feature_configuration,
+                cc_toolchain = tool.cc_toolchain,
+                dynamic_library = stripped,
+            ))
+        linker_inputs.append(cc_common.create_linker_input(
+            owner = linker_input.owner,
+            libraries = depset(libraries),
+            user_link_flags = linker_input.user_link_flags,
+            additional_inputs = depset(linker_input.additional_inputs),
+            linkstamps = depset(linker_input.linkstamps),
+        ))
+    return AndroidCcLinkParamsInfo(link_params = CcInfo(
+        linking_context = cc_common.create_linking_context(
+            linker_inputs = depset(linker_inputs, order = "topological"),
+        ),
+    ))
+
+def _native_libs_validation(ctx, abi, libs):
     """The validation of the native libraries `libs` bring, or None.
 
-    The libraries an APK packages are those of each ABI's build, so outside an
-    Android configuration there is nothing to check.
+    Stripping changes no more than a library's symbols and debug info, so the
+    libraries are checked as the plugins bring them.
     """
-    abi = android_abi(ctx)
-    if not abi:
-        return None
     native = []
     for lib in libs:
         if AndroidNativeLibsInfo in lib:
@@ -206,11 +288,16 @@ def _flutter_android_plugin_libs_impl(ctx):
     for entry in entries:
         if entry.lib not in libs:
             libs.append(entry.lib)
-    validation = _native_libs_validation(ctx, libs)
+
+    # The libraries an APK packages are those of each ABI's build, so outside
+    # an Android configuration there is nothing to strip or check.
+    abi = android_abi(ctx)
+    providers = link_android_libs(libs, strip = struct(ctx = ctx, abi = abi) if abi else None)
+    validation = _native_libs_validation(ctx, abi, libs) if abi else None
     return [
         DefaultInfo(),
         OutputGroupInfo(_validation = depset([validation] if validation else [])),
-    ] + link_android_libs(libs)
+    ] + providers
 
 flutter_android_plugin_libs = rule(
     implementation = _flutter_android_plugin_libs_impl,
@@ -227,9 +314,62 @@ flutter_android_plugin_libs = rule(
         "report": attr.string(
             doc = "The label of the application's `maven_artifacts` target, which a failure message points to in place of the hub's.",
         ),
-    } | ANDROID_NATIVE_LIBS_ATTRS,
-    exec_groups = PORTABLE_EXEC_GROUPS,
-    doc = "Links the Android libraries of the plugins an application depends on, as a library exporting them would, and fails when `@rules_flutter_maven` lacks what their Gradle builds declare.",
+    } | ANDROID_NATIVE_LIBS_ATTRS | STRIP_ATTRS,
+    exec_groups = PORTABLE_EXEC_GROUPS | STRIP_EXEC_GROUPS,
+    fragments = ["cpp"],
+    doc = "Links the Android libraries of the plugins an application depends on, as a library exporting them would, with their native libraries stripped, and fails when `@rules_flutter_maven` lacks what their Gradle builds declare.",
+)
+
+FlutterAndroidPluginNativeLibsInfo = provider(
+    doc = "The native libraries of each plugin of an application, stripped, built for one Android ABI.",
+    fields = {
+        "libraries": "dict[Label, list[File]]: For the label of each plugin's Android library (`FlutterApplicationInfo.android_libs`), the native libraries that are the plugin's own: the shared libraries its library links from its own Bazel package. Empty outside an Android configuration.",
+    },
+)
+
+def _same_package(a, b):
+    return a.repo_name == b.repo_name and a.package == b.package
+
+def _flutter_android_plugin_native_libs_impl(ctx):
+    abi = android_abi(ctx)
+    if not abi:
+        return [FlutterAndroidPluginNativeLibsInfo(libraries = {})]
+    libraries = {}
+    for entry in ctx.attr.application[FlutterApplicationInfo].android_libs.to_list():
+        lib = entry.lib
+        if lib.label in libraries:
+            continue
+        own = [
+            f
+            for f in (android_shared_libraries(lib[AndroidCcLinkParamsInfo]) if AndroidCcLinkParamsInfo in lib else [])
+            if _same_package(f.owner, lib.label)
+        ]
+        stripped = []
+        for f in own:
+            out = ctx.actions.declare_file("%s/%s/%s" % (ctx.label.name, entry.package, f.basename))
+            strip_native_library(
+                ctx,
+                f,
+                out,
+                mnemonic = "FlutterStripPluginNativeLib",
+                progress_message = "Stripping %s %s for %%{label}" % (abi, f.short_path),
+            )
+            stripped.append(out)
+        libraries[lib.label] = stripped
+    return [FlutterAndroidPluginNativeLibsInfo(libraries = libraries)]
+
+flutter_android_plugin_native_libs = rule(
+    implementation = _flutter_android_plugin_native_libs_impl,
+    attrs = {
+        "application": attr.label(
+            doc = "The `flutter_application` whose plugins' native libraries to strip.",
+            mandatory = True,
+            providers = [FlutterApplicationInfo],
+        ),
+    } | ANDROID_NATIVE_LIBS_ATTRS | STRIP_ATTRS,
+    exec_groups = STRIP_EXEC_GROUPS,
+    fragments = ["cpp"],
+    doc = "The native libraries of each plugin of an application, stripped as a Gradle build strips them, for the plugin's AAR (`flutter_android_plugin_aars`), in the Android configuration it is built in.",
 )
 
 # A plugin's Android library is among an application's `android_libs` only in

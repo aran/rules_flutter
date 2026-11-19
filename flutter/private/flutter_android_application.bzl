@@ -227,8 +227,8 @@ def _package_native_libs(ctx, tools, app_info, abi):
     zip = ctx.actions.declare_file("%s_native_libs/libs.zip" % ctx.label.name)
     run_strip_native_libs(
         ctx,
-        input = unstripped,
-        libs = zip,
+        inputs = [unstripped],
+        libs = [zip],
         mnemonic = "FlutterStripNativeLibs",
         progress_message = "Stripping the %s native libraries of %%{label}" % abi,
     )
