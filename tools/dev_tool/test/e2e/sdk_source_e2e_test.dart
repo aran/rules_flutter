@@ -84,7 +84,7 @@ void main() {
     ...sdkPackage(
       '${prefix}_flutter_test',
       'flutter_test',
-      attrs: {'sdk': str('beta'), 'prefix': str(prefix)},
+      attrs: {'sdks': '[${str('beta')}]', 'prefix': str(prefix)},
     ),
   ];
 

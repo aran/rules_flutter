@@ -2747,7 +2747,7 @@ def _flutter_pub_package_impl(ctx):
     #
     # What a Flutter SDK package needs of the hosted packages must be what the
     # build uses, so the reader compares its constraints with their versions.
-    sdk_index = read_index(ctx, ctx.attr.prefix) if ctx.attr.sdk else None
+    sdk_index = read_index(ctx, ctx.attr.prefix) if ctx.attr.sdks else None
     read = read_pubspec(ctx, ctx.attr.package_name, version, locked_versions = locked_versions(sdk_index) if sdk_index else None)
     if read.error:
         return _write_unbuildable(ctx, identity, version, [], read.error)
@@ -2755,7 +2755,7 @@ def _flutter_pub_package_impl(ctx):
     if sdk_index:
         # A package that does not fit fails only a build of its SDK, when
         # something uses it: every SDK's packages still fetch.
-        misfit = dependency_constraint_message(sdk_index, ctx.attr.sdk, ctx.attr.package_name, pubspec.unsatisfied)
+        misfit = dependency_constraint_message(sdk_index, ctx.attr.sdks, ctx.attr.package_name, pubspec.unsatisfied)
         if misfit:
             problems.append(misfit)
     pubspec_dependencies = pubspec.dependencies
@@ -3214,8 +3214,8 @@ flutter_pub_package = repository_rule(
             doc = "Why the package cannot be built, for a Flutter SDK package its SDK does not have: " +
                   "the package's target then fails with it when something uses it.",
         ),
-        "sdk": attr.string(
-            doc = "For a Flutter SDK package, the SDK whose framework it is from, whose " +
+        "sdks": attr.string_list(
+            doc = "For a Flutter SDK package, the SDKs whose framework it is from, whose " +
                   "needs of the locked packages it checks; empty for any other package.",
         ),
         "prefix": attr.string(

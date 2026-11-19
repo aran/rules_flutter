@@ -306,10 +306,13 @@ def _framework_variants(sdks):
     return prefixes
 
 def _framework_representatives(sdks, prefixes):
-    """For each prefix that holds framework packages, the first SDK whose they are."""
+    """For each prefix that holds framework packages, the SDKs whose they are: the release first, then by name.
+
+    The first is the one the packages are built from; messages name them all.
+    """
     reps = {}
     for name in sorted(sdks.keys(), key = lambda n: (n != DEFAULT_SDK_NAME, n)):
-        reps.setdefault(prefixes[name], sdks[name])
+        reps.setdefault(prefixes[name], []).append(sdks[name])
     return reps
 
 def _framework_key(sdk):
@@ -703,13 +706,14 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 message = ignored_package_message(name, [x for x in entries[name] if x.kind == IGNORED]),
             )
         elif e.kind == FLUTTER_FRAMEWORK:
-            for prefix, sdk in reps.items():
+            for prefix, sharers in reps.items():
+                sdk = sharers[0]
                 flutter_framework_package(
                     name = source_repo(name, prefix),
                     flutter_version = sdk.version or "",
                     framework_json = framework_json(sdk.framework) if sdk.framework else None,
                     sha256 = flutter_source_sha256(sdk.version) if sdk.version and not sdk.framework else "",
-                    sdk = sdk.name,
+                    sdks = [s.name for s in sharers],
                     prefix = prefix,
                 )
         elif e.kind == HOSTED:
@@ -783,7 +787,8 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 build_config_fields = annotations.get(name, {}).get("build_config_fields", {}),
             )
         elif e.kind == FLUTTER_SOURCE:
-            for prefix, sdk in reps.items():
+            for prefix, sharers in reps.items():
+                sdk = sharers[0]
                 flutter_pub_library_repo(name = library_repo(name, prefix), package_name = name, prefix = prefix)
                 flutter_apple_plugin_repo(name = apple_repo(name, prefix), package_name = name, prefix = prefix, version = e.version)
                 if prefix == SPOKE_PREFIX:
@@ -812,7 +817,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                     package_name = name,
                     version = e.version,
                     framework_json = framework_json(sdk.framework) if sdk.framework else None,
-                    sdk = sdk.name,
+                    sdks = [s.name for s in sharers],
                     prefix = prefix,
                     overlay_roots = overlay_roots,
                     android_deps = annotations.get(name, {}).get("android_deps", []),

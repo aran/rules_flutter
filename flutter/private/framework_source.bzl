@@ -112,22 +112,39 @@ def link_framework_package(ctx, package_name, written = []):
             ctx.symlink(child, child.basename)
     return None
 
-def _resolve_commands(sdk, verb, locks):
-    """One command per lock, each run from the root of the workspace that holds the lock.
+def _resolve_commands(sdks, verb, locks):
+    """The commands that resolve each lock again, run from the root of the workspace that holds it.
 
-    Each names the SDK: which one a build uses without the flag is the
-    `flutter` extension's to say (`flutter.use_sdk`), not the hub's.
+    Each names an SDK: which one a build uses without the flag is the
+    `flutter` extension's to say (`flutter.use_sdk`), not the hub's. The SDKs
+    that share a framework resolve the same packages, so there is one command
+    per SDK and lock, and any SDK's will do.
     """
-    flag = "--@rules_flutter//flutter:sdk={} ".format(sdk)
     commands = []
-    for lock in locks:
-        lock_dir = lock_directory(Label(lock))
-        args = verb + (" --directory=" + lock_dir if lock_dir else "")
-        commands.append("bazel run {}@rules_flutter//flutter/pub -- {}".format(flag, args))
+    for sdk in sdks:
+        flag = "--@rules_flutter//flutter:sdk={} ".format(sdk)
+        for lock in locks:
+            lock_dir = lock_directory(Label(lock))
+            args = verb + (" --directory=" + lock_dir if lock_dir else "")
+            commands.append("bazel run {}@rules_flutter//flutter/pub -- {}".format(flag, args))
     return "\n    ".join(commands)
 
-def lock_floor_message(index, sdk, framework_version):
-    """Why the locks need a newer Flutter than the SDK's framework, or None.
+def _sdk_names(sdks):
+    """`"a"`, or `"a" and "b"`, or `"a", "b" and "c"`."""
+    quoted = ['"{}"'.format(s) for s in sdks]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " and " + quoted[-1]
+
+def _framework_of(sdks):
+    """The framework the SDKs share, as a message names it: by every SDK whose it is."""
+    if len(sdks) == 1:
+        return "the framework of the {} Flutter SDK".format(_sdk_names(sdks))
+    return "the framework of the Flutter SDKs {}".format(_sdk_names(sdks))
+
+def _any_of(sdks):
+    return "" if len(sdks) == 1 else ", with any of the SDKs that share it"
+
+def lock_floor_message(index, sdks, framework_version):
+    """Why the locks need a newer Flutter than the SDKs' framework, or None.
 
     Pub does not record the resolver's version, but it does record the floor
     its solution needs; a framework below that floor cannot compile what the
@@ -135,7 +152,7 @@ def lock_floor_message(index, sdk, framework_version):
 
     Args:
         index: The hub's index (`read_index`).
-        sdk: The SDK's name.
+        sdks: The names of the SDKs that share the framework.
         framework_version: The framework's version.
 
     Returns:
@@ -144,17 +161,18 @@ def lock_floor_message(index, sdk, framework_version):
     for lock, constraint in sorted(index.flutter_constraints.items()):
         if constraint and version_below_lower_bound(framework_version, constraint):
             return (
-                "{lock} was resolved against a newer Flutter than the \"{sdk}\" SDK has: the lock " +
-                "requires flutter {constraint}, and the SDK's framework is {version}.\n" +
-                "Either use a newer framework or re-resolve against this SDK, from the " +
-                "root of the workspace that holds the lock:\n" +
+                "{lock} was resolved against a newer Flutter than {framework}: the lock " +
+                "requires flutter {constraint}, and the framework is {version}.\n" +
+                "Either use a newer framework or re-resolve the lock against this one, from the " +
+                "root of the workspace that holds the lock{any}:\n" +
                 "    {command}"
             ).format(
                 lock = lock,
-                sdk = sdk,
+                framework = _framework_of(sdks),
                 constraint = constraint,
                 version = framework_version,
-                command = _resolve_commands(sdk, "get", [lock]),
+                any = _any_of(sdks),
+                command = _resolve_commands(sdks, "get", [lock]),
             )
     return None
 
@@ -172,7 +190,7 @@ def locked_versions(index):
     """
     return {n: v for n, v in index.versions.items() if not index.sdk_packages.get(n)}
 
-def dependency_constraint_message(index, sdk, package, unsatisfied):
+def dependency_constraint_message(index, sdks, package, unsatisfied):
     """Why a Flutter SDK package does not fit the versions the build uses of the locked packages, or None.
 
     What the SDK packages' pubspecs require of the hosted packages the locks
@@ -182,7 +200,7 @@ def dependency_constraint_message(index, sdk, package, unsatisfied):
 
     Args:
         index: The hub's index (`read_index`).
-        sdk: The SDK's name.
+        sdks: The names of the SDKs that share the framework.
         package: The SDK package whose pubspec this is.
         unsatisfied: The `unsatisfied` of its `read_pubspec(locked_versions =
             locked_versions(index))`: the constraints that exclude the version
@@ -212,14 +230,15 @@ def dependency_constraint_message(index, sdk, package, unsatisfied):
     if not problems:
         return None
     return (
-        "The locks do not fit the \"{sdk}\" Flutter SDK's framework:\n{problems}\n" +
+        "The locks do not fit {framework}:\n{problems}\n" +
         "The build uses one version of each package, the highest any lock records. " +
-        "Re-resolve each lock named against this SDK so that it holds a version the SDK " +
+        "Re-resolve each lock named against this framework so that it holds a version the SDK " +
         "package allows (for example, with {example} in its pubspec's dependencies), from " +
-        "the root of the workspace that holds it:\n    {command}"
+        "the root of the workspace that holds it{any}:\n    {command}"
     ).format(
-        sdk = sdk,
+        framework = _framework_of(sdks),
+        any = _any_of(sdks),
         problems = "\n".join(problems),
         example = example,
-        command = _resolve_commands(sdk, "get", sorted(culprits.keys())),
+        command = _resolve_commands(sdks, "get", sorted(culprits.keys())),
     )

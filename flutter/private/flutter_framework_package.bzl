@@ -122,8 +122,8 @@ def _flutter_framework_package_impl(repository_ctx):
     # only a build of this SDK fails, and every SDK's spokes still fetch
     # (`bazel fetch --all`).
     misfit = (
-        lock_floor_message(index, repository_ctx.attr.sdk, flutter_version) or
-        dependency_constraint_message(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.unsatisfied)
+        lock_floor_message(index, repository_ctx.attr.sdks, flutter_version) or
+        dependency_constraint_message(index, repository_ctx.attr.sdks, _PACKAGE, pubspec.unsatisfied)
     )
     if misfit:
         write_failing_stub(repository_ctx, [_PACKAGE], misfit)
@@ -175,9 +175,9 @@ flutter_framework_package = repository_rule(
             doc = "The `flutter_framework.json` of a framework source, in place of the release tarball.",
             allow_single_file = True,
         ),
-        "sdk": attr.string(
-            doc = "The SDK whose framework this is, for messages.",
-            default = "flutter",
+        "sdks": attr.string_list(
+            doc = "The SDKs whose framework this is, for messages.",
+            default = ["flutter"],
         ),
         "prefix": attr.string(
             doc = "The prefix of the index the package is planned against.",

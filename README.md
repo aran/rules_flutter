@@ -3116,7 +3116,7 @@ A name the flag gives that no tag declares fails too, listing the declared names
 
 An SDK's repositories are fetched only when a build selects it. On a machine without `FLUTTER_CHECKOUT` (or, for the halves, `FLUTTER_ENGINE`) set, the repositories still load, so `bazel query` and `bazel fetch --all` work. A build that selects the SDK there fails at analysis, with the `.bazelrc.user` line to add. Only the root module can declare an SDK other than `flutter`, and only it can declare one that is not a release. Those always have names of their own: `flutter` is the release every module may ask a version of.
 
-All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package, and gives the command that resolves the lock again against that SDK, naming it whichever SDK the project chooses:
+All SDKs share one `pubspec.lock`. The `sdk: flutter` packages (`flutter`, `flutter_test` and so on) come from the selected SDK's framework. The build fails in two cases: when what the checkout's pubspecs ask of a hosted package doesn't match the lock, and when the lock needs a newer Flutter than the checkout is. It names each package and every SDK whose framework it is, and gives the commands that resolve the lock again against that framework, one for each of those SDKs. Any of them resolves the same packages:
 
 ```sh
 bazel run --@rules_flutter//flutter:sdk=local @rules_flutter//flutter/pub -- get

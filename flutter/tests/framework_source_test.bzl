@@ -39,7 +39,7 @@ def _a_fitting_lock_says_nothing_test_impl(ctx):
     env = unittest.begin(ctx)
 
     index = _index({"test_api": "0.7.14", "matcher": "0.12.20", "path": "1.9.1"})
-    asserts.equals(env, None, dependency_constraint_message(index, "flutter", "flutter_test", {}))
+    asserts.equals(env, None, dependency_constraint_message(index, ["flutter"], "flutter_test", {}))
 
     return unittest.end(env)
 
@@ -53,7 +53,7 @@ def _a_version_past_an_exact_pin_is_refused_test_impl(ctx):
         {"test_api": "0.7.15", "matcher": "0.12.20", "path": "1.9.1"},
         version_locks = {"test_api": [_TOOLS], "matcher": [_APP], "path": [_APP]},
     )
-    message = dependency_constraint_message(index, "beta", "flutter_test", {"test_api": "0.7.14"})
+    message = dependency_constraint_message(index, ["beta"], "flutter_test", {"test_api": "0.7.14"})
     asserts.true(env, message != None, "a version the SDK package forbids passed")
     for fragment in [
         "\"beta\" Flutter SDK",
@@ -75,7 +75,7 @@ def _a_version_outside_a_range_is_refused_test_impl(ctx):
     env = unittest.begin(ctx)
 
     index = _index({"path": "2.0.0"}, version_locks = {"path": [_APP]})
-    message = dependency_constraint_message(index, "flutter", "flutter_test", {"path": "^1.9.0"})
+    message = dependency_constraint_message(index, ["flutter"], "flutter_test", {"path": "^1.9.0"})
     asserts.true(env, message != None, "a version outside the SDK package's range passed")
     for fragment in [
         "needs path ^1.9.0, and the build uses path 2.0.0, which {} records".format(_APP),
@@ -91,12 +91,12 @@ def _a_lock_above_the_framework_is_refused_test_impl(ctx):
     env = unittest.begin(ctx)
 
     index = struct(flutter_constraints = {_APP: ">=3.40.0", _TOOLS: ""})
-    asserts.equals(env, None, lock_floor_message(index, "beta", "3.40.1"))
-    message = lock_floor_message(index, "beta", "3.38.0")
+    asserts.equals(env, None, lock_floor_message(index, ["beta"], "3.40.1"))
+    message = lock_floor_message(index, ["beta"], "3.38.0")
     asserts.true(env, message != None, "a lock above the framework passed")
     for fragment in [
-        "{} was resolved against a newer Flutter than the \"beta\" SDK has".format(_APP),
-        "requires flutter >=3.40.0, and the SDK's framework is 3.38.0",
+        "{} was resolved against a newer Flutter than the framework of the \"beta\" Flutter SDK".format(_APP),
+        "requires flutter >=3.40.0, and the framework is 3.38.0",
         "bazel run --@rules_flutter//flutter:sdk=beta @rules_flutter//flutter/pub -- get --directory=app",
     ]:
         asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
@@ -104,6 +104,30 @@ def _a_lock_above_the_framework_is_refused_test_impl(ctx):
     return unittest.end(env)
 
 a_lock_above_the_framework_is_refused_test = unittest.make(_a_lock_above_the_framework_is_refused_test_impl)
+
+def _a_shared_framework_names_every_sdk_test_impl(ctx):
+    """A framework several SDKs share is named by all of them, with a command for each."""
+    env = unittest.begin(ctx)
+
+    index = struct(flutter_constraints = {_APP: ">=3.40.0"})
+    message = lock_floor_message(index, ["flutter", "engine_only"], "3.38.0")
+    for fragment in [
+        "than the framework of the Flutter SDKs \"flutter\" and \"engine_only\":",
+        "with any of the SDKs that share it:",
+        "bazel run --@rules_flutter//flutter:sdk=flutter @rules_flutter//flutter/pub -- get --directory=app",
+        "bazel run --@rules_flutter//flutter:sdk=engine_only @rules_flutter//flutter/pub -- get --directory=app",
+    ]:
+        asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
+
+    index = _index({"test_api": "0.7.15"}, version_locks = {"test_api": [_APP]})
+    message = dependency_constraint_message(index, ["a", "b", "c"], "flutter_test", {"test_api": "0.7.14"})
+    asserts.true(env, "The locks do not fit the framework of the Flutter SDKs \"a\", \"b\" and \"c\":" in message, message)
+    for sdk in ["a", "b", "c"]:
+        asserts.true(env, "--@rules_flutter//flutter:sdk={} ".format(sdk) in message, message)
+
+    return unittest.end(env)
+
+a_shared_framework_names_every_sdk_test = unittest.make(_a_shared_framework_names_every_sdk_test_impl)
 
 def _a_failing_stub_declares_each_target_test_impl(ctx):
     """The stub's targets carry the message as written."""
@@ -148,6 +172,7 @@ def framework_source_test_suite(name):
         a_version_outside_a_range_is_refused_test,
         locked_versions_leave_out_the_sdk_packages_test,
         a_lock_above_the_framework_is_refused_test,
+        a_shared_framework_names_every_sdk_test,
         a_failing_stub_declares_each_target_test,
     )
     native.test_suite(
