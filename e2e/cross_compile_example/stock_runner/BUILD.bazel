@@ -1,14 +1,20 @@
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app", "flutter_linux_engine", "flutter_linux_registrant_gen", "flutter_linux_runner_lib_gen")
 
+package(default_visibility = ["//:__pkg__"])
+
 # What Flutter's own build (CMake) gives the Linux runner that `flutter create`
 # writes, which the runner relies on without saying so: the engine's headers and
 # library, GTK, and the project's `linux/` directory on the include path (for
 # `flutter/generated_plugin_registrant.h`). The targets here compile and link
 # small programs that use the runner's includes and calls, so each one names the
-# part of that contract it observes. Nothing runs: build with `bazel build //...`
-# (see docs/TESTING.md, "cross_compile_example").
+# part of that contract it observes. Nothing runs: `//:linux_x64_debug_test`
+# builds them for Linux. Each is `target_compatible_with` Linux, so `//...` on
+# another host skips it rather than failing to analyse it.
 
-flutter_linux_engine(name = "engine")
+flutter_linux_engine(
+    name = "engine",
+    target_compatible_with = ["@platforms//os:linux"],
+)
 
 # The registrant `flutter create` leaves in `linux/flutter/`, as for an app with
 # no native plugins; `flutter_linux_app` uses such files when the package has them.
@@ -25,6 +31,7 @@ flutter_linux_runner_lib_gen(
     application_id = "com.example.stock_runner.probe_engine_api",
     engine = ":engine",
     registrant = ":committed_registrant",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 # The X11 headers GTK's `gdkx.h` includes, which the runner of Flutter
@@ -36,6 +43,7 @@ flutter_linux_runner_lib_gen(
     application_id = "com.example.stock_runner.probe_gdk_x11",
     engine = ":engine",
     registrant = ":committed_registrant",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 # The registrant rules_flutter generates, for a project that does not check
@@ -44,6 +52,7 @@ flutter_linux_runner_lib_gen(
 flutter_linux_registrant_gen(
     name = "generated_registrant",
     application = "//:cross_app",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 flutter_linux_runner_lib_gen(
@@ -53,6 +62,7 @@ flutter_linux_runner_lib_gen(
     application_id = "com.example.stock_runner.probe_generated_registrant",
     engine = ":engine",
     registrant = ":generated_registrant",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 # `flutter create`'s runner, byte for byte: the 3.50.0 template with only the
@@ -62,6 +72,7 @@ flutter_linux_app(
     name = "stock_runner_linux",
     application = "//:cross_app",
     application_id = "com.example.stock_runner.stock_runner_linux",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 flutter_linux_runner_lib_gen(
@@ -72,4 +83,5 @@ flutter_linux_runner_lib_gen(
     application_id = "com.example.stock_runner.stock_runner_generated_registrant",
     engine = ":engine",
     registrant = ":generated_registrant",
+    target_compatible_with = ["@platforms//os:linux"],
 )

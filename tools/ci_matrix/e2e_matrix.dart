@@ -312,8 +312,6 @@ const e2eWorkspaces = <E2eWorkspace>[
           'what depends on the host (aapt2, the NDK, gen_snapshot)',
     },
   ),
-  // Pins `--platforms=linux_x64` for every command, so it has no test
-  // targets: CI builds it.
   E2eWorkspace(
     'cross_compile_example',
     runs: {
@@ -327,7 +325,6 @@ const e2eWorkspaces = <E2eWorkspace>[
           'which hello_world and desktop_example build',
       Os.windows: 'the Flutter toolchain has no Windows-to-Linux pair',
     },
-    command: 'build',
   ),
   E2eWorkspace(
     'macos_example',

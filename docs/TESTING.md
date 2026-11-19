@@ -897,18 +897,16 @@ cd e2e/package_assets && bazel test //...   # the link hook tests on any host; t
   SDK build *that workspace's* hooks before the tool's `main` runs at all, so
   the process dies before `daemon.connected`. The hook's actual error is in
   `<workspace>/.dart_tool/hooks_runner/<pkg>/<hash>/stderr.txt`.
-- `cross_compile_example` has **no test targets**, so it is verified with
-  `bazel build //...`, not `bazel test`. Its `.bazelrc` pins
-  `--platforms=linux_x64` for every command, and a test there would find no test
-  toolchain on a macOS host. The analysis and format checks are an aspect, not
-  tests, and that workspace enables it under `build`, so one command covers the
-  cross-compiled bundle and the checks:
+- `cross_compile_example` sets no `--platforms` for the workspace. Its
+  `:linux_x64_debug_test` is a `build_test` of every Linux target built for
+  `linux_x64` with `-c dbg` by a transition, so a plain `bazel test //...` on a
+  Mac checks the cross build, and the Linux targets themselves, compatible with
+  Linux alone, are skipped in the host's configuration. To build the bundle
+  itself for a VM, name the platform on the command line:
   ```sh
   cd e2e/cross_compile_example
-  bazel build //...
+  bazel build --platforms=@rules_flutter//flutter/platforms:linux_x64 -c dbg :cross_linux
   ```
-  `bazel test //...` there exits 4 ("No test targets were found") however clean
-  the checks are.
 
 ### `e2e/integration_test`
 
@@ -1112,7 +1110,7 @@ finds a gap before a push.
 | `codegen` | macOS, Linux, Windows | Native Assets loaded by each host's `flutter_tester` | |
 | `plugin_example` | macOS, Linux, Windows (the `:windows_*` tests and `:android_bundle_build_test`) | each platform's implementations of real pub plugins; on Windows also one arm64 APK, whose AAR resources are the longest paths aapt2 opens ("Windows and MAX_PATH") | |
 | `ffi_example` | macOS, Linux, Windows | native libraries in each platform's bundle, and a plugin with a Dart plugin class and `native_deps` (`//plugin_class`) | |
-| `cross_compile_example` | macOS (`build`) | the Mac-to-Linux cross toolchain | Linux: a native build is `hello_world`'s; Windows: no such pair |
+| `cross_compile_example` | macOS | the Mac-to-Linux cross toolchain | Linux: a native build is `hello_world`'s; Windows: no such pair |
 | `macos_example`, `ios_example`, `multi_window_example` | macOS | Apple-only features | Linux, Windows: Apple-only |
 | `integration_test` | macOS, Windows (`build`), Linux (`test` of the `:linux_*` and `:web_*` targets) | the integration test rules building the app and test of each case, the Android and iOS apps included on macOS; on Linux those tests running headless on the pinned Linux runtime, fetched with every file of it and of the Chrome that loads it checked against the oldest supported host; on Windows the Windows ones (the Android tests, which run on an emulator pinned for macOS and Linux only, are skipped there): most of its tests need a GUI session or a hypervisor, which CI never runs a test in | |
 | `pub_resolve` | Linux | a monorepo's path pub packages and a fork of a hosted one, built from the workspace targets the lock maps (platform-neutral); its `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
@@ -1136,8 +1134,7 @@ entry, or an entry and no such target.
 | `custom_engine` | `gradle_host_test`: a Gradle-built host app, offline, against the stand-in engine's module, whose APK must carry the module repository's `libflutter.so` |
 
 The table in `e2e_matrix.dart` is the source; if this one disagrees, that one is
-right. The macOS and Linux jobs run exactly `bazel test //...` (`build` for
-`cross_compile_example`), with the flags of `CI_BAZELRC` in ci.yaml, which
+right. The macOS and Linux jobs run exactly `bazel test //...`, with the flags of `CI_BAZELRC` in ci.yaml, which
 every setup-bazel step writes to the user's `.bazelrc` (a quiet log, and a
 failing test's output in it), so a target the system cannot build must
 carry `target_compatible_with` and is then skipped, not failed. The Windows jobs
@@ -1899,7 +1896,7 @@ Cross-compile a Linux debug bundle from macOS, deploy to a GCP VM, and verify th
 
 ```sh
 # 1. Cross-compile (requires LLVM toolchain — use cross_compile_example)
-cd e2e/cross_compile_example && bazel build :cross_linux
+cd e2e/cross_compile_example && bazel build --platforms=@rules_flutter//flutter/platforms:linux_x64 -c dbg :cross_linux
 
 # 2. Create a Linux VM
 bazel run //tools/vm:create_linux_vm -- flutter-linux-test
@@ -2179,7 +2176,7 @@ runner needs both).
 | Windows runner / bundle (`flutter/private/*windows*`) | desktop_example (on Windows), GCP VM visual test |
 | Windows integration tests (`flutter_windows_integration_test`, `WindowsDevice`) | `e2e/integration_test`'s Windows targets on the GCP VM (§ Windows integration tests), desktop_example `//...` on Windows, and the platform-neutral integration row |
 | Linux integration tests and the Linux runtime (`flutter_linux_integration_test`, `LinuxDevice`, `flutter_linux_runtime*`, `linux_runtime_pins.bzl`, `tools/update_linux_runtime`) | `e2e/integration_test`'s `:linux_*` and `:web_*` targets and web_example's `:render_test` on the x86_64 and arm64 GCP VMs (§ Linux integration tests), desktop_example `//...` on Linux, and the platform-neutral integration row |
-| Desktop engine selection (debug/profile/release) | cross_compile_example `bazel build :cross_linux` + verify on VM |
+| Desktop engine selection (debug/profile/release) | cross_compile_example `bazel test //...` + verify on VM |
 | Profile mode (`flutter:profile` selects, profile engine repos) | Root `//...`, macOS and a device by hand, hello_world `//...` on Linux and Windows (CI does this), and the profile run on the Linux and Windows VMs (§ Profile mode on Linux and Windows) |
 | Integration tests (`flutter/integration_test.bzl`, `flutter/private/flutter_integration_*.bzl`, `flutter/private/integration_test/support/`, `tools/dev_tool/lib/integration/`, `bin/integration_test_runner.dart`) | `e2e/integration_test` `//...` on each platform the change touches (macOS, with an unlocked screen, for macOS desktop; the Windows VM for Windows; macOS for web; for Android, the emulator tests on macOS, and on the attached phone with `--@rules_flutter//flutter/integration_test:android_device=attached` and `ANDROID_SERIAL` when the Android runner changed), dev_tool unit, plus the platform's row; for web, `e2e/web_example` `:render_test` and the Web support row |
 | The `flutter_test` runner and its suite protocol (`flutter/private/tools/flutter_test_runner.dart`, `flutter/private/tools/lib/`: tag selection, `--test_filter`, shards, the no-tests failure) | Root `//...`, `e2e/integration_test` `//...` (its `tags_*` and `no_tests_test` outcome tests, and `web_*`), dev_tool unit |

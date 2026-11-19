@@ -4,11 +4,6 @@
 # module must switch this off, since the override no longer matches the lock.
 common --lockfile_mode=error
 
-# This workspace always cross-compiles for Linux in debug mode.
-# gen_snapshot can't cross-compile AOT between desktop OSes, so debug only.
-build --platforms=@rules_flutter//flutter/platforms:linux_x64
-build -c dbg
-
 # Share the results of identical actions between configurations (one
 # Android ABI and the next, -c dbg and -c fastbuild, platform transitions).
 # Bazel rewrites `bazel-out/<config>` only in actions that declare they
@@ -39,14 +34,13 @@ common --incompatible_check_testonly_for_output_files
 common --incompatible_disable_starlark_host_transitions
 common --incompatible_resolve_select_keys_eagerly
 
-try-import %workspace%/.bazelrc.user
-
-# `dart analyze` and the `dart format` check run as an aspect. Under `build`
-# here, not `test` as elsewhere: this workspace has no test targets, and
-# `bazel test //...` with none exits 4 however clean the checks are, so
-# `bazel build //...` is what runs them. The config line is `common` because
-# `bazel run` of `@rules_dart//dart/fix` and `@rules_dart//dart/format` reads it too.
-build --aspects=@rules_dart//dart:analyze.bzl%dart_analyze
-build --output_groups=+dart_analyze
-build --output_groups=+dart_format
+# `dart analyze` and the `dart format` check run as an aspect over every Dart
+# target a `bazel test` names. The config line is `common` because `bazel run`
+# of `@rules_dart//dart/fix` and `@rules_dart//dart/format` reads it too.
+test --aspects=@rules_dart//dart:analyze.bzl%dart_analyze
+test --output_groups=+dart_analyze
+test --output_groups=+dart_format
 common --@rules_dart//dart:analysis_config=//:analysis_config
+
+# Last, so a checkout's own settings override everything above.
+try-import %workspace%/.bazelrc.user

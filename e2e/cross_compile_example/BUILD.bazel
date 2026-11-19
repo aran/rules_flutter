@@ -1,6 +1,8 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options")
 load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_application", "flutter_library")
 load("@rules_flutter//flutter:linux.bzl", "flutter_linux_app")
+load(":cross_build.bzl", "linux_x64_debug_build")
 
 exports_files(["pubspec.lock"])
 
@@ -15,21 +17,39 @@ flutter_application(
     package = ":pubspec-metadata",
     visibility = ["//stock_runner:__pkg__"],
     deps = [
-        "@deps//:flutter",
         "@deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
 
-# Linux bundle — NO target_compatible_with because this workspace
-# cross-compiles from macOS to Linux via the LLVM CC toolchain.
-# Verify with: bazel build :cross_linux
-# (build_test can't be used here because --platforms=linux_x64 prevents
-# test execution on macOS — there's no Linux test toolchain on the host.)
+# The Linux bundle, built for Linux by the build_test below on any host.
+# Compatible with Linux alone, so `//...` skips it in the host's own
+# configuration on another host.
 flutter_linux_app(
     name = "cross_linux",
     application = ":cross_app",
     application_id = "com.example.cross_compile.cross_linux",
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# Every Linux target of the workspace, built for linux_x64 in debug mode with
+# the LLVM toolchains MODULE.bazel registers. The test runs on the host;
+# only these are built for Linux.
+linux_x64_debug_build(
+    name = "linux_x64_debug",
+    targets = [
+        ":cross_linux",
+        "//stock_runner:probe_engine_api",
+        "//stock_runner:probe_gdk_x11",
+        "//stock_runner:probe_generated_registrant",
+        "//stock_runner:stock_runner_generated_registrant",
+        "//stock_runner:stock_runner_linux",
+    ],
+)
+
+build_test(
+    name = "linux_x64_debug_test",
+    targets = [":linux_x64_debug"],
 )
 
 # The workspace's lint ruleset, bundled with the pub package whose YAML its
