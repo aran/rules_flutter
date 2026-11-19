@@ -2023,6 +2023,7 @@ bzl_library(
         ":engine_labels",
         ":engine_out_dirs",
         ":failing_targets",
+        ":flutter_sky_engine_repo",
         ":out_dir_desktop",
         ":out_dir_mobile",
         ":out_dir_web",

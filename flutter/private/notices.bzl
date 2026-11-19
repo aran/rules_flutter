@@ -29,7 +29,7 @@ NOTICES_ATTRS = {
         allow_single_file = True,
     ),
     "_engine_license": attr.label(
-        default = Label("@flutter_sky_engine//sky_engine:LICENSE"),
+        default = Label("@flutter_sky_engine//:LICENSE"),
         allow_single_file = True,
     ),
 }

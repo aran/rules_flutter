@@ -105,6 +105,13 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
    that links the library instead, or have the rule that provides it return
    rules_dart's `DartLinkInputsInfo` (empty `inputs` for a library linked
    outside the build). See [dSYMs on iOS and macOS](#build-modes).
+10. Engine sources: the `sky_engine` package is the selected SDK's engine's,
+    for analysis and `NOTICES` alike. An engine source of your own must give
+    `//sky_engine:sky_engine`, a `dart_library` of the package with
+    `package_name = "sky_engine"`, and `//sky_engine:LICENSE`, beside its
+    `//sky_engine:pubspec.yaml` (see
+    [Writing an engine source](#writing-an-engine-source)). `flutter_local_engine`
+    and `flutter.checkout` give them.
 
 ## Road to 1.0
 
@@ -3209,6 +3216,8 @@ An engine source has a `flutter_engine.json` at its root, and a target, called a
 | `//host/<host>:tools` | `flutter_host_tools` (`FlutterHostToolsInfo`) | Every build whose actions run on `<host>` |
 | `//kernel/debug:platform` | `flutter_platform_kernel` (`FlutterPlatformKernelInfo`) | Debug and profile Dart compiles |
 | `//kernel/release:platform` | `flutter_platform_kernel` | Release Dart compiles |
+| `//sky_engine:sky_engine` | `dart_library` of the engine's `sky_engine` package, with `package_name = "sky_engine"`: its `lib/` holds Flutter's `dart:` libraries as sources, and `lib/_embedder.yaml` | Analysis: it is how the analyzer resolves `dart:ui` |
+| `//sky_engine:LICENSE` | A file: the engine's licences | `NOTICES`, which lists them as `sky_engine`'s |
 | `//sky_engine:pubspec.yaml` | A file: the `pubspec.yaml` of the engine's `sky_engine` package, with the rest of the package beside it | Resolving `pubspec.lock` against a framework source (`@rules_flutter//flutter/pub`) |
 | `//outline_tool:outline_tool` | The outline tool, for example an `alias` to the `:outline_tool` of a rules_dart `dart_kernel_source(path = ...)` of the engine's Dart | Builds with `--@rules_dart//dart:outline_kernel`, the default |
 | `//macos/<mode>:engine` | `flutter_macos_engine_slice` (`FlutterEngineInfo`) | macOS apps |

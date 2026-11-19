@@ -7,7 +7,8 @@ links what each slice of the engine contract needs out of `<engine/src>/out`.
 load("@rules_dart//dart:repositories.bzl", "fetch_dart_kernel_source")
 load("//flutter/private:engine_labels.bzl", "contract_slices", "native_target")
 load("//flutter/private:engine_out_dirs.bzl", "dict_text", "effective_cpu", "first_existing", "link_files_into", "link_into", "machine_of", "out_dir_provenance", "parse_args_gn", "parse_out_dir_name", "select_out_dir")
-load("//flutter/private:failing_targets.bzl", "failing_targets")
+load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets")
+load("//flutter/private:flutter_sky_engine_repo.bzl", "SKY_ENGINE_PACKAGE_BUILD")
 load("//flutter/private:out_dir_desktop.bzl", "desktop_slices")
 load("//flutter/private:out_dir_mobile.bzl", "mobile_slices")
 load("//flutter/private:out_dir_web.bzl", "web_slices")
@@ -95,6 +96,7 @@ def read_engine_out_dirs(repository_ctx, engine_src, named, unset, engines_env):
     default_reason = ""
     root_exports = ""
     root_build = ""
+    sky_engine_found = False
 
     machine = machine_of(repository_ctx)
     src = None
@@ -248,10 +250,13 @@ flutter_host_tools(
             # engine: the host build's `gen/dart-pkg/sky_engine`. The framework
             # source's pub tree reads it from here.
             sky_engine = tools.get_child("gen").get_child("dart-pkg").get_child("sky_engine")
+            repository_ctx.watch(sky_engine)
             if sky_engine.exists:
                 repository_ctx.watch_tree(sky_engine)
                 for entry in sky_engine.readdir():
-                    repository_ctx.symlink(entry, "sky_engine/" + entry.basename)
+                    if entry.basename not in ["BUILD", "BUILD.bazel"]:
+                        repository_ctx.symlink(entry, "sky_engine/" + entry.basename)
+                sky_engine_found = True
 
             patched = tools.get_child("flutter_patched_sdk")
             if patched.exists:
@@ -393,10 +398,21 @@ alias(
     repository_ctx.file("flutter_engine.json", json.encode_indent(engine_json) + "\n")
     repository_ctx.file("BUILD.bazel", root_build + root_exports + 'exports_files(["flutter_engine.json"], visibility = ["//visibility:public"])\n')
 
-    # The `sky_engine` package, whether or not an out dir holds it: a
-    # framework source's pub tree names its `pubspec.yaml`, and says what is
-    # missing when the file is not there.
-    repository_ctx.file("sky_engine/BUILD.bazel", 'exports_files(["pubspec.yaml"], visibility = ["//visibility:public"])\n')
+    # The `sky_engine` package, whether or not an out dir holds it. Without
+    # one, its targets fail when a build uses them; a framework source's pub
+    # tree names its `pubspec.yaml`, and says what is missing when the file is
+    # not there.
+    if sky_engine_found:
+        repository_ctx.file("sky_engine/BUILD.bazel", SKY_ENGINE_PACKAGE_BUILD)
+    else:
+        repository_ctx.file("sky_engine/BUILD.bazel", (
+            'exports_files(["pubspec.yaml"], visibility = ["//visibility:public"])\n' +
+            FAILING_TARGETS_LOAD +
+            failing_targets(["sky_engine", "LICENSE"], default_reason or (
+                "The engine out dirs under {} have no `sky_engine` package: the host debug out dir " +
+                "holds it at gen/dart-pkg/sky_engine once built."
+            ).format(out_root))
+        ))
     for package, targets in contract_slices().items():
         content = _ENGINE_LOAD
         for target in targets:

@@ -170,7 +170,7 @@ def _windows_checkout(rctx, path, link, meta):
             link(engine.get_child("gen_snapshot.exe"), out + "gen_snapshot/gen_snapshot.exe")
 
     debug = _OUT + "host_debug/"
-    link(dev_root.get_child("bin").get_child("cache").get_child("pkg").get_child("sky_engine"), debug + "gen/dart-pkg/sky_engine")
+    link(path("@flutter_stock_sky_engine//sky_engine:pubspec.yaml").dirname, debug + "gen/dart-pkg/sky_engine")
     link(dart_sdk, "checkout/engine/src/flutter/prebuilts/windows-x64/dart-sdk")
     for name in ["flutter_tester.exe", "icudtl.dat", "impellerc.exe", "shader_lib"]:
         link(host_tools.get_child(name), debug + name)
@@ -242,7 +242,7 @@ def _fake_checkout_impl(rctx):
     link(dart_sdk, debug + "dart-sdk")
     for name in ["flutter_tester", "icudtl.dat", "impellerc", "shader_lib"]:
         link(host_tools.get_child(name), debug + name)
-    link(dev_root.get_child("bin").get_child("cache").get_child("pkg").get_child("sky_engine"), debug + "gen/dart-pkg/sky_engine")
+    link(path("@flutter_stock_sky_engine//sky_engine:pubspec.yaml").dirname, debug + "gen/dart-pkg/sky_engine")
     link(font_tools.get_child("font-subset"), debug + "font-subset")
     for name in ["vm_isolate_snapshot.bin", "isolate_snapshot.bin"]:
         link(host_tools.get_child(name), debug + "gen/flutter/lib/snapshot/" + name)

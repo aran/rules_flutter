@@ -32,7 +32,7 @@ load("//flutter/private:engine_labels.bzl", "android_arches")
 load("//flutter/private:flutter_android_emulator_repo.bzl", "flutter_android_emulator_repo", "flutter_android_system_image_repo")
 load("//flutter/private:flutter_chrome_for_testing.bzl", "flutter_chrome_for_testing")
 load("//flutter/private:flutter_dev_root_repo.bzl", "flutter_dev_root_repo")
-load("//flutter/private:flutter_face_repo.bzl", "IOS_ENGINE_EXTRA", "IOS_ENGINE_TARGETS", "MACOS_ENGINE_EXTRA", "MACOS_ENGINE_TARGETS", "WEB_SDK_TARGETS", "android_engine_face_extra", "flutter_face_repo")
+load("//flutter/private:flutter_face_repo.bzl", "IOS_ENGINE_EXTRA", "IOS_ENGINE_TARGETS", "MACOS_ENGINE_EXTRA", "MACOS_ENGINE_TARGETS", "SKY_ENGINE_TARGETS", "WEB_SDK_TARGETS", "android_engine_face_extra", "flutter_face_repo")
 load("//flutter/private:flutter_linux_runtime_repo.bzl", "flutter_linux_runtime_repo")
 load("//flutter/private:flutter_material_fonts_repo.bzl", "flutter_material_fonts_repo")
 load("//flutter/private:flutter_sdk_toolchains_repo.bzl", "flutter_sdk_toolchains_repo")
@@ -365,7 +365,7 @@ def _toolchain_extension(module_ctx):
             flutter_version = sdk.version or "",
             framework_json = _framework_json(sdk) if sdk.framework else None,
             sky_engine = (
-                sdk.engine + "//sky_engine:pubspec.yaml" if sdk.engine else "@{}_sky_engine//sky_engine:pubspec.yaml".format(name)
+                sdk.engine + "//sky_engine:pubspec.yaml" if sdk.engine else "@{}_stock_sky_engine//sky_engine:pubspec.yaml".format(name)
             ) if sdk.framework else None,
             engine_json = sdk.engine + "//:flutter_engine.json" if sdk.engine else None,
             sha256 = flutter_source_sha256(sdk.version) if released else "",
@@ -403,6 +403,11 @@ def _toolchain_extension(module_ctx):
         name = "flutter_web_sdk",
         sdks = engine_prefixes,
         targets = WEB_SDK_TARGETS,
+    )
+    flutter_face_repo(
+        name = "flutter_sky_engine",
+        sdks = engine_prefixes,
+        targets = SKY_ENGINE_TARGETS,
     )
     for arch in android_arches():
         flutter_face_repo(

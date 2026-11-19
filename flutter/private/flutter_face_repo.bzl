@@ -113,6 +113,14 @@ WEB_SDK_TARGETS = {
     "dart-sdk/lib/dev_compiler/web/dart_stack_trace_mapper.js": "{prefix}//web:dart_stack_trace_mapper.js",
 }
 
+# The `sky_engine` package of the selected SDK's engine: the package the
+# analyzer reads `dart:ui` from, and the `LICENSE` `NOTICES` lists the
+# engine's licences from.
+SKY_ENGINE_TARGETS = {
+    "sky_engine": "{prefix}//sky_engine:sky_engine",
+    "LICENSE": "{prefix}//sky_engine:LICENSE",
+}
+
 # The iOS engine of each build mode. `Flutter_xcframework` is what rules_apple
 # imports as Flutter.xcframework, so it follows the mode itself: the simulator
 # engine under `-c dbg`, the device engines otherwise.

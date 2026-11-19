@@ -126,6 +126,7 @@ use_repo(
     "flutter_stock_engine",
     "flutter_stock_ios_engine",
     "flutter_stock_ios_engine_debug",
+    "flutter_stock_sky_engine",
     "flutter_stock_web_sdk",
     "flutter_web_sdk",
     "flutter_windows-x64",

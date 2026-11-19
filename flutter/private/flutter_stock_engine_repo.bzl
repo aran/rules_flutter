@@ -231,6 +231,15 @@ flutter_web_sdk(
 )
 """.format(provenance = _dict(provenance))
 
+def _sky_engine(name):
+    """The `sky_engine` package: aliases into the release's `sky_engine.zip` repository."""
+    return "".join(["""alias(
+    name = "{target}",
+    actual = "@{name}_stock_sky_engine//sky_engine:{target}",
+    visibility = ["//visibility:public"],
+)
+""".format(name = name, target = target) for target in ["sky_engine", "LICENSE"]])
+
 def stock_engine_packages(name, provenance):
     """The packages of the stock engine source: each BUILD file's slice targets.
 
@@ -304,6 +313,7 @@ def stock_engine_packages(name, provenance):
         add("macos/" + mode, _macos_xcframework("{}_macos_xcframework_{}".format(name, mode), mode, provenance))
 
     add("web", _web_sdk(name, provenance))
+    add("sky_engine", _sky_engine(name))
 
     # The mobile engines. Only the iOS engine of the device and the simulator
     # is one repository for all hosts.

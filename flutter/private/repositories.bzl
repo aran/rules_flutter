@@ -248,12 +248,12 @@ def flutter_register_toolchains(name, flutter_version, host, framework_json = ""
         dart_sdk_sha256s = {h: checksums.get(dart_sdk_artifact_path(h), "") for h in HOST_PLATFORMS},
     )
 
-    # sky_engine (lazy — only fetched when Flutter code is analyzed). Nothing
-    # in a build references it: the compiler gets Flutter's `dart:` libraries
-    # as kernel out of the patched SDK, and only the analyzer needs them as
-    # sources.
+    # sky_engine (lazy — only fetched when Flutter code is analyzed, or its
+    # licences listed). The compiler gets Flutter's `dart:` libraries as
+    # kernel out of the patched SDK, and only the analyzer needs them as
+    # sources. The stock engine's `//sky_engine` is aliases into it.
     flutter_sky_engine_repo(
-        name = name + "_sky_engine",
+        name = name + "_stock_sky_engine",
         engine_revision = meta.engine_revision,
         sha256 = checksums.get("sky_engine.zip", ""),
     )

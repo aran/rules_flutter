@@ -43,6 +43,8 @@
 /// 13. A release's framework over the checkout's engine (`flutter.custom_engine`)
 ///     builds the macOS app from the checkout's out dirs and records the
 ///     release's framework; pub resolves against the release's packages.
+/// 14. The analyzer's `sky_engine` and the licences `NOTICES` lists are the
+///     selected SDK's engine's.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -161,6 +163,18 @@ Future<String> _fakeCheckoutDir(String file) async {
   return p.dirname(
     '${location.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
   );
+}
+
+/// The path of the one file [label] gives under [sdk].
+Future<String> _fileOf(String label, String sdk) async {
+  final files = await _bazel([
+    'cquery',
+    label,
+    '$_sdkFlag$sdk',
+    '--output=files',
+  ]);
+  expect(files.exitCode, 0, reason: '${files.stderr}');
+  return '${files.stdout}'.trim();
 }
 
 /// The names of the out dirs [record] says its engine pieces came from.
@@ -889,5 +903,32 @@ void main() {
         'which is no out dir',
       ),
     );
+  });
+
+  test('the analyzer and NOTICES read the selected SDK\'s sky_engine', () async {
+    // The `sky_engine` package's `lib/_embedder.yaml` is how the analyzer
+    // resolves `dart:ui`, and its `LICENSE` the engine's licences.
+    const face = '@@rules_flutter++flutter+flutter_sky_engine';
+    expect(
+      await _fileOf('$face//:LICENSE', 'local'),
+      contains('$_localEngineRepo/sky_engine/LICENSE'),
+    );
+    expect(
+      await _fileOf('$face//:LICENSE', 'flutter'),
+      contains('flutter_stock_sky_engine/sky_engine/LICENSE'),
+    );
+    for (final (sdk, repo) in [
+      ('local', _localEngineRepo),
+      ('flutter', 'flutter_stock_engine'),
+    ]) {
+      final package = await _bazel([
+        'cquery',
+        'deps($face//:sky_engine, 1)',
+        '$_sdkFlag$sdk',
+        '--output=label',
+      ]);
+      expect(package.exitCode, 0, reason: '${package.stderr}');
+      expect('${package.stdout}', contains('$repo//sky_engine:sky_engine'));
+    }
   });
 }
