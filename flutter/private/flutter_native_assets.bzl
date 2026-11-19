@@ -353,7 +353,8 @@ def bundled_library_debug_info(application):
 
     Its `native_libraries` and every code-asset candidate's library (see
     `candidate_code_asset_libraries`). A library whose link made its dSYM
-    (rustc's, of a `rust_shared_library`) has that dSYM; any other has what
+    (rustc's, of a `rust_shared_library`), or whose code asset's target
+    states one (`DartCodeAssetInfo.dsym`), has that dSYM; any other has what
     it was linked from, which `dsymutil` reads the dSYM out of. A library with
     neither fails the build, saying why: its dSYM would silently lack the
     lines of whatever it was linked from.
@@ -382,6 +383,13 @@ def bundled_library_debug_info(application):
         link_inputs[record.library] = [record.link_inputs]
     for asset in code_asset_candidates(app_info.program_assets):
         if asset.link_mode != "dynamic_loading_bundle" or asset.file == None or asset.file in dsyms:
+            continue
+
+        # The dSYM the library's link made, or one its target states
+        # (`DartDsymInfo`), is its dSYM as it is.
+        if asset.dsym != None:
+            dsyms[asset.file] = asset.dsym
+            link_inputs.pop(asset.file, None)
             continue
 
         # rules_dart gives None when the build cannot see the link, and says
