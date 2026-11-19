@@ -66,5 +66,8 @@ void main() {
       expect(profile, isNot('/not/on/the/host'));
       expect(Directory(profile).existsSync(), isFalse, reason: 'not removed');
     },
+    // The script is for the host's shell, which the machine sending it need
+    // not have: here it runs in this one's, and Windows has none.
+    testOn: '!windows',
   );
 }
