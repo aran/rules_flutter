@@ -31,6 +31,7 @@ import 'package:logging/logging.dart';
 
 import 'dev_tool_exception.dart';
 import 'machine_protocol.dart';
+import 'process_cpu_time.dart';
 import 'teardown.dart';
 
 /// Starts `dart tooling-daemon`. [workingDirectory] is recorded by DTD as its
@@ -80,6 +81,7 @@ class ToolingDaemon {
     ToolingDaemonSpawn spawn = _spawn,
     ConnectedAppConnector connect = _connect,
     Duration timeout = const Duration(seconds: 30),
+    CpuTimeReader cpuTime = readProcessCpuTime,
   }) async {
     final process = await spawn(dartExecutable, const [
       'tooling-daemon',
@@ -115,12 +117,24 @@ class ToolingDaemon {
         (code) => fail('exited with $code before saying where it listens'),
       ),
     );
-    final timer = Timer(
-      timeout,
-      () => fail(
-        'did not say where it listens within ${timeout.inSeconds}s',
-      ),
-    );
+    // The CPU time it used goes in the message: what tells a daemon that was
+    // working, slowly, from one waiting on something.
+    final timer = Timer(timeout, () async {
+      if (details.isCompleted) return;
+      String used;
+      try {
+        final cpu = await cpuTime(process.pid);
+        used = ', using ${cpu.inMilliseconds}ms of CPU';
+      } on ProcessCpuTimeException catch (e) {
+        used = ' (its CPU time could not be read: ${e.message})';
+      } catch (e) {
+        // Any other failure too: this runs in a timer, where an error that
+        // escapes is unhandled and ends the tool, and the timeout it reports
+        // matters more than the figure.
+        used = ' (its CPU time could not be read: $e)';
+      }
+      fail('did not say where it listens within ${timeout.inSeconds}s$used');
+    });
 
     final ({Uri uri, String secret}) found;
     try {

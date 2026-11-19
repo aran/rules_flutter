@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
 import 'package:flutter_bazel_dev_tool/machine_protocol.dart';
+import 'package:flutter_bazel_dev_tool/process_cpu_time.dart';
 import 'package:flutter_bazel_dev_tool/teardown.dart';
 import 'package:flutter_bazel_dev_tool/tooling_daemon.dart';
 import 'package:logging/logging.dart';
@@ -63,6 +64,10 @@ class FakeDaemonHost {
     return registry;
   }
 
+  /// What the daemon's CPU time reads as, by pid.
+  Future<Duration> Function(int pid) cpuTime = (_) async =>
+      const Duration(milliseconds: 40);
+
   Future<ToolingDaemon> start({
     Duration timeout = const Duration(seconds: 5),
   }) => ToolingDaemon.start(
@@ -71,6 +76,7 @@ class FakeDaemonHost {
     spawn: spawn,
     connect: connect,
     timeout: timeout,
+    cpuTime: cpuTime,
   );
 }
 
@@ -148,12 +154,69 @@ void main() {
           isA<DevToolException>().having(
             (e) => e.message,
             'message',
-            contains('did not say where it listens'),
+            allOf(
+              contains('did not say where it listens'),
+              contains('using 40ms of CPU'),
+            ),
           ),
         ),
       );
       expect(host.process.killed, isTrue);
     });
+
+    test(
+      'times out with what it can say when its CPU time cannot be read',
+      () async {
+        final host = FakeDaemonHost()
+          ..cpuTime = ((_) async =>
+              throw ProcessCpuTimeException('no such pid'));
+        final started = host.start(timeout: const Duration(milliseconds: 50));
+        await host.process.outputAttached;
+
+        await expectLater(
+          started,
+          throwsA(
+            isA<DevToolException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('did not say where it listens'),
+                contains('its CPU time could not be read: no such pid'),
+              ),
+            ),
+          ),
+        );
+        expect(host.process.killed, isTrue);
+      },
+    );
+
+    // The read runs in a timer, where an error that escapes is unhandled and
+    // ends the tool. `ps` failing to start is not a ProcessCpuTimeException.
+    test(
+      'times out the same way whatever reading its CPU time throws',
+      () async {
+        final host = FakeDaemonHost()
+          ..cpuTime = ((_) async =>
+              throw const ProcessException('ps', [], 'not found', 2));
+        final started = host.start(timeout: const Duration(milliseconds: 50));
+        await host.process.outputAttached;
+
+        await expectLater(
+          started,
+          throwsA(
+            isA<DevToolException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('did not say where it listens'),
+                contains('its CPU time could not be read'),
+              ),
+            ),
+          ),
+        );
+        expect(host.process.killed, isTrue);
+      },
+    );
 
     test('stops DTD when it cannot be connected to', () async {
       final host = FakeDaemonHost();
