@@ -8,6 +8,9 @@
 ///   workspaces testing different code. A patch name found in only one
 ///   workspace is not a copy and is not checked.
 /// * the files listed in `mirrored.bzl`, and `.bazelversion`.
+/// * the `--incompatible_*` flags of the `.bazelrc`, which the root and every
+///   workspace set alike: the rules are tested under the same Bazel defaults
+///   everywhere. The rest of a `.bazelrc` differs by workspace.
 library;
 
 import 'dart:io';
@@ -15,7 +18,34 @@ import 'dart:io';
 import 'package:runfiles/runfiles.dart';
 import 'package:test/test.dart';
 
+/// The `--incompatible_*` options of [bazelrc], one per line as written
+/// (`common --incompatible_x`), sorted: the order they come in is no copy.
+List<String> incompatibleFlags(String bazelrc) => [
+  for (final line in bazelrc.split('\n'))
+    if (RegExp(r'^\s*\S+\s+--(no)?incompatible_\w+').hasMatch(line))
+      line.trim().replaceAll(RegExp(r'\s+'), ' '),
+]..sort();
+
 void main() {
+  group('incompatibleFlags', () {
+    test('takes the incompatible options, whatever their order or spacing', () {
+      expect(
+        incompatibleFlags(
+          '# common --incompatible_comment\n'
+          'common   --incompatible_b\n'
+          'build:ci --noincompatible_c=false\n'
+          'common --other=incompatible_d\n'
+          'common --incompatible_a\n',
+        ),
+        [
+          'build:ci --noincompatible_c=false',
+          'common --incompatible_a',
+          'common --incompatible_b',
+        ],
+      );
+    });
+  });
+
   final runfiles = Runfiles.create(
     sourceRepository: Platform.environment['RUNFILES_SOURCE_REPO'] ?? '',
   );
@@ -88,4 +118,36 @@ void main() {
     ];
     expect(drifted, isEmpty, reason: drifted.join('\n'));
   });
+
+  test('the incompatible flags are the same in every .bazelrc', () {
+    final paths = lines('bazelrcs.txt');
+    expect(paths, contains('.bazelrc'));
+    expect(paths.length, greaterThan(1), reason: 'no e2e .bazelrc was found');
+
+    final root = incompatibleFlags(read('bazelrc/.bazelrc'));
+    expect(root, isNotEmpty, reason: 'the root .bazelrc sets none');
+    final drifted = [
+      for (final path in paths)
+        if (incompatibleFlags(read('bazelrc/$path')).join('\n') !=
+            root.join('\n'))
+          '$path: ${_difference(root, incompatibleFlags(read('bazelrc/$path')))}',
+    ];
+    expect(
+      drifted,
+      isEmpty,
+      reason:
+          'the --incompatible_* flags of each e2e .bazelrc must be the root '
+          '.bazelrc\'s; change them together:\n${drifted.join('\n')}',
+    );
+  });
+}
+
+/// What [other] lacks of [root] and what it adds, for the message.
+String _difference(List<String> root, List<String> other) {
+  final missing = root.where((f) => !other.contains(f));
+  final extra = other.where((f) => !root.contains(f));
+  return [
+    for (final f in missing) 'lacks `$f`',
+    for (final f in extra) 'adds `$f`',
+  ].join(', ');
 }

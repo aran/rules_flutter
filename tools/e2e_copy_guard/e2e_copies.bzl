@@ -8,7 +8,10 @@ two kinds of file into a repo, for `//tools/e2e_copy_guard:copies_identical_test
   per line in `index.txt`;
 * the files of each group in `MIRRORED` (`mirrored.bzl`), as `mirrored/<path>`, listed as
   `<group>\\t<path>` in `mirrored.txt`, and the `.bazelversion` of the root and
-  of every e2e workspace (a directory with a `MODULE.bazel`), as one more group.
+  of every e2e workspace (a directory with a `MODULE.bazel`), as one more group;
+* the `.bazelrc` of the root and of every e2e workspace, as `bazelrc/<path>`,
+  listed in `bazelrcs.txt`. A `.bazelrc` is not a copy as a whole, but the
+  `--incompatible_*` flags in it are, and the test compares those.
 """
 
 load(":mirrored.bzl", "MIRRORED")
@@ -73,17 +76,27 @@ def _impl(rctx):
             mirrored.append("%s\t%s" % (group, path))
     rctx.file("mirrored.txt", "\n".join(mirrored) + "\n")
 
+    bazelrcs = []
+    for path in [".bazelrc"] + ["%s/.bazelrc" % workspace for workspace in _workspaces(root, "e2e")]:
+        source = root.get_child(path)
+        if not source.exists:
+            fail("%s does not exist: the root and every e2e workspace has a .bazelrc" % path)
+        rctx.watch(source)
+        rctx.symlink(source, "bazelrc/" + path)
+        bazelrcs.append(path)
+    rctx.file("bazelrcs.txt", "\n".join(bazelrcs) + "\n")
+
     rctx.file("BUILD.bazel", """\
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
     name = "copies",
-    srcs = glob(["*/*.patch", "mirrored/**"]) + ["index.txt", "mirrored.txt"],
+    srcs = glob(["*/*.patch", "mirrored/**", "bazelrc/**"]) + ["index.txt", "mirrored.txt", "bazelrcs.txt"],
 )
 """)
 
 e2e_copies = repository_rule(
     implementation = _impl,
     local = True,
-    doc = "Links `e2e/*/patches/*.patch` and the files of each `MIRRORED` group into a repo, with indexes listing them.",
+    doc = "Links `e2e/*/patches/*.patch`, the files of each `MIRRORED` group and the `.bazelrc` files into a repo, with indexes listing them.",
 )

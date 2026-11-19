@@ -1059,7 +1059,9 @@ fourth thing to do when none applies.
   `//tools/e2e_copy_guard:copies_identical_test` fails when copies differ. A new
   patch is covered by its name; any other file goes into
   `tools/e2e_copy_guard/mirrored.bzl`. `.bazelversion` is checked against the
-  root's automatically, for every workspace.
+  root's automatically, for every workspace, and so are the `--incompatible_*`
+  flags of each `.bazelrc`: change them in the root and every e2e `.bazelrc`
+  together.
 
 ### What CI covers
 
