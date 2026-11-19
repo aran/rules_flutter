@@ -45,6 +45,10 @@
 ///     release's framework; pub resolves against the release's packages.
 /// 14. The analyzer's `sky_engine` and the licences `NOTICES` lists are the
 ///     selected SDK's engine's.
+/// 15. Every repository of the `flutter` and `pub` extensions that reads an
+///     SDK's sources fetches, with the checkouts unset and with a checkout
+///     whose engine is not built: only a build that uses such an SDK fails. A
+///     checkout's version is the one flutter_tools tells from its tags.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -175,6 +179,101 @@ Future<String> _fileOf(String label, String sdk) async {
   ]);
   expect(files.exitCode, 0, reason: '${files.stderr}');
   return '${files.stdout}'.trim();
+}
+
+/// The rules whose repositories only download pinned artifacts: their fetch
+/// fails only for the network or a checksum, never for what an SDK's
+/// sources hold, so the fetch case leaves them out.
+const _downloads = {
+  'dart_sdk_source_tool',
+  'dart_source_packages',
+  'flutter_archive_repo',
+  'flutter_linux_runtime_repo',
+  'flutter_source_files',
+  'flutter_stock_engine_repo',
+  'pub_archive_files',
+};
+
+/// The canonical names of the repositories of the `flutter` and `pub`
+/// extensions, but for those of the rules in [_downloads].
+Future<List<String>> _sourceReadingRepos() async {
+  const extensions = {
+    '@rules_flutter//flutter:extensions.bzl%flutter': 'rules_flutter++flutter+',
+    '@rules_flutter//flutter/pub:extensions.bzl%pub': 'rules_flutter++pub+',
+  };
+  final repos = <String>[];
+  for (final MapEntry(key: extension, value: prefix) in extensions.entries) {
+    final shown = await _bazel(['mod', 'show_extension', extension]);
+    expect(shown.exitCode, 0, reason: '${shown.stderr}');
+    final listed = '${shown.stdout}'
+        .split('Fetched repositories:')
+        .last
+        .split('\n## ')
+        .first;
+    repos.addAll(
+      RegExp(
+        r'^  - (\S+)',
+        multiLine: true,
+      ).allMatches(listed).map((m) => '$prefix${m[1]}'),
+    );
+  }
+  final shown = await _bazel([
+    'mod',
+    'show_repo',
+    for (final repo in repos) '@@$repo',
+  ]);
+  expect(shown.exitCode, 0, reason: '${shown.stderr}');
+  final kept = <String>[];
+  for (final block
+      in '${shown.stdout}'.split(RegExp(r'^## @@', multiLine: true)).skip(1)) {
+    final name = block.substring(0, block.indexOf(':'));
+    final rule = RegExp(r'^(\w+)\($', multiLine: true).firstMatch(block)![1]!;
+    if (!_downloads.contains(rule)) kept.add(name);
+  }
+  return kept;
+}
+
+/// A flutter/flutter checkout whose engine is not built: its framework,
+/// one commit past the release's tag, and an empty `engine/src/out`.
+Future<String> _unbuiltCheckout() async {
+  final framework = await _fakeCheckoutDir('checkout/CHECKOUT');
+  final dir = Directory.systemTemp.createTempSync('unbuilt_checkout');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  Link(p.join(dir.path, 'packages')).createSync(p.join(framework, 'packages'));
+  File(p.join(dir.path, 'bin', 'internal', 'material_fonts.version'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(
+      File(
+        p.join(framework, 'bin', 'internal', 'material_fonts.version'),
+      ).readAsStringSync(),
+    );
+  Directory(p.join(dir.path, 'engine', 'src', 'out'))
+      .createSync(recursive: true);
+  // Without the machine's git configuration: the commits are the test's.
+  const environment = {
+    'GIT_CONFIG_GLOBAL': '/dev/null',
+    'GIT_CONFIG_NOSYSTEM': '1',
+    'GIT_CONFIG_COUNT': '0',
+    'GIT_AUTHOR_NAME': 'test',
+    'GIT_AUTHOR_EMAIL': 'test@example.com',
+    'GIT_COMMITTER_NAME': 'test',
+    'GIT_COMMITTER_EMAIL': 'test@example.com',
+  };
+  for (final args in [
+    ['init', '--quiet', '--initial-branch=main'],
+    ['add', '--all'],
+    ['commit', '--quiet', '--message=release'],
+    ['tag', '3.50.0'],
+    ['commit', '--quiet', '--allow-empty', '--message=past the release'],
+  ]) {
+    final git = await Process.run(
+      'git',
+      ['-C', dir.path, ...args],
+      environment: environment,
+    );
+    expect(git.exitCode, 0, reason: 'git $args: ${git.stderr}');
+  }
+  return dir.path;
 }
 
 /// The names of the out dirs [record] says its engine pieces came from.
@@ -905,30 +1004,77 @@ void main() {
     );
   });
 
-  test('the analyzer and NOTICES read the selected SDK\'s sky_engine', () async {
-    // The `sky_engine` package's `lib/_embedder.yaml` is how the analyzer
-    // resolves `dart:ui`, and its `LICENSE` the engine's licences.
-    const face = '@@rules_flutter++flutter+flutter_sky_engine';
-    expect(
-      await _fileOf('$face//:LICENSE', 'local'),
-      contains('$_localEngineRepo/sky_engine/LICENSE'),
-    );
-    expect(
-      await _fileOf('$face//:LICENSE', 'flutter'),
-      contains('flutter_stock_sky_engine/sky_engine/LICENSE'),
-    );
-    for (final (sdk, repo) in [
-      ('local', _localEngineRepo),
-      ('flutter', 'flutter_stock_engine'),
-    ]) {
-      final package = await _bazel([
-        'cquery',
-        'deps($face//:sky_engine, 1)',
-        '$_sdkFlag$sdk',
-        '--output=label',
+  test(
+    'the analyzer and NOTICES read the selected SDK\'s sky_engine',
+    () async {
+      // The `sky_engine` package's `lib/_embedder.yaml` is how the analyzer
+      // resolves `dart:ui`, and its `LICENSE` the engine's licences.
+      const face = '@@rules_flutter++flutter+flutter_sky_engine';
+      expect(
+        await _fileOf('$face//:LICENSE', 'local'),
+        contains('$_localEngineRepo/sky_engine/LICENSE'),
+      );
+      expect(
+        await _fileOf('$face//:LICENSE', 'flutter'),
+        contains('flutter_stock_sky_engine/sky_engine/LICENSE'),
+      );
+      for (final (sdk, repo) in [
+        ('local', _localEngineRepo),
+        ('flutter', 'flutter_stock_engine'),
+      ]) {
+        final package = await _bazel([
+          'cquery',
+          'deps($face//:sky_engine, 1)',
+          '$_sdkFlag$sdk',
+          '--output=label',
+        ]);
+        expect(package.exitCode, 0, reason: '${package.stderr}');
+        expect('${package.stdout}', contains('$repo//sky_engine:sky_engine'));
+      }
+    },
+  );
+
+  test(
+    'every repository that reads an SDK\'s sources fetches, with the '
+    'checkouts unset or their engine unbuilt',
+    () async {
+      final repos = await _sourceReadingRepos();
+      expect(
+        repos,
+        contains('rules_flutter++flutter+env_checkout_dev_root_src'),
+      );
+      expect(repos, contains('rules_flutter++pub+flutter_pub_android_maven'));
+      final fetchAll = ['fetch', for (final repo in repos) '--repo=@@$repo'];
+
+      final unset = await _bazel(fetchAll);
+      expect(unset.exitCode, 0, reason: '${unset.stderr}');
+
+      final checkout = await _unbuiltCheckout();
+      final unbuilt = await _bazel([
+        ...fetchAll,
+        '--repo_env=FLUTTER_CHECKOUT=$checkout',
+        '--repo_env=FLUTTER_ENGINE=$checkout/engine/src',
       ]);
-      expect(package.exitCode, 0, reason: '${package.stderr}');
-      expect('${package.stdout}', contains('$repo//sky_engine:sky_engine'));
-    }
-  });
+      expect(unbuilt.exitCode, 0, reason: '${unbuilt.stderr}');
+
+      // The version flutter_tools tells, one commit past the tag, and the
+      // checkout's branch.
+      final record = await _bazel([
+        'query',
+        '@@rules_flutter++flutter+env_checkout_checkout_framework//:flutter_framework.json',
+        '--output=location',
+        '--repo_env=FLUTTER_CHECKOUT=$checkout',
+        '--repo_env=FLUTTER_ENGINE=$checkout/engine/src',
+      ]);
+      expect(record.exitCode, 0, reason: '${record.stderr}');
+      final framework = jsonDecode(
+        File(
+          '${record.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+        ).readAsStringSync(),
+      ) as Map<String, Object?>;
+      expect(framework['version'], '3.50.1-0.0.pre-1');
+      expect(framework['channel'], 'main');
+      expect(framework['repository_url'], isNull);
+    },
+  );
 }
