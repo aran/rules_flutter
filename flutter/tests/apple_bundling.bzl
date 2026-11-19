@@ -20,11 +20,13 @@ def _fake_application_impl(ctx):
     of one library arriving by both routes. `code_assets` ship, each as the
     asset `package:fake/<path>`; `dropped_code_assets` are code assets of a
     package `pick` whose link hook dropped them, and `data_assets` data assets
-    that ship. Each library was linked from one object, `<path>.o`.
+    that ship. Each library was linked from one object, `<path>.o`, but those
+    of `gone_code_assets`, code assets that ship whose objects their link
+    deleted, as rustc's.
     """
     libs = {}
     objects = {}
-    for path in ctx.attr.native_libs + ctx.attr.code_assets + ctx.attr.dropped_code_assets + ctx.attr.data_assets:
+    for path in ctx.attr.native_libs + ctx.attr.code_assets + ctx.attr.gone_code_assets + ctx.attr.dropped_code_assets + ctx.attr.data_assets:
         if path not in libs:
             lib = ctx.actions.declare_file("%s/%s" % (ctx.label.name, path))
             ctx.actions.write(lib, "%s %s" % (ctx.label, path))
@@ -32,13 +34,15 @@ def _fake_application_impl(ctx):
             objects[path] = ctx.actions.declare_file("%s/%s.o" % (ctx.label.name, path))
             ctx.actions.write(objects[path], "%s %s" % (ctx.label, path))
 
-    def code_asset(package, path):
+    def code_asset(package, path, gone = False):
         return DartCodeAssetInfo(
             asset_id = "package:%s/%s" % (package, path),
             link_mode = "dynamic_loading_bundle",
             file = libs[path],
             uri = "",
-            link_inputs = depset([objects[path]]),
+            link_inputs = None if gone else depset([objects[path]]),
+            link_inputs_unset_reason = "its objects were deleted" if gone else None,
+            link_inputs_gone = gone,
         )
 
     link_outputs = ()
@@ -62,7 +66,10 @@ def _fake_application_impl(ctx):
         ),)
     program_assets = DartProgramAssetsInfo(
         data_assets = {"package:fake/" + path: libs[path] for path in ctx.attr.data_assets},
-        code_assets = {"package:fake/" + path: code_asset("fake", path) for path in ctx.attr.code_assets},
+        code_assets = {"package:fake/" + path: code_asset("fake", path) for path in ctx.attr.code_assets} | {
+            "package:fake/" + path: code_asset("fake", path, gone = True)
+            for path in ctx.attr.gone_code_assets
+        },
         link_outputs = link_outputs,
     )
 
@@ -125,6 +132,7 @@ fake_application = rule(
         "data_assets": attr.string_list(),
         "debug": attr.bool(default = False),
         "dropped_code_assets": attr.string_list(),
+        "gone_code_assets": attr.string_list(),
         "native_libs": attr.string_list(),
         "strip_aot": attr.bool(default = True),
         "_assemble": attr.label(
@@ -204,7 +212,9 @@ def _native_library_symbols_impl(ctx):
     `--apple_generate_dsym`, one action a library strips it and makes its
     dSYM, which the rule hands rules_apple's `dsyms` output group. The dSYM is
     read through the library's debugging map from the files it was linked
-    from, so they are inputs, and the map is kept until it is.
+    from, so they are inputs, and the map is kept until it is. A library of
+    `symbol_table_only`, whose objects are gone, has none, and its dSYM is
+    made from its symbol table alone.
     """
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -214,11 +224,16 @@ def _native_library_symbols_impl(ctx):
         script = "\n".join(action.argv)
         asserts.true(env, "dsymutil" in script, "the dSYM is made: %s" % script)
         asserts.true(env, "strip -x -S" in script, "the library is stripped: %s" % script)
-        asserts.false(env, "strip -S" in script.split("dsymutil")[0], "the debugging map is kept for dsymutil: %s" % script)
         inputs = action.inputs.to_list()
+
+        # The debugging map of a library whose objects are gone names nothing
+        # dsymutil can read, and is stripped before it runs, as a prebuilt
+        # library's is.
+        gone = any([f.basename in ctx.attr.symbol_table_only for f in inputs])
+        asserts.equals(env, gone, "strip -S" in script.split("dsymutil")[0], "the debugging map is kept for dsymutil, unless its objects are gone: %s" % script)
         asserts.equals(
             env,
-            sorted([f.basename + ".o" for f in inputs if f.extension in ("dylib", "so")]),
+            sorted([f.basename + ".o" for f in inputs if f.extension in ("dylib", "so") and f.basename not in ctx.attr.symbol_table_only]),
             sorted([f.basename for f in inputs if f.extension == "o"]),
             "what each library was linked from is an input: %s" % [f.short_path for f in inputs],
         )
@@ -263,6 +278,7 @@ native_library_symbols_test = analysistest.make(
         "expected_candidates": attr.string_list(doc = "`<bundle>.dSYM` of each code asset a link hook chooses among."),
         "expected_dsyms": attr.string_list(doc = "`<bundle>.dSYM/<binary>` of each library."),
         "mnemonic": attr.string(mandatory = True, doc = "The mnemonic of the action that prepares each library."),
+        "symbol_table_only": attr.string_list(doc = "The file names of the libraries whose objects are gone."),
     },
     config_settings = {
         "//command_line_option:apple_generate_dsym": True,

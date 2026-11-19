@@ -127,3 +127,13 @@ filegroup(
     srcs = [":top"],
     tags = ["manual"],
 )
+
+# The Rust library as a code asset, whose objects rules_dart says are gone. The
+# stand-in writes a `.dylib`, which a code asset can be only for an Apple
+# platform, and the host this is analysed for is macOS there.
+dart_code_asset(
+    name = "rust_bridge_code_asset",
+    asset_id = "package:native_sources_fixture/rust_bridge",
+    file = ":rust_bridge_without_dsym",
+    target_compatible_with = ["@platforms//os:macos"],
+)

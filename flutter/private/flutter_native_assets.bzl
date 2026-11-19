@@ -355,9 +355,11 @@ def bundled_library_debug_info(application):
     `candidate_code_asset_libraries`). A library whose link made its dSYM
     (rustc's, of a `rust_shared_library`), or whose code asset's target
     states one (`DartCodeAssetInfo.dsym`), has that dSYM; any other has what
-    it was linked from, which `dsymutil` reads the dSYM out of. A library with
-    neither fails the build, saying why: its dSYM would silently lack the
-    lines of whatever it was linked from.
+    it was linked from, which `dsymutil` reads the dSYM out of. One whose
+    objects are gone (`DartCodeAssetInfo.link_inputs_gone`: rustc's, without
+    its dSYM) has nothing to read, and its dSYM is its symbol table. Any other
+    library with neither fails the build, saying why: its dSYM would silently
+    lack the lines of whatever it was linked from, which the build could see.
 
     Args:
       application: The application Target, with `FlutterApplicationInfo`.
@@ -392,8 +394,15 @@ def bundled_library_debug_info(application):
             link_inputs.pop(asset.file, None)
             continue
 
-        # rules_dart gives None when the build cannot see the link, and says
-        # why.
+        # rules_dart gives None when what the library was linked from is
+        # gone (a `rust_shared_library` without rustc's dSYM, whose objects
+        # the `Rustc` action deleted): its dSYM is its symbol table, as a
+        # prebuilt library's, and as a `native_deps` one's is.
+        if asset.link_inputs == None and asset.link_inputs_gone:
+            link_inputs.setdefault(asset.file, []).append(depset())
+            continue
+
+        # Otherwise None means the build cannot see the link, and says why.
         if asset.link_inputs == None:
             fail("%s bundles %s for the code asset %s, and what it was linked from, which its dSYM is read from, is unknown: %s" % (
                 application.label,

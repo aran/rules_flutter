@@ -66,6 +66,13 @@ def native_link_test_suite(name):
         "rust_with_its_dsym": dict(target = "rust_bridge", dsym = "librust_bridge.dylib.dSYM"),
         # Nothing holds the line tables: the dSYM is the symbol table's.
         "rust_without_a_dsym": dict(target = "rust_bridge_without_dsym", archives = []),
+        # As a code asset, whose objects rules_dart says are gone; macOS only,
+        # as the fixture is.
+        "rust_code_asset_without_a_dsym": dict(
+            target = "rust_bridge_code_asset",
+            archives = [],
+            target_compatible_with = ["@platforms//os:macos"],
+        ),
     }
     for test, kwargs in tests.items():
         _link_test(

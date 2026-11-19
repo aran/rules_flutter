@@ -116,12 +116,21 @@ def _rust_dsym(target):
 
 def _link(target, ctx):
     """What the libraries of `target` were linked from, as `NativeLinkInfo` has it."""
+
+    # What a library was linked from that is gone (`gone`, rustc's deleted
+    # objects) leaves its symbol table to make its dSYM of, as a `Rustc`
+    # action without rustc's dSYM does here.
     if DartLinkInputsInfo in target:
-        return _known(link_inputs = target[DartLinkInputsInfo].inputs)
+        stated = target[DartLinkInputsInfo]
+        return _known(link_inputs = depset() if stated.gone else stated.inputs)
     if DartCodeAssetInfo in target and target[DartCodeAssetInfo].file != None:
         asset = target[DartCodeAssetInfo]
+        if asset.dsym != None:
+            return _known(dsym = asset.dsym)
         if asset.link_inputs != None:
             return _known(link_inputs = asset.link_inputs)
+        if asset.link_inputs_gone:
+            return _known(link_inputs = depset())
         return _unknown(asset.link_inputs_unset_reason)
 
     found = link_of_actions(target.label, target.actions, _rust_dsym(target))

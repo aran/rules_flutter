@@ -136,6 +136,9 @@ def _bundling_tests(name):
         name = name + "_fake_native",
         native_libs = ["libadd.dylib"],
         code_assets = ["assets/libasset.dylib"],
+        # A `rust_shared_library` without rustc's dSYM, as on iOS: its dSYM
+        # is its symbol table's.
+        gone_code_assets = ["assets/librust.dylib"],
         tags = ["manual"],
     )
     flutter_ios_native_frameworks(
@@ -150,9 +153,11 @@ def _bundling_tests(name):
         expected_dsyms = [
             "add.framework.dSYM/add",
             "asset.framework.dSYM/asset",
+            "rust.framework.dSYM/rust",
         ],
         expected_always = ["add.framework.dSYM"],
-        expected_candidates = ["asset.framework.dSYM"],
+        expected_candidates = ["asset.framework.dSYM", "rust.framework.dSYM"],
+        symbol_table_only = ["librust.dylib"],
         target_compatible_with = ["@platforms//os:macos"],
     )
     native_library_untouched_test(
