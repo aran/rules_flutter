@@ -5,8 +5,10 @@
 ///
 ///  1. A pubspec pub refuses (YAML that does not load, a `name` that is not
 ///     the package's, none, a dependency or a constraint of the wrong type)
-///     fails the fetch of the package's repository, naming the package and
-///     saying what pub says. It never yields a build of something else.
+///     leaves the package's repository fetching, so `bazel fetch --all` and
+///     `bazel vendor` work for builds that never use it. A build that uses the
+///     package fails at analysis, naming the package and saying what pub says.
+///     It never yields a build of something else.
 ///  2. The `flutter:` block is read from the document, not from its layout: a
 ///     plugin and the assets written in YAML's flow style reach the package's
 ///     Android library and its files exactly as the block style does.
@@ -65,13 +67,15 @@ void main() {
     });
 
     for (final entry in refused.entries) {
-      test('${entry.key} fails the fetch, naming the package', () async {
-        final result = await ws.loadSpoke(entry.key);
+      test('${entry.key} fetches, and fails its target', () async {
+        final loaded = await ws.loadSpoke(entry.key);
+        expect(loaded.succeeded, isTrue, reason: '$loaded');
+        final result = await ws.analyzeSpoke(entry.key);
         expect(result.succeeded, isFalse, reason: 'built from it:\n$result');
         expect(
-          refusedAtFetch(result),
+          refusedAtAnalysis(result),
           isTrue,
-          reason: 'the failure should be the fetch refusing it:\n$result',
+          reason: 'the failure should be the target refusing it:\n$result',
         );
         expect(
           namesPackage(result.output, entry.key),
@@ -85,6 +89,15 @@ void main() {
         );
       });
     }
+
+    test('fetching every one of them succeeds', () async {
+      final result = await ws.bazel([
+        'fetch',
+        for (final name in refused.keys)
+          '--repo=${PubInputsWorkspace.spoke(name)}',
+      ]);
+      expect(result.succeeded, isTrue, reason: '$result');
+    });
   });
 
   group('a flutter block flutter build refuses', () {

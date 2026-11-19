@@ -2581,11 +2581,16 @@ def _local_package_entries(ctx, directory, problems):
     fetches the repository again. A directory the repository cannot link in
     is added to `problems`, and left out.
     """
-    pubspec = read_pubspec(ctx, ctx.attr.package_name, ctx.attr.version)
-    assets = flutter_assets_block(pubspec.fields)
-    listed = [a.path for a in assets.assets] + [s.path for s in assets.shaders]
-    listed += [font.asset for family in assets.fonts for font in family.fonts]
-    listed += flutter_licenses_block(pubspec.fields)
+    listed = []
+    read = read_pubspec(ctx, ctx.attr.package_name, ctx.attr.version)
+
+    # A pubspec pub refuses lists nothing: the repository says why the package
+    # cannot be built (`_flutter_pub_package_impl`).
+    if not read.error:
+        assets = flutter_assets_block(read.pubspec.fields)
+        listed += [a.path for a in assets.assets] + [s.path for s in assets.shaders]
+        listed += [font.asset for family in assets.fonts for font in family.fonts]
+        listed += flutter_licenses_block(read.pubspec.fields)
     entries = {e: True for e in _LOCAL_PACKAGE_ENTRIES}
     for path in listed:
         top = path.replace("\\", "/").split("/")[0]
@@ -2705,10 +2710,15 @@ def _flutter_pub_package_impl(ctx):
     if identity.repo_file:
         ctx.file("REPO.bazel", identity.repo_file)
 
-    # Pub's own reading of the pubspec: a package pub would refuse (malformed
+    # Pub's own reading of the pubspec. A package pub would refuse (malformed
     # YAML, a `name` that is not this package's, a dependency or constraint of
-    # the wrong type) fails the fetch, naming the package.
-    pubspec = read_pubspec(ctx, ctx.attr.package_name, version)
+    # the wrong type) still fetches, as the package may be one no target uses:
+    # its target fails at analysis with pub's words, naming the package. Its
+    # dependencies are unknown, so it has none.
+    read = read_pubspec(ctx, ctx.attr.package_name, version)
+    if read.error:
+        return _write_unbuildable(ctx, identity, version, [], read.error)
+    pubspec = read.pubspec
     if ctx.attr.sdk:
         # What a Flutter SDK package needs of the hosted packages must be what
         # the build uses. A package that does not fit fails only a build of

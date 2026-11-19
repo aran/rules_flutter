@@ -111,7 +111,11 @@ def _flutter_framework_package_impl(repository_ctx):
     # `environment.sdk` gets pub's default language version, which is what pub
     # writes for such a package.
     index = read_index(repository_ctx, repository_ctx.attr.prefix)
-    pubspec = read_pubspec(repository_ctx, _PACKAGE, flutter_version)
+    read = read_pubspec(repository_ctx, _PACKAGE, flutter_version)
+    if read.error:
+        write_failing_stub(repository_ctx, [_PACKAGE], read.error)
+        return
+    pubspec = read.pubspec
 
     # What the locks were resolved against must fit the SDK this spoke belongs
     # to. A lock that does not leaves the package's target failing, so that

@@ -9,7 +9,9 @@
 ///  2. The library depends on the runtime dependencies the lock lists, and on
 ///     no `dev_dependencies`, whatever comments and nested entries the
 ///     dependency block has.
-///  3. A pubspec pub refuses, or none, fails the fetch naming the package.
+///  3. A pubspec pub refuses, or none, leaves the repository fetching (as
+///     `bazel fetch --all` needs of every SDK's) and its target failing at
+///     analysis, naming the package.
 ///  4. A release's `package:flutter` whose pubspec forbids the version the
 ///     build uses of a locked package (it holds `material_color_utilities` at
 ///     exactly one version) still fetches, so that every SDK's packages do
@@ -224,9 +226,16 @@ probe = module_extension(implementation = _impl)
       ('wrong_name', 'doesn\'t match expected name "flutter"'),
       ('bad_yaml', 'pub would refuse'),
     ]) {
-      test('fails the fetch naming the package: $key', () async {
-        final result = await fetcher.fetch(releases[key]!.repo);
-        expect(result.succeeded, isFalse, reason: '$result');
+      test('fetches, and fails its target naming the package: $key', () async {
+        final repo = releases[key]!.repo;
+        final fetched = await fetcher.fetch(repo);
+        expect(fetched.succeeded, isTrue, reason: '$fetched');
+        final result = await fetcher.bazel([
+          'build',
+          '--nobuild',
+          '@$repo//:flutter',
+        ]);
+        expect(result.succeeded, isFalse, reason: 'built a refused pubspec');
         expect(result.output, contains(mention), reason: '$result');
         expect(result.output, contains('"flutter"'), reason: '$result');
       });
