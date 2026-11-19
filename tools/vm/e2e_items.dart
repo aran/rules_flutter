@@ -21,9 +21,9 @@ String rulesDartOnVm({required bool windows}) =>
     windows ? 'C:/rules_dart' : '/tmp/rules_dart';
 
 /// On Linux the root module (CI's `unit-tests` job), then every workspace the
-/// e2e matrix runs on the VM's system, each with the command and targets CI gives it there; or, with
+/// e2e matrix runs on the VM's system, each with the targets CI gives it there; or, with
 /// `--folders=`, those named (a workspace the matrix runs on this system gets
-/// its matrix command and targets, any other folder `bazel test //...`).
+/// its matrix targets, any other folder `//...`).
 ///
 /// With [rulesDart], every folder builds against the rules_dart checkout there
 /// (`--override_module`, and for the root its `overhead` too), as a local
@@ -35,12 +35,10 @@ List<E2eItem> flutterItems(
 }) {
   final os = options.windows ? Os.windows : Os.linux;
   E2eItem item(String folder) {
-    var command = 'test';
     var targets = const ['//...'];
     for (final workspace in e2eWorkspaces) {
       if (folder == 'e2e/${workspace.name}' && workspace.runs.containsKey(os)) {
         final build = File('$repoRoot/$folder/BUILD.bazel');
-        command = workspace.commandOn(os);
         targets = workspace.targetsOn(
           os,
           build.existsSync() ? build.readAsStringSync() : '',
@@ -51,9 +49,8 @@ List<E2eItem> flutterItems(
     return E2eItem.bazel(
       folder,
       [
-        command,
-        // `build` takes no test flags.
-        if (command == 'test') '--test_output=errors',
+        'test',
+        '--test_output=errors',
         if (rulesDart) ...[
           '--override_module=rules_dart=$rd',
           if (folder == '.') '--override_module=overhead=$rd/overhead',

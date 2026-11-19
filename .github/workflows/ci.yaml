@@ -373,12 +373,11 @@ jobs:
       # refuses a lock that lacks an entry the build needs; the `lockfiles` job
       # checks every lock for stale entries too.
       #
-      # The workspaces that run `build` have no test targets (see
-      # tools/ci_matrix/e2e_matrix.dart). The targets are `//...` unless the
-      # table names others for the system.
-      - name: bazel ${{ matrix.command }} ${{ matrix.targets }} (e2e/${{ matrix.workspace }})
+      # The targets are `//...` unless the table in
+      # tools/ci_matrix/e2e_matrix.dart names others for the system.
+      - name: bazel test ${{ matrix.targets }} (e2e/${{ matrix.workspace }})
         working-directory: e2e/${{ matrix.workspace }}
-        run: bazel ${{ matrix.command }} ${{ matrix.targets }}
+        run: bazel test ${{ matrix.targets }}
       # `bazel coverage` of a flutter_test, which `bazel test` never reaches:
       # the merged report names the sources of the test's package and of a
       # library in another by their workspace paths, and

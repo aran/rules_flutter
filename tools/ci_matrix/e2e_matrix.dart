@@ -40,8 +40,6 @@ class E2eWorkspace {
     this.name, {
     this.runs = const {},
     this.skips = const {},
-    this.command = 'test',
-    this.commands = const {},
     this.testsNamed = const {},
     this.deep,
   });
@@ -57,18 +55,11 @@ class E2eWorkspace {
   /// instead, or that the system cannot build it.
   final Map<Os, String> skips;
 
-  /// The Bazel command run in the workspace: `test`, or `build` where a
-  /// workspace has no test targets (`bazel test` exits 4 for those).
-  final String command;
-
-  /// The systems that run another Bazel command than [command]: a workspace
-  /// that only builds on most systems can test on one.
-  final Map<Os, String> commands;
-
-  /// The name prefixes that select what each system runs the command on, where
-  /// that is not `//...`: a workspace whose `//...` holds tests that need
-  /// hardware or a desktop session runs the ones a runner can run, and a
-  /// system that adds only some of a workspace's subject runs only those. Every
+  /// The name prefixes that select what each system runs `bazel test` on,
+  /// where that is not `//...`: a system that adds only some of a workspace's
+  /// subject runs only those. (A test that needs a desktop session, a
+  /// simulator or an emulator is tagged for it instead, and the workspace's
+  /// `.bazelrc` leaves it out of every run.) Every
   /// `<prefix>...test` target of the workspace root package is run, so a test
   /// added under a prefix is picked up without touching the table.
   /// [targetProblems] holds each prefix to matching something.
@@ -81,10 +72,7 @@ class E2eWorkspace {
   /// the cheapest runner will do.
   final String? deep;
 
-  /// The Bazel command CI runs in the workspace on [os].
-  String commandOn(Os os) => commands[os] ?? command;
-
-  /// The target patterns CI runs [commandOn] on in the workspace on [os], given
+  /// The target patterns CI runs `bazel test` on in the workspace on [os], given
   /// the text of the workspace's `BUILD.bazel`.
   List<String> targetsOn(Os os, String buildFile) {
     final prefixes = testsNamed[os];
@@ -337,16 +325,17 @@ const e2eWorkspaces = <E2eWorkspace>[
     skips: {Os.linux: _appleOnly, Os.windows: _appleOnly},
   ),
   // Most of its tests launch the app in a window, which needs a desktop
-  // session that CI never runs a test in, or on a device (docs/TESTING.md,
-  // "What CI covers"): CI builds it, and those run by hand. The Linux and web
-  // tests need neither, on the pinned Linux runtime, so Linux runs them.
+  // session that CI never runs a test in, or on a simulator or emulator: they
+  // are tagged for it, and the workspace's `.bazelrc` leaves them out of
+  // `bazel test` (docs/TESTING.md, "What a test needs from the machine"). The
+  // Linux and web tests need none of these, on the pinned Linux runtime.
   E2eWorkspace(
     'integration_test',
     runs: {
       Os.macos:
           'the integration test rules building: the bootstrap, the variant of '
           'the application, the macOS, web, Android and iOS app and the test, '
-          'for each case',
+          'for each case; the web tests in the pinned headless Chrome for Mac',
       Os.linux:
           'the Linux and web integration tests running headless on the pinned '
           'Linux runtime, which is fetched with every file of it, and of the '
@@ -354,11 +343,6 @@ const e2eWorkspaces = <E2eWorkspace>[
       Os.windows:
           'the Windows app and tests building (the Android tests, on an '
           'emulator pinned for macOS and Linux only, are skipped there)',
-    },
-    command: 'build',
-    commands: {Os.linux: 'test'},
-    testsNamed: {
-      Os.linux: ['linux_', 'web_'],
     },
   ),
   E2eWorkspace(
@@ -516,7 +500,6 @@ List<Map<String, String>> matrixInclude(
         {
           'workspace': workspace.name,
           'os': os.runner,
-          'command': workspace.commandOn(os),
           'targets': workspace
               .targetsOn(os, buildFile(workspace.name))
               .join(' '),

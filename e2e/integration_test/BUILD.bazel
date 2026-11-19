@@ -292,6 +292,10 @@ outcome_test(
 
 # -- macOS -----------------------------------------------------------------
 
+# Each test here opens a window in the host's desktop session, so it is tagged
+# `requires-gui`, which `.bazelrc` leaves out of `bazel test` unless
+# `--config=machine` (docs/TESTING.md, "What a test needs from the machine").
+
 # The licence registry of a running app lists the engine's licences, read
 # from the bundle's `NOTICES.Z`.
 flutter_macos_integration_test(
@@ -299,6 +303,7 @@ flutter_macos_integration_test(
     src = "integration_test/licences_test.dart",
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -308,6 +313,7 @@ flutter_macos_integration_test(
     src = "integration_test/counter_test.dart",
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -318,6 +324,7 @@ flutter_macos_integration_test(
     src = "integration_test/flavor_paid_test.dart",
     application = ":app_flutter_paid",
     bundle_id = "com.example.integrationtest",
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -326,6 +333,7 @@ flutter_macos_integration_test(
     src = "integration_test/flavor_none_test.dart",
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -354,6 +362,7 @@ outcome_test(
     name = "macos_skip_library_test",
     expect = "pass",
     output_contains = ["SKIP  a skipped case (skipped for the outcome test)"],
+    tags = ["requires-gui"],
     test = ":macos_skip",
 )
 
@@ -363,6 +372,7 @@ outcome_test(
     output_contains = [
         "is not run: @TestOn(\"browser\") does not match the platform vm on mac-os",
     ],
+    tags = ["requires-gui"],
     test = ":macos_test_on",
 )
 
@@ -374,6 +384,7 @@ outcome_test(
     cases = ["counter increments when tapped"],
     expect = "pass",
     failing_cases_given = True,
+    tags = ["requires-gui"],
     test = ":macos_pass_test",
     test_filter = "increments",
 )
@@ -398,6 +409,7 @@ outcome_test(
     failing_cases = ["counter reads 99 after one tap"],
     failing_cases_given = True,
     output_contains = ["Expected: exactly one matching"],
+    tags = ["requires-gui"],
     test = ":macos_red",
 )
 
@@ -429,6 +441,7 @@ outcome_test(
     ],
     failing_cases_given = True,
     output_contains = ["exited with code 3"],
+    tags = ["requires-gui"],
     test = ":macos_crash",
 )
 
@@ -442,6 +455,7 @@ flutter_macos_integration_test(
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
     data = _GOLDENS,
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -457,6 +471,7 @@ flutter_macos_integration_test(
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
     data = _TOLERANT_FILES,
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -483,6 +498,7 @@ outcome_test(
     failing_cases = ["an orange swatch matches the blue golden"],
     failing_cases_given = True,
     output_contains = _MISMATCH_SAYS,
+    tags = ["requires-gui"],
     test = ":macos_golden_mismatch",
     undeclared_outputs = _FAILURE_PICTURES,
 )
@@ -492,14 +508,16 @@ outcome_test(
 # The same app on the Windows desktop of the host. Measured on a GCP VM with a
 # display device, they pass from its console session and from an SSH logon. Run
 # them by hand or on the VM of docs/TESTING.md, "Windows integration tests", by
-# name: they need the console session. `build //...` works from a Windows host:
-# the Android tests below are skipped there, having no emulator pinned for it.
+# name: they need the console session, so each is tagged `requires-gui`. On a
+# Windows host `bazel test //...` builds them and runs the rest: the Android
+# tests below are skipped there, having no emulator pinned for it.
 
 # The two tests of `:macos_pass_test`, in a window: each is reported.
 flutter_windows_integration_test(
     name = "windows_pass_test",
     src = "integration_test/counter_test.dart",
     application = ":app_flutter",
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -509,6 +527,7 @@ outcome_test(
     cases = ["counter increments when tapped"],
     expect = "pass",
     failing_cases_given = True,
+    tags = ["requires-gui"],
     target_compatible_with = ["@platforms//os:windows"],
     test = ":windows_pass_test",
     test_filter = "increments",
@@ -532,6 +551,7 @@ outcome_test(
     failing_cases = ["counter reads 99 after one tap"],
     failing_cases_given = True,
     output_contains = ["Expected: exactly one matching"],
+    tags = ["requires-gui"],
     target_compatible_with = ["@platforms//os:windows"],
     test = ":windows_red",
 )
@@ -560,6 +580,7 @@ outcome_test(
     ],
     failing_cases_given = True,
     output_contains = ["exited with code 3"],
+    tags = ["requires-gui"],
     target_compatible_with = ["@platforms//os:windows"],
     test = ":windows_crash",
 )
@@ -573,6 +594,7 @@ flutter_windows_integration_test(
     srcs = _GOLDEN_SRCS,
     application = ":app_flutter",
     data = _GOLDENS,
+    tags = ["requires-gui"],
     deps = _TEST_DEPS,
 )
 
@@ -594,6 +616,7 @@ outcome_test(
     failing_cases = ["an orange swatch matches the blue golden"],
     failing_cases_given = True,
     output_contains = _MISMATCH_SAYS,
+    tags = ["requires-gui"],
     target_compatible_with = ["@platforms//os:windows"],
     test = ":windows_golden_mismatch",
     undeclared_outputs = _FAILURE_PICTURES,
@@ -958,9 +981,11 @@ outcome_test(
 # on x86_64, with its hypervisor; skipped on other hosts), built for the image's
 # ABI. The same tests run on an attached phone with
 #
-#     bazel test //:android_pass_test //:android_filter_test //:android_red_twin_test \
+#     bazel test --config=machine //:android_pass_test //:android_filter_test //:android_red_twin_test \
 #         --@rules_flutter//flutter/integration_test:android_device=attached \
 #         --test_env=ANDROID_SERIAL=<serial>
+#
+# Each test that boots one is tagged `requires-emulator`.
 #
 # The app needs `androidx.test` and Espresso in this workspace's
 # `rules_flutter_maven` install, which `integration_test`'s Android library
@@ -972,6 +997,7 @@ flutter_android_integration_test(
     src = "integration_test/counter_test.dart",
     application = ":app_flutter",
     application_id = "com.example.integration_test_example",
+    tags = ["requires-emulator"],
     deps = _TEST_DEPS,
 )
 
@@ -989,6 +1015,7 @@ outcome_test(
     cases = ["counter increments when tapped"],
     expect = "pass",
     failing_cases_given = True,
+    tags = ["requires-emulator"],
     test = ":android_pass_test",
     test_filter = "increments",
 )
@@ -1012,6 +1039,7 @@ outcome_test(
     failing_cases = ["counter reads 99 after one tap"],
     failing_cases_given = True,
     output_contains = ["Expected: exactly one matching"],
+    tags = ["requires-emulator"],
     test = ":android_red",
 )
 
@@ -1027,6 +1055,7 @@ flutter_android_integration_test(
     application = ":app_flutter",
     application_id = "com.example.integration_test_example",
     data = _GOLDENS,
+    tags = ["requires-emulator"],
     deps = _TEST_DEPS,
 )
 
@@ -1049,6 +1078,7 @@ outcome_test(
     failing_cases = ["an orange swatch matches the blue golden"],
     failing_cases_given = True,
     output_contains = _MISMATCH_SAYS,
+    tags = ["requires-emulator"],
     test = ":android_golden_mismatch",
     undeclared_outputs = _FAILURE_PICTURES,
 )
@@ -1058,7 +1088,7 @@ outcome_test(
 # The same app on a simulator each test makes for itself and deletes when it
 # ends (an iPhone 16 on the newest iOS runtime installed), which needs Xcode and
 # an iOS runtime (`xcodebuild -downloadPlatform iOS`) and nothing booted or
-# attached beforehand.
+# attached beforehand. Each is tagged `requires-simulator`.
 
 # The two tests of `:macos_pass_test`, on a simulator: each is reported.
 flutter_ios_simulator_integration_test(
@@ -1066,6 +1096,7 @@ flutter_ios_simulator_integration_test(
     src = "integration_test/counter_test.dart",
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
+    tags = ["requires-simulator"],
     deps = _TEST_DEPS,
 )
 
@@ -1077,6 +1108,7 @@ outcome_test(
     expect = "pass",
     failing_cases_given = True,
     leaves_no_simulator = True,
+    tags = ["requires-simulator"],
     test = ":ios_pass_test",
     test_filter = "increments",
 )
@@ -1101,6 +1133,7 @@ outcome_test(
     failing_cases_given = True,
     leaves_no_simulator = True,
     output_contains = ["Expected: exactly one matching"],
+    tags = ["requires-simulator"],
     test = ":ios_red",
 )
 
@@ -1112,6 +1145,7 @@ flutter_ios_simulator_integration_test(
     application = ":app_flutter",
     bundle_id = "com.example.integrationtest",
     data = _GOLDENS,
+    tags = ["requires-simulator"],
     deps = _TEST_DEPS,
 )
 
@@ -1135,6 +1169,7 @@ outcome_test(
     failing_cases_given = True,
     leaves_no_simulator = True,
     output_contains = _MISMATCH_SAYS,
+    tags = ["requires-simulator"],
     test = ":ios_golden_mismatch",
     undeclared_outputs = _FAILURE_PICTURES,
 )

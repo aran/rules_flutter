@@ -146,51 +146,32 @@ void main() {
             'x',
             runs: {Os.windows: 'b', Os.macos: 'a'},
             skips: {Os.linux: 'why'},
-            command: 'build',
           ),
         ], (_) => ''),
         [
-          {
-            'workspace': 'x',
-            'os': 'macos-latest',
-            'command': 'build',
-            'targets': '//...',
-          },
-          {
-            'workspace': 'x',
-            'os': 'windows-latest',
-            'command': 'build',
-            'targets': '//...',
-          },
+          {'workspace': 'x', 'os': 'macos-latest', 'targets': '//...'},
+          {'workspace': 'x', 'os': 'windows-latest', 'targets': '//...'},
         ],
       );
     });
 
-    test('gives a system its own command and the tests it names', () {
+    test('gives a system the tests it names', () {
       expect(
         matrixInclude([
           const E2eWorkspace(
             'x',
             runs: {Os.linux: 'a', Os.macos: 'b'},
             skips: {Os.windows: 'why'},
-            command: 'build',
-            commands: {Os.linux: 'test'},
             testsNamed: {
               Os.linux: ['one_', 'two_'],
             },
           ),
         ], (_) => 'a(name = "two_b_test")\na(name = "one_a_test")\n'),
         [
-          {
-            'workspace': 'x',
-            'os': 'macos-latest',
-            'command': 'build',
-            'targets': '//...',
-          },
+          {'workspace': 'x', 'os': 'macos-latest', 'targets': '//...'},
           {
             'workspace': 'x',
             'os': 'ubuntu-latest',
-            'command': 'test',
             'targets': '//:one_a_test //:two_b_test',
           },
         ],

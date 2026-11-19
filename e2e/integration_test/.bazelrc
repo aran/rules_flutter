@@ -70,5 +70,13 @@ test --output_groups=+dart_analyze
 test --output_groups=+dart_format
 common --@rules_dart//dart:analysis_config=//:analysis_config
 
+# Tests tagged for what they need from the machine, a desktop session
+# (`requires-gui`), an iOS simulator (`requires-simulator`) or an Android
+# emulator (`requires-emulator`), are built by `bazel test //...` but not run,
+# so that it passes on any host, CI's included. `--config=machine` runs them
+# too (docs/TESTING.md, "What a test needs from the machine").
+test --test_tag_filters=-requires-gui,-requires-simulator,-requires-emulator
+test:machine --test_tag_filters=
+
 # Last, so a checkout's own settings override everything above.
 try-import %workspace%/.bazelrc.user

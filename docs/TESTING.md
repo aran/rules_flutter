@@ -828,7 +828,8 @@ cd e2e/ffi_example && bazel test //...
 cd e2e/plugin_example && bazel test //...
 cd e2e/plugin_example && bazel test //... --config=deep  # before a merge: the live Gradle metadata check, the Gradle-built host app
 cd e2e/macos_example && bazel test //...
-cd e2e/integration_test && bazel test //...  # macOS: needs an unlocked, awake desktop; Windows: `build //...`, its tests run on the VM (below)
+cd e2e/integration_test && bazel test //...  # the tests that need no desktop, simulator or emulator
+cd e2e/integration_test && bazel test --config=machine //...  # all of them: macOS needs an unlocked, awake desktop; Windows ones run on the VM (below)
 cd e2e/ios_example && bazel test //...
 cd e2e/multi_window_example && bazel test //...
 cd e2e/android_example && bazel test //...
@@ -922,7 +923,9 @@ launch a window, so run it on a Mac with an unlocked screen and an awake display
 the display awake itself and fails, saying which, when the screen is locked or the
 display asleep. The Android tests boot an emulator each (below), which needs the
 host's hypervisor and nothing attached; the iOS ones need Xcode with an iOS
-runtime installed. `bazel test //...` there runs:
+runtime installed. Those tests are tagged for what they need (§ "What a test
+needs from the machine"), so a plain `bazel test //...` builds them and runs
+the rest, and `bazel test --config=machine //...` runs these too:
 
 | Target | Property |
 |---|---|
@@ -969,10 +972,10 @@ has no `dart:ui`), so an app on a phone or in a browser compares exactly as one 
 the desktop does. The update round trip, run for macOS: `bazel run
 //:macos_golden_mismatch -- --update-goldens` rewrites `goldens/macOS/swatch.png`
 as the orange swatch (the file's `shasum` changes), `bazel test
-//:macos_golden_test` then fails with the pixel diff, and `bazel run
+--config=machine //:macos_golden_test` then fails with the pixel diff, and `bazel run
 //:macos_golden_test -- --update-goldens` writes the blue one back, byte for byte
 what is committed (`git status` shows nothing) and `bazel test
-//:macos_golden_test` passes.
+--config=machine //:macos_golden_test` passes.
 
 The web tests run in a headless browser and need no desktop session. macOS and Linux run them; on Linux the browser loads the pinned Linux runtime's libraries and runs without its sandbox. Windows skips them: they are not verified there.
 
@@ -989,7 +992,7 @@ app for arm64-v8a and installs it on the attached device (left installed, as
 `flutter test` leaves it: `adb uninstall com.example.integration_test_example`
 after):
 
-    bazel test //:android_pass_test //:android_filter_test //:android_red_twin_test \
+    bazel test --config=machine //:android_pass_test //:android_filter_test //:android_red_twin_test \
         --@rules_flutter//flutter/integration_test:android_device=attached \
         --test_env=ANDROID_SERIAL=<serial>
 
@@ -1019,9 +1022,9 @@ each tapping once a second for forty seconds and awaiting a frame after each tap
 both finished all forty, so a window another covers keeps drawing, unlike macOS's.
 They also ran from the VM's SSH logon, which has no visible desktop, as well as from
 its console session, so the interactive session is for the screenshot, not for the
-test (a host with no display adapter was not tried). CI builds this workspace, Android
-apps included, and does not run it (it never runs a test that needs a GUI session or a
-device).
+test (a host with no display adapter was not tried). CI runs `bazel test //...`
+here on each system, which builds every test, Android and iOS apps included, and
+runs those that need no desktop session, simulator or emulator.
 
 Changing the integration test rules (`flutter/integration_test.bzl`,
 `flutter/private/flutter_integration_*.bzl`, the support library in
@@ -1061,6 +1064,25 @@ fourth thing to do when none applies.
   flags of each `.bazelrc`: change them in the root and every e2e `.bazelrc`
   together.
 
+### What a test needs from the machine
+
+A test that needs more of the machine than a plain `bazel test` may assume is
+tagged for it:
+
+| Tag | Needs |
+|---|---|
+| `requires-gui` | the host's desktop session: an app window on an unlocked, awake macOS desktop, or the console session of a Windows host |
+| `requires-simulator` | Xcode with an iOS runtime, for a simulator the test makes for itself |
+| `requires-emulator` | the host's hypervisor, for an Android emulator the test boots for itself |
+
+A workspace with such tests leaves them out of every `bazel test` in its
+`.bazelrc` (`--test_tag_filters`), so `bazel test //...` passes on any host and
+on CI's runners. It still builds them. `bazel test --config=machine //...`
+runs them too. The filter applies to a test named on the command line as
+well, so a command that names one passes `--config=machine`. Only
+`e2e/integration_test` uses the tags so far; elsewhere a test like these is
+`manual` and run by the dev tool's e2e harness or by hand (§ 2, § 4).
+
 ### What CI covers
 
 `.github/workflows/ci.yaml` runs, on every push and pull request:
@@ -1070,12 +1092,13 @@ fourth thing to do when none applies.
   targets, on Linux for the rest), which fails on a stale or incomplete
   `MODULE.bazel.lock` in any workspace, see "Lock files" in § 1;
 - the pre-commit hooks, the dev_tool unit tests, and the web smoke test (§ 5);
-- `bazel test //...` in every e2e workspace (`build //...` where it has no test
-  targets, or its tests need a desktop session or a device), on each operating
-  system where it exercises something no other job does. A system can have its
-  own command and tests in the table: `integration_test` builds on macOS and
-  Windows, and on Linux tests the `:linux_*` and `:web_*` targets, which need
-  no desktop. The table names the prefixes (`testsNamed`), not the targets: the
+- `bazel test //...` in every e2e workspace, on each operating system where it
+  exercises something no other job does. A test that needs a desktop session, a
+  simulator or an emulator is tagged for it and left out by the workspace's
+  `.bazelrc` (§ "What a test needs from the machine"), so `//...` passes on a
+  runner. A system can have its own tests in the table: `plugin_example` on
+  Windows runs its `:windows_*` tests and `:android_bundle_build_test`. The
+  table names the prefixes (`testsNamed`), not the targets: the
   plan reads every `<prefix>...test` target from the workspace's `BUILD.bazel`,
   so a new `web_*_test` runs in CI without a table edit, and a prefix that
   matches nothing fails the plan;
@@ -1112,7 +1135,7 @@ finds a gap before a push.
 | `ffi_example` | macOS, Linux, Windows | native libraries in each platform's bundle, and a plugin with a Dart plugin class and `native_deps` (`//plugin_class`) | |
 | `cross_compile_example` | macOS | the Mac-to-Linux cross toolchain | Linux: a native build is `hello_world`'s; Windows: no such pair |
 | `macos_example`, `ios_example`, `multi_window_example` | macOS | Apple-only features | Linux, Windows: Apple-only |
-| `integration_test` | macOS, Windows (`build`), Linux (`test` of the `:linux_*` and `:web_*` targets) | the integration test rules building the app and test of each case, the Android and iOS apps included on macOS; on Linux those tests running headless on the pinned Linux runtime, fetched with every file of it and of the Chrome that loads it checked against the oldest supported host; on Windows the Windows ones (the Android tests, which run on an emulator pinned for macOS and Linux only, are skipped there): most of its tests need a GUI session or a hypervisor, which CI never runs a test in | |
+| `integration_test` | macOS, Linux, Windows | the integration test rules building the app and test of each case, the Android and iOS apps included on macOS; on macOS and Linux the web tests in headless Chrome, and on Linux the Linux ones on the pinned Linux runtime, fetched with every file of it and of the Chrome that loads it checked against the oldest supported host; on Windows the Windows ones building (the Android tests, which run on an emulator pinned for macOS and Linux only, are skipped there). The tests that need a desktop session, a simulator or an emulator are built and not run: CI never runs a test that needs one | |
 | `pub_resolve` | Linux | a monorepo's path pub packages and a fork of a hosted one, built from the workspace targets the lock maps (platform-neutral); its `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
 | `dual_hub`, `web_example`, `android_example` | Linux | their platform-neutral subject, once, on the cheapest runner; web_example's `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
 | `android_example` | Windows (also) | an Android build on a Windows host: `gen_snapshot.exe`, engine-strip path separators, rules_android JVMs without an up-front heap commit (the committed patch) | |
@@ -2007,12 +2030,13 @@ the visual verification installs:
   --lockfile_mode=off`, as the workstation's `.bazelrc.user` does.
 - **A short output base**, `--output_base=C:/b/<n>` (§ "Windows and MAX_PATH").
 
-The first build takes about eight minutes. `build //...` works from a Windows host: the Android
-integration tests' runner takes the `adb` of the downloaded SDK for the host (`adb.exe`), and CI
-builds this workspace on Windows. Run the tests by name, as they need the console session:
+The first build takes about eight minutes. `test //...` works from a Windows host and runs what
+needs no desktop: the Android integration tests' runner takes the `adb` of the downloaded SDK for
+the host (`adb.exe`), and CI runs this workspace on Windows. Run the Windows tests by name with
+`--config=machine`, as they need the console session:
 
 ```sh
-bazel --output_base=C:/b/2 test //:windows_pass_test //:windows_filter_test \
+bazel --output_base=C:/b/2 test --config=machine //:windows_pass_test //:windows_filter_test \
   //:windows_red_twin_test //:windows_crash_test //:windows_golden_test \
   //:windows_golden_mismatch_twin_test
 ```
