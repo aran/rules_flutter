@@ -52,6 +52,18 @@ filegroup(
 )
 """
 
+# The directories holding paths that differ only in case (`xt_MARK.h` and
+# `xt_mark.h`, say). Extracted on a filesystem that ignores case, one of each
+# pair overwrites the other, so the repository would hold different files on
+# a macOS or Windows machine than on a Linux one, under the one key Bazel's
+# repository contents cache stores it by. No target reads them.
+_CASE_COLLIDING = [
+    "usr/include/linux/netfilter",
+    "usr/include/linux/netfilter_ipv4",
+    "usr/include/linux/netfilter_ipv6",
+    "usr/lib/{triple}/perl",
+]
+
 def flutter_linux_sysroot_repo(name, target_arch, sha256):
     """Declares the repository of a Chromium sysroot for hermetic Linux desktop builds.
 
@@ -63,6 +75,7 @@ def flutter_linux_sysroot_repo(name, target_arch, sha256):
     deb_arch = _ARCH_TO_DEB.get(target_arch)
     if not deb_arch:
         fail("Unsupported sysroot architecture: {}".format(target_arch))
+    triple = linux_multiarch_triple(target_arch)
     archive_repo(
         name = name,
         archives = [archive(
@@ -71,5 +84,9 @@ def flutter_linux_sysroot_repo(name, target_arch, sha256):
             sha256,
             type = "tar.xz",
         )],
-        files = {"BUILD.bazel": _BUILD_TEMPLATE.format(triple = linux_multiarch_triple(target_arch))},
+        deletions = {
+            path: "The {} sysroot has no {} to leave out: the list of its paths that differ only in case is out of date.".format(target_arch, path)
+            for path in [p.format(triple = triple) for p in _CASE_COLLIDING]
+        },
+        files = {"BUILD.bazel": _BUILD_TEMPLATE.format(triple = triple)},
     )
