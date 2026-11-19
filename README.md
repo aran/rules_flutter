@@ -3161,7 +3161,7 @@ An app built with the release carries none, so release apps are unchanged.
 }
 ```
 
-- `framework` is the checkout: its version (from `bin/cache/flutter.version.json`, or `git describe --tags` without one), its commit, and whether it had uncommitted changes when the build read it.
+- `framework` is the checkout: its version, which is told from its git tags as `flutter --version` tells it (`3.50.0` at a tag, `3.50.1-0.0.pre-12` twelve commits past one), its commit, and whether it had uncommitted changes when the build read it.
 - `engine` has one entry for each piece the app was built from, keyed by the piece's label: the host tools, the platform kernel, the engine and, in profile and release, the `gen_snapshot`. `engine_version`, `content_hash` and `dart_version` are what `tools/gn` wrote into the out dir's `args.gn`. `as_of: "gn"` says so: that commit is the one checked out when `tools/gn` generated the directory, which can be older than the last `ninja` run.
 - `snapshot_hash` and `kernel` are the fingerprints the engine's Dart VM checks (see below). A web app has no `snapshot_hash`.
 - The record holds no path of the machine that built the app. The checkout's path and every absolute path are left out.

@@ -194,6 +194,15 @@ void _expectRecordOfTheCheckout(
   );
 }
 
+/// The `FLUTTER_FRAMEWORK_REVISION` define of the stand-in checkout: the first
+/// ten characters of its commit, as `FlutterVersion.frameworkRevision` is.
+Future<String> _standInRevisionDefine() async {
+  final checkout = await _fakeCheckoutDir('checkout/CHECKOUT');
+  final head = await Process.run('git', ['-C', checkout, 'rev-parse', 'HEAD']);
+  expect(head.exitCode, 0, reason: '${head.stderr}');
+  return 'FLUTTER_FRAMEWORK_REVISION=${(head.stdout as String).trim().substring(0, 10)}';
+}
+
 /// The Linux platform a Mac cross-builds a (debug) bundle for.
 const _linuxPlatform =
     '--platforms=@rules_flutter//flutter/platforms:linux_x64';
@@ -255,7 +264,7 @@ void main() {
     }
 
     // The release's framework revision is versions.bzl's; the stand-in
-    // checkout is not a git repository, so it has none to report.
+    // checkout's is its commit.
     expect(
       await kernelDefines('flutter'),
       isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),
@@ -263,7 +272,7 @@ void main() {
     expect(
       await kernelDefines('local'),
       allOf(
-        matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
+        contains(await _standInRevisionDefine()),
         contains('FLUTTER_ENGINE_REVISION=371f77202a'),
       ),
     );
@@ -409,10 +418,7 @@ void main() {
       ).allMatches('${aquery.stdout}').map((m) => m.group(0)).toSet().join(' ');
     }
 
-    expect(
-      await defines('local'),
-      matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)')),
-    );
+    expect(await defines('local'), contains(await _standInRevisionDefine()));
     expect(
       await defines('flutter'),
       isNot(matches(RegExp(r'FLUTTER_FRAMEWORK_REVISION=( |$)'))),

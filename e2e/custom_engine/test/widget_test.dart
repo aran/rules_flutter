@@ -9,10 +9,10 @@ void main() {
   });
 
   test('the program is told what the selected SDK is', () {
-    // The stand-in checkout is not a git repository, so it has no framework
-    // revision to report; the release SDK reports its own ten characters.
+    // The stand-in checkout's revision is the first ten characters of its
+    // commit, as the release SDK's is of the release's.
     expect(FlutterVersion.version, '3.50.0');
-    expect(FlutterVersion.frameworkRevision, isEmpty);
+    expect(FlutterVersion.frameworkRevision, matches(RegExp(r'^[0-9a-f]{10}$')));
     expect(FlutterVersion.engineRevision, '371f77202a');
     expect(FlutterVersion.dartVersion, matches(RegExp(r'^\d+\.\d+\.\d+')));
   });

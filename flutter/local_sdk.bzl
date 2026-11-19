@@ -52,6 +52,7 @@ When the out dirs of a slot are ambiguous (both `host_debug_arm64` and
 A pin chooses only for the slots it fits.
 """
 
+load("//flutter/private:checkout_version.bzl", "checkout_framework_version")
 load("//flutter/private:framework_source.bzl", "FRAMEWORK_JSON")
 load("//flutter/private:local_engine.bzl", "read_engine_out_dirs", "unset_message")
 
@@ -97,33 +98,32 @@ def _local_framework_impl(repository_ctx):
     repository_ctx.symlink(internal, "bin/internal")
     repository_ctx.watch_tree(internal)
 
-    # Which commit it is, and whether it is clean: the host's git, since only
-    # git can say what a developer's own checkout is.
-    commit = ""
-    dirty = False
-    head = repository_ctx.execute(["git", "-C", checkout, "rev-parse", "HEAD"])
-    if head.return_code == 0:
-        commit = head.stdout.strip()
-        status = repository_ctx.execute(["git", "-C", checkout, "status", "--porcelain"])
-        dirty = status.return_code == 0 and bool(status.stdout.strip())
-        git_dir = root.get_child(".git")
-        if git_dir.is_dir:
-            repository_ctx.watch(git_dir.get_child("HEAD"))
-            ref = repository_ctx.read(git_dir.get_child("HEAD")).strip()
-            if ref.startswith("ref: "):
-                repository_ctx.watch(git_dir.get_child(ref[len("ref: "):]))
-            repository_ctx.watch(git_dir.get_child("packed-refs"))
+    # Which commit it is, which version, and whether it is clean: the host's
+    # git, since only git can say what a developer's own checkout is. The
+    # version is flutter_tools' computation from the tags, made again
+    # whenever the checkout's HEAD or refs move, never read from a version
+    # file a run of flutter_tools left behind.
+    def git(args):
+        result = repository_ctx.execute(["git", "-C", checkout] + args)
+        return struct(ok = result.return_code == 0, stdout = result.stdout)
 
-    version_file = root.get_child("bin").get_child("cache").get_child("flutter.version.json")
-    if version_file.exists:
-        repository_ctx.watch(version_file)
-        version = json.decode(repository_ctx.read(version_file))["flutterVersion"]
-    else:
-        describe = repository_ctx.execute(["git", "-C", checkout, "describe", "--tags"])
-        if describe.return_code != 0:
-            _write_unusable(repository_ctx, "Cannot tell which Flutter version {} is: it has no bin/cache/flutter.version.json and `git describe --tags` fails.".format(checkout))
-            return
-        version = describe.stdout.strip()
+    if not git(["rev-parse", "HEAD"]).ok:
+        _write_unusable(repository_ctx, (
+            "{}={} is not a git checkout: a checkout's version is told from its git tags, as flutter_tools tells it."
+        ).format(env, checkout))
+        return
+    git_dir = root.get_child(".git")
+    if git_dir.is_dir:
+        repository_ctx.watch(git_dir.get_child("HEAD"))
+        ref = repository_ctx.read(git_dir.get_child("HEAD")).strip()
+        if ref.startswith("ref: "):
+            repository_ctx.watch(git_dir.get_child(ref[len("ref: "):]))
+        repository_ctx.watch(git_dir.get_child("packed-refs"))
+        repository_ctx.watch_tree(git_dir.get_child("refs").get_child("tags"))
+    commit = git(["log", "-n", "1", "--pretty=format:%H"]).stdout.strip()
+    version = checkout_framework_version(git, commit)
+    status = git(["status", "--porcelain"])
+    dirty = status.ok and bool(status.stdout.strip())
 
     repository_ctx.file(FRAMEWORK_JSON, json.encode_indent({
         "version": version,

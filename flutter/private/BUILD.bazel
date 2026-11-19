@@ -2010,6 +2010,12 @@ bzl_library(
 )
 
 bzl_library(
+    name = "checkout_version",
+    srcs = ["checkout_version.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
     name = "local_engine",
     srcs = ["local_engine.bzl"],
     visibility = ["//flutter:__subpackages__"],

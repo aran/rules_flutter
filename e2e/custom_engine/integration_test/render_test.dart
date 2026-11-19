@@ -17,9 +17,9 @@ void main() {
   testWidgets('the build described the selected SDK to the program', (
     tester,
   ) async {
-    // The stand-in checkout is not a git repository: no framework revision.
+    // The stand-in checkout's revision: ten characters of its commit.
     expect(FlutterVersion.version, '3.50.0');
-    expect(FlutterVersion.frameworkRevision, isEmpty);
+    expect(FlutterVersion.frameworkRevision, matches(RegExp(r'^[0-9a-f]{10}$')));
     expect(FlutterVersion.engineRevision, '371f77202a');
   });
 }

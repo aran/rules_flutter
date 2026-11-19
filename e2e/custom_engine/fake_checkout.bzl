@@ -95,6 +95,37 @@ def _dart_source(path, link):
     for package in ["kernel", "_fe_analyzer_shared"]:
         link(dart_source.get_child(package), "checkout/engine/src/flutter/third_party/dart/pkg/" + package)
 
+def _git_history(rctx):
+    """Makes the checkout a git checkout at the release's tag, from which its version is told.
+
+    One commit of the tree, as `git clone` of the tag leaves it: the out dirs
+    and `bin/cache` are ignored, as a checkout's are. The commit is made
+    without the machine's git configuration, at a fixed date, by a fixed
+    name.
+    """
+    environment = {
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_COUNT": "0",
+        "GIT_AUTHOR_NAME": "stand-in",
+        "GIT_AUTHOR_EMAIL": "stand-in@example.com",
+        "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+        "GIT_COMMITTER_NAME": "stand-in",
+        "GIT_COMMITTER_EMAIL": "stand-in@example.com",
+        "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+    }
+    rctx.file("checkout/.gitignore", "/bin/cache/\n/engine/src/out/\n")
+    checkout = str(rctx.path("checkout"))
+    for args in [
+        ["init", "--quiet", "--initial-branch=stable"],
+        ["add", "--all"],
+        ["commit", "--quiet", "--message=A stand-in for a flutter/flutter checkout."],
+        ["tag", _RELEASE],
+    ]:
+        result = rctx.execute(["git", "-C", checkout] + args, environment = environment)
+        if result.return_code != 0:
+            fail("could not make the stand-in checkout a git checkout: git {}: {}".format(" ".join(args), result.stderr))
+
 def _windows_checkout(rctx, path, link, meta):
     """A checkout built on an x86_64 Windows machine: its host build holds the engine too.
 
@@ -149,6 +180,7 @@ def _windows_checkout(rctx, path, link, meta):
     link(kernel_debug, debug + "flutter_patched_sdk")
     link(kernel_release, _OUT + "host_release/flutter_patched_sdk")
     _web_out_dir(rctx, path, link, meta.engine_revision, False)
+    _git_history(rctx)
     rctx.file("BUILD.bazel", 'exports_files(glob(["checkout/CHECKOUT", "checkout/engine/src/ENGINE_SRC"]))\n')
 
 def _fake_checkout_impl(rctx):
@@ -178,8 +210,8 @@ def _fake_checkout_impl(rctx):
     kernel_release = path("@flutter_stock_engine//kernel/release:flutter_patched_sdk_product/platform_strong.dill").dirname
     dev_root = path("@flutter_dev_root_src//:bin/cache/flutter.version.json").dirname.dirname.dirname
 
-    # The framework: packages/, what bin/internal holds and the version a
-    # built checkout records. Its sky_engine is the host build's.
+    # The framework: packages/, what bin/internal holds and the version file
+    # a run of flutter_tools leaves. Its sky_engine is the host build's.
     link(dev_root.get_child("packages"), "checkout/packages")
     link(dev_root.get_child("bin").get_child("cache").get_child("flutter.version.json"), "checkout/bin/cache/flutter.version.json")
     rctx.file("checkout/bin/internal/material_fonts.version", meta.material_fonts_url + "\n")
@@ -240,6 +272,7 @@ def _fake_checkout_impl(rctx):
         _mobile_out_dirs(rctx, path, link, meta.engine_revision, other_gen = rctx.path("other_dart/gen_snapshot") if other else None)
     _desktop_out_dirs(rctx, path, link, meta.engine_revision, on_linux)
     _web_out_dir(rctx, path, link, meta.engine_revision, rctx.attr.web_kernel_format_mismatch)
+    _git_history(rctx)
 
     rctx.file("BUILD.bazel", 'exports_files(glob(["checkout/CHECKOUT", "checkout/engine/src/ENGINE_SRC"]))\n')
 

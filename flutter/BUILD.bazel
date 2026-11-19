@@ -464,6 +464,7 @@ bzl_library(
     srcs = ["local_sdk.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//flutter/private:checkout_version",
         "//flutter/private:framework_source",
         "//flutter/private:local_engine",
     ],

@@ -22,6 +22,7 @@ load(":apple_version_check_test.bzl", "apple_version_check_test_suite")
 load(":artifact_urls_test.bzl", "artifact_urls_test_suite")
 load(":asset_bundle_test.bzl", "asset_bundle_test_suite")
 load(":bundle_parts_test.bzl", "bundle_parts_test_suite")
+load(":checkout_version_test.bzl", "checkout_version_test_suite")
 load(":cmake_link_libraries_test.bzl", "cmake_link_libraries_test_suite")
 load(":code_asset_native_library_test.bzl", "code_asset_native_library_test_suite")
 load(":common_test.bzl", "common_test_suite")
@@ -195,6 +196,8 @@ flutter_pub_package_sdk_source_test_suite(name = "flutter_pub_package_sdk_source
 pub_reconcile_test_suite(name = "pub_reconcile_test")
 
 framework_source_test_suite(name = "framework_source_test")
+
+checkout_version_test_suite(name = "checkout_version_test")
 
 pub_cycles_test_suite(name = "pub_cycles_test")
 
