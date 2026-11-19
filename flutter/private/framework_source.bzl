@@ -13,9 +13,7 @@ The repositories that read one take the label of its `flutter_framework.json`
 as an attribute, so Bazel fetches the source before they run.
 """
 
-load("@rules_dart//dart/pub:pub_graph.bzl", "write_pubspec_dependencies")
 load("//flutter/private:failing_targets.bzl", "write_failing_build")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
 load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
 load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
@@ -55,7 +53,7 @@ def unusable_message(ctx):
     """
     return read_framework(ctx).get("unusable")
 
-def write_failing_stub(ctx, names, message, member = False):
+def write_failing_stub(ctx, names, message):
     """Writes a repository whose targets fail with [message] when something uses them.
 
     For a repository whose SDK cannot be used, or does not fit the build's
@@ -65,13 +63,8 @@ def write_failing_stub(ctx, names, message, member = False):
         ctx: The `repository_ctx`.
         names: The names of the targets a build could ask this repository for.
         message: Why they fail.
-        member: Whether the repository is an SDK package's source, which the
-            hub's libraries plan against.
     """
     write_failing_build(ctx, names, message)
-    if member:
-        ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_OVERLAY, "material_icons": False, "android_lib": False}))
-        write_pubspec_dependencies(ctx, [])
 
 # Root names a package's source repository owns, whatever it writes: Bazel's
 # own files, which would make the root another package or repository. A

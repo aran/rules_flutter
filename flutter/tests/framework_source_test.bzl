@@ -11,7 +11,6 @@ and a lock may fit only the SDK the build uses.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//flutter:engine.bzl", "flutter_missing_slice")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
 load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "lock_floor_message", "locked_versions", "write_failing_stub")
 
 _APP = "@@//app:pubspec.lock"
@@ -107,17 +106,16 @@ def _a_lock_above_the_framework_is_refused_test_impl(ctx):
 a_lock_above_the_framework_is_refused_test = unittest.make(_a_lock_above_the_framework_is_refused_test_impl)
 
 def _a_failing_stub_declares_each_target_test_impl(ctx):
-    """The stub's targets carry the message as written, and a member's plans as an overlay with no dependencies."""
+    """The stub's targets carry the message as written."""
     env = unittest.begin(ctx)
 
     written = {}
     fake = struct(file = lambda path, content: written.update({path: content}))
     message = 'FLUTTER_CHECKOUT=/x "y" is not a flutter/flutter checkout'
-    write_failing_stub(fake, ["flutter_test", "other"], message, member = True)
+    write_failing_stub(fake, ["flutter_test", "other"], message)
     build = written["BUILD.bazel"]
     for name in ["flutter_test", "other"]:
         asserts.true(env, "name = %s,\n    message = %s," % (repr(name), repr(message)) in build, build)
-    asserts.equals(env, MEMBER_OVERLAY, json.decode(written[MEMBER_FILE])["kind"])
 
     return unittest.end(env)
 

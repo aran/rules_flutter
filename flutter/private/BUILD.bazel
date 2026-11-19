@@ -453,10 +453,8 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":failing_targets",
-        ":flutter_pub_index",
         ":pub_lock_sdks",
         ":pub_resolve",
-        "@rules_dart//dart/pub:pub_graph",
     ],
 )
 

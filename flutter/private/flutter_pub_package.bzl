@@ -61,10 +61,10 @@ load("//flutter/private:apple_plugin_repo.bzl", "APPLE_PLUGIN_FILE", "apple_libr
 load("//flutter/private:asset_variants.bzl", "variant_scale")
 load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFORMS")
-load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
+load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets", "write_failing_build")
+load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
-load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "locked_versions", "unusable_message", "write_failing_stub")
+load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "locked_versions", "unusable_message")
 load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements", "parse_gradle_properties")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
@@ -2693,6 +2693,19 @@ def _write_unbuildable(ctx, identity, version, pubspec_dependencies, message):
     _write_maven_deps(ctx, version, [], [], "")
     return _linked_repo_metadata(ctx)
 
+def _write_stub(ctx, message):
+    """Writes the source repository of a Flutter SDK package its SDK cannot supply.
+
+    Its target fails at analysis with `message` when a build uses it, and
+    the records every source repository has are empty: no dependencies, and
+    no Maven dependencies for the Android data of the build, which reads every
+    package's. Its library is that target, whatever cycle it is in.
+    """
+    write_failing_build(ctx, [ctx.attr.package_name], message)
+    ctx.file(MEMBER_FILE, json.encode({"kind": MEMBER_STUB, "material_icons": False, "android_lib": False}))
+    write_pubspec_dependencies(ctx, [])
+    _write_maven_deps(ctx, ctx.attr.version, [], [], "")
+
 def _flutter_pub_package_impl(ctx):
     build_prelude = ""
     fetched = None
@@ -2704,12 +2717,12 @@ def _flutter_pub_package_impl(ctx):
     # target uses.
     problems = []
     if ctx.attr.unusable:
-        write_failing_stub(ctx, [ctx.attr.package_name], ctx.attr.unusable, member = True)
+        _write_stub(ctx, ctx.attr.unusable)
         return ctx.repo_metadata(reproducible = True)
     if ctx.attr.framework_json:
         unusable = unusable_message(ctx) or link_framework_package(ctx, ctx.attr.package_name, written = _WRITTEN)
         if unusable:
-            write_failing_stub(ctx, [ctx.attr.package_name], unusable, member = True)
+            _write_stub(ctx, unusable)
             return _linked_repo_metadata(ctx)
     elif ctx.attr.directory:
         refusal = fetch_local_package(ctx, ctx.attr.directory, problems)

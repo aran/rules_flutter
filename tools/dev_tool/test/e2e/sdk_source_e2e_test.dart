@@ -1,6 +1,7 @@
 @Tags(['e2e'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -102,6 +103,12 @@ void main() {
           'package_name': str('integration_test'),
           'version': str('0.0.0'),
         }),
+        // As the extension declares a Flutter SDK package the SDK lacks.
+        ProbeRepo('sdk_stub', 'flutter_pub_package', {
+          'package_name': str('integration_test'),
+          'version': str('0.0.0'),
+          'unusable': str('The release lacks packages/integration_test.'),
+        }),
       ],
     );
   });
@@ -171,6 +178,50 @@ void main() {
         result.output,
         contains('bazel run @rules_flutter//flutter/pub -- get'),
         reason: 'the failure does not say how to re-resolve the lock\n$result',
+      );
+    },
+  );
+
+  test(
+    'a package the SDK lacks fetches, with the records every package has, '
+    'and its target fails saying why',
+    () async {
+      final fetched = await fetcher.fetch('sdk_stub');
+      expect(fetched.succeeded, isTrue, reason: '$fetched');
+      final location = await fetcher.bazel([
+        'query',
+        '--output=location',
+        '@sdk_stub//:integration_test',
+      ]);
+      expect(location.succeeded, isTrue, reason: '$location');
+      final root = RegExp(
+        r'^(/\S+)/BUILD\.bazel:',
+        multiLine: true,
+      ).firstMatch(location.output)![1]!;
+      // Every built package's Maven records are read by an Android build's
+      // check, whatever package it is.
+      final maven = jsonDecode(
+        File(
+          p.join(root, 'flutter_android_maven_deps.json'),
+        ).readAsStringSync(),
+      ) as Map<String, Object?>;
+      expect(maven['deps'], isEmpty);
+      expect(maven['unread'], isEmpty);
+      final member = jsonDecode(
+        File(p.join(root, 'flutter_pub_member.json')).readAsStringSync(),
+      ) as Map<String, Object?>;
+      expect(member['kind'], 'stub');
+
+      final build = await fetcher.bazel([
+        'build',
+        '--nobuild',
+        '@sdk_stub//:integration_test',
+      ]);
+      expect(build.succeeded, isFalse, reason: 'built a package not there');
+      expect(
+        build.output,
+        contains('The release lacks packages/integration_test.'),
+        reason: '$build',
       );
     },
   );

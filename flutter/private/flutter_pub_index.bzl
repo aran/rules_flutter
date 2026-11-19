@@ -54,6 +54,7 @@ MEMBER_FILE = "flutter_pub_member.json"
 MEMBER_DART = "dart"  # rules_dart's `pub_package_member`
 MEMBER_FLUTTER = "flutter"  # `flutter_pub_member`
 MEMBER_OVERLAY = "overlay"  # an overlay's whole BUILD file, which `:<package>` is
+MEMBER_STUB = "stub"  # a package its SDK cannot supply: `:<package>` fails, saying why
 
 _INDEX_FILE = "index.json"
 

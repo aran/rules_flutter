@@ -21,7 +21,7 @@ with `flutter_info_forwarding_aspect`.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_graph", "read_pubspec_dependencies")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "sibling_label", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "sibling_label", "source_repo")
 load("//flutter/private:pub_cycles.bzl", "DECLARE")
 
 visibility("//flutter/...")
@@ -186,6 +186,15 @@ def _flutter_pub_library_repo_impl(ctx):
         member: json.decode(read_sibling_file(ctx, source_repo(member, owner_prefix(index, member)), MEMBER_FILE))
         for member in cycle.packages
     }
+    stubs = [m for m in cycle.packages if members[m]["kind"] == MEMBER_STUB]
+    if stubs:
+        # A package its SDK cannot supply: the cycle's library is its target,
+        # which fails, saying why, when a build uses it.
+        ctx.file("BUILD.bazel", make_alias_build_content(
+            package,
+            "@{}//:{}".format(source_repo(stubs[0], owner_prefix(index, stubs[0])), stubs[0]),
+        ))
+        return ctx.repo_metadata(reproducible = True)
     overlays = [m for m, info in members.items() if info["kind"] == MEMBER_OVERLAY]
     if overlays and len(cycle.packages) > 1:
         fail(overlay_in_cycle_error(overlays[0], cycle.packages))
