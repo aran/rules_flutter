@@ -11,20 +11,24 @@ This file holds the pieces:
 * `parse_gradle_maven_dependencies` reads the declarations out of a script.
 * `merge_plugin_requirements` and `maven_problems` merge what every plugin of
   the build's plugins declare and compare it with what `@rules_flutter_maven` resolved.
-* `flutter_android_maven` is a repository rule, one per build, that gathers what
-  every plugin declares and what `@rules_flutter_maven` resolved. It writes
-  a `requirements` target, which an application's `flutter_android_plugin_libs`
-  reads to check the plugins that application links (and those only),
-  `resolved.bzl`, which a plugin's `android/` package
-  loads to depend on the artifacts that exist, and a `maven_artifacts` target
-  that prints the complete block of every plugin of the lock for the root
-  module's `maven.install`. An application's own `<name>_maven_artifacts`
+* `flutter_android_maven_requirements_repo` is a repository rule, one per
+  framework the build's SDKs have, that gathers what every plugin declares,
+  that framework's Flutter SDK packages among them, and what
+  `@rules_flutter_maven` resolved. It writes a `requirements` target, which an
+  application's `flutter_android_plugin_libs` reads to check the plugins that
+  application links (and those only), and a `maven_artifacts` target that
+  prints the complete block of every plugin of the lock for the root module's
+  `maven.install`. An application's own `<name>_maven_artifacts`
   (`flutter_android_maven_artifacts`) prints the part its plugins need.
+* `flutter_android_maven`, one per build, names the selected SDK's
+  `requirements` and `maven_artifacts`, and writes `resolved.bzl`, which a
+  plugin's `android/` package loads to depend on the artifacts that exist.
 
 Only an Android build that links a plugin reads any of this, so only such a
 build fetches it.
 """
 
+load("//flutter/private:flutter_face_repo.bzl", "face_build_content")
 load(
     "//flutter/private:gradle_script.bzl",
     "applied_script",
@@ -1029,16 +1033,9 @@ def _resolved_versions(build):
 def _lines(rctx, label):
     return [line.strip() for line in rctx.read(rctx.path(label)).splitlines() if line.strip()]
 
-def _flutter_android_maven_impl(rctx):
+def _maven_install(rctx):
+    """What `@rules_flutter_maven` resolved and lists, as the repositories below read it."""
     build = rctx.read(rctx.path(Label("@rules_flutter_maven//:BUILD")))
-    resolved = _resolved_versions(build)
-
-    # A pinned install's `pin` is an alias of its unpinned repository's.
-    # rules_jvm_external gives another module no provider, no repository
-    # attribute it can read and no label of the install's `lock_file` (the
-    # `maven.install` tag is the root module's), so the alias in the BUILD it
-    # writes is what says the install is locked.
-    locked = "unpinned_" in build
 
     # The BoMs the install lists, which rules_jvm_external lists for its own
     # `outdated` program, as `group:artifact:version`.
@@ -1055,9 +1052,24 @@ def _flutter_android_maven_impl(rctx):
         if len(fields) >= 2:
             listed[fields[0] + ":" + fields[1]] = artifact
 
-    # The install's repositories, which rules_jvm_external lists for its own
-    # `outdated` program.
-    repositories = _lines(rctx, Label("@rules_flutter_maven//:outdated.repositories"))
+    return struct(
+        resolved = _resolved_versions(build),
+        # A pinned install's `pin` is an alias of its unpinned repository's.
+        # rules_jvm_external gives another module no provider, no repository
+        # attribute it can read and no label of the install's `lock_file` (the
+        # `maven.install` tag is the root module's), so the alias in the BUILD
+        # it writes is what says the install is locked.
+        locked = "unpinned_" in build,
+        resolved_boms = resolved_boms,
+        listed = listed,
+        # The install's repositories, which rules_jvm_external lists for its
+        # own `outdated` program.
+        repositories = _lines(rctx, Label("@rules_flutter_maven//:outdated.repositories")),
+    )
+
+def _flutter_android_maven_requirements_impl(rctx):
+    install = _maven_install(rctx)
+    resolved = install.resolved
     packages = resolve_plugin_properties([json.decode(rctx.read(rctx.path(label))) for label in rctx.attr.spokes])
 
     annotated = annotated_requirements(packages, resolved)
@@ -1069,23 +1081,22 @@ def _flutter_android_maven_impl(rctx):
     # picks the packages it links and no others. The build-wide report below is
     # for finding what a lock's plugins need all at once.
     requirements_json = json.encode({
-        "boms": resolved_boms,
-        "listed": listed,
-        "locked": locked,
-        "repositories": repositories,
+        "boms": install.resolved_boms,
+        "listed": install.listed,
+        "locked": install.locked,
+        "repositories": install.repositories,
         "resolved": resolved,
         "packages": packages,
     })
-    rctx.file("resolved.bzl", "RESOLVED = %s\n" % repr(resolved))
     rctx.file("report.json", artifacts_report(
         merge_plugin_requirements(packages),
         resolved,
-        repositories,
+        install.repositories,
         unread = unread_lines(packages),
         boms = merge_plugin_requirements(packages, "boms"),
-        resolved_boms = resolved_boms,
-        locked = locked,
-        listed = listed,
+        resolved_boms = install.resolved_boms,
+        locked = install.locked,
+        listed = install.listed,
     ))
     rctx.file("maven_artifacts.dart", rctx.read(Label("//flutter/private/tools:maven_artifacts.dart")))
     rctx.file("BUILD.bazel", """\
@@ -1114,20 +1125,45 @@ dart_binary(
 )
 """.replace("{data}", repr(requirements_json)))
 
-flutter_android_maven = repository_rule(
-    implementation = _flutter_android_maven_impl,
+flutter_android_maven_requirements_repo = repository_rule(
+    implementation = _flutter_android_maven_requirements_impl,
     attrs = {
         "spokes": attr.label_list(
-            doc = "Each built spoke's `flutter_android_maven_deps.json`.",
+            doc = "Each built spoke's `flutter_android_maven_deps.json`, the Flutter SDK packages' those of one framework.",
             allow_files = True,
         ),
     },
-    doc = """The Maven requirements of the build's Android plugins.
+    doc = """The Maven requirements of the build's Android plugins, with one framework's Flutter SDK packages.
 
 Reads the versions `@rules_flutter_maven` resolved and the dependencies every
 spoke's Gradle build declares, and generates a `requirements` target (for an
-application's check of the plugins it links), `resolved.bzl` (what a plugin's
-library may depend on) and the `maven_artifacts` target (every plugin of the
-lock at once). It is fetched only when an Android build links a plugin.
+application's check of the plugins it links) and the `maven_artifacts` target
+(every plugin of the lock at once). `@flutter_pub_android_maven` names the one
+of the selected SDK, so a build fetches only its framework's packages.
+""",
+)
+
+def _flutter_android_maven_impl(rctx):
+    rctx.file("resolved.bzl", "RESOLVED = %s\n" % repr(_maven_install(rctx).resolved))
+    rctx.file("BUILD.bazel", face_build_content(
+        {sdk: "@" + repo for sdk, repo in rctx.attr.sdks.items()},
+        {"requirements": "{prefix}//:requirements", "maven_artifacts": "{prefix}//:maven_artifacts"},
+    ))
+
+flutter_android_maven = repository_rule(
+    implementation = _flutter_android_maven_impl,
+    attrs = {
+        "sdks": attr.string_dict(
+            doc = "Each declared SDK to the `flutter_android_maven_requirements_repo` of its framework's packages.",
+            mandatory = True,
+        ),
+    },
+    doc = """The Maven data of the build's Android plugins, for the selected SDK.
+
+`resolved.bzl` is what a plugin's library may depend on: what
+`@rules_flutter_maven` resolved, the same under every SDK, so loading it
+fetches no package. `requirements` and `maven_artifacts` are those of the
+selected SDK's `flutter_android_maven_requirements_repo`. It is fetched only
+when an Android build links a plugin.
 """,
 )

@@ -83,6 +83,14 @@ def index_repo(prefix = SPOKE_PREFIX):
     """The name of the index repository of a prefix."""
     return prefix + "_index"
 
+def android_maven_requirements_repo(prefix = SPOKE_PREFIX):
+    """The name of the repository of the Android plugins' Maven requirements, with a prefix's Flutter SDK packages."""
+    return prefix + "_android_maven_requirements"
+
+def apple_app_libraries_repo(prefix = SPOKE_PREFIX):
+    """The name of the repository of the Apple libraries that read the app, with a prefix's Flutter SDK packages."""
+    return prefix + "_apple_app_libraries"
+
 def sdk_prefix(sdk):
     """What the Flutter SDK packages of the framework of another SDK are named by.
 

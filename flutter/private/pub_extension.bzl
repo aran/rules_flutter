@@ -14,14 +14,14 @@ load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url", "pub_archive_files", "pub_files_label", "pub_git_files")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
-load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven")
-load("//flutter/private:apple_app_settings_repo.bzl", "flutter_apple_app_settings")
+load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven", "flutter_android_maven_requirements_repo")
+load("//flutter/private:apple_app_settings_repo.bzl", "flutter_apple_app_libraries", "flutter_apple_app_settings")
 load("//flutter/private:apple_plugin_repo.bzl", "apple_repo", "flutter_apple_plugin_repo")
 load("//flutter/private:flutter_face_repo.bzl", "flutter_face_repo")
 load("//flutter/private:flutter_framework_package.bzl", "flutter_framework_package")
 load("//flutter/private:flutter_gen_l10n_repo.bzl", "flutter_gen_l10n_repo")
 load("//flutter/private:flutter_pub_goldens.bzl", "flutter_pub_goldens")
-load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
 load("//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
@@ -686,7 +686,10 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     # `<package>/0.0.0`) and library repository included. `package:flutter` has
     # a rule of its own (its shaders are declared in no pubspec).
     reps = _framework_representatives(sdks, prefixes)
-    apple_repos = {}
+
+    # The packages with an Apple repository: a Flutter SDK package has one per
+    # framework.
+    apple_packages = {}
     for name, e in sorted(chosen.items()):
         if e.kind == UNSUPPORTED:
             flutter_unsupported_package(
@@ -718,7 +721,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
         elif e.kind == HOSTED:
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
-            apple_repos[name] = apple_repo(name)
+            apple_packages[name] = True
             pub_archive_files(
                 name = files_repo(name),
                 package_name = name,
@@ -746,7 +749,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
         elif e.kind == GIT:
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
-            apple_repos[name] = apple_repo(name)
+            apple_packages[name] = True
             pub_git_files(
                 name = files_repo(name),
                 package_name = name,
@@ -771,7 +774,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             # package is built from its archive.
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
-            apple_repos[name] = apple_repo(name)
+            apple_packages[name] = True
             flutter_pub_package(
                 name = source_repo(name),
                 package_name = name,
@@ -790,8 +793,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
                 sdk = sharers[0]
                 flutter_pub_library_repo(name = library_repo(name, prefix), package_name = name, prefix = prefix)
                 flutter_apple_plugin_repo(name = apple_repo(name, prefix), package_name = name, prefix = prefix, version = e.version)
-                if prefix == SPOKE_PREFIX:
-                    apple_repos[name] = apple_repo(name)
+                apple_packages[name] = True
                 files = None
                 unusable = ""
                 if sdk.version and not sdk.framework:
@@ -827,20 +829,38 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     # declares, against what `@rules_flutter_maven` resolved. An Android app's
     # `flutter_android_plugin_libs` checks the part its plugins need, and a
     # spoke's `android/` package reads what resolved, so only Android builds
-    # fetch it.
+    # fetch it. The Flutter SDK packages are those of the selected SDK's
+    # framework, so there is a set of requirements per framework, and a build
+    # reads only its own.
+    #
+    # Likewise the build's Apple plugins whose Package.swift decides its
+    # defines from the app, which an Apple app builds for itself.
+    for prefix in reps:
+        flutter_android_maven_requirements_repo(
+            name = android_maven_requirements_repo(prefix),
+            spokes = [
+                "@{}//:{}".format(source_repo(name, prefix if name in sdk_packages else SPOKE_PREFIX), MAVEN_DEPS_FILE)
+                for name in sorted(built.keys())
+            ],
+        )
+        flutter_apple_app_libraries(
+            name = apple_app_libraries_repo(prefix),
+            packages = {name: prefix if name in sdk_packages else SPOKE_PREFIX for name in apple_packages},
+        )
     flutter_android_maven(
         name = ANDROID_MAVEN_REPO,
-        spokes = [
-            "@{}//:{}".format(source_repo(name), MAVEN_DEPS_FILE)
-            for name in sorted(built.keys())
-        ],
+        sdks = {sdk: android_maven_requirements_repo(prefix) for sdk, prefix in prefixes.items()},
     )
 
-    # The build's Apple plugins whose Package.swift decides its defines from
-    # the app, which an Apple app builds for itself.
+    # Whether any library reads the app is one value for every SDK (a
+    # transition reads it). Under one framework it is exact; under several,
+    # the Flutter SDK packages with Apple code are taken to, rather than read
+    # every framework's.
     flutter_apple_app_settings(
         name = APPLE_APP_SETTINGS_REPO,
-        packages = sorted(apple_repos.keys()),
+        sdks = {sdk: apple_app_libraries_repo(prefix) for sdk, prefix in prefixes.items()},
+        packages = {name: SPOKE_PREFIX for name in apple_packages if not multi or name not in sdk_packages},
+        assume_any = multi and bool([name for name in apple_packages if name in sdk_packages]),
     )
 
     if "flutter_test" in built:
@@ -860,6 +880,6 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             built_packages = sorted([n for n in packages if n in built]),
             sdk_packages = [n for n in sdk_packages if n in packages],
             sdk_prefixes = prefixes,
-            apple_repos = [apple_repos[n] for n in sorted(packages.keys()) if n in apple_repos],
+            apple_packages = [n for n in sorted(packages.keys()) if n in apple_packages],
             swift_package_resolved = hub_resolved.get(hub_name),
         )

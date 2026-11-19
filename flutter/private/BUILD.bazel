@@ -1474,7 +1474,10 @@ bzl_library(
     name = "android_plugin_maven",
     srcs = ["android_plugin_maven.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":gradle_script"],
+    deps = [
+        ":flutter_face_repo",
+        ":gradle_script",
+    ],
 )
 
 bzl_library(
@@ -1501,6 +1504,7 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":apple_plugin_repo",
+        ":flutter_face_repo",
         ":flutter_pub_index",
     ],
 )
@@ -1906,7 +1910,10 @@ bzl_library(
     name = "flutter_pub_lock_hub",
     srcs = ["flutter_pub_lock_hub.bzl"],
     visibility = ["//flutter:__subpackages__"],
-    deps = [":flutter_pub_index"],
+    deps = [
+        ":apple_plugin_repo",
+        ":flutter_pub_index",
+    ],
 )
 
 bzl_library(

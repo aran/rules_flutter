@@ -53,6 +53,9 @@
 /// 16. A checkout SDK's toolchains, and a custom engine's whose `hosts` is
 ///     `host`, run on the machine alone, so another execution platform
 ///     listed first does not take the build.
+/// 17. The Android plugins' Maven data and the Apple libraries that read the
+///     app are those of the selected SDK's packages: building them reads no
+///     other SDK's.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -1034,6 +1037,53 @@ void main() {
         ]);
         expect(package.exitCode, 0, reason: '${package.stderr}');
         expect('${package.stdout}', contains('$repo//sky_engine:sky_engine'));
+      }
+    },
+  );
+
+  test(
+    'the Android Maven data and the Apple app settings read the selected '
+    'SDK\'s packages and no other SDK\'s',
+    () async {
+      // Each repository, and how it names the checkout's `integration_test`
+      // where the release's would be `flutter_pub__integration_test` (which
+      // comes from the release's source tarball).
+      for (final (face, target, repo, local) in [
+        (
+          'flutter_pub_android_maven',
+          'requirements',
+          'android_maven_requirements',
+          'flutter_pub-local__integration_test//',
+        ),
+        (
+          'flutter_pub_apple_app_settings',
+          'libraries',
+          'apple_app_libraries',
+          '"integration_test": "flutter_pub-local"',
+        ),
+      ]) {
+        const prefix = '@@rules_flutter++pub+';
+        final selected = '${prefix}flutter_pub-local_$repo';
+        final deps = await _bazel([
+          'cquery',
+          'deps($prefix$face//:$target, 1)',
+          '${_sdkFlag}local',
+          '--output=label',
+        ]);
+        expect(deps.exitCode, 0, reason: '${deps.stderr}');
+        expect('${deps.stdout}', contains('$selected//:$target'));
+
+        final shown = await _bazel(['mod', 'show_repo', selected]);
+        expect(shown.exitCode, 0, reason: '${shown.stderr}');
+        expect('${shown.stdout}', contains(local));
+        expect(
+          '${shown.stdout}',
+          isNot(contains('flutter_pub__integration_test')),
+        );
+        expect(
+          '${shown.stdout}',
+          isNot(contains('"integration_test": "flutter_pub"')),
+        );
       }
     },
   );
