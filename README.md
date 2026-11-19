@@ -114,6 +114,10 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
     `//sky_engine:pubspec.yaml` (see
     [Writing an engine source](#writing-an-engine-source)). `flutter_local_engine`
     and `flutter.checkout` give them.
+11. Android apps wired by hand: `flutter_android_plugin_libs` takes its
+    application as a one-element list, `deps = [":app"]`, in place of the
+    single label `deps = ":app"`. `flutter_android_app` and `flutter_android_aar`
+    pass it for you.
 
 ## Road to 1.0
 
