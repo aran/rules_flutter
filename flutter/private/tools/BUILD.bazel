@@ -156,6 +156,12 @@ dart_test(
         "assemble_directory.dart",
     ],
     main = "test/apple_xcframeworks_export_test.dart",
+    # Apple bundles are built only where Xcode runs, never on Windows, and
+    # their frameworks' links are POSIX symlinks.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
     deps = [
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
@@ -446,6 +452,12 @@ dart_test(
         "assemble_directory.dart",
     ],
     main = "test/apple_frameworks_test.dart",
+    # Apple bundles are built only where Xcode runs, never on Windows, and
+    # their frameworks' links are POSIX symlinks.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
     deps = ["@dev_tool_deps//:test"],
 )
 
