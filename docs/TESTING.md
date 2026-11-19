@@ -1405,7 +1405,10 @@ host's loopback (`ssh -R`), so the page loads from the same
 `http://localhost:<port>` URL, and forwards Chrome's debugging port back
 (`ssh -L`), so the port Chrome announces answers here. Hot reload, hot restart,
 the agent commands and CDP screenshots go through those forwards. Stopping the
-run quits that Chrome and removes its profile. To see the page, capture the
+run quits that Chrome and removes its profile. A Chrome that restarts itself
+(it exits 0 and a relauncher starts another on the same profile with
+`--restart`) cannot be followed: `ssh_chrome` ends the new one and exits 1 with
+a message saying so, which the dev tool reports as the browser exiting. To see the page, capture the
 host's screen: `ssh <host> screencapture -x /tmp/shot.png`, then copy it back.
 
 **What cannot run there:** the dev tool's macOS-desktop runs. `MacOSDevice`

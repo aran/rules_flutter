@@ -67,9 +67,18 @@ class RemoteChromeLaunch {
   final String profile;
 
   /// What ssh runs on the host: Chrome on a fresh profile until it exits or
-  /// ssh's stdin ends, then the profile removed. Run by bash, because a
-  /// background job's stdin is the one thing that waits for ssh's to end, and
-  /// whether a shell gives it to a background job is shell-specific.
+  /// ssh's stdin ends, then every process still on the profile ended and the
+  /// profile removed. Run by bash, because a background job's stdin is the
+  /// one thing that waits for ssh's to end, and whether a shell gives it to a
+  /// background job is shell-specific.
+  ///
+  /// Chrome can restart itself (`chrome://restart`, a relaunch it decides on):
+  /// the browser exits with 0 and a relauncher starts a new one on the same
+  /// profile with `--restart`, a process this script did not start and the
+  /// dev tool cannot see. That ends the run, so the script says so and exits
+  /// 1 rather than 0, which the dev tool would report as the app finishing,
+  /// and ends the new browser rather than leaving it running on a deleted
+  /// profile.
   String remoteScript(String chrome) {
     final script = [
       r'profile=$(mktemp -d "${TMPDIR:-/tmp}/rules_flutter_chrome.XXXXXX") || exit 1',
@@ -78,7 +87,13 @@ class RemoteChromeLaunch {
       r'( read -r _; kill $chrome 2>/dev/null ) <&0 & watcher=$!',
       r'wait $chrome; status=$?',
       r'kill $watcher 2>/dev/null',
+      r'restarted=$(ps -A -o command= | grep -F -- "--user-data-dir=$profile" | grep -c -F -- " --restart")',
+      r'pkill -f -- "--user-data-dir=$profile"',
       r'rm -rf "$profile"',
+      r'if [ "$restarted" != 0 ]; then',
+      r'  echo "ssh_chrome: Chrome restarted itself into a process this run cannot follow, and was ended." >&2',
+      r'  exit 1',
+      r'fi',
       r'exit $status',
     ].join('\n');
     return 'exec /bin/bash -c ${_quote(script)}';

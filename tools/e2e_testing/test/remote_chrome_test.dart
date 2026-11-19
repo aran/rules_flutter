@@ -70,4 +70,47 @@ void main() {
     // not have: here it runs in this one's, and Windows has none.
     testOn: '!windows',
   );
+
+  test('fails a run whose Chrome restarted itself, and ends the new one', () async {
+    // Stands in for a Chrome that restarts itself: it exits with 0, leaving a
+    // process of its own on the profile with `--restart` (the relauncher, then
+    // the new browser), which blocks opening a FIFO until it is killed.
+    final dir = Directory.systemTemp.createTempSync('remote_chrome_test');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final chrome = File('${dir.path}/chrome')
+      ..writeAsStringSync(r'''
+#!/bin/sh
+profile=${1#--user-data-dir=}
+mkfifo "$profile/hold"
+sh -c 'read -r _ < "$0/hold"' "$profile" "$1" --restart </dev/null >/dev/null 2>&1 &
+until ps -A -o command= | grep -F -- "$1 --restart" | grep -q -v grep; do :; done
+echo "$profile"
+exit 0
+''');
+    Process.runSync('chmod', ['+x', chrome.path]);
+
+    final launch = RemoteChromeLaunch.parse([
+      '--user-data-dir=/not/on/the/host',
+      page,
+    ], debugPort: 1);
+    final shell = await Process.start('/bin/sh', [
+      '-c',
+      launch.remoteScript(chrome.path),
+    ]);
+    final out = shell.stdout.transform(utf8.decoder).join();
+    final err = shell.stderr.transform(utf8.decoder).join();
+    final code = await shell.exitCode;
+    await shell.stdin.close();
+
+    expect(code, 1);
+    expect(await err, contains('Chrome restarted itself'));
+    final profile = (await out).trim();
+    expect(Directory(profile).existsSync(), isFalse, reason: 'not removed');
+    final processes = Process.runSync('ps', ['-A', '-o', 'command=']).stdout;
+    expect(
+      '$processes'.split('\n').where((line) => line.contains(profile)),
+      isEmpty,
+      reason: 'the restarted browser was left running',
+    );
+  });
 }
