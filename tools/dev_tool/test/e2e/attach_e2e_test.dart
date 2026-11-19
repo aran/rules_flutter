@@ -10,6 +10,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('macos_example');
+
 /// `flutter_bazel attach` against an app this test launches itself.
 ///
 /// The app has to be started outside the dev tool — attaching to a process it
@@ -94,7 +97,7 @@ void main() {
     test(
       'attaches to a running app and reports its VM service',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final app = await launchAppDirectly(ws);
 
         final dt = await attachDevTool(
@@ -131,7 +134,7 @@ void main() {
     test(
       'drives a hot reload that keeps the app’s own dart defines',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final appMainOrig = appMain.readAsStringSync();
         expect(
@@ -212,7 +215,7 @@ void main() {
     test(
       'drives a hot restart that re-runs main()',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final appMainOrig = appMain.readAsStringSync();
         expect(
@@ -294,7 +297,7 @@ void main() {
     test(
       'exits when the app it attached to goes away',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final app = await launchAppDirectly(ws);
 
         final dt = await attachDevTool(
@@ -350,7 +353,7 @@ void main() {
     test(
       'exits the same way when the app goes away mid-assembly',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final app = await launchAppDirectly(ws);
 
         final dt = await attachDevTool(
@@ -410,7 +413,7 @@ void main() {
     test(
       'daemon.shutdown ends the process, not just the session',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_app);
         final app = await launchAppDirectly(ws);
 
         final dt = await attachDevTool(

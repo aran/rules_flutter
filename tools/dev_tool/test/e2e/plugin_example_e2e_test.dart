@@ -25,6 +25,9 @@ import 'package:vm_service/vm_service_io.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('plugin_example');
+
 /// PNG signature: 89 50 4E 47 0D 0A 1A 0A.
 const _pngHeader = <int>[0x89, 0x50, 0x4E, 0x47];
 
@@ -89,7 +92,7 @@ void main() {
     'macOS e2e',
     () {
       test('plugin_macos renders non-blank frame', () async {
-        final ws = await editableWorkspace('plugin_example');
+        final ws = await editableWorkspace(_app);
         await _runScreenshotTest(
           workspace: ws.root,
           target: ':plugin_macos',
@@ -101,7 +104,7 @@ void main() {
       test(
         'Dart plugin registration survives hot restart',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           // The Dart plugin registrant is invoked by the engine's pre-main hook
           // on every root-isolate launch, including the restarted (dev-tool-
           // compiled) dill. A build-generated wrapper main cannot do that — the
@@ -166,7 +169,7 @@ void main() {
         'a restart into a hidden window says why nothing changed, and shows '
         'once the window is back',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           final dt = await startDevTool(
             workspace: ws.root,
             target: ':plugin_macos',
@@ -248,7 +251,7 @@ void main() {
       test(
         'app output reaches the client after launch',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           // Launched through the Bazel-built binary rather than `dart run`,
           // because this test asserts stdout carries nothing but protocol
           // envelopes. `dart run` prepends its own SDK chatter ("Running build
@@ -287,7 +290,7 @@ void main() {
       test(
         'app output is readable from the /logs control endpoint',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           final dt = await startDevTool(
             workspace: ws.root,
             target: ':plugin_macos',
@@ -364,7 +367,7 @@ void main() {
         // app's output and changes nothing, and a copy would pay a cold
         // toolchain fetch into a fresh output base for no benefit.
         final dt = await startDevTool(
-          workspace: e2eWorkspace('plugin_example'),
+          workspace: _app.moduleRoot,
           target: ':plugin_web',
           device: 'chrome',
         );
@@ -420,7 +423,7 @@ void main() {
     'iOS Simulator e2e',
     () {
       test('plugin_ios renders non-blank frame', () async {
-        final ws = await editableWorkspace('plugin_example');
+        final ws = await editableWorkspace(_app);
         await _runScreenshotTest(
           workspace: ws.root,
           target: ':plugin_ios',
@@ -432,7 +435,7 @@ void main() {
       test(
         'hot restart re-registers the iOS plugin set, not the host\'s',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           // The dev tool reads its plugin registrant from a bare build of the
           // flutter_application, which resolves in the HOST configuration —
           // macOS here. The registrant is platform-filtered, so a resident
@@ -556,7 +559,7 @@ void main() {
       test(
         'is served as executable JavaScript by the binary users run',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           final dt = await startDevTool(
             workspace: ws.root,
             target: ':plugin_web',
@@ -662,7 +665,7 @@ void main() {
       test(
         'web plugins register in DDC dev mode',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           expectPluginsRegistered(await pluginResults(ws, const []));
         },
         timeout: const Timeout(Duration(minutes: 6)),
@@ -674,7 +677,7 @@ void main() {
       test(
         'web plugins register in WASM dev mode',
         () async {
-          final ws = await editableWorkspace('plugin_example');
+          final ws = await editableWorkspace(_app);
           expectPluginsRegistered(await pluginResults(ws, const ['--wasm']));
         },
         timeout: const Timeout(Duration(minutes: 6)),
@@ -707,7 +710,7 @@ void main() {
       // dev tool's preflight aborts the launch (that fail-fast diagnostic
       // is unit-tested in device_test.dart).
       test('plugin_android renders non-blank frame', () async {
-        final ws = await editableWorkspace('plugin_example');
+        final ws = await editableWorkspace(_app);
         // dev_tool's -d flag takes an Android serial, not a generic
         // 'android' token. `$ANDROID_SERIAL` picks between an emulator and a
         // connected phone when both are attached; the probe honors it and

@@ -10,6 +10,10 @@ import 'package:vm_service/vm_service_io.dart' as vm_io;
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The apps under test.
+const _macosExample = E2eApp('macos_example');
+const _desktopExample = E2eApp('desktop_example');
+
 /// What the three desktop platforms owe under Impeller, asserted the same way
 /// on each so a difference between them is visible.
 ///
@@ -55,7 +59,7 @@ import 'editable_workspace.dart';
 void main() {
   _desktop(
     platform: 'macOS',
-    workspace: 'macos_example',
+    app: _macosExample,
     target: ':app',
     device: 'macos',
     title: 'macOS Example',
@@ -63,7 +67,7 @@ void main() {
   );
   _desktop(
     platform: 'Linux',
-    workspace: 'desktop_example',
+    app: _desktopExample,
     target: ':linux_app',
     device: 'linux',
     title: 'Desktop Example',
@@ -71,7 +75,7 @@ void main() {
   );
   _desktop(
     platform: 'Windows',
-    workspace: 'desktop_example',
+    app: _desktopExample,
     target: ':windows_app',
     device: 'windows',
     title: 'Desktop Example',
@@ -81,7 +85,7 @@ void main() {
 
 void _desktop({
   required String platform,
-  required String workspace,
+  required E2eApp app,
   required String target,
   required String device,
   required String title,
@@ -93,7 +97,7 @@ void _desktop({
       test(
         'native capture works, the engine one does not, and reload lands',
         () async {
-          final ws = await editableWorkspace(workspace);
+          final ws = await editableWorkspace(app);
           final main = ws.file('lib/main.dart');
           final original = main.readAsStringSync();
           expect(
@@ -101,7 +105,7 @@ void _desktop({
             contains("const Text('$title')"),
             reason:
                 'this test edits the app bar title, so it has to be there to '
-                'start with — $workspace/lib/main.dart changed shape',
+                'start with — ${app.module}/lib/main.dart changed shape',
           );
 
           final dt = await startDevTool(

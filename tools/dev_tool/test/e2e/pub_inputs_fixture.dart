@@ -559,7 +559,7 @@ class PubInputsFixture {
     } else {
       serverUrl = 'file://${server.path}';
     }
-    final repo = e2eWorkspace('..');
+    final repo = repositoryRoot;
     final root = File(p.join(repo, 'MODULE.bazel')).readAsStringSync();
     String pinned(String pattern) {
       final match = RegExp(pattern).firstMatch(root);

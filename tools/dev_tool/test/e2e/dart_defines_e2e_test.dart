@@ -8,6 +8,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('macos_example');
+
 /// End-to-end: `flutter_bazel run --dart-define` reaches the app AND
 /// survives a hot reload.
 ///
@@ -25,7 +28,7 @@ void main() {
     List<String> extraArgs,
     String message,
   ) async {
-    final ws = await editableWorkspace('macos_example');
+    final ws = await editableWorkspace(_app);
     final appMain = ws.file('lib/main.dart');
     final appMainOrig = appMain.readAsStringSync();
     expect(

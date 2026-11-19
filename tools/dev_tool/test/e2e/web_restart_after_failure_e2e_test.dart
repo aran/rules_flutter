@@ -6,6 +6,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// End-to-end: a browser session still restarts after a restart that failed.
 ///
 /// A restart is `reset` + `recompile`, the pairing `flutter_tools` uses
@@ -33,7 +36,7 @@ void main() {
     test(
       'a browser session restarts again after a restart that failed',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         const anchor =

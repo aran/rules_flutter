@@ -2,11 +2,13 @@
 ///
 /// ## The contract
 ///
-/// **Input:** the name of a workspace under `e2e/`, exactly as
-/// [e2eWorkspace] takes.
+/// **Input:** an [E2eApp], which names a module under `e2e/` and a package in
+/// it. The whole module is copied, since the app builds against what is
+/// beside it.
 ///
 /// **Output:** [EditableWorkspace.root] — a directory that builds and runs
-/// like that workspace and belongs to one test. Edit anything in it. Nothing
+/// like that module and belongs to one test; [EditableWorkspace.appRoot] is
+/// the app's package inside it. Edit anything in it. Nothing
 /// needs restoring, because nothing else will ever read it.
 ///
 /// Three invariants make the copy behave like the original, and each is here
@@ -36,7 +38,7 @@
 /// above still hold at [EditableWorkspace.root].
 ///
 /// Tests must therefore reach the workspace ONLY through this type. A test
-/// that mutates files must never build a path from [e2eWorkspace], or it
+/// that mutates files must never build a path from [E2eApp.moduleRoot] or [E2eApp.root], or it
 /// writes into the tree every other test is reading.
 library;
 
@@ -158,27 +160,43 @@ class EditableWorkspace {
   /// The name it was copied from, for messages.
   final String name;
 
-  /// Absolute path to the copy. Everything the test does happens here.
+  /// Absolute path to the copy's module root. Bazel and the dev tool run here.
   final String root;
 
-  EditableWorkspace._(this.name, this.root);
+  /// The app's package, relative to [root]; empty when the app is the module's
+  /// root package, and always empty for a [generatedWorkspace].
+  final String package;
 
-  /// A file inside the copy, addressed the way the source workspace would.
-  File file(String relative) => File(p.join(root, relative));
+  EditableWorkspace._(this.name, this.root, [this.package = '']);
 
-  /// A directory inside the copy.
-  Directory dir(String relative) => Directory(p.join(root, relative));
+  /// Absolute path of the app's directory inside the copy: [root] joined with
+  /// [package].
+  String get appRoot => p.normalize(p.join(root, package));
+
+  /// A file of the app inside the copy, addressed the way the source app would
+  /// (relative to its package).
+  File file(String relative) => File(p.join(appRoot, relative));
+
+  /// A directory of the app inside the copy, relative to its package.
+  Directory dir(String relative) => Directory(p.join(appRoot, relative));
+
+  /// The label of [target] in the app's package, as [E2eApp.label] gives it.
+  String label(String target) => E2eApp(name, package).label(target);
 }
 
-/// Snapshot [name] into a copy this test owns.
+/// Snapshot the module of [app] into a copy this test owns.
 ///
 /// Disposed at the end of the test: the copy's Bazel server is shut down (one
 /// server per output base, and a sweep makes many) and the tree is removed
 /// unless [_keepEnvVar] is set.
-Future<EditableWorkspace> editableWorkspace(String name) async {
-  final source = e2eWorkspace(name);
+Future<EditableWorkspace> editableWorkspace(E2eApp app) async {
+  final name = app.module;
+  final source = app.moduleRoot;
   if (!Directory(source).existsSync()) {
-    throw StateError('no e2e workspace named "$name" at $source');
+    throw StateError('no e2e module named "$name" at $source');
+  }
+  if (!Directory(app.root).existsSync()) {
+    throw StateError('no package "${app.package}" in e2e module "$name"');
   }
 
   final parent = await Directory.systemTemp.createTemp('e2e_ws_');
@@ -191,7 +209,7 @@ Future<EditableWorkspace> editableWorkspace(String name) async {
   printOnFailure('workspace copy for "$name": $root');
   _disposeAtTeardown(parent: parent, root: root);
 
-  return EditableWorkspace._(name, root);
+  return EditableWorkspace._(name, root, app.package);
 }
 
 /// A workspace made from [files] (relative path to contents), for a test that

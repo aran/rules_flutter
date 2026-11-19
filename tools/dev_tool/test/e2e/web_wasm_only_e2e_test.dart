@@ -13,12 +13,15 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// What `wasm_only_app` draws: the largest signed 64-bit integer, read back out
 /// of an `Int64List`.
 const _rendered = 'Int64List max: 9223372036854775807';
 
 void main() {
-  final workspace = e2eWorkspace('web_example');
+  final workspace = _app.moduleRoot;
 
   test(
     'with no flags, runs the dart2wasm loop, says so, and renders',

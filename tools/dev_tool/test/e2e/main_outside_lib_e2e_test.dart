@@ -22,16 +22,20 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The apps under test.
+const _macosExample = E2eApp('macos_example');
+const _webExample = E2eApp('web_example');
+
 void main() {
-  /// Start [target] in a copy of [workspace] on [device], edit both files
+  /// Start [target] in a copy of [app]'s module on [device], edit both files
   /// outside `lib/` with a reload after each, then edit again and restart.
   Future<void> reloadsAndRestarts({
-    required String workspace,
+    required E2eApp app,
     required String target,
     required String device,
   }) async {
-    final ws = await editableWorkspace(workspace);
-    final app = ws.file('test_driver/app.dart');
+    final ws = await editableWorkspace(app);
+    final entrypoint = ws.file('test_driver/app.dart');
     final banner = ws.file('test_driver/banner.dart');
 
     /// Replace [from] with [to] in [file], and prove the file changed: an
@@ -86,7 +90,7 @@ void main() {
       );
     }
 
-    rewrite(app, 'driver entrypoint v1', 'driver entrypoint v2');
+    rewrite(entrypoint, 'driver entrypoint v1', 'driver entrypoint v2');
     await reload('the main outside lib/');
     await shows('driver entrypoint v2', after: 'reloading an edited main');
 
@@ -94,7 +98,7 @@ void main() {
     await reload('a sibling of the main');
     await shows('driver banner v2', after: 'reloading an edited sibling');
 
-    rewrite(app, 'driver entrypoint v2', 'driver entrypoint v3');
+    rewrite(entrypoint, 'driver entrypoint v2', 'driver entrypoint v3');
     final restart = await dt.sendCommand(
       2,
       'app.restart',
@@ -116,7 +120,7 @@ void main() {
     test(
       'macOS: edits to it and its sibling reload and restart',
       () => reloadsAndRestarts(
-        workspace: 'macos_example',
+        app: _macosExample,
         target: ':driver_app',
         device: 'macos',
       ),
@@ -128,7 +132,7 @@ void main() {
     test(
       'Chrome: edits to it and its sibling reload and restart',
       () => reloadsAndRestarts(
-        workspace: 'web_example',
+        app: _webExample,
         target: ':app_test_driver',
         device: 'chrome',
       ),

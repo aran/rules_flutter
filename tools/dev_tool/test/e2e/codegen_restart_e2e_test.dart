@@ -9,6 +9,10 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The apps under test.
+const _codegen = E2eApp('codegen');
+const _iosExample = E2eApp('ios_example');
+
 /// A field inserted into a const class whose generated `part` a build-time
 /// generator writes, the way freezed and json_serializable do, then
 /// `app.restart`.
@@ -31,10 +35,10 @@ void main() {
   test(
     'a field a reload cannot carry is refused with the reason, and a restart runs it',
     () async {
-      final ws = await editableWorkspace('codegen');
+      final ws = await editableWorkspace(_codegen);
       _copyTree(
-        Directory(p.join(e2eWorkspace('ios_example'), 'ios', 'Runner')),
-        Directory(p.join(ws.root, 'ios', 'Runner')),
+        Directory(p.join(_iosExample.root, 'ios', 'Runner')),
+        ws.dir('ios/Runner'),
       );
       final build = ws.file('BUILD.bazel');
       build.writeAsStringSync(

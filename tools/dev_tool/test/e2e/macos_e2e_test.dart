@@ -5,8 +5,11 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('macos_example');
+
 void main() {
-  final workspace = e2eWorkspace('macos_example');
+  final workspace = _app.moduleRoot;
 
   group('macOS e2e', () {
     // The macOS embedder enables Impeller by default

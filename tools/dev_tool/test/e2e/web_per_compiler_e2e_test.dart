@@ -15,6 +15,9 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// What the dart2wasm build draws: the largest signed 64-bit integer, read out
 /// of an `Int64List`.
 const _wasm = 'Int64List max: 9223372036854775807';
@@ -24,7 +27,7 @@ const _wasm = 'Int64List max: 9223372036854775807';
 const _js = 'List<int> max: 9007199254740991';
 
 void main() {
-  final workspace = e2eWorkspace('web_example');
+  final workspace = _app.moduleRoot;
 
   test(
     '--wasm runs the dart2wasm program: the Int64List variant',

@@ -23,6 +23,9 @@ import 'package:vm_service/vm_service_io.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('android_example');
+
 /// The line `main()` prints, whose suffix the Dart edit changes.
 const _marker = "debugPrint('android_example shared=\$shared');";
 
@@ -65,7 +68,7 @@ void main() {
     test(
       'a Dart-only edit builds nothing of the APK and keeps the process',
       () async {
-        final ws = await editableWorkspace('android_example');
+        final ws = await editableWorkspace(_app);
         final main = ws.file('lib/main.dart');
         final original = main.readAsStringSync();
         expect(original, contains(_marker), reason: 'fixture marker');
@@ -120,7 +123,7 @@ void main() {
     );
 
     test('a native library edit builds the APK once and replaces the process', () async {
-      final ws = await editableWorkspace('android_example');
+      final ws = await editableWorkspace(_app);
       final add = ws.file('native/add.c');
       final original = add.readAsStringSync();
       expect(original, contains('return a + b;'), reason: 'fixture marker');
@@ -186,7 +189,7 @@ void main() {
     test(
       'an edit to a cc_library listed on the android_binary relaunches',
       () async {
-        final ws = await editableWorkspace('android_example');
+        final ws = await editableWorkspace(_app);
         final extra = ws.file('native/extra.c');
         final original = extra.readAsStringSync();
         expect(original, contains('return 1;'), reason: 'fixture marker');
@@ -221,7 +224,7 @@ void main() {
     // `lib/<abi>/` without ever linking it, and a restart that read only the
     // libraries the build links would not see it move.
     test('an edit to a library an AAR carries relaunches', () async {
-      final ws = await editableWorkspace('android_example');
+      final ws = await editableWorkspace(_app);
       final aar = ws.file('native/aar_native.c');
       final original = aar.readAsStringSync();
       expect(original, contains('return 1;'), reason: 'fixture marker');
@@ -252,7 +255,7 @@ void main() {
     // `cc_import` is a source file, not a build output. The APK packages it all
     // the same, so a restart has to notice it changed.
     test('an edit to a checked-in prebuilt library relaunches', () async {
-      final ws = await editableWorkspace('android_example');
+      final ws = await editableWorkspace(_app);
       final prebuilt = ws.file('native/prebuilt/libprebuilt.so');
       final original = prebuilt.readAsBytesSync();
 
@@ -284,7 +287,7 @@ void main() {
     // binary's own library, so it is a source file that changes what the APK
     // carries without any file of the build changing but the link.
     test('an edit to a checked-in prebuilt archive relaunches', () async {
-      final ws = await editableWorkspace('android_example');
+      final ws = await editableWorkspace(_app);
       final archive = ws.file('native/prebuilt/libprebuilt_static.a');
       // The same member built with another value, as a checked-in archive
       // that no target uses.
@@ -317,7 +320,7 @@ void main() {
     // announced, and held at PauseStart, until a debugger resumes it.
     test('an app started paused is found and held, not waited on', () async {
       final probe = android.require();
-      final ws = await editableWorkspace('android_example');
+      final ws = await editableWorkspace(_app);
       final dt = await startDevTool(
         workspace: ws.root,
         target: ':app',

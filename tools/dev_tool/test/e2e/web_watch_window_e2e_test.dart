@@ -6,6 +6,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// The web dev loop's startup window, from the watcher's side.
 ///
 /// The watcher has to be started before web assembly — module server, DWDS,
@@ -28,7 +31,7 @@ void main() {
     test(
       'a save during web assembly still drives a reload',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         const anchor =

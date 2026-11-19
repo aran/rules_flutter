@@ -20,6 +20,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('ffi_example');
+
 /// A platform this test drives: where the app runs and what its launch is
 /// called, and the output group of the bundle parts its restart builds.
 typedef _Platform = ({String device, String target, String partsGroup});
@@ -55,7 +58,7 @@ void main() {
         test(
           'keeps the control channel, and the relaunched app answers on it',
           () async {
-            final ws = await editableWorkspace('ffi_example');
+            final ws = await editableWorkspace(_app);
             // `mul` is bundled as a loose dylib (the `native_deps` contract), so a
             // change here is what makes the rebuilt bundle's fingerprint differ.
             final mulSource = ws.file('native/mul.c');
@@ -185,7 +188,7 @@ void main() {
         test(
           'an edit to a header a library includes relaunches',
           () async {
-            final ws = await editableWorkspace('ffi_example');
+            final ws = await editableWorkspace(_app);
             final header = ws.file('native/add.h');
             final source = ws.file('native/add.c');
             expect(
@@ -272,7 +275,7 @@ void main() {
         test(
           'a Dart-only edit builds nothing of the bundle and keeps the process',
           () async {
-            final ws = await editableWorkspace('ffi_example');
+            final ws = await editableWorkspace(_app);
             final main = ws.file('lib/main.dart');
             final original = main.readAsStringSync();
             const marker = r"debugPrint('$marker (sqlite3 $sqliteVersion)');";

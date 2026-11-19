@@ -5,8 +5,11 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('multi_window_example');
+
 void main() {
-  final workspace = e2eWorkspace('multi_window_example');
+  final workspace = _app.moduleRoot;
 
   group('multi_window macOS e2e', () {
     test(

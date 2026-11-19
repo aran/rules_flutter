@@ -6,6 +6,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// End-to-end: a browser run whose FIRST compile failed still gets its app.
 ///
 /// ## What web does not share with native, and what follows from it
@@ -46,7 +49,7 @@ void main() {
     test(
       'a browser run whose first compile failed shows the app once fixed',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         const anchor =

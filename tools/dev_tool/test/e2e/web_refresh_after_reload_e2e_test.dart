@@ -9,6 +9,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// A browser refresh after a hot reload, from the user's side.
 ///
 /// The one navigation the tool never performs: on the DDC path it launches the
@@ -32,7 +35,7 @@ void main() {
     test(
       'the app survives a browser refresh that follows a hot reload',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         const anchor =

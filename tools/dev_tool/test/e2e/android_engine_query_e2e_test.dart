@@ -27,10 +27,13 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('hello_world');
+
 const _abis = ['arm64', 'x64'];
 
 void main() {
-  final workspace = e2eWorkspace('hello_world');
+  final workspace = _app.moduleRoot;
 
   test('hello_world names fewer than every ABI engine in use_repo', () {
     final module = File(p.join(workspace, 'MODULE.bazel')).readAsStringSync();

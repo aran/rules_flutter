@@ -62,13 +62,16 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('ffi_example');
+
 void main() {
   group('native hot patch', () {
     test(
       'a C edit reaches the running app on a hot reload, and a contract edit '
       'is answered by the builder',
       () async {
-        final ws = await editableWorkspace('ffi_example');
+        final ws = await editableWorkspace(_app);
         final mulSource = ws.file('native/mul.c');
         final mulHeader = ws.file('native/mul.h');
         final sourceOriginal = mulSource.readAsStringSync();

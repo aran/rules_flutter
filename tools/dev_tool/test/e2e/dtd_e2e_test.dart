@@ -12,6 +12,9 @@ import 'package:vm_service/vm_service_io.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('macos_example');
+
 /// A run is found through the Dart Tooling Daemon the way `flutter run` is.
 ///
 /// The Dart MCP server finds DTDs with `dart tooling-daemon --list`, reads the
@@ -24,7 +27,7 @@ void main() {
   test(
     'DTD lists the app, and a reload through its VM service shows the edit',
     () async {
-      final ws = await editableWorkspace('macos_example');
+      final ws = await editableWorkspace(_app);
       final appMain = ws.file('lib/main.dart');
       final original = appMain.readAsStringSync();
       expect(original, contains(" v1'"), reason: 'fixture marker present');

@@ -9,6 +9,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('ios_example');
+
 /// Hot reload of an edit to a package from a `local_path_override` module.
 ///
 /// A module overridden to a local path is source the user edits — often a
@@ -26,7 +29,7 @@ void main() {
   test(
     'a reload recompiles an edited package of a local_path_override module',
     () async {
-      final ws = await editableWorkspace('ios_example');
+      final ws = await editableWorkspace(_app);
       final kit = _writeUiKitModule(p.join(p.dirname(ws.root), 'ui_kit'));
 
       final module = ws.file('MODULE.bazel');

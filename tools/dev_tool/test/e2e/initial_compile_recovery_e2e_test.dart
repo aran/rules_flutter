@@ -8,6 +8,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('hello_world');
+
 /// End-to-end: a session whose FIRST compile failed still reloads.
 ///
 /// One failed initial compile must not end the run's usefulness. An
@@ -48,7 +51,7 @@ void main() {
     test(
       'a session whose first compile failed reloads once the code is fixed',
       () async {
-        final ws = await editableWorkspace('hello_world');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         expect(

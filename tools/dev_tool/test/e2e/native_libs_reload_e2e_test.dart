@@ -57,12 +57,15 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('codegen');
+
 void main() {
   group('native library rebuilt under a hot reload', () {
     test(
       'delivered when the bindings hold, withheld when they move',
       () async {
-        final ws = await editableWorkspace('codegen');
+        final ws = await editableWorkspace(_app);
         final appMain = ws.file('lib/main.dart');
         final nativeSource = ws.file('native_add/native/native_add.c');
         final nativeHeader = ws.file('native_add/native/native_add.h');
@@ -218,7 +221,7 @@ void main() {
 
   group('native module rebuilt under a web hot reload', () {
     test('delivered when the contract holds, withheld when it moves', () async {
-      final ws = await editableWorkspace('codegen');
+      final ws = await editableWorkspace(_app);
       final appMain = ws.file('lib/main.dart');
       final module = ws.file('web/demo_module.wasm');
       final contract = ws.file('web/demo_module.api');

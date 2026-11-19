@@ -22,12 +22,15 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 void main() {
   test(
     'a Chrome run comes up with a VM service that answers',
     () async {
       final dt = await startDevTool(
-        workspace: e2eWorkspace('web_example'),
+        workspace: _app.moduleRoot,
         // The WASM target's default `--hot` run is the DDC/DWDS dev loop, which
         // is what owns the VM service this asserts on.
         target: ':app_wasm',

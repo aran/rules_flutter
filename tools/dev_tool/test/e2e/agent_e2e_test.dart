@@ -15,6 +15,10 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'macos_gui.dart';
 
+/// The apps under test.
+const _helloWorld = E2eApp('hello_world');
+const _webExample = E2eApp('web_example');
+
 const _pngSignature = <int>[0x89, 0x50, 0x4E, 0x47];
 
 /// The menu-bar name of the `:hello_world_macos` app (its bundle `app_name`).
@@ -32,7 +36,7 @@ void main() {
         'drives hello_world_macos through tap + enterText + getText',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -693,7 +697,7 @@ void main() {
         'app.tap does not hang when the window is occluded',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -786,7 +790,7 @@ void main() {
         'reports the build configuration the rules baked in',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -832,7 +836,7 @@ void main() {
           expect(assetsDir as String, startsWith('bazel-out/'));
           expect(assetsDir, endsWith('_flutter_assets'));
           expect(
-            Directory('${e2eWorkspace('hello_world')}/$assetsDir').existsSync(),
+            Directory('${_helloWorld.root}/$assetsDir').existsSync(),
             isTrue,
             reason:
                 'the reported assetsDir should resolve to a real tree '
@@ -898,7 +902,7 @@ void main() {
         'an app that never goes idle says so, and can still be driven',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
             extraArgs: ['--dart-define', 'E2E_NEVER_SETTLES=true'],
@@ -1039,7 +1043,7 @@ void main() {
         'a tap that would reach nothing is refused, not reported as done',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
             extraArgs: ['--dart-define', 'E2E_CLIPPED_TOOLBAR=true'],
@@ -1177,7 +1181,7 @@ void main() {
         'a screenshot shows the command that came before it',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -1245,7 +1249,7 @@ void main() {
         'dumps the semantics tree cold, and its point taps the node',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -1309,7 +1313,7 @@ void main() {
       'drives a -d chrome run through getText, tap and restart',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('web_example'),
+          workspace: _webExample.moduleRoot,
           target: ':app_wasm',
           device: 'chrome',
         );

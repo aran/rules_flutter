@@ -8,6 +8,10 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The apps under test.
+const _iosExample = E2eApp('ios_example');
+const _macosExample = E2eApp('macos_example');
+
 /// An app that dies under a connected `run` ends the run, failed, with the
 /// platform's account of why; one that is closed ends it cleanly.
 ///
@@ -49,7 +53,7 @@ void main() {
       'an app killed after the run connected ends the run, failed',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('macos_example'),
+          workspace: _macosExample.moduleRoot,
           target: ':app',
           device: 'macos',
         );
@@ -134,7 +138,7 @@ void main() {
       'an app that crashes after the run connected ends the run, failed',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('ios_example'),
+          workspace: _iosExample.moduleRoot,
           target: ':app',
           device: 'ios-simulator',
         );
@@ -160,7 +164,7 @@ void main() {
       'an app closed after the run connected ends the run, cleanly',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('ios_example'),
+          workspace: _iosExample.moduleRoot,
           target: ':app',
           device: 'ios-simulator',
         );

@@ -67,13 +67,52 @@ String get devToolBin {
   return p.join(Directory.current.path, 'bin', 'flutter_bazel.dart');
 }
 
-/// Resolves the absolute path to an e2e workspace.
-String e2eWorkspace(String name) {
-  return p.normalize(p.join(Directory.current.path, '..', '..', 'e2e', name));
+/// An app under test: the Bazel package [package] of the e2e module [module].
+///
+/// A test names its app once, as a constant, and derives from it every path,
+/// working directory and label that belongs to that app. Nothing else in a
+/// test spells out where the app lives, so moving an app (into a package of a
+/// module that holds several) changes the constant and no other line.
+///
+/// Two directories are involved and they differ once [package] is not empty:
+///
+///  * [moduleRoot] is where Bazel runs and where the dev tool is started. It
+///    holds the `MODULE.bazel` and is the unit [editableWorkspace] copies.
+///  * [root] is the app's own directory inside it, the base of the app's
+///    source paths (`lib/main.dart`) and of its targets.
+class E2eApp {
+  /// The app in the package [package] of the module `e2e/<module>`.
+  const E2eApp(this.module, [this.package = '']);
+
+  /// The module's directory name under `e2e/`.
+  final String module;
+
+  /// The app's package within [module], without `//`. Empty for the module's
+  /// root package.
+  final String package;
+
+  /// Absolute path of the module, the directory Bazel and the dev tool run in.
+  ///
+  /// Assumes tests are run from the `tools/dev_tool/` directory.
+  String get moduleRoot =>
+      p.normalize(p.join(Directory.current.path, '..', '..', 'e2e', module));
+
+  /// Absolute path of the app's directory: [moduleRoot] joined with [package].
+  String get root => p.normalize(p.join(moduleRoot, package));
+
+  /// The label of [target] (`:app`, or a bare `app`) in the app's package:
+  /// `//:app` when [package] is empty, `//<package>:app` otherwise.
+  String label(String target) =>
+      '//$package:${target.startsWith(':') ? target.substring(1) : target}';
+
+  @override
+  String toString() => '//$package of e2e/$module';
 }
 
-/// The repo root, from a test process whose cwd is `tools/dev_tool/`.
-String get _repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+/// The absolute path of the repository root, from a test process whose cwd is
+/// `tools/dev_tool/`.
+String get repositoryRoot =>
+    p.normalize(p.join(Directory.current.path, '..', '..'));
 
 /// Resolves the absolute path to the bazel-built dev_tool binary.
 ///
@@ -92,7 +131,7 @@ String get bazelBuiltDevTool {
   // "not found ... Run: bazel build" on Windows immediately *after* a
   // successful build, which reads as a build failure and is not one.
   final name = Platform.isWindows ? 'flutter_bazel.exe' : 'flutter_bazel';
-  final path = p.join(_repoRoot, 'bazel-bin', 'tools', 'dev_tool', name);
+  final path = p.join(repositoryRoot, 'bazel-bin', 'tools', 'dev_tool', name);
   if (!File(path).existsSync()) {
     throw StateError(
       'Bazel-built dev_tool not found at $path. '
@@ -127,12 +166,12 @@ Future<String> _buildDevTool() async {
   final result = await Process.run(
     'bazel',
     ['build', label],
-    workingDirectory: _repoRoot,
+    workingDirectory: repositoryRoot,
   );
   if (result.exitCode != 0) {
     throw StateError(
       'Failed to build the shipped dev tool.\n'
-      '  cd $_repoRoot && bazel build $label\n'
+      '  cd $repositoryRoot && bazel build $label\n'
       '  exit code: ${result.exitCode}\n'
       '${result.stdout}${result.stderr}',
     );

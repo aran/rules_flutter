@@ -21,6 +21,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('plugin_example');
+
 /// Runs [target] on [device] and returns the app's verdict, from [tag] on.
 Future<String> _glassResults({
   required String target,
@@ -31,7 +34,7 @@ Future<String> _glassResults({
   // The in-tree workspace: these runs read the app's output and change
   // nothing.
   final dt = await startDevTool(
-    workspace: e2eWorkspace('plugin_example'),
+    workspace: _app.moduleRoot,
     target: target,
     device: device,
     extraArgs: extraArgs,
@@ -138,7 +141,7 @@ void main() {
     test(
       '$platform: an edited shader draws after a hot reload',
       () async {
-        final ws = await editableWorkspace('plugin_example');
+        final ws = await editableWorkspace(_app);
         final shader = ws.file('glass_plugin/shaders/tint.frag');
         final source = shader.readAsStringSync();
         expect(source, contains('fragColor = uColor;'));

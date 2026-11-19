@@ -25,6 +25,9 @@ import 'package:test/test.dart';
 import '../tls_fixture.dart';
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// A port nothing is listening on right now.
 ///
 /// The same way the servers under test take theirs, so the address family
@@ -178,7 +181,7 @@ class VmProbe {
 }
 
 void main() {
-  final workspace = e2eWorkspace('web_example');
+  final workspace = _app.moduleRoot;
 
   test(
     'every serving and browser flag reaches the wire',

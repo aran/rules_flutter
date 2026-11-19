@@ -9,6 +9,11 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The apps under test.
+const _iosExample = E2eApp('ios_example');
+const _macosExample = E2eApp('macos_example');
+const _webExample = E2eApp('web_example');
+
 /// End-to-end: editing an asset while the app runs changes what it shows.
 ///
 /// The macos_example UI reads `assets/message.txt` on every build and renders
@@ -32,7 +37,7 @@ void main() {
     test(
       'an edited asset reaches the running app',
       () async {
-        final ws = await editableWorkspace('macos_example');
+        final ws = await editableWorkspace(_macosExample);
         final asset = ws.file('assets/message.txt');
         final original = asset.readAsStringSync();
         expect(
@@ -137,7 +142,7 @@ void main() {
         // reads `assets/` off the build tree on every request, so the new bytes
         // are already on the wire and all that is left is convincing the page to
         // stop trusting its caches.
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_webExample);
         final asset = ws.file('assets/message.txt');
         final original = asset.readAsStringSync();
         expect(
@@ -255,7 +260,7 @@ void main() {
       'an edited asset of an app and of libraries below the workspace root '
       'reaches the running browser app',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_webExample);
         final appAsset = ws.file('nested_assets/assets/message.txt');
         final ownLibAsset = ws.file('nested_assets/lib/widgets/banner.txt');
         final libAsset = ws.file('nested_assets/ui_kit/assets/greeting.txt');
@@ -404,7 +409,7 @@ void main() {
     test(
       'an edited asset reaches a running iOS simulator app',
       () async {
-        final ws = await editableWorkspace('ios_example');
+        final ws = await editableWorkspace(_iosExample);
         final asset = ws.file('assets/message.txt');
         final original = asset.readAsStringSync();
         expect(

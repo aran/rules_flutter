@@ -22,6 +22,9 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// The value `//:app_dev_boot` declares in `web_defines`.
 const _apiUrl = 'https://api.example.com';
 
@@ -113,7 +116,7 @@ void main() {
       final webPort = await freePort();
 
       final dt = await startDevTool(
-        workspace: e2eWorkspace('web_example'),
+        workspace: _app.moduleRoot,
         // The one target whose bootstrap comes from a template of its own and
         // carries a define. Everything else in that workspace takes the
         // rule's built-in bootstrap, where a broken define path is invisible.

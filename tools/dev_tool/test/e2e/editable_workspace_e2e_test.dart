@@ -9,6 +9,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// The contract in `editable_workspace.dart`, asserted rather than described.
 ///
 /// This is the seam every mutating e2e test now sits on, so the properties it
@@ -26,7 +29,7 @@ void main() {
     test(
       'gives a copy that builds on its own',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
 
         // Invariant 1: the source's `bazel-*` links point into an output base
         // keyed by the SOURCE path. Copying them would let the new workspace
@@ -47,7 +50,7 @@ void main() {
         expect(config, contains('--override_module=rules_flutter='));
         expect(
           config,
-          contains(p.normalize(p.join(e2eWorkspace('web_example'), '../..'))),
+          contains(p.normalize(p.join(_app.moduleRoot, '../..'))),
           reason: 'the override has to name where the ruleset actually is',
         );
 
@@ -68,9 +71,9 @@ void main() {
     test(
       'builds the copy\'s sources, and leaves the source alone',
       () async {
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
         final source = File(
-          p.join(e2eWorkspace('web_example'), 'lib/main.dart'),
+          p.join(_app.root, 'lib/main.dart'),
         );
         final sourceBefore = source.readAsStringSync();
 
@@ -133,7 +136,7 @@ void main() {
           );
         });
 
-        final ws = await editableWorkspace('web_example');
+        final ws = await editableWorkspace(_app);
 
         // Built, not merely configured. Bazel leaves build outputs in
         // read-only directories, and a recursive delete gives up on those

@@ -14,6 +14,9 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 ({int width, int height}) _pngSize(List<int> b) {
   int u32(int o) =>
       (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
@@ -24,7 +27,7 @@ void main() {
   group('web viewport e2e', () {
     Future<DevToolProcess> launch(String viewport) async {
       final dt = await startDevTool(
-        workspace: e2eWorkspace('web_example'),
+        workspace: _app.moduleRoot,
         // The DDC dev loop: the shape a developer's own run takes.
         target: ':app_wasm',
         device: 'chrome',

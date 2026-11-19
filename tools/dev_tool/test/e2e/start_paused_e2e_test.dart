@@ -9,6 +9,10 @@ import 'package:vm_service/vm_service_io.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The apps under test.
+const _macosExample = E2eApp('macos_example');
+const _webExample = E2eApp('web_example');
+
 /// End-to-end: `--start-paused` really holds the app at `main()`.
 ///
 /// The switch travels a different way on every platform — an environment
@@ -25,7 +29,7 @@ void main() {
       'holds main() until a debugger resumes it',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('macos_example'),
+          workspace: _macosExample.moduleRoot,
           target: ':app',
           device: 'macos',
           extraArgs: ['--start-paused'],
@@ -114,7 +118,7 @@ void main() {
         // `main()`, so pausing means withholding the run request — a different
         // mechanism reaching the same observable.
         final dt = await startDevTool(
-          workspace: e2eWorkspace('web_example'),
+          workspace: _webExample.moduleRoot,
           target: ':app_wasm',
           device: 'chrome',
           extraArgs: ['--start-paused'],

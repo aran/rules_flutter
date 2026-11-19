@@ -22,6 +22,10 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The apps under test.
+const _helloWorld = E2eApp('hello_world');
+const _webExample = E2eApp('web_example');
+
 /// The fixture's submitted-text marker, `Color(0xFFFF00FF)`.
 bool _isMarker(int r, int g, int b) => r > 240 && g < 20 && b > 240;
 
@@ -60,7 +64,7 @@ void main() {
         'types, deletes, moves the caret through Cocoa selectors, and submits',
         () async {
           final dt = await startDevTool(
-            workspace: e2eWorkspace('hello_world'),
+            workspace: _helloWorld.moduleRoot,
             target: ':hello_world_macos',
             device: 'macos',
           );
@@ -217,7 +221,7 @@ void main() {
       'on the DDC dev loop: types, deletes, kills to end of line, Enter submits',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('web_example'),
+          workspace: _webExample.moduleRoot,
           target: ':app_wasm',
           device: 'chrome',
           extraArgs: const ['--web-run-headless'],
@@ -290,7 +294,7 @@ void main() {
       'on --wasm, through the page bridge: settles, and reads off a screenshot',
       () async {
         final dt = await startDevTool(
-          workspace: e2eWorkspace('web_example'),
+          workspace: _webExample.moduleRoot,
           target: ':app_wasm',
           device: 'chrome',
           extraArgs: const ['--wasm', '--web-run-headless'],

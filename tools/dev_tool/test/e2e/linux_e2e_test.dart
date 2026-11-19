@@ -15,6 +15,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('desktop_example');
+
 const _greeting = 'Hello from rules_flutter!';
 
 void main() {
@@ -22,7 +25,7 @@ void main() {
     test(
       'a hot reload and a hot restart land in the window',
       () async {
-        final ws = await editableWorkspace('desktop_example');
+        final ws = await editableWorkspace(_app);
         final main = ws.file('lib/main.dart');
         final original = main.readAsStringSync();
         expect(original, contains(_greeting), reason: 'fixture marker');

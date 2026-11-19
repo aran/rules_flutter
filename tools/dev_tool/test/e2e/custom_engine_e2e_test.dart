@@ -65,6 +65,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'dev_tool_e2e_harness.dart' show E2eApp;
+
 const _sdkFlag = '--@rules_flutter//flutter:sdk=';
 
 /// Why a case cannot run here, for the ones that build Apple targets.
@@ -84,21 +86,15 @@ const _localEngine = '@@rules_flutter++flutter+$_localEngineRepo';
 /// gen_snapshot carry.
 const _snapshotHash = '6b959e9909a17b8e29b0663a6d99e646';
 
-String get _workspace {
-  var dir = Directory.current;
-  while (!File(p.join(dir.path, 'MODULE.bazel')).existsSync() ||
-      !Directory(p.join(dir.path, 'e2e', 'custom_engine')).existsSync()) {
-    dir = dir.parent;
-  }
-  return p.join(dir.path, 'e2e', 'custom_engine');
-}
+/// The app under test.
+const _app = E2eApp('custom_engine');
 
 Future<ProcessResult> _bazel(List<String> args) => Process.run('bazel', [
   ...args,
   '--noshow_progress',
   '--curses=no',
   '--color=no',
-], workingDirectory: _workspace);
+], workingDirectory: _app.moduleRoot);
 
 /// The `flutter_sdk.json` that [target] built with [sdk] and [extra] carries,
 /// or null when it has none: in an archive of the app (`.zip`, `.ipa`, `.apk`)
@@ -106,13 +102,19 @@ Future<ProcessResult> _bazel(List<String> args) => Process.run('bazel', [
 Future<Map<String, Object?>?> _record(
   String sdk,
   List<String> extra, {
-  String target = '//:app',
+  String? target,
 }) async {
-  final build = await _bazel(['build', target, '$_sdkFlag$sdk', ...extra]);
+  final label = target ?? _app.label(':app');
+  final build = await _bazel([
+    'build',
+    label,
+    '$_sdkFlag$sdk',
+    ...extra,
+  ]);
   expect(build.exitCode, 0, reason: '${build.stderr}');
   final files = await _bazel([
     'cquery',
-    target,
+    label,
     '$_sdkFlag$sdk',
     ...extra,
     '--output=files',
@@ -126,7 +128,7 @@ Future<Map<String, Object?>?> _record(
   var unpacked = 0;
   final built = (files.stdout as String).split('\n').where((l) => l.isNotEmpty);
   for (final file in built) {
-    final path = p.join(_workspace, file);
+    final path = p.join(_app.root, file);
     final into = p.join(out.path, '${unpacked++}');
     if (RegExp(r'(?<!_unsigned)\.(zip|ipa|apk)$').hasMatch(file)) {
       await Process.run('unzip', ['-q', path, '-d', into]);
@@ -145,7 +147,7 @@ Future<Map<String, Object?>?> _record(
 /// The dev configs (`app_flutter_dev_config.json`) that building
 /// `//:app_flutter` with [flags] wrote.
 Future<List<Map<String, Object?>>> _devConfigs(List<String> flags) async {
-  const target = '//:app_flutter';
+  final target = _app.label(':app_flutter');
   final build = await _bazel(['build', target, ...flags]);
   expect(build.exitCode, 0, reason: '${build.stderr}');
   final files = await _bazel(['cquery', target, ...flags, '--output=files']);
@@ -154,7 +156,7 @@ Future<List<Map<String, Object?>>> _devConfigs(List<String> flags) async {
   final configs = (files.stdout as String)
       .split('\n')
       .where((f) => p.basename(f) == 'app_flutter_dev_config.json')
-      .map((f) => File(p.join(_workspace, f)))
+      .map((f) => File(p.join(_app.root, f)))
       .where((f) => f.existsSync())
       .map((f) => jsonDecode(f.readAsStringSync()) as Map<String, Object?>)
       .toList();
@@ -381,7 +383,7 @@ void main() {
       final record = (await _record(
         'local',
         [_abiFlag(abi)],
-        target: '//:android_app',
+        target: _app.label(':android_app'),
       ))!;
       _expectRecordOfTheCheckout(record);
       expect(
@@ -433,7 +435,7 @@ void main() {
       final record = (await _record(
         'local',
         const [],
-        target: '//:linux_app',
+        target: _app.label(':linux_app'),
       ))!;
       _expectRecordOfTheCheckout(record);
       expect(_outDirs(record), containsAll(['host_release']));
@@ -446,21 +448,25 @@ void main() {
   );
 
   test('the web app is built from the web SDK and records it', () async {
-    final record = (await _record('local', const [], target: '//:web_app'))!;
+    final record = (await _record(
+      'local',
+      const [],
+      target: _app.label(':web_app'),
+    ))!;
     _expectRecordOfTheCheckout(record, hasSnapshotHash: false);
     expect(_outDirs(record), containsAll(['wasm_release', _host('debug')]));
 
     // The renderer comes from the web SDK, as the CDN has none for this engine.
     final files = await _bazel([
       'cquery',
-      '//:web_app',
+      _app.label(':web_app'),
       '${_sdkFlag}local',
       '--output=files',
     ]);
     final bundle = (files.stdout as String)
         .split('\n')
         .firstWhere((l) => l.endsWith('_web'));
-    final root = p.join(_workspace, bundle);
+    final root = p.join(_app.root, bundle);
     expect(
       File(p.join(root, 'canvaskit', 'canvaskit.wasm')).existsSync(),
       isTrue,
@@ -489,7 +495,7 @@ void main() {
   test('the web render check passes against the checkout\'s web SDK', () async {
     final test = await _bazel([
       'test',
-      '//:web_render_test',
+      _app.label(':web_render_test'),
       '${_sdkFlag}local',
       '--test_output=errors',
     ]);
@@ -499,7 +505,7 @@ void main() {
   test('a flutter_test runs under the checkout\'s SDK', () async {
     final test = await _bazel([
       'test',
-      '//:widget_test',
+      _app.label(':widget_test'),
       '${_sdkFlag}local',
       '--test_output=errors',
     ]);
@@ -527,7 +533,7 @@ void main() {
     final load = await _bazel([
       'build',
       '--nobuild',
-      '//:web_render_test',
+      _app.label(':web_render_test'),
       '${_sdkFlag}local',
     ]);
     expect(load.exitCode, 0, reason: '${load.stderr}');
@@ -602,17 +608,20 @@ void main() {
     if (Platform.isMacOS) {
       expect(await _record('flutter', const []), isNull);
       expect(
-        await _record('flutter', const [], target: '//:android_app'),
+        await _record('flutter', const [], target: _app.label(':android_app')),
         isNull,
       );
     }
-    expect(await _record('flutter', const [], target: '//:web_app'), isNull);
+    expect(
+      await _record('flutter', const [], target: _app.label(':web_app')),
+      isNull,
+    );
     if (Platform.isMacOS) {
       expect(
         await _record('flutter', const [
           '-c',
           'dbg',
-        ], target: '//:ios_simulator'),
+        ], target: _app.label(':ios_simulator')),
         isNull,
       );
     }
@@ -620,7 +629,7 @@ void main() {
       await _record(
         'flutter',
         const [_linuxPlatform, '-c', 'dbg'],
-        target: '//:linux_app',
+        target: _app.label(':linux_app'),
       ),
       isNull,
     );
@@ -633,7 +642,7 @@ void main() {
     final record = (await _record(
       'local',
       const [_linuxPlatform, '-c', 'dbg'],
-      target: '//:linux_app',
+      target: _app.label(':linux_app'),
     ))!;
     _expectRecordOfTheCheckout(record);
     expect(
@@ -684,7 +693,7 @@ void main() {
       final record = (await _record(
         'local',
         const ['-c', 'dbg'],
-        target: '//:ios_simulator',
+        target: _app.label(':ios_simulator'),
       ))!;
       _expectRecordOfTheCheckout(record);
       expect(
@@ -701,7 +710,7 @@ void main() {
       final record = (await _record(
         'local',
         const ['-c', 'dbg'],
-        target: '//:android_app',
+        target: _app.label(':android_app'),
       ))!;
       _expectRecordOfTheCheckout(record);
       expect(_outDirs(record), contains('android_debug_arm64'));
@@ -716,7 +725,7 @@ void main() {
       final record = (await _record(
         'local',
         const [_iosDevice],
-        target: '//:ios_device_framework',
+        target: _app.label(':ios_device_framework'),
       ))!;
       _expectRecordOfTheCheckout(record);
       expect(
@@ -738,14 +747,14 @@ void main() {
       const flags = [_allAbis];
       final build = await _bazel([
         'build',
-        '//:android_app',
+        _app.label(':android_app'),
         '${_sdkFlag}local',
         ...flags,
       ]);
       expect(build.exitCode, 0, reason: '${build.stderr}');
       final files = await _bazel([
         'cquery',
-        '//:android_app',
+        _app.label(':android_app'),
         '${_sdkFlag}local',
         ...flags,
         '--output=files',
@@ -755,7 +764,7 @@ void main() {
           .firstWhere((l) => RegExp(r'(?<!_unsigned)\.apk$').hasMatch(l));
       final listing = await Process.run('unzip', [
         '-Z1',
-        p.join(_workspace, apk),
+        p.join(_app.root, apk),
       ]);
       final entries = '${listing.stdout}'.split('\n');
       for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
@@ -769,7 +778,7 @@ void main() {
   test('a web SDK of another Dart is refused, naming both', () async {
     final build = await _bazel([
       'build',
-      '//:web_app',
+      _app.label(':web_app'),
       '${_sdkFlag}mismatched',
       '--keep_going',
     ]);
@@ -786,7 +795,7 @@ void main() {
     // message is not lost to whichever fails first.
     final build = await _bazel([
       'build',
-      Platform.isMacOS ? '//:app' : '//:linux_app',
+      Platform.isMacOS ? _app.label(':app') : _app.label(':linux_app'),
       '${_sdkFlag}mismatched',
       '--keep_going',
     ]);
@@ -798,8 +807,8 @@ void main() {
   });
 
   for (final target in [
-    ['//:ios_device_framework', 'iOS device framework'],
-    ['//:android_app', 'Android APK'],
+    [_app.label(':ios_device_framework'), 'iOS device framework'],
+    [_app.label(':android_app'), 'Android APK'],
   ]) {
     test(
       'a gen_snapshot of another Dart is refused for the ${target[1]}',
@@ -824,7 +833,9 @@ void main() {
   test(
     'an unset checkout loads, and a build that selects it says what to set',
     () async {
-      final app = Platform.isMacOS ? '//:app' : '//:linux_app';
+      final app = Platform.isMacOS
+          ? _app.label(':app')
+          : _app.label(':linux_app');
       final query = await _bazel([
         'query',
         'deps($app)',
@@ -848,7 +859,9 @@ void main() {
   test(
     'an unset flutter.checkout loads, and a build that selects it says what to set',
     () async {
-      final app = Platform.isMacOS ? '//:app' : '//:linux_app';
+      final app = Platform.isMacOS
+          ? _app.label(':app')
+          : _app.label(':linux_app');
       final query = await _bazel([
         'query',
         'deps($app)',
@@ -1197,7 +1210,9 @@ void main() {
         final build = await _bazel([
           'build',
           '--nobuild',
-          Platform.isMacOS ? '//:app_flutter' : '//:linux_app',
+          Platform.isMacOS
+              ? _app.label(':app_flutter')
+              : _app.label(':linux_app'),
           '$_sdkFlag$sdk',
           '--extra_execution_platforms=@rules_flutter//flutter/platforms:$other',
         ]);

@@ -28,6 +28,9 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('macos_example');
+
 void main() {
   test(
     'macOS: a run launched through a path that then vanishes still connects',
@@ -52,7 +55,7 @@ void main() {
               '--machine',
               '--no-devtools',
             ],
-            workingDirectory: e2eWorkspace('macos_example'),
+            workingDirectory: _app.moduleRoot,
             environment: {...Platform.environment, 'LOG_FORMAT': 'json'},
           ),
         ),

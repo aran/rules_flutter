@@ -8,6 +8,10 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The apps under test.
+const _codegen = E2eApp('codegen');
+const _helloWorld = E2eApp('hello_world');
+
 /// Watch-mode (filesystem-watcher-driven) reload over the codegen example.
 ///
 /// Reload CORRECTNESS is otherwise verified manually (docs/TESTING.md), but the
@@ -36,7 +40,7 @@ void main() {
     test(
       'filesystem watcher reloads app + dependency source edits',
       () async {
-        final ws = await editableWorkspace('codegen');
+        final ws = await editableWorkspace(_codegen);
         final appMain = ws.file('lib/main.dart');
         final depSource = ws.file('dep_lib/lib/catalog.dart');
         final appMainOrig = appMain.readAsStringSync();
@@ -118,7 +122,7 @@ void main() {
     test(
       'an edit made the instant app.started arrives still reloads',
       () async {
-        final ws = await editableWorkspace('hello_world');
+        final ws = await editableWorkspace(_helloWorld);
         final appMain = ws.file('lib/main.dart');
         final original = appMain.readAsStringSync();
         expect(

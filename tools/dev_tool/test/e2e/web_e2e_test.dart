@@ -5,6 +5,9 @@ import 'package:test/test.dart';
 
 import 'dev_tool_e2e_harness.dart';
 
+/// The app under test.
+const _app = E2eApp('web_example');
+
 /// Overrides the `-c dbg` a `--hot` run asks for (bazel takes the last
 /// occurrence of a flag), so the build succeeds and emits no
 /// `_dev_config.json` — the artifact the whole DDC dev loop hangs off.
@@ -15,7 +18,7 @@ import 'dev_tool_e2e_harness.dart';
 const _notDebug = ['--build-arg=--compilation_mode=fastbuild'];
 
 void main() {
-  final workspace = e2eWorkspace('web_example');
+  final workspace = _app.moduleRoot;
 
   group('Web/Chrome startup failures', () {
     // What this whole group exists for: a tool that warns on stderr and then

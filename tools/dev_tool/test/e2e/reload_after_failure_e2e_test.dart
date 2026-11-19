@@ -8,6 +8,9 @@ import 'package:test/test.dart';
 import 'dev_tool_e2e_harness.dart';
 import 'editable_workspace.dart';
 
+/// The app under test.
+const _app = E2eApp('codegen');
+
 /// End-to-end: a session survives a failed hot reload.
 ///
 /// Every assertion here is about a command ANSWERING. The reload in the middle
@@ -40,7 +43,7 @@ void main() {
     test(
       'a failed reload does not wedge the commands after it',
       () async {
-        final ws = await editableWorkspace('codegen');
+        final ws = await editableWorkspace(_app);
         final user = ws.file('lib/user.dart');
         final settings = ws.file('dep_part/lib/settings.dart');
         final userOrig = user.readAsStringSync();
