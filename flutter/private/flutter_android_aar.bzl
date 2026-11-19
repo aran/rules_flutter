@@ -27,9 +27,10 @@ load("@rules_android//providers:providers.bzl", "AndroidNativeLibsInfo", "Starla
 load("@rules_dart//dart:utils.bzl", "PATH_MAPPING", "runfiles_path")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("//flutter:providers.bzl", "FlutterApplicationInfo")
-load("//flutter/private:common.bzl", "ANDROID_ABIS", "ANDROID_EMBEDDING_MAVEN_DEPS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
+load("//flutter/private:common.bzl", "ANDROID_ABIS", "BUILD_MODE_ATTR", "android_platform_for_abi", "flutter_build_mode")
 load("//flutter/private:exec_groups.bzl", "PORTABLE", "PORTABLE_EXEC_GROUPS", "portable_tools")
 load("//flutter/private:flutter_android_application.bzl", "FlutterAndroidBundleLibsInfo")
+load("//flutter/private:flutter_android_engine_jar.bzl", "FlutterAndroidEmbeddingPomInfo")
 load("//flutter/private:flutter_android_plugin_libs.bzl", "FlutterAndroidMavenInfo", "FlutterAndroidPluginNativeLibsInfo", "flutter_android_plugin_native_libs", "plugin_android_libraries")
 load("//flutter/private:host_platform_transition.bzl", "host_platform_transition")
 load("//flutter/private:program_analysis.bzl", "BundledProgramInfo")
@@ -55,11 +56,18 @@ FlutterAndroidAarInfo = provider(
     doc = "Maven artifacts of one build mode, for `flutter_android_maven_repo` to publish.",
     fields = {
         "mode": "str: The build mode: `debug`, `profile` or `release`.",
-        "artifacts": "list[struct]: Each with `group`, `artifact` (with the `_<mode>` suffix), `aar` (File) and `dependencies`: structs of `group`, `artifact`, `version` (None for an artifact of the same repository, which has its build number) and `scope` (`compile` or `runtime`).",
+        "artifacts": "list[struct]: Each with `group`, `artifact` (with the `_<mode>` suffix), `aar` (File) and `dependencies`: structs of `group`, `artifact`, `version` (None for an artifact of the same repository, which has its build number, and `ENGINE_VERSION` for one of the engine's) and `scope` (`compile` or `runtime`).",
         "package_name": "str or None: The module's Android package, for the module's artifacts; None for plugins'.",
-        "engine": "list[struct]: The engine's artifacts the repository carries, each with `group`, `artifact`, `version`, `jar` (File) and `dependencies` (as `artifacts`'): those of an engine that is not the release's, which no Maven repository publishes. Empty for the release's, and for plugins.",
+        "engine": "list[struct]: The engine's artifacts the repository carries, each with `group`, `artifact`, `version` (`ENGINE_VERSION`), `jar` (File), `dependencies` (as `artifacts`') and `pom` (File or None: the engine's own POM, which the repository carries in place of one it writes): those of an engine that is not the release's, which no Maven repository publishes. Empty for the release's, and for plugins.",
+        "engine_version": "dict or None: The engine's Maven version, `ENGINE_VERSION`: `{\"version\": \"1.0.0-<engine revision>\"}` for the release's engine, or `{\"pom\": \"io.flutter:flutter_embedding_<mode>\"}`, the version of the embedding's POM among `engine`, which the repository's action reads. None for plugins.",
     },
 )
+
+# The version of an artifact of the engine: the module's `engine_version`,
+# which for an engine that is not the release's is read from its POM by the
+# action that lays out the repository, as `flutter build aar --local-engine`
+# reads it from the out dir's POM.
+ENGINE_VERSION = struct(engine_version = True)
 
 # -- Configurations ------------------------------------------------------------
 
@@ -249,26 +257,19 @@ def _single(target, group, label):
         fail("%s: expected one `%s` from %s, found %s" % (label, group, target.label, files))
     return files[0]
 
-def _engine_artifacts(ctx, mode, version):
+def _engine_artifacts(ctx, mode):
     """The Maven artifacts of an engine that is not the release's, for the repository to carry.
 
     Google publishes the release engine's artifacts, and the module's POM names
     them for the host to fetch. Another engine's are nowhere to fetch from, so
     the repository holds them, as `flutter build aar --local-engine` copies a
     local engine's into its repository: `io.flutter:flutter_embedding_<mode>`,
-    the embedding's classes, whose POM names the Maven artifacts the embedding
-    needs, and `io.flutter:<abi>_<mode>` for each ABI, a jar of `lib/<abi>/`
-    with `libflutter.so`. Both are taken from the engine's `flutter.jar`, its
-    libraries stripped as an APK's are; at the engine's version.
+    the embedding's classes, with the engine's own POM (its slice's
+    `embedding_pom`), which names the Maven artifacts the embedding needs, and
+    `io.flutter:<abi>_<mode>` for each ABI, a jar of `lib/<abi>/` with
+    `libflutter.so`. Both are taken from the engine's `flutter.jar`, its
+    libraries stripped as an APK's are; at the version of the engine's POM.
     """
-    resolved = ctx.attr._maven[FlutterAndroidMavenInfo].data["resolved"]
-    embedding_deps = []
-    for coordinate in ANDROID_EMBEDDING_MAVEN_DEPS:
-        if coordinate not in resolved:
-            fail(("%s: the engine's POM names `%s`, which the embedding needs, and " +
-                  "@rules_flutter_maven does not resolve it.") % (ctx.label, coordinate))
-        group, artifact = coordinate.split(":")
-        embedding_deps.append(struct(group = group, artifact = artifact, version = resolved[coordinate], scope = "compile"))
 
     def engine_of(abi):
         target = ctx.split_attr._engine[abi]
@@ -280,12 +281,22 @@ def _engine_artifacts(ctx, mode, version):
     classes = engine_of(_COMPILE_ABI)[DefaultInfo].files.to_list()
     if len(classes) != 1:
         fail("%s: expected one jar of the engine's classes, found %s" % (ctx.label, classes))
+    pom = engine_of(_COMPILE_ABI)[FlutterAndroidEmbeddingPomInfo].pom
+    if not pom:
+        fail((
+            "%s: the \"%s\" Flutter SDK's engine is not the release's, and its %s slice " +
+            "(`//android-arm64/%s:engine` of its engine source) has no `embedding_pom`: the " +
+            "`flutter_embedding_%s.pom` that names the Maven artifacts its embedding needs, which " +
+            "the module's repository carries. An engine out dir has it beside `flutter.jar` once " +
+            "`ninja -C out/<dir> flutter/shell/platform/android:android_jar` has run."
+        ) % (ctx.label, ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info.sdk, mode, mode, mode))
     artifacts = [struct(
         group = "io.flutter",
         artifact = "flutter_embedding_" + mode,
-        version = version,
+        version = ENGINE_VERSION,
         jar = classes[0],
-        dependencies = embedding_deps,
+        dependencies = [],
+        pom = pom,
     )]
     for abi in DEFAULT_AAR_ABIS:
         if abi not in ctx.attr.abis:
@@ -296,20 +307,31 @@ def _engine_artifacts(ctx, mode, version):
         artifacts.append(struct(
             group = "io.flutter",
             artifact = "%s_%s" % (_MAVEN_ABI[abi], mode),
-            version = version,
+            version = ENGINE_VERSION,
             jar = libs[0],
             dependencies = [],
+            pom = None,
         ))
     return artifacts
+
+def _embedding_dependency(mode):
+    """The engine's embedding, which the module depends on at compile scope, as in Gradle."""
+    return struct(group = "io.flutter", artifact = "flutter_embedding_" + mode, version = ENGINE_VERSION, scope = "compile")
 
 def _flutter_android_module_aar_impl(ctx):
     _check_abis(ctx.label, ctx.attr.abis)
     mode = flutter_build_mode(ctx)
     sdk = ctx.toolchains[_FLUTTER_TOOLCHAIN_TYPE].flutter_sdk_info
 
-    # The engine's Maven version, as the engine's build writes its POMs.
-    version = "1.0.0-" + sdk.engine_revision
-    engine = [] if is_release_engine(sdk.host_tools) else _engine_artifacts(ctx, mode, version)
+    # The release engine's Maven version is the one Google publishes it at.
+    # Another engine's is its embedding POM's, as `flutter build aar
+    # --local-engine` reads it (`_getLocalArtifactVersion`).
+    if is_release_engine(sdk.host_tools):
+        engine = []
+        engine_version = {"version": "1.0.0-" + sdk.engine_revision}
+    else:
+        engine = _engine_artifacts(ctx, mode)
+        engine_version = {"pom": "io.flutter:flutter_embedding_" + mode}
 
     # What the manifest of upstream's module template (`.android/Flutter/src/
     # main/AndroidManifest.xml`) declares, in every mode: the Dart VM service
@@ -363,8 +385,8 @@ def _flutter_android_module_aar_impl(ctx):
     aar = ctx.actions.declare_file("%s/%s.aar" % (ctx.label.name, artifact))
     _assemble_aar(ctx, aar, args, depset(inputs, transitive = [own.jars, own.proguard]), "the Flutter module's AAR")
 
-    dependencies = [struct(group = "io.flutter", artifact = "flutter_embedding_" + mode, version = version, scope = "compile")] + [
-        struct(group = "io.flutter", artifact = "%s_%s" % (_MAVEN_ABI[abi], mode), version = version, scope = "compile")
+    dependencies = [_embedding_dependency(mode)] + [
+        struct(group = "io.flutter", artifact = "%s_%s" % (_MAVEN_ABI[abi], mode), version = ENGINE_VERSION, scope = "compile")
         for abi in DEFAULT_AAR_ABIS
         if abi in ctx.attr.abis
     ]
@@ -386,6 +408,7 @@ def _flutter_android_module_aar_impl(ctx):
                 dependencies = dependencies,
             )],
             engine = engine,
+            engine_version = engine_version,
         ),
     ]
 
@@ -409,7 +432,7 @@ When the selected SDK's engine is not the release's, whose artifacts no Maven
 repository publishes, it also hands over that engine's artifacts for the
 repository to carry, as `flutter build aar --local-engine` does: the
 embedding's classes and each ABI's `libflutter.so`, from the engine's
-`flutter.jar`.""",
+`flutter.jar`, and the embedding's POM, its slice's `embedding_pom`.""",
     attrs = {
         "bundle": attr.label(
             doc = "The `flutter_android_bundle` of the module's `flutter_application`, built for each ABI of `abis`: its native libraries are the AAR's `jni/<abi>/`, but its plugins' `native_deps`. Its `flutter_assets` are the same for every ABI, and the AAR's are those of the arm64 build, in which Java is compiled too.",
@@ -440,11 +463,6 @@ embedding's classes and each ABI's `libflutter.so`, from the engine's
         "_engine": attr.label(
             default = "//flutter/private:aar_engine",
             cfg = _abi_split,
-        ),
-        # The versions of the Maven artifacts the engine's POM names.
-        "_maven": attr.label(
-            default = "@flutter_pub_android_maven//:requirements",
-            providers = [FlutterAndroidMavenInfo],
         ),
     } | _AAR_ATTRS | BUILD_MODE_ATTR,
     exec_groups = PORTABLE_EXEC_GROUPS,
@@ -592,7 +610,7 @@ def _flutter_android_plugin_aars_impl(ctx):
         ))
     return [
         DefaultInfo(files = depset(outputs)),
-        FlutterAndroidAarInfo(mode = mode, artifacts = artifacts, package_name = None, engine = []),
+        FlutterAndroidAarInfo(mode = mode, artifacts = artifacts, package_name = None, engine = [], engine_version = None),
     ]
 
 _flutter_android_plugin_aars = rule(
@@ -681,7 +699,7 @@ def _flutter_android_maven_repo_impl(ctx):
     module = ctx.attr.module[FlutterAndroidAarInfo]
     if not module.package_name:
         fail("%s: `module` %s is not a `flutter_android_module_aar`." % (ctx.label, ctx.attr.module.label))
-    plugins = ctx.attr.plugins[FlutterAndroidAarInfo] if ctx.attr.plugins else FlutterAndroidAarInfo(mode = module.mode, artifacts = [], package_name = None, engine = [])
+    plugins = ctx.attr.plugins[FlutterAndroidAarInfo] if ctx.attr.plugins else FlutterAndroidAarInfo(mode = module.mode, artifacts = [], package_name = None, engine = [], engine_version = None)
     if plugins.mode != module.mode:
         fail("%s: the module is built in %s mode and the plugins in %s mode." % (ctx.label, module.mode, plugins.mode))
 
@@ -701,6 +719,7 @@ def _flutter_android_maven_repo_impl(ctx):
             packaging = "aar",
             file = a.aar,
             dependencies = a.dependencies + plugin_dependencies,
+            pom = None,
         )
         for a in module.artifacts
     ] + [
@@ -711,6 +730,7 @@ def _flutter_android_maven_repo_impl(ctx):
             packaging = "aar",
             file = a.aar,
             dependencies = a.dependencies,
+            pom = None,
         )
         for a in plugins.artifacts
     ] + [
@@ -721,6 +741,7 @@ def _flutter_android_maven_repo_impl(ctx):
             packaging = "jar",
             file = a.jar,
             dependencies = a.dependencies,
+            pom = a.pom,
         )
         for a in module.engine
     ]
@@ -732,41 +753,56 @@ def _flutter_android_maven_repo_impl(ctx):
             fail("%s: two artifacts are %s." % (ctx.label, key))
         coordinates[key] = True
 
+    def versioned(v):
+        return {"engine": True} if v == ENGINE_VERSION else {"version": v or version}
+
     spec = ctx.actions.declare_file(ctx.label.name + ".maven_repo.json")
-    ctx.actions.write(spec, json.encode_indent({"artifacts": [
-        {
-            "group": a.group,
-            "artifact": a.artifact,
-            "version": a.version,
-            "packaging": a.packaging,
-            "dependencies": [
-                {
-                    "group": d.group,
-                    "artifact": d.artifact,
-                    "version": d.version or version,
-                    "scope": d.scope,
-                }
-                for d in a.dependencies
-            ],
-        }
-        for a in artifacts
-    ]}))
+    ctx.actions.write(spec, json.encode_indent({
+        "engineVersion": module.engine_version,
+        "artifacts": [
+            {
+                "group": a.group,
+                "artifact": a.artifact,
+                "packaging": a.packaging,
+                "dependencies": [
+                    {
+                        "group": d.group,
+                        "artifact": d.artifact,
+                        "scope": d.scope,
+                    } | versioned(d.version)
+                    for d in a.dependencies
+                ],
+            } | versioned(a.version)
+            for a in artifacts
+        ],
+    }))
 
     repo = ctx.actions.declare_directory(ctx.label.name + "_repo")
+
+    # The coordinates of every artifact the repository holds, which the
+    # action works out: an engine's version is its POM's.
+    published = ctx.actions.declare_file(ctx.label.name + ".maven_repo_artifacts.json")
     tools = portable_tools(ctx)
     args = ctx.actions.args()
     args.add(ctx.file._repo_tool)
     args.add("--spec", spec)
     args.add("--output", repo.path)
+    args.add("--artifacts", published)
     args.add_all([a.file for a in artifacts], before_each = "--file")
+    poms = []
+    for a in artifacts:
+        if a.pom:
+            args.add("--pom", "%s:%s" % (a.group, a.artifact))
+            args.add(a.pom)
+            poms.append(a.pom)
     ctx.actions.run(
         executable = tools.dart,
         arguments = [args],
         inputs = depset(
-            [ctx.file._repo_tool, ctx.file._maven_repo, spec] + [a.file for a in artifacts],
+            [ctx.file._repo_tool, ctx.file._maven_repo, spec] + [a.file for a in artifacts] + poms,
             transitive = [tools.sdk_files.run],
         ),
-        outputs = [repo],
+        outputs = [repo, published],
         mnemonic = "FlutterAndroidMavenRepo",
         exec_group = PORTABLE,
         progress_message = "Laying out the Maven repository %{label}",
@@ -778,7 +814,7 @@ def _flutter_android_maven_repo_impl(ctx):
     workspace = ctx.workspace_name
     config = ctx.actions.declare_file(ctx.label.name + ".android_aar.json")
     ctx.actions.write(config, json.encode_indent({
-        "artifacts": [{"group": a.group, "artifact": a.artifact, "version": a.version} for a in artifacts],
+        "artifacts": runfiles_path(published, workspace),
         "buildNumber": version,
         "label": "//%s:%s" % (ctx.label.package, ctx.label.name) if not ctx.label.repo_name else str(ctx.label),
         "mode": module.mode,
@@ -793,7 +829,7 @@ def _flutter_android_maven_repo_impl(ctx):
         target_file = tool[DefaultInfo].files_to_run.executable,
         is_executable = True,
     )
-    runfiles = ctx.runfiles(files = [config, repo]).merge(tool[DefaultInfo].default_runfiles)
+    runfiles = ctx.runfiles(files = [config, repo, published]).merge(tool[DefaultInfo].default_runfiles)
     groups = ctx.attr.module[OutputGroupInfo]
     return [
         DefaultInfo(files = depset([repo]), executable = executable, runfiles = runfiles),
@@ -822,11 +858,13 @@ engine's artifacts (`io.flutter:flutter_embedding_<mode>` and
 `https://storage.googleapis.com/download.flutter.io`) and on every plugin's;
 each plugin's lists the Maven artifacts its Gradle build declares. When the
 selected SDK's engine is not the release's, the repository holds that
-engine's artifacts too, as `flutter build aar --local-engine` copies a local
-engine's in, since Google publishes only the release's:
+engine's artifacts too, as `flutter build aar
+--local-engine` copies a local engine's in, since Google publishes only the
+release's, at the version of the engine's embedding POM, which every POM
+names them at:
 
-    io/flutter/flutter_embedding_<mode>/1.0.0-<engine revision>/flutter_embedding_<mode>-1.0.0-<engine revision>.{jar,pom}
-    io/flutter/<abi>_<mode>/1.0.0-<engine revision>/<abi>_<mode>-1.0.0-<engine revision>.{jar,pom}
+    io/flutter/flutter_embedding_<mode>/<version>/flutter_embedding_<mode>-<version>.{jar,pom}
+    io/flutter/<abi>_<mode>/<version>/<abi>_<mode>-<version>.{jar,pom}
 
 The first is the embedding's classes, its POM naming the AndroidX artifacts
 the embedding needs; each of the others holds `lib/<abi>/libflutter.so`,

@@ -189,6 +189,18 @@ def _android_slices(repository_ctx, result, ctx):
                 ).format(out = out, name = pick.name)
             else:
                 link_into(repository_ctx, jar, package + "/flutter.jar")
+
+                # The embedding's POM, which the same ninja target writes: a
+                # module's Maven repository carries it, as `flutter build aar
+                # --local-engine` links it into its own.
+                pom_name = "flutter_embedding_{}.pom".format(mode)
+                pom = out.get_child(pom_name)
+
+                # Watched before the existence check, so the file appearing
+                # or going away refetches this repository.
+                repository_ctx.watch(pom)
+                if pom.exists:
+                    link_into(repository_ctx, pom, package + "/" + pom_name)
                 result.provided[(package, "engine")] = """
 flutter_android_engine_slice(
     name = "engine",
@@ -196,11 +208,17 @@ flutter_android_engine_slice(
     cpus = ["{cpu}"],
     files = ":flutter.jar",
     binary = ":flutter.jar",
-    binary_entry = "lib/{abi}/libflutter.so",
+    binary_entry = "lib/{abi}/libflutter.so",{pom}
     provenance = {provenance},
     visibility = ["//visibility:public"],
 )
-""".format(mode = mode, cpu = cpu, abi = abi, provenance = dict_text(out_dir_provenance(pick.name, args)))
+""".format(
+                    mode = mode,
+                    cpu = cpu,
+                    abi = abi,
+                    pom = '\n    embedding_pom = ":{}",'.format(pom_name) if pom.exists else "",
+                    provenance = dict_text(out_dir_provenance(pick.name, args)),
+                )
             if mode != "debug":
                 _gen_snapshots(repository_ctx, result, package, out, args, pick.name, ["gen_snapshot"], cpu, mode, ctx.machine)
 

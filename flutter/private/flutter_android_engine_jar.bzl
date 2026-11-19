@@ -30,6 +30,7 @@ native engine crash.
 
 load("@rules_android//providers:providers.bzl", "AndroidNativeLibsInfo")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("//flutter:engine.bzl", "FlutterEngineInfo")
 load("//flutter/private:android_strip.bzl", "STRIP_ATTRS", "STRIP_EXEC_GROUPS", "run_strip_native_libs")
 load("//flutter/private:common.bzl", "ANDROID_ABIS", "android_platform_for_abi")
 
@@ -56,6 +57,11 @@ _engine_jar_transition = transition(
     ],
 )
 
+FlutterAndroidEmbeddingPomInfo = provider(
+    doc = "The POM of an Android engine's embedding classes.",
+    fields = {"pom": "File or None: the engine slice's `embedding_pom`."},
+)
+
 def _flutter_android_engine_jar_impl(ctx):
     output = ctx.actions.declare_file(ctx.label.name + ".jar")
     libs = ctx.actions.declare_file(ctx.label.name + "_native_libs.zip")
@@ -74,6 +80,9 @@ def _flutter_android_engine_jar_impl(ctx):
         # list this target in `exports`, which takes JavaInfo or CcInfo, and so
         # pass the libraries on.
         CcInfo(),
+        FlutterAndroidEmbeddingPomInfo(
+            pom = ctx.attr.jar[FlutterEngineInfo].embedding_pom if FlutterEngineInfo in ctx.attr.jar else None,
+        ),
     ]
 
 flutter_android_engine_jar = rule(

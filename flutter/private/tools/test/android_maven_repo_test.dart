@@ -169,6 +169,229 @@ void main() {
     );
   });
 
+  const embeddingPom = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.flutter</groupId>
+  <artifactId>flutter_embedding_release</artifactId>
+  <version>1.0.0-abc</version>
+  <packaging>jar</packaging>
+  <dependencies>
+    <dependency>
+      <groupId>androidx.lifecycle</groupId>
+      <artifactId>lifecycle-process</artifactId>
+      <version>2.7.0</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>
+''';
+
+  Map<String, Object?> embeddingSpec(String artifact) => {
+    'engineVersion': {'pom': 'io.flutter:$artifact'},
+    'artifacts': [
+      {
+        'group': 'io.flutter',
+        'artifact': artifact,
+        'engine': true,
+        'packaging': 'jar',
+        'dependencies': [],
+      },
+    ],
+  };
+
+  test("layOut publishes an engine's embedding with the engine's own POM", () {
+    final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final jar = File('${tmp.path}/classes.jar')..writeAsStringSync('jar');
+    final given = File('${tmp.path}/flutter_embedding_release.pom')
+      ..writeAsStringSync(embeddingPom);
+    layOut(
+      embeddingSpec('flutter_embedding_release'),
+      [jar.path],
+      '${tmp.path}/repo',
+      poms: {'io.flutter:flutter_embedding_release': given.path},
+    );
+    const base =
+        'io/flutter/flutter_embedding_release/1.0.0-abc/'
+        'flutter_embedding_release-1.0.0-abc';
+    expect(
+      File('${tmp.path}/repo/$base.pom').readAsStringSync(),
+      embeddingPom,
+    );
+    expect(
+      File('${tmp.path}/repo/$base.pom.sha1').readAsStringSync(),
+      sha1Hex(utf8.encode(embeddingPom)),
+    );
+  });
+
+  test("layOut publishes a custom engine's artifacts at its POM's version, "
+      'and names them at it', () {
+    final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final aar = File('${tmp.path}/module.aar')..writeAsStringSync('aar');
+    final jar = File('${tmp.path}/classes.jar')..writeAsStringSync('jar');
+    final libs = File('${tmp.path}/libs.zip')..writeAsStringSync('libs');
+    // Not 1.0.0-<the revision the SDK's flutter_engine.json names>: a
+    // custom engine's build may publish at any version.
+    final custom = embeddingPom.replaceFirst('1.0.0-abc', '2.3.4-custom');
+    final given = File('${tmp.path}/flutter_embedding_release.pom')
+      ..writeAsStringSync(custom);
+    Map<String, Object?> engine(String artifact) => {
+      'group': 'io.flutter',
+      'artifact': artifact,
+      'engine': true,
+      'scope': 'compile',
+    };
+    final published = layOut(
+      {
+        'engineVersion': {'pom': 'io.flutter:flutter_embedding_release'},
+        'artifacts': [
+          {
+            'group': 'com.example.module',
+            'artifact': 'flutter_release',
+            'version': '1.0',
+            'packaging': 'aar',
+            'dependencies': [
+              engine('flutter_embedding_release'),
+              engine('arm64_v8a_release'),
+            ],
+          },
+          {
+            'group': 'io.flutter',
+            'artifact': 'flutter_embedding_release',
+            'engine': true,
+            'packaging': 'jar',
+            'dependencies': [],
+          },
+          {
+            'group': 'io.flutter',
+            'artifact': 'arm64_v8a_release',
+            'engine': true,
+            'packaging': 'jar',
+            'dependencies': [],
+          },
+        ],
+      },
+      [aar.path, jar.path, libs.path],
+      '${tmp.path}/repo',
+      poms: {'io.flutter:flutter_embedding_release': given.path},
+    );
+    expect(published, [
+      ('com.example.module', 'flutter_release', '1.0'),
+      ('io.flutter', 'flutter_embedding_release', '2.3.4-custom'),
+      ('io.flutter', 'arm64_v8a_release', '2.3.4-custom'),
+    ]);
+    expect(
+      File(
+        '${tmp.path}/repo/io/flutter/arm64_v8a_release/2.3.4-custom/'
+        'arm64_v8a_release-2.3.4-custom.jar',
+      ).readAsStringSync(),
+      'libs',
+    );
+    final modulePom = File(
+      '${tmp.path}/repo/com/example/module/flutter_release/1.0/'
+      'flutter_release-1.0.pom',
+    ).readAsStringSync();
+    expect(
+      RegExp('<version>2.3.4-custom</version>').allMatches(modulePom),
+      hasLength(2),
+    );
+  });
+
+  test(
+    "layOut names a release engine's artifacts at the version it is given",
+    () {
+      final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final aar = File('${tmp.path}/plugin.aar')..writeAsStringSync('aar');
+      layOut(
+        {
+          'engineVersion': {'version': '1.0.0-abc'},
+          'artifacts': [
+            {
+              'group': 'io.flutter.plugins.pathprovider',
+              'artifact': 'path_provider_android_release',
+              'version': '1.0',
+              'packaging': 'aar',
+              'dependencies': [
+                {
+                  'group': 'io.flutter',
+                  'artifact': 'flutter_embedding_release',
+                  'engine': true,
+                  'scope': 'compile',
+                },
+              ],
+            },
+          ],
+        },
+        [aar.path],
+        '${tmp.path}/repo',
+      );
+      expect(
+        File(
+          '${tmp.path}/repo/io/flutter/plugins/pathprovider/'
+          'path_provider_android_release/1.0/'
+          'path_provider_android_release-1.0.pom',
+        ).readAsStringSync(),
+        contains(
+          '      <artifactId>flutter_embedding_release</artifactId>\n'
+          '      <version>1.0.0-abc</version>\n'
+          '      <scope>compile</scope>\n',
+        ),
+      );
+    },
+  );
+
+  test("layOut refuses an engine's POM of another artifact", () {
+    final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final jar = File('${tmp.path}/classes.jar')..writeAsStringSync('jar');
+    final given = File('${tmp.path}/flutter_embedding_debug.pom')
+      ..writeAsStringSync(embeddingPom);
+    expect(
+      () => layOut(
+        embeddingSpec('flutter_embedding_debug'),
+        [jar.path],
+        '${tmp.path}/repo',
+        poms: {'io.flutter:flutter_embedding_debug': given.path},
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains(
+            'it is the POM of io.flutter:flutter_embedding_release:1.0.0-abc',
+          ),
+        ),
+      ),
+    );
+  });
+
+  test('pomCoordinatesProblem reads the project, not its dependencies', () {
+    expect(
+      pomCoordinatesProblem(
+        embeddingPom,
+        group: 'io.flutter',
+        artifact: 'flutter_embedding_release',
+        version: '1.0.0-abc',
+      ),
+      isNull,
+    );
+    expect(
+      pomCoordinatesProblem(
+        '<project><dependencies><dependency><groupId>x</groupId>'
+        '<artifactId>y</artifactId><version>1</version></dependency>'
+        '</dependencies></project>',
+        group: 'x',
+        artifact: 'y',
+        version: '1',
+      ),
+      isNotNull,
+    );
+  });
+
   test('layOut refuses a packaging it does not know', () {
     final tmp = Directory.systemTemp.createTempSync('maven_repo_test');
     addTearDown(() => tmp.deleteSync(recursive: true));

@@ -60,6 +60,7 @@ FlutterEngineInfo = provider(
         "binary_entry": "str: When `binary` is an archive (Android's `flutter.jar`), the entry of it that holds the engine library; otherwise empty.",
         "xcframework_slices": "list[str]: iOS only: the xcframework slices present.",
         "cpp_client_wrapper": "depset[File] or None: Windows only.",
+        "embedding_pom": "File or None: Android only: `flutter_embedding_<mode>.pom`, the POM of the engine's embedding classes, which names the Maven artifacts they need. A module's Maven repository (`flutter_android_aar`) carries it as it is for an engine that is not the release's, as `flutter build aar --local-engine` does; such a build fails without it.",
         "provenance": "dict[str, str]: Where the files came from.",
     },
 )
@@ -209,6 +210,7 @@ def _engine_impl(ctx):
         binary_entry = ctx.attr.binary_entry,
         xcframework_slices = ctx.attr.xcframework_slices,
         cpp_client_wrapper = None,
+        embedding_pom = ctx.file.embedding_pom,
         provenance = ctx.attr.provenance,
     )
     return [info, DefaultInfo(files = files)]
@@ -227,6 +229,10 @@ _ENGINE_ATTRS = {
         allow_single_file = True,
     ),
     "binary_entry": attr.string(doc = "When `binary` is an archive, the entry of it that holds the engine library. Android only: `lib/<abi>/libflutter.so` of `flutter.jar`."),
+    "embedding_pom": attr.label(
+        doc = "Android only: the out dir's `flutter_embedding_<mode>.pom`, which a module's Maven repository carries for an engine that is not the release's. Optional; a module AAR of an engine without it fails, naming it.",
+        allow_single_file = [".pom"],
+    ),
     "xcframework_slices": attr.string_list(doc = "iOS only: the xcframework's platform directories (`ios-arm64`, `ios-arm64-simulator`, `ios-arm64_x86_64-simulator`, ...)."),
     "provenance": attr.string_dict(doc = "Where the files came from."),
 }

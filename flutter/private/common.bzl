@@ -900,8 +900,7 @@ def compute_desktop_bundle_copies(is_debug, kernel_dill_path, aot_output_path, a
 
 # The coordinates of the `@rules_flutter_maven` artifacts the Flutter
 # embedding compiles against and needs at run time: what `flutter_android_engine`
-# links (android.bzl says which, and why), and what the POM of an engine a
-# module AAR carries names.
+# links (android.bzl says which, and why).
 ANDROID_EMBEDDING_MAVEN_DEPS = [
     "androidx.annotation:annotation",
     "androidx.core:core",

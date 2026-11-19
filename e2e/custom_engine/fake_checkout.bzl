@@ -28,6 +28,15 @@ load("@rules_flutter//flutter/private:generated_repos.bzl", "FLUTTER_VERSIONS")
 _RELEASE = "3.50.0"
 _OUT = "checkout/engine/src/out/"
 
+# Where Google publishes the release engine's Maven artifacts, and the sha256
+# of the release's `flutter_embedding_<mode>` POM in each mode.
+_MAVEN = "https://storage.googleapis.com/download.flutter.io"
+_EMBEDDING_POM_SHA256 = {
+    "debug": "daad09aff9bbb82e3db70d4ae8216dada1656ca56472bf4c1c98a04268c69c00",
+    "profile": "2d9e8ab5b73473de9dbe2cce6384ead301f199145e72ba7595a5059479a2fde3",
+    "release": "c45e083b9f758db6b795f02d1c05bff3de3c530befa0c37dceb616df1374f7b1",
+}
+
 def _args_gn(mode, revision, cpu = "arm64"):
     return "\n".join([
         'target_cpu = "{}"'.format(cpu),
@@ -386,6 +395,19 @@ def _mobile_out_dirs(rctx, path, link, revision, other_gen):
             out = _OUT + "android_{}{}/".format(mode, "" if arch == "arm" else "_" + arch)
             rctx.file(out + "args.gn", _mobile_args_gn("android", mode, arch, revision))
             link(path(jar.format(arch)), out + "flutter.jar")
+
+            # The embedding's POM, which the engine build writes beside
+            # flutter.jar: the release's, from Google's Maven repository.
+            pom = "flutter_embedding_{}".format(mode)
+            rctx.download(
+                url = "{maven}/io/flutter/{pom}/1.0.0-{rev}/{pom}-1.0.0-{rev}.pom".format(
+                    maven = _MAVEN,
+                    pom = pom,
+                    rev = revision,
+                ),
+                output = out + pom + ".pom",
+                sha256 = _EMBEDDING_POM_SHA256[mode],
+            )
             if mode != "debug":
                 link(other_gen or path(gen_snapshots[mode].format(arch)), out + "universal/gen_snapshot")
 

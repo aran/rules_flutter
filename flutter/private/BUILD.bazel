@@ -567,6 +567,7 @@ bzl_library(
         ":common",
         ":exec_groups",
         ":flutter_android_application",
+        ":flutter_android_engine_jar",
         ":flutter_android_plugin_libs",
         ":host_platform_transition",
         ":program_analysis",
@@ -621,6 +622,7 @@ bzl_library(
     deps = [
         ":android_strip",
         ":common",
+        "//flutter:engine",
         "@rules_android//providers:providers_bzl",
         "@rules_cc//cc/common:cc_info",
     ],

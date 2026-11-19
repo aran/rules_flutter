@@ -48,23 +48,32 @@ class AarConfig {
     required this.repo,
   });
 
-  factory AarConfig.fromJson(Map<String, Object?> json, String repo) =>
-      AarConfig(
-        label: json['label']! as String,
-        package: json['package']! as String,
-        packageName: json['packageName']! as String,
-        buildNumber: json['buildNumber']! as String,
-        mode: json['mode']! as String,
-        artifacts: [
-          for (final a in json['artifacts']! as List)
-            (
-              (a as Map<String, Object?>)['group']! as String,
-              a['artifact']! as String,
-              a['version']! as String,
-            ),
-        ],
-        repo: repo,
-      );
+  /// The config [json] names, its runfiles paths resolved by [rlocation]:
+  /// `repo`, the built repository, and `artifacts`, the file in which the
+  /// action that built it lists what it holds.
+  factory AarConfig.fromJson(
+    Map<String, Object?> json,
+    String Function(String) rlocation,
+  ) => AarConfig(
+    label: json['label']! as String,
+    package: json['package']! as String,
+    packageName: json['packageName']! as String,
+    buildNumber: json['buildNumber']! as String,
+    mode: json['mode']! as String,
+    artifacts: [
+      for (final a in jsonDecode(
+        File(
+          rlocation(json['artifacts']! as String),
+        ).readAsStringSync(),
+      ) as List)
+        (
+          (a as Map<String, Object?>)['group']! as String,
+          a['artifact']! as String,
+          a['version']! as String,
+        ),
+    ],
+    repo: rlocation(json['repo']! as String),
+  );
 
   final String label;
   final String package;
@@ -262,10 +271,7 @@ void main(List<String> args) {
     final json = jsonDecode(
       File(runfiles.rlocation(configPath)).readAsStringSync(),
     ) as Map<String, Object?>;
-    final config = AarConfig.fromJson(
-      json,
-      runfiles.rlocation(json['repo']! as String),
-    );
+    final config = AarConfig.fromJson(json, runfiles.rlocation);
 
     final workspace = _env('BUILD_WORKSPACE_DIRECTORY');
     final workingDirectory = _env('BUILD_WORKING_DIRECTORY');
