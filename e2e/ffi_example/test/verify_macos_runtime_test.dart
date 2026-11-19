@@ -25,7 +25,7 @@
 ///
 /// Pass criteria: the app writes
 /// `ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2
-/// negate(5)=-5 kept(20)=21` to `$TMPDIR/ffi_result.txt`.
+/// negate(5)=-5 kept(20)=21 chain(1)=202` to `$TMPDIR/ffi_result.txt`.
 library;
 
 import 'dart:io';
@@ -35,7 +35,7 @@ import 'package:rules_flutter_e2e_testing/marker_run.dart';
 
 const _marker =
     'ffi_example_result add(3,4)=7 mul(3,4)=12 sqlite=HELLO shared=2 '
-    'negate(5)=-5 kept(20)=21';
+    'negate(5)=-5 kept(20)=21 chain(1)=202';
 const _timeout = Duration(seconds: 30);
 
 Future<void> main() async {
