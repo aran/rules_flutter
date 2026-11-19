@@ -284,6 +284,67 @@ class Squatter {
   }
 }
 
+/// A port this test holds from the moment it is drawn, handed to the server
+/// under test when it binds that port.
+///
+/// A port found free and then released for the server to bind is free only
+/// until something else on the host takes it, and under parallel tests
+/// something does: the server's start then fails at its bind, with the advice a
+/// named port's bind failure gives, before the check a case is about ever runs.
+/// Holding the socket closes that gap. The handover is through [IOOverrides],
+/// the way [Squatter] reaches the server's client through [HttpOverrides], so
+/// the server's own code runs unchanged: `HttpServer.bind` gets its socket from
+/// `ServerSocket.bind`, which asks the override.
+///
+/// The held socket listens on IPv4 loopback whatever address the server asked
+/// for, so a case that needs the server to be *reached* where it asked is not
+/// one for this. A [Squatter] taking every connection, which decides where the
+/// check's requests go, is.
+final class HeldPort extends IOOverrides {
+  HeldPort._(this._socket);
+
+  static Future<HeldPort> bind() async {
+    final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(socket.close);
+    return HeldPort._(socket);
+  }
+
+  final ServerSocket _socket;
+
+  int get port => _socket.port;
+
+  /// Whether the server has bound the held port.
+  bool handedOver = false;
+
+  /// Run [body] with its binds of [port] given the held socket.
+  R run<R>(R Function() body) => IOOverrides.runWithIOOverrides(body, this);
+
+  @override
+  Future<ServerSocket> serverSocketBind(
+    address,
+    int port, {
+    int backlog = 0,
+    bool v6Only = false,
+    bool shared = false,
+  }) {
+    // Only the first bind of the port gets the held socket. A later one goes to
+    // the kernel, as it would without this: a server that wrongly tries the
+    // named port again, having given the socket back, binds it there and
+    // shows up as a second request on the squatter.
+    if (port != _socket.port || handedOver) {
+      return super.serverSocketBind(
+        address,
+        port,
+        backlog: backlog,
+        v6Only: v6Only,
+        shared: shared,
+      );
+    }
+    handedOver = true;
+    return Future.value(_socket);
+  }
+}
+
 /// Real clients, built the way `HttpClient()` builds them with no override in
 /// place. Through the base class rather than the constructor because the
 /// constructor would find this file's own override and wrap a wrapper, forever
@@ -1899,26 +1960,26 @@ void main() {
       'a named port that is intercepted fails naming it, and is not redrawn',
       () async {
         final dir = bundle();
-        // A port that was free a moment ago, taken the way the servers take
-        // theirs so the address family cannot differ.
-        final free = StaticWebServer(
-          rootPath: dir.path,
-          options: const WebServerOptions(crossOriginIsolation: false),
-        );
-        final port = (await free.start()).port;
-        await free.stop();
+        // The named port is held by this test from the start and handed to the
+        // server's bind, never released to the kernel in between: something
+        // else on the host can take a port in that gap, and the start then
+        // fails at its bind, before any check. See [HeldPort].
+        final held = await HeldPort.bind();
+        final port = held.port;
 
         final squatter = await squatterTaking(everyPort: true);
         await expectLater(
-          squatter.run(
-            () => StaticWebServer(
-              rootPath: dir.path,
-              options: WebServerOptions(
-                crossOriginIsolation: false,
-                hostname: anyHostname,
-                port: port,
-              ),
-            ).start(),
+          held.run(
+            () => squatter.run(
+              () => StaticWebServer(
+                rootPath: dir.path,
+                options: WebServerOptions(
+                  crossOriginIsolation: false,
+                  hostname: anyHostname,
+                  port: port,
+                ),
+              ).start(),
+            ),
           ),
           throwsDevToolException(
             allOf(
@@ -1930,7 +1991,9 @@ void main() {
             ),
           ),
         );
-        // The whole of what it did: one attempt, on the port it was given.
+        // The whole of what it did: one bind and one attempt, on the port it
+        // was given.
+        expect(held.handedOver, isTrue);
         expect(squatter.probed, [port]);
       },
     );
