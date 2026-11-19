@@ -40,15 +40,19 @@
 ///     the program.
 /// 12. The checkout's framework over the release engine takes the Material
 ///     fonts its `bin/internal/material_fonts.version` names.
-/// 13. A release's framework over the checkout's engine (`flutter.custom_engine`)
-///     builds the macOS app from the checkout's out dirs and records the
-///     release's framework; pub resolves against the release's packages.
+/// 13. A release's framework over the checkout's engine
+///     (`flutter.custom_engine`) builds the macOS app from the checkout's out
+///     dirs and records the release's framework; pub resolves against the
+///     release's packages.
 /// 14. The analyzer's `sky_engine` and the licences `NOTICES` lists are the
 ///     selected SDK's engine's.
 /// 15. Every repository of the `flutter` and `pub` extensions that reads an
 ///     SDK's sources fetches, with the checkouts unset and with a checkout
 ///     whose engine is not built: only a build that uses such an SDK fails. A
 ///     checkout's version is the one flutter_tools tells from its tags.
+/// 16. A checkout SDK's toolchains, and a custom engine's whose `hosts` is
+///     `host`, run on the machine alone, so another execution platform
+///     listed first does not take the build.
 @Tags(['e2e', 'app_builds'])
 library;
 
@@ -1077,4 +1081,25 @@ void main() {
       expect(framework['repository_url'], isNull);
     },
   );
+
+  for (final sdk in ['local', 'engine_only']) {
+    test(
+      'the $sdk SDK builds on the machine though another OS is an '
+      'execution platform first',
+      () async {
+        // The out dirs hold this machine's host tools alone: no toolchain of
+        // the SDK may claim the other platform, which Bazel tries first. A
+        // checkout's are the machine's; `hosts` says so for `engine_only`.
+        final other = Platform.isMacOS ? 'linux_x64' : 'macos_arm64';
+        final build = await _bazel([
+          'build',
+          '--nobuild',
+          Platform.isMacOS ? '//:app_flutter' : '//:linux_app',
+          '$_sdkFlag$sdk',
+          '--extra_execution_platforms=@rules_flutter//flutter/platforms:$other',
+        ]);
+        expect(build.exitCode, 0, reason: '${build.stderr}');
+      },
+    );
+  }
 }
