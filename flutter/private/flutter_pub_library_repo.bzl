@@ -24,6 +24,7 @@ load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_grap
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "read_pubspec_refusal")
 load("//flutter/private:failing_targets.bzl", "write_failing_build")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "library_repo", "owner_prefix", "pubspec_repo", "read_index", "read_sibling_file", "sibling_label", "source_repo")
+load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PACKAGE")
 load("//flutter/private:pub_cycles.bzl", "DECLARE", "FROM_LOCK")
 
 visibility("//flutter/...")
@@ -157,6 +158,42 @@ def overlay_in_cycle_error(package, cycle):
         others = ", ".join(["`{}`".format(p) for p in cycle if p != package]),
     )
 
+def unsupplied_dependency_error(index, graph, packages):
+    """The error for a package of a cycle depending on a package no lock lists.
+
+    Pub lists every package an app's dependencies reach in its lock, so a
+    package's pubspec names only packages the locks list. One that does not
+    would be built without the dependency it imports, and fail to compile
+    naming neither; its library fails instead, saying why.
+
+    Args:
+      index: The index, from `read_index`.
+      graph: Each package's pubspec dependencies, from `dependency_graph`.
+      packages: The packages of the cycle.
+
+    Returns:
+      The message, or None when every dependency is supplied.
+    """
+    for package in packages:
+        for dep in sorted(graph.get(package, [])):
+            if dep in index.built or dep in index.other:
+                continue
+            return (
+                "Pub package `{package}` {version} depends on `{dep}`, which no " +
+                "flutter_pub.from_lock() lock lists, so nothing supplies `{dep}` and " +
+                "`{package}` would be built without it. Pub lists every package an " +
+                "app's dependencies reach: run pub again for the lock that asks for " +
+                "`{package}` {version}:\n" +
+                "  bazel run @rules_flutter//flutter/pub -- get --directory=<the lock's directory>\n" +
+                "Locks: {locks}"
+            ).format(
+                package = package,
+                version = index.versions.get(package, "(from the Flutter SDK)"),
+                dep = dep,
+                locks = ", ".join(index.version_locks.get(package, index.locks)),
+            )
+    return None
+
 def _flutter_pub_library_repo_impl(ctx):
     package = ctx.attr.package_name
     index = read_index(ctx, ctx.attr.prefix)
@@ -175,7 +212,9 @@ def _flutter_pub_library_repo_impl(ctx):
 
     graph = dependency_graph(
         package,
-        lambda p: [d for d in read_pubspec_dependencies(ctx, source(p)) if d in index.built or d in index.other],
+        # The engine supplies `sky_engine`; every other dependency must be a
+        # package of the locks (`unsupplied_dependency_error`).
+        lambda p: [d for d in read_pubspec_dependencies(ctx, source(p)) if d != ENGINE_PACKAGE],
         follow = dict(index.built, **index.served),
     )
 
@@ -200,6 +239,11 @@ def _flutter_pub_library_repo_impl(ctx):
             package,
             "@{}//:{}".format(library_repo(cycle.owner, owner_prefix(index, cycle.owner)), cycle.owner),
         ))
+        return ctx.repo_metadata(reproducible = True)
+
+    unsupplied = unsupplied_dependency_error(index, graph, cycle.packages)
+    if unsupplied:
+        write_failing_build(ctx, [package], unsupplied)
         return ctx.repo_metadata(reproducible = True)
 
     members = {

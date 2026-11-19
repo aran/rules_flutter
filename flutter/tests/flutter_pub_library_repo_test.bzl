@@ -8,7 +8,7 @@ and that an overlay cannot be part of a cycle.
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:flutter_pub_index.bzl", "INDEX_REPO", "library_label", "library_repo", "source_repo")
-load("//flutter/private:flutter_pub_library_repo.bzl", "make_alias_build_content", "make_library_build_content", "overlay_in_cycle_error")
+load("//flutter/private:flutter_pub_library_repo.bzl", "make_alias_build_content", "make_library_build_content", "overlay_in_cycle_error", "unsupplied_dependency_error")
 
 def _repositories_are_named_by_their_part_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -146,6 +146,31 @@ an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test = unittest.make(
     _an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test_impl,
 )
 
+def _a_dependency_no_lock_lists_fails_the_library_naming_it_test_impl(ctx):
+    """A package is never built without a dependency its pubspec declares."""
+    env = unittest.begin(ctx)
+
+    index = struct(
+        built = {"package_config": True, "path": True},
+        other = {"flutter": True},
+        versions = {"package_config": "3.0.0"},
+        version_locks = {"package_config": ["@@//:pubspec.lock"]},
+        locks = ["@@//:pubspec.lock", "@@rules_flutter+//:pubspec.lock"],
+    )
+
+    # Supplied: a built package, or one of the locks' other entries.
+    asserts.equals(env, None, unsupplied_dependency_error(index, {"package_config": ["flutter", "path"]}, ["package_config"]))
+
+    # `package:meta`, declared by package_config 3.0.0, is listed by no lock.
+    message = unsupplied_dependency_error(index, {"package_config": ["meta", "path"]}, ["package_config"])
+    asserts.true(env, message != None)
+    asserts.true(env, "`package_config` 3.0.0 depends on `meta`, which no flutter_pub.from_lock() lock lists" in message, message)
+    asserts.true(env, "Locks: @@//:pubspec.lock" in message, message)
+
+    return unittest.end(env)
+
+a_dependency_no_lock_lists_fails_the_library_naming_it_test = unittest.make(_a_dependency_no_lock_lists_fails_the_library_naming_it_test_impl)
+
 def flutter_pub_library_repo_test_suite(name):
     unittest.suite(
         name,
@@ -155,4 +180,5 @@ def flutter_pub_library_repo_test_suite(name):
         package_test_carries_the_runner_test,
         the_others_of_a_cycle_alias_its_library_test,
         an_overlay_in_a_cycle_is_refused_naming_it_and_the_cycle_test,
+        a_dependency_no_lock_lists_fails_the_library_naming_it_test,
     )

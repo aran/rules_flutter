@@ -442,6 +442,7 @@ bzl_library(
     deps = [
         ":failing_targets",
         ":flutter_pub_index",
+        ":lock_entry_kind",
         ":pub_cycles",
         "@rules_dart//dart/pub:pub_graph",
         "@rules_dart//dart/pub:pub_lock_package",
