@@ -64,7 +64,7 @@ load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFOR
 load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
-load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "unusable_message", "write_failing_stub")
+load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "locked_versions", "unusable_message", "write_failing_stub")
 load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements", "parse_gradle_properties")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:swiftpm_manifest.bzl", "find_manifest_computations", "find_swiftpm_build_settings", "find_unsupported_swiftpm_dependencies")
@@ -2715,15 +2715,18 @@ def _flutter_pub_package_impl(ctx):
     # the wrong type) still fetches, as the package may be one no target uses:
     # its target fails at analysis with pub's words, naming the package. Its
     # dependencies are unknown, so it has none.
-    read = read_pubspec(ctx, ctx.attr.package_name, version)
+    #
+    # What a Flutter SDK package needs of the hosted packages must be what the
+    # build uses, so the reader compares its constraints with their versions.
+    sdk_index = read_index(ctx, ctx.attr.prefix) if ctx.attr.sdk else None
+    read = read_pubspec(ctx, ctx.attr.package_name, version, locked_versions = locked_versions(sdk_index) if sdk_index else None)
     if read.error:
         return _write_unbuildable(ctx, identity, version, [], read.error)
     pubspec = read.pubspec
-    if ctx.attr.sdk:
-        # What a Flutter SDK package needs of the hosted packages must be what
-        # the build uses. A package that does not fit fails only a build of
-        # its SDK, when something uses it: every SDK's packages still fetch.
-        misfit = dependency_constraint_message(read_index(ctx, ctx.attr.prefix), ctx.attr.sdk, ctx.attr.package_name, pubspec.fields)
+    if sdk_index:
+        # A package that does not fit fails only a build of its SDK, when
+        # something uses it: every SDK's packages still fetch.
+        misfit = dependency_constraint_message(sdk_index, ctx.attr.sdk, ctx.attr.package_name, pubspec.unsatisfied)
         if misfit:
             problems.append(misfit)
     pubspec_dependencies = pubspec.dependencies

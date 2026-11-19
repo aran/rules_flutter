@@ -16,7 +16,6 @@ as an attribute, so Bazel fetches the source before they run.
 load("@rules_dart//dart/pub:pub_graph.bzl", "write_pubspec_dependencies")
 load("//flutter/private:failing_targets.bzl", "write_failing_build")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
-load("//flutter/private:pub_constraint.bzl", "allows", "constraint_problem")
 load("//flutter/private:pub_lock_sdks.bzl", "version_below_lower_bound")
 load("//flutter/private:pub_resolve.bzl", "lock_directory")
 
@@ -166,20 +165,35 @@ def lock_floor_message(index, sdk, framework_version):
             )
     return None
 
-def dependency_constraint_message(index, sdk, package, pubspec_fields):
+def locked_versions(index):
+    """The version the build uses of each hosted package, for `read_pubspec`'s `locked_versions`.
+
+    A Flutter SDK package is recorded in the lock at `0.0.0`, so its own
+    version is no version to compare a constraint with.
+
+    Args:
+        index: The hub's index (`read_index`).
+
+    Returns:
+        A dict of version by package name.
+    """
+    return {n: v for n, v in index.versions.items() if not index.sdk_packages.get(n)}
+
+def dependency_constraint_message(index, sdk, package, unsatisfied):
     """Why a Flutter SDK package does not fit the versions the build uses of the locked packages, or None.
 
-    The SDK packages are recorded in the lock at `0.0.0`, so their own version
-    never mismatches. What can is what their pubspecs require of the hosted
-    packages the locks pin (`flutter_test` holds `test_api` at exactly one
-    version): the build has one version of each package, the highest any lock
+    What the SDK packages' pubspecs require of the hosted packages the locks
+    pin (`flutter_test` holds `test_api` at exactly one version) is what can
+    mismatch. The build has one version of each package, the highest any lock
     records, and that one must be one the SDK package allows.
 
     Args:
         index: The hub's index (`read_index`).
         sdk: The SDK's name.
         package: The SDK package whose pubspec this is.
-        pubspec_fields: The pubspec as decoded JSON (`read_pubspec(...).fields`).
+        unsatisfied: The `unsatisfied` of its `read_pubspec(locked_versions =
+            locked_versions(index))`: the constraints that exclude the version
+            the build uses, by package.
 
     Returns:
         The message, or None when every constraint holds.
@@ -187,35 +201,21 @@ def dependency_constraint_message(index, sdk, package, pubspec_fields):
     problems = []
     culprits = {}
     example = None
-    dependencies = pubspec_fields.get("dependencies") or {}
-    for dep in sorted(dependencies.keys()):
-        locked = index.versions.get(dep)
-        spec = dependencies[dep]
-        if type(spec) == "dict":
-            spec = spec.get("version")
-        if locked == None or type(spec) != "string" or index.sdk_packages.get(dep):
-            continue
-        unreadable = constraint_problem(spec)
-        if unreadable:
-            return "package:{pkg} of the \"{sdk}\" Flutter SDK depends on {dep} with a constraint pub cannot read: {problem}".format(
-                pkg = package,
-                sdk = sdk,
-                dep = dep,
-                problem = unreadable,
-            )
-        if not allows(spec, locked):
-            locks = index.version_locks.get(dep) or index.locks
-            for lock in locks:
-                culprits[lock] = True
-            if example == None:
-                example = "`{}: {}`".format(dep, spec)
-            problems.append("  package:{pkg} needs {dep} {constraint}, and the build uses {dep} {locked}, which {locks} records".format(
-                pkg = package,
-                dep = dep,
-                constraint = spec,
-                locks = " and ".join(locks),
-                locked = locked,
-            ))
+    for dep in sorted(unsatisfied.keys()):
+        spec = unsatisfied[dep]
+        locked = index.versions[dep]
+        locks = index.version_locks.get(dep) or index.locks
+        for lock in locks:
+            culprits[lock] = True
+        if example == None:
+            example = "`{}: {}`".format(dep, spec)
+        problems.append("  package:{pkg} needs {dep} {constraint}, and the build uses {dep} {locked}, which {locks} records".format(
+            pkg = package,
+            dep = dep,
+            constraint = spec,
+            locks = " and ".join(locks),
+            locked = locked,
+        ))
     if not problems:
         return None
     return (

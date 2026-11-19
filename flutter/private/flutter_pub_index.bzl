@@ -94,6 +94,21 @@ def _canonical_prefix(ctx):
     """What canonical names of the extension's repositories start with, seen from `ctx`."""
     return ctx.name[:len(ctx.name) - len(ctx.original_name)]
 
+def sibling_label(ctx, repo, path = "BUILD.bazel"):
+    """The label of a file at the root of another repository of the same module extension.
+
+    Naming a repository fetches nothing; reading the file does.
+
+    Args:
+      ctx: The reading repository's `repository_ctx`.
+      repo: The other repository's name, as the extension gave it.
+      path: A file at its root.
+
+    Returns:
+      Its `Label`.
+    """
+    return Label("@@{}{}//:{}".format(_canonical_prefix(ctx), repo, path))
+
 def sibling_path(ctx, repo, path):
     """The path of a file at the root of another repository of the same module extension.
 
@@ -105,7 +120,7 @@ def sibling_path(ctx, repo, path):
     Returns:
       Its path.
     """
-    return ctx.path(Label("@@{}{}//:{}".format(_canonical_prefix(ctx), repo, path)))
+    return ctx.path(sibling_label(ctx, repo, path))
 
 def read_sibling_file(ctx, repo, path):
     """Reads a file of another repository of the same module extension.

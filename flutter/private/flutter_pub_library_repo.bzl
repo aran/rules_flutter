@@ -21,7 +21,7 @@ with `flutter_info_forwarding_aspect`.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "dependency_cycle", "dependency_graph", "read_pubspec_dependencies")
-load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "library_label", "library_repo", "owner_prefix", "read_index", "read_sibling_file", "sibling_label", "source_repo")
 load("//flutter/private:pub_cycles.bzl", "DECLARE")
 
 visibility("//flutter/...")
@@ -165,7 +165,7 @@ def _flutter_pub_library_repo_impl(ctx):
     # that depends on them.
     graph = dependency_graph(
         package,
-        lambda p: [d for d in read_pubspec_dependencies(ctx, source_repo(p, owner_prefix(index, p))) if d in index.built or d in index.other],
+        lambda p: [d for d in read_pubspec_dependencies(ctx, sibling_label(ctx, source_repo(p, owner_prefix(index, p)))) if d in index.built or d in index.other],
         follow = index.built,
     )
     cycle = dependency_cycle(

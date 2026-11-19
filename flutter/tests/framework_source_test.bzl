@@ -12,20 +12,10 @@ and a lock may fit only the SDK the build uses.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//flutter:engine.bzl", "flutter_missing_slice")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_FILE", "MEMBER_OVERLAY")
-load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "lock_floor_message", "write_failing_stub")
+load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "lock_floor_message", "locked_versions", "write_failing_stub")
 
 _APP = "@@//app:pubspec.lock"
 _TOOLS = "@@rules_flutter+//:pubspec.lock"
-
-_FLUTTER_TEST = {
-    "name": "flutter_test",
-    "dependencies": {
-        "flutter": {"sdk": "flutter"},
-        "test_api": "0.7.14",
-        "matcher": "0.12.20",
-        "path": "^1.9.0",
-    },
-}
 
 def _index(versions, version_locks = {}, sdk_packages = ["flutter", "flutter_test"]):
     return struct(
@@ -35,16 +25,22 @@ def _index(versions, version_locks = {}, sdk_packages = ["flutter", "flutter_tes
         locks = [_APP, _TOOLS],
     )
 
+def _locked_versions_leave_out_the_sdk_packages_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # An SDK package is locked at 0.0.0, which no constraint is compared with.
+    index = _index({"test_api": "0.7.14", "flutter": "0.0.0", "path": "1.9.1"})
+    asserts.equals(env, {"test_api": "0.7.14", "path": "1.9.1"}, locked_versions(index))
+
+    return unittest.end(env)
+
+locked_versions_leave_out_the_sdk_packages_test = unittest.make(_locked_versions_leave_out_the_sdk_packages_test_impl)
+
 def _a_fitting_lock_says_nothing_test_impl(ctx):
     env = unittest.begin(ctx)
 
     index = _index({"test_api": "0.7.14", "matcher": "0.12.20", "path": "1.9.1"})
-    asserts.equals(env, None, dependency_constraint_message(index, "flutter", "flutter_test", _FLUTTER_TEST))
-
-    # A dependency no lock lists, and one on another SDK package, are not this
-    # check's concern.
-    asserts.equals(env, None, dependency_constraint_message(_index({}), "flutter", "flutter_test", _FLUTTER_TEST))
-    asserts.equals(env, None, dependency_constraint_message(_index({"flutter": "0.0.0"}), "flutter", "flutter_test", _FLUTTER_TEST))
+    asserts.equals(env, None, dependency_constraint_message(index, "flutter", "flutter_test", {}))
 
     return unittest.end(env)
 
@@ -58,7 +54,7 @@ def _a_version_past_an_exact_pin_is_refused_test_impl(ctx):
         {"test_api": "0.7.15", "matcher": "0.12.20", "path": "1.9.1"},
         version_locks = {"test_api": [_TOOLS], "matcher": [_APP], "path": [_APP]},
     )
-    message = dependency_constraint_message(index, "beta", "flutter_test", _FLUTTER_TEST)
+    message = dependency_constraint_message(index, "beta", "flutter_test", {"test_api": "0.7.14"})
     asserts.true(env, message != None, "a version the SDK package forbids passed")
     for fragment in [
         "\"beta\" Flutter SDK",
@@ -80,7 +76,7 @@ def _a_version_outside_a_range_is_refused_test_impl(ctx):
     env = unittest.begin(ctx)
 
     index = _index({"path": "2.0.0"}, version_locks = {"path": [_APP]})
-    message = dependency_constraint_message(index, "flutter", "flutter_test", _FLUTTER_TEST)
+    message = dependency_constraint_message(index, "flutter", "flutter_test", {"path": "^1.9.0"})
     asserts.true(env, message != None, "a version outside the SDK package's range passed")
     for fragment in [
         "needs path ^1.9.0, and the build uses path 2.0.0, which {} records".format(_APP),
@@ -91,19 +87,6 @@ def _a_version_outside_a_range_is_refused_test_impl(ctx):
     return unittest.end(env)
 
 a_version_outside_a_range_is_refused_test = unittest.make(_a_version_outside_a_range_is_refused_test_impl)
-
-def _an_unreadable_constraint_is_refused_test_impl(ctx):
-    env = unittest.begin(ctx)
-
-    pubspec = {"name": "flutter_test", "dependencies": {"path": ">=1.9.0 <<2.0.0"}}
-    message = dependency_constraint_message(_index({"path": "1.9.1"}), "local", "flutter_test", pubspec)
-    asserts.true(env, message != None, "an unreadable constraint passed")
-    for fragment in ["package:flutter_test of the \"local\" Flutter SDK", "depends on path"]:
-        asserts.true(env, fragment in message, "{} not in:\n{}".format(fragment, message))
-
-    return unittest.end(env)
-
-an_unreadable_constraint_is_refused_test = unittest.make(_an_unreadable_constraint_is_refused_test_impl)
 
 def _a_lock_above_the_framework_is_refused_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -165,7 +148,7 @@ def framework_source_test_suite(name):
         a_fitting_lock_says_nothing_test,
         a_version_past_an_exact_pin_is_refused_test,
         a_version_outside_a_range_is_refused_test,
-        an_unreadable_constraint_is_refused_test,
+        locked_versions_leave_out_the_sdk_packages_test,
         a_lock_above_the_framework_is_refused_test,
         a_failing_stub_declares_each_target_test,
     )

@@ -17,8 +17,10 @@ import 'digest_probe.dart';
 /// at one of those names cannot be linked in: the repository's own file would
 /// take its place (the package would bundle the generated file as its asset),
 /// and a write below a linked directory (`_fonts_of_other_packages/`) would
-/// land in the user's checkout. The fetch fails instead, naming the package
-/// and the entry, and the checkout is untouched.
+/// land in the user's checkout. The repository still fetches, as the package
+/// may be one no build uses (`bazel fetch --all`), with the checkout
+/// untouched; the package's target fails when a build uses it, naming the
+/// package and the entry.
 void main() {
   late Probe fetcher;
   late Directory package;
@@ -49,13 +51,16 @@ void main() {
           'package_name': str('reserved'),
           'version': str('1.0.0'),
           'directory': str(package.path),
+          'lock': str('@@//:pubspec.lock'),
+          'path': str(package.path),
         }),
       ],
     );
   });
 
   test(
-    'an entry at a name the repository writes fails the fetch, untouched',
+    'an entry at a name the repository writes fails the package\'s builds, '
+    'and the checkout is untouched',
     () async {
       final result = await fetcher.fetch('path_reserved');
       expect(
@@ -64,11 +69,20 @@ void main() {
         mine,
         reason: 'the fetch wrote into the package\'s directory\n$result',
       );
-      expect(result.succeeded, isFalse, reason: '$result');
+      expect(result.succeeded, isTrue, reason: '$result');
+      final build = await fetcher.bazel([
+        'build',
+        '--nobuild',
+        '@path_reserved//:reserved',
+      ]);
+      expect(build.succeeded, isFalse, reason: 'built the package\n$build');
       expect(
-        result.output,
-        allOf(contains('reserved'), contains('flutter_pub_member.json')),
-        reason: 'the failure does not name the package and the entry\n$result',
+        build.output,
+        allOf(
+          contains('package reserved'),
+          contains('flutter_pub_member.json'),
+        ),
+        reason: 'the failure does not name the package and the entry\n$build',
       );
     },
   );

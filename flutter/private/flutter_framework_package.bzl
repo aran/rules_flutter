@@ -22,7 +22,7 @@ load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:flutter_pub_index.bzl", "library_label", "read_index")
-load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "link_framework_package", "lock_floor_message", "read_framework", "unusable_message", "write_failing_stub")
+load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "link_framework_package", "lock_floor_message", "locked_versions", "read_framework", "unusable_message", "write_failing_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
 load("//flutter/private:pinned.bzl", "pinned")
 
@@ -111,7 +111,7 @@ def _flutter_framework_package_impl(repository_ctx):
     # `environment.sdk` gets pub's default language version, which is what pub
     # writes for such a package.
     index = read_index(repository_ctx, repository_ctx.attr.prefix)
-    read = read_pubspec(repository_ctx, _PACKAGE, flutter_version)
+    read = read_pubspec(repository_ctx, _PACKAGE, flutter_version, locked_versions = locked_versions(index))
     if read.error:
         write_failing_stub(repository_ctx, [_PACKAGE], read.error)
         return
@@ -123,7 +123,7 @@ def _flutter_framework_package_impl(repository_ctx):
     # (`bazel fetch --all`).
     misfit = (
         lock_floor_message(index, repository_ctx.attr.sdk, flutter_version) or
-        dependency_constraint_message(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.fields)
+        dependency_constraint_message(index, repository_ctx.attr.sdk, _PACKAGE, pubspec.unsatisfied)
     )
     if misfit:
         write_failing_stub(repository_ctx, [_PACKAGE], misfit)
