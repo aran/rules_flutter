@@ -99,13 +99,66 @@ def code_mask(text):
         i += 1
     return mask
 
-def _strip_line_comment(line):
-    """Cuts a `//` comment that is not inside a string literal."""
-    mask = code_mask(line)
-    for i in range(len(line) - 1):
-        if mask[i] and mask[i + 1] and line[i] == "/" and line[i + 1] == "/":
-            return line[:i]
-    return line
+def strip_comments(text):
+    """`text` with its `//` and `/* ... */` comments removed, outside string literals.
+
+    A block comment may span lines and is removed with the newlines in it
+    kept, so every line keeps its number. Strings are as `code_mask` reads
+    them, and end at the end of their line: a quote no line closes does not
+    hide the comments of the lines after it.
+
+    Args:
+        text: The text of a script.
+
+    Returns:
+        The text without its comments.
+    """
+    out = []
+    stack = []
+    n = len(text)
+    i = 0
+    for _ in range(n + 1):
+        if i >= n:
+            break
+        c = text[i]
+        two = text[i:i + 2]
+        top = stack[-1] if stack else ""
+        if c == "\n":
+            stack = []
+            out.append(c)
+        elif top == "'" or top == '"':
+            if c == "\\" and i + 1 < n and text[i + 1] != "\n":
+                out.append(two)
+                i += 2
+                continue
+            if c == top:
+                stack.pop()
+            elif top == '"' and two == "${":
+                stack.append("{")
+                out.append(two)
+                i += 2
+                continue
+            out.append(c)
+        elif two == "//":
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        elif two == "/*":
+            end = text.find("*/", i + 2)
+            comment = text[i:] if end < 0 else text[i:end + 2]
+            out.append("\n" * comment.count("\n"))
+            i = n if end < 0 else end + 2
+            continue
+        else:
+            if c == "'" or c == '"':
+                stack.append(c)
+            elif top == "{" and c == "{":
+                stack.append(c)
+            elif top == "{" and c == "}":
+                stack.pop()
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 def _opens_a_closure(header):
     """Whether a `{` after `header` configures a dependency, not opens a block.
@@ -205,8 +258,8 @@ def gradle_tokens(content):
     """
     out = []
     carry = None
-    for number, raw in enumerate(content.split("\n")):
-        carry = _split_statements(_strip_line_comment(raw), number + 1, out, carry)
+    for number, line in enumerate(strip_comments(content).split("\n")):
+        carry = _split_statements(line, number + 1, out, carry)
     if carry and carry.text.strip():
         out.append(struct(kind = "statement", text = carry.text.strip(), line = carry.line))
     return out

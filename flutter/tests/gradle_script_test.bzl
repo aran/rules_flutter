@@ -7,6 +7,7 @@ load(
     "gradle_string",
     "gradle_tokens",
     "parse_gradle_properties",
+    "strip_comments",
 )
 
 # firebase_core 5.1.0's `android/build.gradle`, lines 31-35, and the
@@ -151,10 +152,51 @@ empty=
 
 properties_test = unittest.make(_properties_test_impl)
 
+def _comments_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # A block comment spanning lines is removed with its newlines kept, as
+    # are `//` comments; neither is a comment inside a string.
+    asserts.equals(
+        env,
+        "a\n\nb \n'/* not */' \"// not\" \"${x('/*')}\"\nc d\n",
+        strip_comments("a/* one\ntwo */\nb // gone\n'/* not */' \"// not\" \"${x('/*')}\"\nc/* x */ d\n"),
+    )
+
+    # A quote no line closes does not hide what follows; an unclosed block
+    # comment runs to the end.
+    asserts.equals(env, "x 'it\ny \n\n", strip_comments("x 'it\ny /* z\n\n"))
+    asserts.equals(env, "don't\nz \n", strip_comments("don't\nz // '\n"))
+
+    # The tokens of a script with block comments: none of its declarations
+    # is read, and the statements after them keep their line numbers.
+    tokens = gradle_tokens("""\
+dependencies {
+    /* implementation 'a:commented:1'
+       implementation 'b:commented:1' */
+    implementation 'c:kept:1' /* trailing */
+    /** api 'd:doc:1' */ api 'e:kept:1'
+}
+""")
+    asserts.equals(
+        env,
+        [
+            ("open", "dependencies", 1),
+            ("statement", "implementation 'c:kept:1'", 4),
+            ("statement", "api 'e:kept:1'", 5),
+            ("close", "", 6),
+        ],
+        [(t.kind, t.text, t.line) for t in tokens],
+    )
+    return unittest.end(env)
+
+comments_test = unittest.make(_comments_test_impl)
+
 def gradle_script_test_suite(name):
     unittest.suite(
         name,
         firebase_test,
         values_test,
         properties_test,
+        comments_test,
     )
