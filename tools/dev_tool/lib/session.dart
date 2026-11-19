@@ -24,6 +24,7 @@ import 'hot_reload/source_watcher.dart';
 import 'logging.dart';
 import 'machine_protocol.dart';
 import 'reload_strategy.dart';
+import 'standard_input.dart';
 import 'teardown.dart';
 import 'vm_service_client.dart';
 
@@ -1108,7 +1109,7 @@ Future<void> runInteractiveSession({
     stdin.lineMode = false;
   }
 
-  final inputStream = keyboardReader != null ? keyboardReader() : stdin;
+  final inputStream = keyboardReader != null ? keyboardReader() : standardInput;
 
   // Race each key read against [exited] — the same thing `--machine` waits on
   // above. A teardown requested over a transport ends the loop like 'q' does,
@@ -1126,7 +1127,20 @@ Future<void> runInteractiveSession({
         break;
       }
       final wake = await Future.any<_Wake>([
-        keys.moveNext().then((has) => has ? _Wake.key : _Wake.keyboardClosed),
+        keys.moveNext().then(
+          (has) => has ? _Wake.key : _Wake.keyboardClosed,
+          // A keyboard that could not be read is one that has gone: logged,
+          // then the closed path below. Unhandled, the error would end the
+          // tool with exit code 255 and nothing stopped.
+          onError: (Object error) {
+            _logger.warning({
+              'message': 'stdin_read_failed',
+              'text': 'Could not read stdin: $error',
+              'error': '$error',
+            });
+            return _Wake.keyboardClosed;
+          },
+        ),
         if (exited != null) exited.then((_) => _Wake.exit),
       ]);
       if (wake == _Wake.exit) break;

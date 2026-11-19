@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/command_runner.dart';
 import 'package:flutter_bazel_dev_tool/machine_protocol.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import 'fakes.dart';
@@ -380,6 +382,37 @@ void main() {
       final event = decoded.first as Map<String, dynamic>;
       expect(event['event'], 'app.stop');
       expect(event['params']['appId'], 'myapp');
+    });
+
+    // The reader reports why it could not read as an error on the stream.
+    // Unhandled, it ends the tool with exit code 255 and nothing stopped.
+    test('a read error is input that has ended, not a crash', () async {
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      final controller = StreamController<String>();
+      final protocol = MachineProtocol(
+        enabled: true,
+        commandRunner: CommandRunner(),
+        output: sink,
+        inputLines: controller.stream,
+      );
+      protocol.startListening();
+
+      controller.addError(
+        const StdinException('read of standard input failed'),
+      );
+      await pumpEventQueue();
+
+      expect(
+        records.map((r) => '${(r.object as Map)['text']}'),
+        contains(contains('read of standard input failed')),
+      );
+      expect(
+        controller.hasListener,
+        isFalse,
+        reason: 'nothing more is read from an input that has ended',
+      );
     });
 
     test('dispatches commands via CommandRunner', () async {

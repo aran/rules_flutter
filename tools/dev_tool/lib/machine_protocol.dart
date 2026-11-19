@@ -76,8 +76,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
+
 import 'command_failure.dart';
 import 'command_runner.dart';
+import 'standard_input.dart';
+
+final _logger = Logger('dev_tool.machine_protocol');
 
 /// Machine-readable JSON protocol handler.
 class MachineProtocol {
@@ -153,7 +158,7 @@ class MachineProtocol {
 
     final lines =
         _inputLines ??
-        stdin.transform(utf8.decoder).transform(const LineSplitter());
+        standardInput.transform(utf8.decoder).transform(const LineSplitter());
     _subscription = lines.listen(
       (line) async {
         try {
@@ -191,6 +196,20 @@ class MachineProtocol {
         } catch (e) {
           _sendError(null, 'Parse error: $e');
         }
+      },
+      // Input that could not be read is input that has ended: logged, and the
+      // run goes on as it does when stdin closes, until a command or the app
+      // ends it. Unhandled, the error would end the tool with exit code 255
+      // and nothing stopped.
+      onError: (Object error) {
+        _logger.warning({
+          'message': 'stdin_read_failed',
+          'text':
+              'Could not read stdin ($error), so no further commands are read '
+              'from it. The run continues.',
+          'error': '$error',
+        });
+        unawaited(stopListening());
       },
     );
   }

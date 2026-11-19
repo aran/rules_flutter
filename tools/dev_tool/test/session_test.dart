@@ -841,6 +841,34 @@ void main() {
         await run.loop.timeout(const Duration(seconds: 5));
       });
 
+      // The reader reports why it could not read as an error on the stream.
+      // Unhandled, it ends the tool with exit code 255 and nothing stopped.
+      test('with a read error is a keyboard that has closed', () async {
+        final records = <LogRecord>[];
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
+        final keys = StreamController<List<int>>();
+        final process = FakeProcess();
+        final run = loopOver(
+          keys,
+          process,
+          shutdownSignal: Completer<void>().future,
+        );
+
+        keys.addError(const StdinException('read of standard input failed'));
+        await keys.close();
+        await pumpEventQueue();
+
+        expect(
+          records.map((r) => '${(r.object as Map)['text']}'),
+          contains(contains('read of standard input failed')),
+        );
+        expect(run.logs.join('\n'), contains('stdin closed'));
+
+        process.complete(0);
+        await run.loop.timeout(const Duration(seconds: 5));
+      });
+
       test('ends the run when there is nothing left to control', () async {
         // No sessions and no shutdown signal: no app can exit and no command
         // can arrive, so waiting would be waiting forever. Returning is what

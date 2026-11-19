@@ -116,6 +116,20 @@ dart_binary(
     main = "test/fake_adb.dart",
 )
 
+# Reads its stdin through `standardInput`, for
+# `standard_input_test`. Not on Windows, where `standardInput` is `stdin`.
+dart_binary(
+    name = "standard_input_probe",
+    testonly = True,
+    compile_mode = "exe",
+    main = "test/standard_input_probe.dart",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = [":lib"],
+)
+
 # Every unit test under test/. Adding an entry here is the whole cost of a new
 # test file, and the list is the reason a file cannot quietly go unrun: the
 # `/logs` endpoint's tests shipped without a target and so were never covered
@@ -305,7 +319,10 @@ _UNIT_TESTS = {
     "host_tools_test": {"deps": _PATH_DEP},
     "http_control_channel_test": {"loopbacks": True},
     "logging_test": {},
-    "machine_protocol_test": {"fakes": True},
+    "machine_protocol_test": {
+        "fakes": True,
+        "deps": ["@dev_tool_deps//:logging"],
+    },
     "mdns_vm_service_discovery_test": {
         "fakes": True,
         "deps": ["@dev_tool_deps//:fake_async"],
@@ -412,6 +429,7 @@ _UNIT_TESTS = {
     "package_roots_test": {},
     "process_group_exec_test": {"data": [":process_group_exec"]},
     "shutdown_signals_test": {},
+    "standard_input_test": {"data": [":standard_input_probe"]},
     "simulator_log_stream_test": {"fakes": True},
     "simulator_terminations_test": {},
     "semantics_dump_test": {},
