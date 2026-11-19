@@ -97,9 +97,21 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
 7. Split debug info is named as `flutter build --split-debug-info` names it:
    `<application>.symbols` → `<application>_symbols/app.<platform>-<arch>.symbols`,
    such as `app.ios-arm64.symbols`. Update a script that uploads it.
-8. Rule authors: `const_finder` is removed from `flutter_host_tools`,
-   `FlutterHostToolsInfo` and `FlutterSdkInfo`. Icon tree shaking reads the
-   icons the compiler records instead.
+8. Rule authors:
+   - `const_finder` is removed from `flutter_host_tools`,
+     `FlutterHostToolsInfo` and `FlutterSdkInfo`. Icon tree shaking reads the
+     icons the compiler records instead.
+   - Each native library is described in one record. `FlutterInfo`'s
+     `transitive_native_libs`, `native_lib_sources` and `binding_contracts`
+     are replaced by `FlutterInfo.native_libraries`, and
+     `FlutterApplicationInfo.native_libs` by
+     `FlutterApplicationInfo.native_libraries`. Where you read a File from
+     the old fields, read a record's `library`. Its `sources` and `contract`
+     are what `native_lib_sources` and `binding_contracts` held for it. New
+     fields: `package`, the Dart package whose `native_deps` brought it;
+     `link_inputs`, what it was linked from; `dsym`, the dSYM its link made;
+     and `link_inputs_unset_reason`, why the build can't see either. See
+     [Providers](#providers).
 9. With `--apple_generate_dsym`, an Apple app makes a dSYM of each native
    library it bundles, read from what the library was linked from, and fails
    when the build can't see that: a library a genrule writes, or a code asset
@@ -118,6 +130,16 @@ rules_flutter compiles Dart to kernel or AOT native code, bundles assets, and pa
     application as a one-element list, `deps = [":app"]`, in place of the
     single label `deps = ":app"`. `flutter_android_app` and `flutter_android_aar`
     pass it for you.
+12. Federated plugins: an application registers and links one
+    implementation of each plugin on each platform, chosen as `flutter build`
+    chooses it, where it used to register every implementation that reached
+    it. An app that reaches two implementations of one plugin on a platform,
+    neither of them in its `deps` and neither the plugin's `default_package`,
+    now fails analysis with `Plugin <name>:<platform> has multiple possible
+    implementations`: add the one you want to the application's `deps`. Two
+    in its `deps` fail with `conflicting direct dependency implementations`:
+    keep one. The native code of an implementation it does not choose is no
+    longer bundled. See [flutter_plugin](#flutter_plugin).
 
 ## Road to 1.0
 
