@@ -22,7 +22,7 @@ common:macos --experimental_output_paths=strip
 
 # Accepts the licences of the Android SDK and NDK versions MODULE.bazel
 # downloads (README, "Android"), as rules_kotlin's examples do for theirs.
-common --repo_env=ACCEPTED_ANDROID_SDK_LICENSE_VERSION=35
+common --repo_env=ACCEPTED_ANDROID_SDK_LICENSE_VERSION=36
 common --repo_env=ACCEPTED_ANDROID_NDK_LICENSE_VERSION=r28c
 
 # The ABIs of an Android APK are the platforms of --@rules_android//flags:android_platforms (README,
@@ -60,5 +60,15 @@ common --incompatible_check_external_repo_source_dir_package_boundary
 common --incompatible_check_testonly_for_output_files
 common --incompatible_disable_starlark_host_transitions
 common --incompatible_resolve_select_keys_eagerly
+
+# Targets tagged `deep` download a great deal (gradle_host_test and what it
+# builds with: Gradle and its Maven artifacts). They are left out by default,
+# as in the repository root's .bazelrc, from building as well as from running:
+# a test that is only filtered out of running is still built, and what it
+# needs fetched. `--config=deep` takes them in.
+build --build_tag_filters=-deep
+test --test_tag_filters=-deep
+build:deep --build_tag_filters=
+test:deep --test_tag_filters=
 
 try-import %workspace%/.bazelrc.user

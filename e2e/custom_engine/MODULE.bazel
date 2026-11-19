@@ -181,10 +181,12 @@ bazel_dep(name = "hermetic_android_toolchains", version = "0.5.0", dev_dependenc
 
 android = use_extension("@hermetic_android_toolchains//:extensions.bzl", "android", dev_dependency = True)
 
-# The Android platform the app compiles against, and the build tools.
+# The Android platform the app compiles against, and the build tools: those
+# of a `flutter create` app (Flutter's `compileSdkVersion`), which the Android
+# Gradle plugin of the Gradle-built host app (add_to_app_host/android) needs.
 android.sdk(
-    build_tools_version = "35.0.0",
-    version = "35",
+    build_tools_version = "36.0.0",
+    version = "36",
 )
 
 # The NDK CC toolchain, used for native and FFI deps built for Android and
@@ -219,6 +221,42 @@ register_toolchains(
     "@androidndk//:all",
     "@androidsdk//:all",
     dev_dependency = True,
+)
+
+# The Gradle-built host app of add_to_app_host/android builds offline, from
+# what these pin: the Gradle distribution its Android Gradle plugin needs (the
+# version and plugin `flutter create` writes), and a Maven repository of every
+# artifact the build resolves but the engine's, which the module's repository
+# carries, from the lock
+# `bazel run --config=deep //:record_gradle_host_repository` writes. Its JDK is
+# the Java runtime .bazelrc names, and its Android SDK and NDK the ones above.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "gradle",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "lib/agents/gradle-instrumentation-agent-9.3.1.jar",
+    "lib/gradle-gradle-cli-main-9.3.1.jar",
+])
+
+filegroup(
+    name = "distribution",
+    srcs = glob(["**"], exclude = ["BUILD.bazel", "REPO.bazel"]),
+)
+""",
+    sha256 = "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06",
+    strip_prefix = "gradle-9.3.1",
+    url = "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip",
+)
+
+gradle_offline_repository = use_repo_rule("@rules_flutter//tools/e2e_testing:gradle_offline_repository.bzl", "gradle_offline_repository")
+
+gradle_offline_repository(
+    name = "gradle_host_maven",
+    lock = "//:add_to_app_host/android/gradle_repository.json",
 )
 
 fake_checkout = use_repo_rule("//:fake_checkout.bzl", "fake_checkout")

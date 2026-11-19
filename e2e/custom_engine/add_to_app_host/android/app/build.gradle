@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+}
+
+// A native Android app built by Gradle that shows a Flutter screen, taking
+// `:module_aar`, the module of a Flutter SDK whose engine is not the
+// release's, as Flutter's add-to-app guide for an Android archive shows. The
+// module's repository carries that engine's `io.flutter` artifacts, which no
+// other repository the build lists has.
+android {
+    namespace = 'com.example.add_to_app_host'
+    // Flutter's compileSdkVersion and targetSdkVersion, the SDK platform the
+    // workspace's MODULE.bazel downloads.
+    compileSdk = 36
+    // The NDK the plugin strips the native libraries it packages with, as
+    // Android Studio's installed one: the test names the one Bazel downloads,
+    // the version Flutter's Gradle plugin sets as `ndkVersion`.
+    ndkPath = providers.gradleProperty('hostNdkPath').get()
+
+    defaultConfig {
+        applicationId = 'com.example.add_to_app_host'
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = '1.0'
+        ndk {
+            // The one ABI the module is built for.
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    lint {
+        // Lint is not what this app checks, and its tools would add a few
+        // hundred megabytes to the pinned repository.
+        checkReleaseBuilds = false
+    }
+}
+
+dependencies {
+    releaseImplementation 'com.example.customengine.module:flutter_release:1.0'
+}

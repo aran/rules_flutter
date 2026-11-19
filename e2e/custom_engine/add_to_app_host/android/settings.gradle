@@ -1,0 +1,27 @@
+// A native Android app built by Gradle that shows a Flutter screen, taking the
+// module as the Maven artifacts `flutter build aar` publishes, as Flutter's
+// add-to-app guide for an Android archive shows.
+//
+// The guide lists google(), mavenCentral(), the module's repository and
+// download.flutter.io. Here they come from the Gradle property
+// `hostRepositories`, a comma-separated list of repository URIs, so that a
+// test can name local copies of them and build offline.
+pluginManagement {
+    repositories {
+        providers.gradleProperty('hostRepositories').get().split(',').each { repo ->
+            maven { url = uri(repo) }
+        }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+    repositories {
+        providers.gradleProperty('hostRepositories').get().split(',').each { repo ->
+            maven { url = uri(repo) }
+        }
+    }
+}
+
+rootProject.name = 'add_to_app_host'
+include ':app'
