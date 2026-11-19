@@ -41,7 +41,7 @@ app_bundle = rule(
     },
 )
 
-def bundled_app(name, assets = [], deps = [], package = "//:pubspec-metadata", main = "lib/main.dart", platform = None, **kwargs):
+def bundled_app(name, assets = [], deps = [], package = "//:pubspec-metadata", main = "lib/main.dart", platform = None, bundle_compatible_with = None, **kwargs):
     """A trivial application and, as `<name>_bundle`, the asset tree it builds.
 
     What the applications of this workspace differ in is where they sit, which
@@ -54,6 +54,9 @@ def bundled_app(name, assets = [], deps = [], package = "//:pubspec-metadata", m
         package: The `dart_package_metadata` of the application's Dart package.
         main: Its entry point.
         platform: The platform to build the bundle for.
+        bundle_compatible_with: The bundle's `target_compatible_with`, which
+            holds in the host's own configuration, the one the bundle's
+            dependents have: the hosts that can build it for `platform`.
         **kwargs: More attributes of the application.
     """
     flutter_application(
@@ -72,6 +75,7 @@ def bundled_app(name, assets = [], deps = [], package = "//:pubspec-metadata", m
         name = name + "_bundle",
         application = ":" + name,
         platform = platform,
+        target_compatible_with = bundle_compatible_with,
         visibility = ["//visibility:public"],
     )
 

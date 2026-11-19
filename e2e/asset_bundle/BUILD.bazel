@@ -81,6 +81,10 @@ bundled_app(
 
 # -- The same package, bundled for each platform ----------------------------------
 
+# An iOS or macOS bundle needs Xcode's toolchain, so only a Mac host builds or
+# analyses it. Elsewhere it, and each test of it, is skipped.
+_APPLE_HOSTS = ["@platforms//os:macos"]
+
 platform(
     name = "android_arm64",
     constraint_values = [
@@ -92,6 +96,10 @@ platform(
 [
     bundled_app(
         name = "app_with_fx_platforms_" + os,
+        bundle_compatible_with = _APPLE_HOSTS if os in [
+            "ios",
+            "macos",
+        ] else None,
         platform = platform,
         deps = ["@fx_platforms"],
     )
@@ -190,6 +198,10 @@ bundled_app(
 [
     bundled_app(
         name = "app_with_fx_shaders_" + os,
+        bundle_compatible_with = _APPLE_HOSTS if os in [
+            "ios",
+            "macos",
+        ] else None,
         platform = platform,
         deps = ["@fx_shaders"],
     )
