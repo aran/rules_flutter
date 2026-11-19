@@ -192,6 +192,22 @@ void main() {
       );
     });
 
+    test('refuses libraries with no code_asset_os to place them by', () async {
+      await expectLater(
+        run({
+          'output_dir': '${tempDir.path}/out',
+          'libraries': ['${tempDir.path}/libfoo.so'],
+        }),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('code_asset_os'),
+          ),
+        ),
+      );
+    });
+
     test('names the missing file when an extract source is absent', () async {
       await expectLater(
         run({

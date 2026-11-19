@@ -390,6 +390,32 @@ cc_shared_library(
     ]
 ]
 
+# Two `native_deps` libraries, one linking the other: the bundle carries both
+# beside each other, and `linked_top` must find `linked_base` there, not in
+# the build tree's `_solib_<cpu>/`.
+cc_library(
+    name = "linked_base_cc",
+    srcs = ["native/linked_base.c"],
+    hdrs = ["native/linked_pair.h"],
+)
+
+cc_shared_library(
+    name = "linked_base",
+    deps = [":linked_base_cc"],
+)
+
+cc_library(
+    name = "linked_top_cc",
+    srcs = ["native/linked_top.c"],
+    deps = [":linked_base_cc"],
+)
+
+cc_shared_library(
+    name = "linked_top",
+    dynamic_deps = [":linked_base"],
+    deps = [":linked_top_cc"],
+)
+
 dart_package_metadata(
     name = "pubspec-metadata",
     package_name = "ffi_example",
@@ -402,6 +428,10 @@ flutter_application(
         ":count_b_native",
     ],
     main = "lib/main.dart",
+    native_deps = [
+        ":linked_base",
+        ":linked_top",
+    ],
     package = ":pubspec-metadata",
     deps = [
         "//add_plugin",

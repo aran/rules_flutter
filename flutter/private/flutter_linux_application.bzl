@@ -465,9 +465,12 @@ def _flutter_linux_bundle_impl(ctx):
     engine_runtime_files = [f for f in engine_files if f.extension == "so"]
 
     # Build the bundle config JSON for the Dart bundler tool. Both
-    # `native_libs` (the legacy FFI cc_library outputs) and the code assets
-    # that ship (Native Assets dynamic_loading_bundle libraries) land at
-    # `lib/<basename>` next to `libapp.so`.
+    # `native_libs` (the `native_deps` libraries) and the code assets that
+    # ship (Native Assets dynamic_loading_bundle libraries) land at
+    # `lib/<basename>` next to `libapp.so`, placed by one step
+    # (`code_assets.dart`'s `place`): each library's runpath entries relative
+    # to `$ORIGIN` become `$ORIGIN`, so one that links another finds it
+    # there, as Bazel's `$ORIGIN/_solib_<cpu>/...` would not.
     # Every path in the bundle config is a `file_ref`, which Bazel fills in
     # when it writes the config, path-mapped where the action is.
     refs = []
@@ -478,7 +481,7 @@ def _flutter_linux_bundle_impl(ctx):
         aot_dst = "lib/libapp.so",
         icu_data_path = file_ref(refs, icu_data),
         engine_basenames = [(file_ref(refs, f), f.basename) for f in engine_runtime_files],
-        native_basenames = [(file_ref(refs, lib), lib.basename) for lib in native_libs],
+        native_basenames = [],
     )
     extra_inputs = []
     if is_debug and app_info.kernel_dill:
@@ -515,6 +518,7 @@ def _flutter_linux_bundle_impl(ctx):
             {"src": file_ref(refs, flutter_assets), "dst": "data/flutter_assets"},
         ],
         "code_asset_os": "linux",
+        "libraries": [file_ref(refs, lib) for lib in native_libs],
     }
 
     inputs = [ctx.file._bundle_tool, flutter_assets, icu_data, runner_binary] + ctx.files._bundle_tool_imports + extra_inputs + native_libs + engine_runtime_files

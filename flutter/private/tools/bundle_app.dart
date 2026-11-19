@@ -29,12 +29,15 @@
 ///     {"path": "relative/path", "content": "file content", "executable": true},
 ///     ...
 ///   ],
-///   "code_asset_os": "linux"
+///   "code_asset_os": "linux",
+///   "libraries": ["/path/to/libfoo.so", ...]
 /// }
 ///
 /// With `code_asset_os`, the tool is also given `--program-assets=<file>`
 /// (`program_assets_action_args(data = False)`), and copies each code asset
-/// that ships to where that OS's bundle has it (`CodeAssetPlacement`).
+/// that ships, and each of `libraries` (the `native_deps` libraries, which
+/// always ship), to where that OS's bundle has it (`CodeAssetPlacement`), as
+/// `place` does: on Linux, each with the bundle's runpath.
 library;
 
 import 'dart:convert';
@@ -98,8 +101,10 @@ Future<void> main(List<String> args) async {
       placement.directory.isEmpty
           ? outputDir
           : '$outputDir/${placement.directory}',
-      const [],
+      ((config['libraries'] as List<dynamic>?) ?? const []).cast<String>(),
     );
+  } else if (config.containsKey('libraries')) {
+    throw ArgumentError('libraries are placed with code_asset_os');
   }
 
   // Process file copies.
