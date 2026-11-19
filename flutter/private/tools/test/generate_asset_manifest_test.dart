@@ -26,9 +26,14 @@ void main() {
       final params = fixture('program.params');
       final base = File(params).parent.path;
       final program = ProgramAssets.read(params, base: base);
+      // A file of a linked directory is a host path, with the host's
+      // separators below the directory; the fixture writes `/`.
+      String relative(String file) => file
+          .substring(base.length + 1)
+          .replaceAll(Platform.pathSeparator, '/');
       final listed = [
         for (final MapEntry(:key, :value) in program.dataAssets.entries)
-          'data\t$key\t${value.substring(base.length + 1)}',
+          'data\t$key\t${relative(value)}',
       ]..sort();
       final expected = File(
         '$base/expected.txt',
