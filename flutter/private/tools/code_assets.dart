@@ -448,19 +448,26 @@ void place(
     for (final copy in copies) copy.substring(copy.lastIndexOf('/') + 1): copy,
   };
   Directory(output).createSync(recursive: true);
-  final placed = <String, String>{};
+  // Each path placed, by the path with case ignored: the bundle is written on
+  // a build machine, and read on a target, either of which may ignore case
+  // (macOS, Windows), so two paths that differ only in case are one file.
+  final placed = <String, ({String target, String source})>{};
   // On Linux, what each library placed links and where it looks.
   final linked = <String, ElfDynamic>{};
   void copy(String source, String fileName) {
     final target = placement.pathInDirectory(fileName);
-    final other = placed[target];
+    final other = placed[target.toLowerCase()];
     if (other != null) {
-      if (other == source) return;
+      if (other.source == source) return;
+      final where = other.target == target
+          ? target
+          : '${other.target} and $target, which differ only in case';
       throw StateError(
-        'two libraries would both be bundled as $target: $other and $source',
+        'two libraries would both be bundled as $where: '
+        '${other.source} and $source',
       );
     }
-    placed[target] = source;
+    placed[target.toLowerCase()] = (target: target, source: source);
     if (placement.os != 'linux') {
       copyFile(File(source), '$output/$target');
       return;
@@ -499,8 +506,9 @@ void place(
         !searched.contains(r'$ORIGIN') &&
         !searched.contains(r'${ORIGIN}')) {
       throw StateError(
-        '${placed[target]} links ${siblings.join(', ')}, which the bundle '
-        'carries beside it, but has no runpath of `\$ORIGIN` to find '
+        '${placed[target.toLowerCase()]!.source} links '
+        '${siblings.join(', ')}, which the bundle carries beside it, but '
+        'has no runpath of `\$ORIGIN` to find '
         '${siblings.length == 1 ? 'it' : 'them'} there. Link it with '
         '`-Wl,-rpath,\$ORIGIN`, as Flutter\'s build hooks do',
       );

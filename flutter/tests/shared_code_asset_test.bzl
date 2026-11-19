@@ -561,10 +561,14 @@ def shared_code_asset_test_suite(name):
 
     # The one check that no two libraries an application could bundle land on
     # one path, over every candidate whichever ships: by file name, on every
-    # platform, as flutter_tools refuses two code assets of one file name.
+    # platform, as flutter_tools refuses two code assets of one file name,
+    # and with case ignored, as a macOS or Windows machine that writes or
+    # reads the bundle ignores it.
     for app, platform, message in [
         ("app_same_file_name", "macos_arm64", "two native libraries would both be bundled as `libcombined.dylib`"),
         ("app_same_file_name", "linux_x64", "two native libraries would both be bundled as `libcombined.so`"),
+        ("app_other_case_file_name", "macos_arm64", "`libcombined.dylib` and `libCombined.dylib`, which differ only in case"),
+        ("app_other_case_file_name", "linux_x64", "`libcombined.so` and `libCombined.so`, which differ only in case"),
     ]:
         _REFUSES_ON[platform](
             name = "%s_%s_%s_refused" % (name, app, platform),

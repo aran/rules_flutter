@@ -170,11 +170,16 @@ _DEPS = [
             ":a_combined",
             ":b_combined_other_patcher",
         ],
-        # Two different libraries bundled under one file name, and two whose
-        # iOS frameworks share a name.
+        # Two different libraries bundled under one file name, two under
+        # names that differ only in case, and two whose iOS frameworks share
+        # a name.
         "app_same_file_name": [
             ":a_combined_asset",
             "//flutter/tests/shared_code_asset_fixture/same_name:b_same_file_name",
+        ],
+        "app_other_case_file_name": [
+            ":a_combined_asset",
+            "//flutter/tests/shared_code_asset_fixture/same_name:b_other_case_file_name",
         ],
         "app_same_framework_name": [
             ":a_combined_asset",

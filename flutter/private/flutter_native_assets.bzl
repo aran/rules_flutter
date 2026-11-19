@@ -410,13 +410,31 @@ def bundled_library_debug_info(application):
         for lib, dsym in dsyms.items()
     }
 
+def _bundled_name(basename):
+    """The file a library is bundled as, with case ignored.
+
+    A bundle is a directory the build machine writes and the target's reads,
+    and on macOS (iOS's build machine) and Windows either may ignore case: two
+    names that differ only in case are one file there, and one library would
+    overwrite the other. A Linux or Android bundle is built on those machines
+    too, so names are compared without case for every platform.
+    """
+    return basename.lower()
+
+def _bundled_as(name, other):
+    """How a message names the file two libraries would both be bundled as."""
+    if name == other:
+        return "`%s`" % name
+    return "`%s` and `%s`, which differ only in case and are one file wherever case is ignored, as on macOS and Windows" % (other, name)
+
 def check_bundled_library_names(label, libraries):
     """Fails when two of an app's bundled libraries have one file name.
 
     Two different libraries under one file name cannot both ship, as
     flutter_tools' application check fails on two code assets of one file
-    name. (On iOS two file names may lead to one framework name; the second
-    is renamed, `ios_framework_names`.) Checked over every candidate, kept or
+    name. Names that differ only in case count as one (`_bundled_name`).
+    (On iOS two file names may lead to one framework name; the second is
+    renamed, `ios_framework_names`.) Checked over every candidate, kept or
     not, because which a link hook keeps is known only when the bundle is
     built: the check holds whatever it keeps.
 
@@ -427,14 +445,14 @@ def check_bundled_library_names(label, libraries):
     """
     by_name = {}
     for library in libraries:
-        name = library.basename
-        what = "`%s`" % name
-        other = by_name.get(name)
+        key = _bundled_name(library.basename)
+        other = by_name.get(key)
         if other == None:
-            by_name[name] = library
+            by_name[key] = library
             continue
         if other == library:
             continue
+        what = _bundled_as(library.basename, other.basename)
         if other.owner == library.owner:
             fail((
                 "%s: %s reaches this target in two configurations " +
@@ -540,13 +558,13 @@ def _stage_code_assets(ctx, assets):
         if library != None:
             link = links.get(library)
             if link == None:
-                other = by_basename.get(library.basename)
+                other = by_basename.get(_bundled_name(library.basename))
                 if other == None:
                     link = ctx.actions.declare_file(
                         "%s_code_assets/%s" % (ctx.label.name, library.basename),
                     )
                     ctx.actions.symlink(output = link, target_file = library)
-                    by_basename[library.basename] = struct(library = library, link = link)
+                    by_basename[_bundled_name(library.basename)] = struct(library = library, link = link)
                 elif other.library.owner == library.owner:
                     fail((
                         "%s: %s reaches this target in two configurations " +
@@ -558,11 +576,11 @@ def _stage_code_assets(ctx, assets):
                 else:
                     fail((
                         "%s: two code-asset libraries would both be bundled as " +
-                        "`%s`: %s and %s. A bundle places each library by its " +
+                        "%s: %s and %s. A bundle places each library by its " +
                         "file name, so only one of them can ship. Rename one, " +
                         "or serve both ids from one library by naming it in " +
                         "this target's `code_assets`."
-                    ) % (ctx.label, library.basename, other.library.owner, library.owner))
+                    ) % (ctx.label, _bundled_as(library.basename, other.library.basename), other.library.owner, library.owner))
                 links[library] = link
         staged.append(struct(
             asset_id = asset.asset_id,

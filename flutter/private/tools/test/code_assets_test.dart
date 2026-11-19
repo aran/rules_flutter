@@ -197,6 +197,39 @@ void main() {
       expect(File('$out/libtrim.so').existsSync(), isTrue);
     });
 
+    test('refuses two libraries whose names differ only in case', () {
+      // One file on a filesystem that ignores case, as macOS's and Windows'
+      // do: the second would overwrite the first. Every platform's bundle
+      // can be written on one.
+      final dir = Directory.systemTemp.createTempSync('code_assets');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      String library(String path) =>
+          (File('${dir.path}/$path')
+                ..createSync(recursive: true)
+                ..writeAsStringSync(path))
+              .path;
+      final upper = library('a/Foo.dll');
+      final lower = library('b/foo.dll');
+      for (final os in ['windows', 'android']) {
+        expect(
+          () => place(
+            _empty(dir),
+            CodeAssetPlacement(os, abi: 'arm64-v8a'),
+            '${dir.path}/out_$os',
+            [upper, lower],
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              contains('differ only in case'),
+            ),
+          ),
+          reason: os,
+        );
+      }
+    });
+
     test('refuses a file that holds the code assets by name', () {
       final dir = Directory.systemTemp.createTempSync('code_assets');
       addTearDown(() => dir.deleteSync(recursive: true));

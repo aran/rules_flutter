@@ -1,6 +1,7 @@
 # A library another package also names `libcombined`, which no app can bundle
-# beside it, and one whose iOS framework name is `combined`'s, which an iOS app
-# bundles renamed.
+# beside it, one named `libCombined`, which no app can bundle beside it either,
+# as the two are one file wherever case is ignored, and one whose iOS
+# framework name is `combined`'s, which an iOS app bundles renamed.
 
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("//flutter/tests/code_asset_fixture:stand_in_code_asset.bzl", "stand_in_code_asset")
@@ -46,6 +47,39 @@ stand_in_code_asset(
     name = "b_same_file_name",
     asset_id = "package:shared_b/b",
     library = ":libcombined_lib",
+)
+
+# In a directory of its own: beside `libcombined`, the two outputs would be one
+# file on a build machine that ignores case.
+[
+    write_file(
+        name = "libCombined_" + ext,
+        out = "other_case/libCombined." + ext,
+        content = [
+            "libCombined",
+            "",
+        ],
+        newline = "unix",
+    )
+    for ext in [
+        "dylib",
+        "so",
+    ]
+]
+
+alias(
+    name = "libCombined_lib",
+    actual = select({
+        "@platforms//os:ios": ":libCombined_dylib",
+        "@platforms//os:macos": ":libCombined_dylib",
+        "//conditions:default": ":libCombined_so",
+    }),
+)
+
+stand_in_code_asset(
+    name = "b_other_case_file_name",
+    asset_id = "package:shared_b/b",
+    library = ":libCombined_lib",
 )
 
 stand_in_code_asset(
