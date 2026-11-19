@@ -45,14 +45,13 @@ typedef BazelRunner = Future<ProcessResult> Function(
 /// What the Flutter host toolchain repo for [platform] is called inside an
 /// output base, in each of the two positions `rules_flutter` can occupy.
 ///
-/// A module extension's repos are named
-/// `<canonical repo of the module that DEFINES the extension>+<extension>+<repo>`.
-/// This extension is defined in `rules_flutter`, whose own canonical repo name
-/// is `''` when it is the root module and `rules_flutter+` when it is a
-/// dependency — so there are exactly two possible names, a workspace resolves
-/// `rules_flutter` in one position or the other, and never both. This is an
-/// enumeration of a two-valued fact, not a search: at most one of these exists
-/// in any one output base.
+/// A module extension's repos are named `<canonical repo of the module that
+/// DEFINES the extension>+<extension>+<repo>`. This extension is defined in
+/// `rules_flutter`, whose own canonical repo name is `''` when it is the root
+/// module and `rules_flutter+` when it is a dependency — so there are exactly
+/// two possible names, a workspace resolves `rules_flutter` in one position or
+/// the other, and never both. This is an enumeration of a two-valued fact, not
+/// a search: at most one of these exists in any one output base.
 List<String> flutterToolchainRepoNames(String platform) => [
   'rules_flutter++flutter+flutter_$platform',
   '+flutter+flutter_$platform',
@@ -245,11 +244,11 @@ class DevConfig {
   /// Deliberately a second field rather than a second use of
   /// [devPackageConfig]. The two answer different questions and a
   /// source-assembled app is where they diverge: the dev config's `rootUri` is
-  /// `<filesystemScheme>:///<package_root>`, which the frontend_server
-  /// resolves through `--filesystem-root` and `Uri.toFilePath()` refuses
-  /// outright. The compiler wants the dev one (live sources); DWDS wants this
-  /// one, because its job is to read the source off disk and show it. Handed
-  /// the dev one it throws `Cannot extract a file path from a org-dartlang-app URI` on every
+  /// `<filesystemScheme>:///<package_root>`, which the frontend_server resolves
+  /// through `--filesystem-root` and `Uri.toFilePath()` refuses outright. The
+  /// compiler wants the dev one (live sources); DWDS wants this one, because
+  /// its job is to read the source off disk and show it. Handed the dev one it
+  /// throws `Cannot extract a file path from a org-dartlang-app URI` on every
   /// first-party library and the debugger shows a blank pane.
   final String buildPackageConfig;
 
@@ -306,8 +305,9 @@ class DevConfig {
   ///
   /// Every entry of [nativeLibs] is a key, so an empty list means "nothing
   /// describes this library's bindings" rather than "this library is not
-  /// bundled". The dev tool needs to tell those apart: the first makes a rebuilt
-  /// library withhold a reload, the second would mean there is nothing to check.
+  /// bundled". The dev tool needs to tell those apart: the first makes a
+  /// rebuilt library withhold a reload, the second would mean there is nothing
+  /// to check.
   final Map<String, List<String>> nativeLibContracts;
 
   /// Per library in [nativeLibs], the first-party sources it is built from,
@@ -615,10 +615,11 @@ DevConfig parseDevConfig(String path) {
   final json =
       jsonDecode(File(resolved).readAsStringSync()) as Map<String, dynamic>;
 
-  // Derive execution root: resolved path contains .../execroot/_main/bazel-out/...
-  // Split into path components (separator-agnostic, so it works on Windows
-  // where File.resolveSymbolicLinksSync returns '\'-separated paths) and strip
-  // from the 'bazel-out' segment onward.
+  // Derive the execution root: the resolved path contains
+  // `.../execroot/_main/bazel-out/...`. Split it into path components
+  // (separator-agnostic, so it works on Windows, where
+  // File.resolveSymbolicLinksSync returns '\'-separated paths) and strip from
+  // the 'bazel-out' segment onward.
   final parts = p.split(resolved);
   final bazelOutIdx = parts.indexOf('bazel-out');
   final execRoot = bazelOutIdx > 0

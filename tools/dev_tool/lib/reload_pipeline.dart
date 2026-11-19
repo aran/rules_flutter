@@ -131,33 +131,33 @@ class ReloadPipeline {
   /// sources on disk have actually moved.
   Future<bool> Function()? rebuildAssets;
 
-  /// What the native libraries the running app has `dlopen`ed allow this command
-  /// to do, after [refreshGenerated] has rebuilt them. Null for an app with no
-  /// loose native libraries, which cannot have the problem.
+  /// What the native libraries the running app has `dlopen`ed allow this
+  /// command to do, after [refreshGenerated] has rebuilt them. Null for an app
+  /// with no loose native libraries, which cannot have the problem.
   ///
   /// Asked after that rebuild and before anything is compiled, because the
   /// rebuild is what creates the condition and a compile is what must not reach
   /// it: an increment built against a *changed* library interface would be
-  /// injected over the machine code the process has, and the skew surfaces later
-  /// as a malformed request or a call landing on the wrong function, with nothing
-  /// left pointing at the library.
+  /// injected over the machine code the process has, and the skew surfaces
+  /// later as a malformed request or a call landing on the wrong function, with
+  /// nothing left pointing at the library.
   ///
-  /// A verdict rather than a list of libraries, because a rebuilt library is not
-  /// on its own a reason to refuse — see `NativeLibsVerdict`. The case that
+  /// A verdict rather than a list of libraries, because a rebuilt library is
+  /// not on its own a reason to refuse — see `NativeLibsVerdict`. The case that
   /// matters most is the one in between: a library whose code moved and whose
-  /// declared bindings did not, where the increment is safe and the app is still
-  /// running old machine code.
+  /// declared bindings did not, where the increment is safe and the app is
+  /// still running old machine code.
   ///
   /// Costs no bazel — see `NativeLibsWatch`, which reads the files the rebuild
-  /// above just declared. That is what keeps this off the instant path: a reload
-  /// that asked the authoritative question would have to rebuild the app's launch
-  /// configuration, which is a bundle build on every `r`.
+  /// above just declared. That is what keeps this off the instant path: a
+  /// reload that asked the authoritative question would have to rebuild the
+  /// app's launch configuration, which is a bundle build on every `r`.
   Future<NativeLibsVerdict> Function()? nativeLibsVerdict;
 
   /// Patches the running app's native code when a patchable library's code
-  /// moved — see `NativeHotPatcher`. Null for a run with nothing patchable, which
-  /// is every run whose app declares no `flutter_native_library.hot_patch` and
-  /// every `attach`.
+  /// moved — see `NativeHotPatcher`. Null for a run with nothing patchable,
+  /// which is every run whose app declares no
+  /// `flutter_native_library.hot_patch` and every `attach`.
   ///
   /// Asked by a hot reload only, after [nativeLibsVerdict] and before anything
   /// is compiled: an increment that calls new native code must not reach the
@@ -172,9 +172,9 @@ class ReloadPipeline {
   Future<NativePatchOutcome> Function({Set<String> movedLibraries})?
   patchNativeLibs;
 
-  /// The file names of the libraries [patchNativeLibs] patches. After it answers
-  /// without refusing, every one of them runs the code on disk, so none is
-  /// stale.
+  /// The file names of the libraries [patchNativeLibs] patches. After it
+  /// answers without refusing, every one of them runs the code on disk, so none
+  /// is stale.
   List<String> Function()? patchableNativeLibs;
 
   /// Rebuild the widgets of the apps a native patch just changed, for a reload
@@ -185,15 +185,15 @@ class ReloadPipeline {
   /// libraries, so [nativeLibsVerdict] stops calling them stale.
   Future<void> Function(Set<String> libraries)? markNativeLibsPatched;
 
-  /// Record that the app has picked up the native modules on disk. Web only, and
-  /// called by [restart].
+  /// Record that the app has picked up the native modules on disk. Web only,
+  /// and called by [restart].
   ///
-  /// A web restart re-runs `main()` in the live page and resets Dart statics with
-  /// it, so whatever fetched and instantiated a module does it again against what
-  /// the rebuilt bundle now serves. That makes the restart itself the event that
-  /// settles the question, with no process to replace — where on native the same
-  /// re-baseline belongs to the relauncher, because nothing short of a new process
-  /// can change what a `dlopen`ed image is.
+  /// A web restart re-runs `main()` in the live page and resets Dart statics
+  /// with it, so whatever fetched and instantiated a module does it again
+  /// against what the rebuilt bundle now serves. That makes the restart itself
+  /// the event that settles the question, with no process to replace — where on
+  /// native the same re-baseline belongs to the relauncher, because nothing
+  /// short of a new process can change what a `dlopen`ed image is.
   ///
   /// Null for native, and for a web app with no declared modules.
   Future<void> Function()? markNativeLibsLive;
@@ -221,8 +221,8 @@ class ReloadPipeline {
   /// So while this is set, an increment has nothing to be an increment *of*.
   /// [hotReload] answers by running [restart] instead, which compiles the whole
   /// program and loads it — and the compile verb matters as much as the
-  /// completeness: a `recompile` after a rejected first `compile` answers with a
-  /// delta, and a delta merged as a first compile leaves the module server
+  /// completeness: a `recompile` after a rejected first `compile` answers with
+  /// a delta, and a delta merged as a first compile leaves the module server
   /// serving a fraction of a program while believing it holds all of one.
   ///
   /// Cleared by the restart that succeeds, which is the moment the page has a
@@ -503,9 +503,9 @@ class ReloadPipeline {
   /// Regenerate a codegen app's sources, and report a rebuild that failed.
   ///
   /// Null when the rebuild succeeded or there was nothing to rebuild; a report
-  /// to answer the command with otherwise. Through [CommandReport] rather than a
-  /// bool so the caller cannot forget which of the two failure fields this is —
-  /// it is [CommandReport.sourceRebuildFailed], whose doc says why: the build
+  /// to answer the command with otherwise. Through [CommandReport] rather than
+  /// a bool so the caller cannot forget which of the two failure fields this is
+  /// — it is [CommandReport.sourceRebuildFailed], whose doc says why: the build
   /// was attempted and broke, and a client reading `unavailable` would retire
   /// the session over an error in a generator that the next save can fix.
   Future<Map<String, dynamic>?> _refreshGenerated(
@@ -534,12 +534,13 @@ class ReloadPipeline {
       ? NativeRemedy.pageRestart
       : NativeRemedy.relaunchByHand;
 
-  /// What the native libraries allow, and the reply when the answer is "nothing".
+  /// What the native libraries allow, and the reply when the answer is
+  /// "nothing".
   ///
   /// [refusal] is non-null when the command must stop — the increment would be
-  /// injected over a library that cannot serve it, or nothing declares whether it
-  /// can. [verdict] travels onto the command's own report either way, because the
-  /// middle case is delivered *and* has something to report.
+  /// injected over a library that cannot serve it, or nothing declares whether
+  /// it can. [verdict] travels onto the command's own report either way,
+  /// because the middle case is delivered *and* has something to report.
   ///
   /// Reached only where nothing can replace the process: [restart] asks
   /// [relaunchIfNativeLibsChanged] first and is answered by the relaunch, so a
@@ -990,10 +991,10 @@ class ReloadPipeline {
       // compile that nothing could load leaves the page exactly as empty as it
       // was, and the next reload still has no increment to make.
       webBaselineFailure = null;
-      // The page re-ran `main()` against what the bundle now serves, so whatever
-      // it fetched and instantiated is current. Nothing else in a run settles
-      // this on web — and on native nothing but a new process can, which is why
-      // only this arm has it to call.
+      // The page re-ran `main()` against what the bundle now serves, so
+      // whatever it fetched and instantiated is current. Nothing else in a run
+      // settles this on web — and on native nothing but a new process can,
+      // which is why only this arm has it to call.
       await markNativeLibsLive?.call();
     }
     // The same rendering as every other reload response, and as web's own hot
@@ -1143,13 +1144,13 @@ class ReloadPipeline {
     final webRebuildFailed = await _refreshGenerated('Hot reload', addressed);
     if (webRebuildFailed != null) return webRebuildFailed;
     // And the question that rebuild owes, on the same terms as native: the page
-    // instantiated its native modules once and a reload does not re-run `main()`,
-    // so an increment generated against a rebuilt module would run against the
-    // instance the page already has.
-    // Ahead of the asset refresh, which is where web's order differs from
-    // native's: nothing below has run yet, so a withheld reload here has touched
-    // the page in no way at all. `AssetOutcome.none` for the same reason — there
-    // is no diff to fold into a refusal that precedes it.
+    // instantiated its native modules once and a reload does not re-run
+    // `main()`, so an increment generated against a rebuilt module would run
+    // against the instance the page already has. Ahead of the asset refresh,
+    // which is where web's order differs from native's: nothing below has run
+    // yet, so a withheld reload here has touched the page in no way at all.
+    // `AssetOutcome.none` for the same reason — there is no diff to fold into a
+    // refusal that precedes it.
     final native = await _checkNativeLibs(
       'Hot reload',
       addressed,

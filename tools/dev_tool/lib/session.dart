@@ -872,9 +872,9 @@ Future<void> runInteractiveSession({
   /// come from the one `RunPlan.hotReloadOff`.
   ///
   /// Required, and deliberately without a default: a call site that cannot omit
-  /// it cannot forget it. Left defaulted, `--no-hot` reaches the watcher and the
-  /// protocol's `supportsRestart` and stops there, because the run's main call
-  /// site simply omits this and takes `true`.
+  /// it cannot forget it. Left defaulted, `--no-hot` reaches the watcher and
+  /// the protocol's `supportsRestart` and stops there, because the run's main
+  /// call site simply omits this and takes `true`.
   ///
   /// A reason rather than a bool so the banner can say why the keys are gone.
   /// Their absence is only informative to someone who knew to expect them.

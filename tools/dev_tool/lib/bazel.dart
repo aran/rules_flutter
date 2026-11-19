@@ -334,9 +334,9 @@ List<String> dartDefineFlags(List<String> dartDefines) => [
 /// The cquery [Bazel.cqueryExtraDartDefines] runs, but for the options.
 ///
 /// `config(…, target)` keeps the answer to the top-level configuration, the one
-/// a build's own flags make. Starlark flags are keyed by their canonical label in
-/// `build_options`, which is the setting's own `str(target.label)`; one that is
-/// at its default is not there at all.
+/// a build's own flags make. Starlark flags are keyed by their canonical label
+/// in `build_options`, which is the setting's own `str(target.label)`; one that
+/// is at its default is not there at all.
 const extraDartDefinesQuery = [
   'cquery',
   'config(@rules_dart//dart:extra_dart_defines, target)',

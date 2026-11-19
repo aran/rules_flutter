@@ -13,13 +13,13 @@
 /// ## How a fetch gets bytes without the network
 ///
 /// rules_flutter's engine URLs are fixed to Google Cloud Storage and GitHub, so
-/// no test can point them at a local file. What Bazel does offer is `--distdir`:
-/// a download that names a `sha256` is served from a file of the same name in
-/// the distdir, if its digest matches, before any request is made. A fetch with
-/// a *correct* digest therefore succeeds offline, and a fetch with *no* digest
-/// cannot be served from there and goes to the network, where the test's fake
-/// engine revision answers 404. That asymmetry is what lets a test tell "the
-/// bytes were checked" from "the bytes were not asked about".
+/// no test can point them at a local file. What Bazel does offer is
+/// `--distdir`: a download that names a `sha256` is served from a file of the
+/// same name in the distdir, if its digest matches, before any request is made.
+/// A fetch with a *correct* digest therefore succeeds offline, and a fetch with
+/// *no* digest cannot be served from there and goes to the network, where the
+/// test's fake engine revision answers 404. That asymmetry is what lets a test
+/// tell "the bytes were checked" from "the bytes were not asked about".
 ///
 /// A hosted pub package takes a `base_url`, so it is served from `file://`
 /// instead, and an unpinned fetch of it succeeds — which is the case that

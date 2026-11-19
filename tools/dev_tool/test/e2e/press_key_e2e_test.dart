@@ -159,16 +159,16 @@ void main() {
           );
 
           // The apostrophe, the one key whose physical and logical debug names
-          // disagree: pairing them by name pressed ⌘" instead, and the app's
-          // ⌘' shortcut (bound by `LogicalKeyboardKey.quoteSingle`) never fired.
+          // disagree: pairing them by name pressed ⌘" instead, and the app's ⌘'
+          // shortcut (bound by `LogicalKeyboardKey.quoteSingle`) never fired.
           //
           // Pressed with the window counted as not focused, as when another app
           // comes to the front: the framework then parks the field's focus, and
-          // a key would reach neither the field nor the shortcut above it. A key
-          // press only ever reaches the focused window, so the key makes the app
-          // active again and says so. The real window can be covered in the
-          // meantime by whatever else is on this screen, and the engine then
-          // reports "hidden" over the simulated "inactive"; either way the
+          // a key would reach neither the field nor the shortcut above it. A
+          // key press only ever reaches the focused window, so the key makes
+          // the app active again and says so. The real window can be covered in
+          // the meantime by whatever else is on this screen, and the engine
+          // then reports "hidden" over the simulated "inactive"; either way the
           // focus was parked and the key has to bring it back.
           final away = await dt.httpCommand('app.setWindowActive', {
             'appId': appId,

@@ -2,20 +2,19 @@
 /// orchestrator, and the rebuilds each of them needs.
 ///
 /// Runs *after* the app is up, on both routes in. `run` has launched it and
-/// hands over a [NativeLaunch]; `attach` found it already running and hands over
-/// nothing — that difference is the whole of what separates them here, and it
-/// costs three conditionals. Everything else — which target to cquery for the
-/// flutter_application, how to read `_dev_config.json`, what to compile, how to
-/// seed the applied versions — is the same work.
+/// hands over a [NativeLaunch]; `attach` found it already running and hands
+/// over nothing — that difference is the whole of what separates them here, and
+/// it costs three conditionals. Everything else — which target to cquery for
+/// the flutter_application, how to read `_dev_config.json`, what to compile,
+/// how to seed the applied versions — is the same work.
 ///
-/// Ordering here is load-bearing in four places:
-/// the app's [BuildInfo] is read before the first build, because every flag list
-/// below is derived from it — the dev build's defines included; `teardown.add`
-/// sits immediately against the construction of what it disposes;
-/// `start → add → compile → accept` stays in that order, so a `daemon.shutdown`
-/// racing the initial compile still shuts the compiler down; and
-/// [ReloadPipeline.ready] is signalled as the very last statement of the success
-/// path, never before it.
+/// Ordering here is load-bearing in four places: the app's [BuildInfo] is read
+/// before the first build, because every flag list below is derived from it —
+/// the dev build's defines included; `teardown.add` sits immediately against
+/// the construction of what it disposes; `start → add → compile → accept` stays
+/// in that order, so a `daemon.shutdown` racing the initial compile still shuts
+/// the compiler down; and [ReloadPipeline.ready] is signalled as the very last
+/// statement of the success path, never before it.
 library;
 
 import 'dart:async';
@@ -92,8 +91,8 @@ class NativePipelineAssembler {
 
   /// The device whose compiler config and build args apply. `run` passes the
   /// device it launched on; `attach` passes its pseudo-device, whose base
-  /// implementations produce the native config and the [VmServiceReloadStrategy]
-  /// attach needs.
+  /// implementations produce the native config and the
+  /// [VmServiceReloadStrategy] attach needs.
   final Device configDevice;
 
   /// The bazel flags of the command, but for the device's: the user's
@@ -195,7 +194,8 @@ class NativePipelineAssembler {
     ..._replayedDefines,
   ];
 
-  /// Assemble, or settle [ReloadPipeline.ready] with the reason it could not be.
+  /// Assemble, or settle [ReloadPipeline.ready] with the reason it could not
+  /// be.
   ///
   /// Never throws: a run whose reload pipeline failed still has a running app,
   /// and the failure belongs in the gate — where the next `app.hotReload` reads
@@ -486,12 +486,13 @@ class NativePipelineAssembler {
       // wrote without it: the app's own value is its launch truth.
       dartDefines: [...devConfig.dartDefines, _info.defineAssignment],
       // A `file://` URI, deliberately, where the build's own kernel compile
-      // names its registrant `org-dartlang-app:///<workspace path>`, mounted
-      // at its output directory (`app_scheme_location`). The two never have to agree. The engine reads
-      // `flutter.dart_plugin_registrant` out of whichever dill is *running* and
-      // looks that exact string up as a library, so each kernel only has to be
-      // internally consistent — and after a hot restart the running dill is
-      // always one this compiler produced.
+      // names its registrant `org-dartlang-app:///<workspace path>`, mounted at
+      // its output directory (`app_scheme_location`). The two never have to
+      // agree. The engine reads `flutter.dart_plugin_registrant` out of
+      // whichever dill is *running* and looks that exact string up as a
+      // library, so each kernel only has to be internally consistent — and
+      // after a hot restart the running dill is always one this compiler
+      // produced.
       //
       // `file://` is the one spelling valid in every configuration this
       // compiler starts in. A source-assembled (codegen) app, or one whose
@@ -517,8 +518,8 @@ class NativePipelineAssembler {
           ? ''
           : Uri.file(registrant).toString(),
       // The app says whether its kernel has widget creation locations, so a
-      // reload's recompiled libraries keep them: the build's `track_widget_creation`
-      // is the app's, which it reports.
+      // reload's recompiled libraries keep them: the build's
+      // `track_widget_creation` is the app's, which it reports.
       trackWidgetCreation: _info.trackWidgetCreation,
       enableExperiments: devConfig.enableExperiments,
     );
@@ -851,9 +852,10 @@ class NativePipelineAssembler {
   LaunchBundleParts? get _parts => configDevice.launchBundleParts;
 
   /// The bundle's assets and native libraries alone, built through
-  /// [LaunchBundleParts]; deduplicated within one command like [_bundleRebuild],
-  /// for the same reason: the asset refresh and the native-libs check ask for
-  /// it in one restart, and the second can only confirm the first.
+  /// [LaunchBundleParts]; deduplicated within one command like
+  /// [_bundleRebuild], for the same reason: the asset refresh and the
+  /// native-libs check ask for it in one restart, and the second can only
+  /// confirm the first.
   ///
   /// In the configuration the running app used, which is the reason it goes
   /// through the launch target and its aspect rather than building the
@@ -924,10 +926,11 @@ class NativePipelineAssembler {
     // A hot restart cannot replace dlopened native libraries. Record the
     // launched bundle's fingerprint; app.restart rebuilds and, when it changed,
     // relaunches the process instead of restarting the isolate. Apps with no
-    // loose native libraries skip all of this and keep the instant restart path.
-    // Read the way a restart will read it, so the two are compared in one form.
-    // For a device that has a cheaper way to read the libraries than building
-    // its artifact, that is that way, read off the launch build itself.
+    // loose native libraries skip all of this and keep the instant restart
+    // path. Read the way a restart will read it, so the two are compared in one
+    // form. For a device that has a cheaper way to read the libraries than
+    // building its artifact, that is that way, read off the launch build
+    // itself.
     final fingerprint = _parts == null
         ? await nativeLibsFingerprint(launched.appFile)
         : launched.partsNativeLibs;
@@ -983,9 +986,9 @@ class NativePipelineAssembler {
   /// declares a `flutter_native_library.hot_patch`.
   ///
   /// A failure to arm is said at launch, in the builder's or the matcher's own
-  /// words, and the run goes on without it: the app is fine, a hot restart still
-  /// delivers a native edit, and the reader learns now rather than on the first
-  /// edit that a reload will not.
+  /// words, and the run goes on without it: the app is fine, a hot restart
+  /// still delivers a native edit, and the reader learns now rather than on the
+  /// first edit that a reload will not.
   Future<NativeHotPatcher?> _armHotPatcher(
     NativeLaunch launched,
     NativeLibsWatch? nativeLibs,

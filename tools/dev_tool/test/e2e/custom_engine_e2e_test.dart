@@ -97,9 +97,9 @@ Future<ProcessResult> _bazel(List<String> args) => Process.run('bazel', [
   '--color=no',
 ], workingDirectory: _workspace);
 
-/// The `flutter_sdk.json` that [target] built with [sdk] and [extra] carries, or
-/// null when it has none: in an archive of the app (`.zip`, `.ipa`, `.apk`) or in
-/// the files it is made of.
+/// The `flutter_sdk.json` that [target] built with [sdk] and [extra] carries,
+/// or null when it has none: in an archive of the app (`.zip`, `.ipa`, `.apk`)
+/// or in the files it is made of.
 Future<Map<String, Object?>?> _record(
   String sdk,
   List<String> extra, {

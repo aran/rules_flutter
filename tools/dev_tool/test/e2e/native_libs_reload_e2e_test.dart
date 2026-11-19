@@ -1,24 +1,24 @@
 @Tags(['e2e'])
 /// What a hot reload does when its own rebuild moved a native library, in both
-/// directions: delivered when the bindings are unchanged, withheld when they are
-/// not.
+/// directions: delivered when the bindings are unchanged, withheld when they
+/// are not.
 ///
 /// The gap this covers is silent by construction, which is why it needs a real
 /// app. A codegen app's hot reload runs a `bazel build` of the
 /// `flutter_application` to regenerate its sources, and that build also
 /// recompiles the app's loose native libraries (`native_deps`) — the images the
-/// running process has already `dlopen`ed and can never replace. Nothing stopped
-/// the increment from being injected on top of them, and nothing said so: the edit
-/// went in, the reply said success, and the machine code the app ran was from
-/// before the edit.
+/// running process has already `dlopen`ed and can never replace. Nothing
+/// stopped the increment from being injected on top of them, and nothing said
+/// so: the edit went in, the reply said success, and the machine code the app
+/// ran was from before the edit.
 ///
 /// `codegen` is the only workspace where both halves are true at once — it is
 /// source-assembled (so a reload rebuilds through bazel) and `//:app` bundles
 /// `//native_add:native_add_shared` through a `flutter_native_library` wrapper
-/// that declares the C header as its binding contract. A header *is* the contract
-/// of a C library: the signatures live there, so editing the `.c` moves the
-/// library alone and editing the `.h` moves both. That is what makes both
-/// directions drivable from one fixture.
+/// that declares the C header as its binding contract. A header *is* the
+/// contract of a C library: the signatures live there, so editing the `.c`
+/// moves the library alone and editing the `.h` moves both. That is what makes
+/// both directions drivable from one fixture.
 ///
 /// ## What each assertion is for
 ///
@@ -40,12 +40,13 @@
 ///     unchanged` is a claim about the whole command, and an app showing the new
 ///     string would prove the increment went in after all.
 ///
-/// The web case covers the same two verdicts over Chrome, where the same physics
-/// hold for a different reason: `initBridge()`-style code instantiates a module
-/// once, a hot reload does not re-run `main()`, and the instance outlives the
-/// increment. `codegen`'s web bundle declares an eight-byte module and a text
-/// contract through `native_modules` — the tool compares bytes and parses
-/// neither, so a fixture needs only files that move when the right thing moves.
+/// The web case covers the same two verdicts over Chrome, where the same
+/// physics hold for a different reason: `initBridge()`-style code instantiates
+/// a module once, a hot reload does not re-run `main()`, and the instance
+/// outlives the increment. `codegen`'s web bundle declares an eight-byte module
+/// and a text contract through `native_modules` — the tool compares bytes and
+/// parses neither, so a fixture needs only files that move when the right thing
+/// moves.
 library;
 
 import 'dart:async';
@@ -333,9 +334,10 @@ Future<Map<String, dynamic>> _command(
 
 /// Require the running app to be displaying [text].
 ///
-/// `app.waitFor`'s `text` selector is exact equality on the widget's own string,
-/// and a miss answers with a top-level `error` and no `result` — so this is a real
-/// assertion about what is on screen, not a poll that can pass by finding nothing.
+/// `app.waitFor`'s `text` selector is exact equality on the widget's own
+/// string, and a miss answers with a top-level `error` and no `result` — so
+/// this is a real assertion about what is on screen, not a poll that can pass
+/// by finding nothing.
 Future<void> _expectRendered(
   DevToolProcess dt,
   String appId,

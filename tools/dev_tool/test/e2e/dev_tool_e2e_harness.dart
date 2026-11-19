@@ -80,9 +80,9 @@ String get _repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
 /// This is the binary users get: the AOT `dart_binary`
 /// `//tools/dev_tool:flutter_bazel` (`compile_mode = "exe"`). Everything the
 /// shipped tool does that `dart run` cannot — resolving bundled helpers out of
-/// its runfiles tree (the screenshot tools), running with `RUNFILES_SOURCE_REPO`
-/// compiled in — only exists on this path, so it is what the e2e suite drives
-/// by default.
+/// its runfiles tree (the screenshot tools), running with
+/// `RUNFILES_SOURCE_REPO` compiled in — only exists on this path, so it is what
+/// the e2e suite drives by default.
 ///
 /// Throws a [StateError] when the binary isn't present. Callers should reach
 /// it through [ensureBuiltDevTool], which builds it first.
@@ -156,8 +156,9 @@ class DevToolProcess {
   late final StreamSubscription _stdoutSub;
   late final StreamSubscription _stderrSub;
 
-  /// Id [dispose]'s `daemon.shutdown` carries. Deliberately far from the small ids
-  /// tests hand-pick, so its response can never be mistaken for one of theirs.
+  /// Id [dispose]'s `daemon.shutdown` carries. Deliberately far from the small
+  /// ids tests hand-pick, so its response can never be mistaken for one of
+  /// theirs.
   static const _stopCommandId = 999000;
 
   /// Whether the process has exited. Read by [dispose] so it neither writes to
@@ -177,10 +178,10 @@ class DevToolProcess {
           //
           // A prefix is tolerated but still recorded. When the tool is launched
           // via `dart run` (rather than the compiled binary), the Dart SDK can
-          // print "Running build hooks..." with no trailing newline, so the first
-          // envelope arrives glued to it. Discarding the whole line loses
-          // `daemon.connected` — the event every machine-protocol test waits for
-          // first — which reads as an unexplained timeout.
+          // print "Running build hooks..." with no trailing newline, so the
+          // first envelope arrives glued to it. Discarding the whole line loses
+          // `daemon.connected` — the event every machine-protocol test waits
+          // for first — which reads as an unexplained timeout.
           final start = line.indexOf('[{');
           if (start >= 0 && line.endsWith('}]')) {
             if (start > 0) nonProtocolStdoutLines.add(line.substring(0, start));
@@ -513,8 +514,8 @@ class DevToolProcess {
   /// express a bound on their own: `HttpClient`'s `idleTimeout` governs pooled
   /// *idle* connections and `connectionTimeout` only the connect, so an
   /// accepted request whose handler never returns waits forever. That is
-  /// precisely the shape that strands a dev tool and the app it launched, since a
-  /// `package:test` timeout leaves the abandoned body parked on the wait and
+  /// precisely the shape that strands a dev tool and the app it launched, since
+  /// a `package:test` timeout leaves the abandoned body parked on the wait and
   /// never runs the teardown that would have stopped them.
   ///
   /// [what] names the thing being asked for, the way the protocol waits name
@@ -1042,11 +1043,11 @@ class DevToolProcess {
   /// to call twice or after the run already ended.
   Future<void> dispose() async {
     final endedOnItsOwn = await _requestStop();
-    // Before the kill, because the kill is what removes the evidence. This guard
-    // has gone red four times; the three that were diagnosed were diagnosed by
-    // sampling the live process, and the fourth — intermittent, browser runs
-    // only — is still open precisely because every occurrence so far was killed
-    // before anyone could look at it.
+    // Before the kill, because the kill is what removes the evidence. This
+    // guard has gone red four times; the three that were diagnosed were
+    // diagnosed by sampling the live process, and the fourth — intermittent,
+    // browser runs only — is still open precisely because every occurrence so
+    // far was killed before anyone could look at it.
     final wedgeEvidence = endedOnItsOwn ? null : await _captureWedgeEvidence();
     await _stdoutSub.cancel();
     await _stderrSub.cancel();
@@ -1088,13 +1089,13 @@ class DevToolProcess {
 
   /// What is keeping the tool alive, written down while it still is.
   ///
-  /// `sample` is the tool that answers this: it attaches to the live process for
-  /// a few seconds and reports every thread's stacks, which is how each of the
-  /// three diagnosed instances of this failure was found — a signal watch, a
-  /// DWDS socket, a VM-service re-dial. `lsof` answers the other half, naming a
-  /// socket or file the process still holds. Neither can be run after the kill,
-  /// and a failure message without them leaves the next occurrence exactly as
-  /// undiagnosable as the last.
+  /// `sample` is the tool that answers this: it attaches to the live process
+  /// for a few seconds and reports every thread's stacks, which is how each of
+  /// the three diagnosed instances of this failure was found — a signal watch,
+  /// a DWDS socket, a VM-service re-dial. `lsof` answers the other half, naming
+  /// a socket or file the process still holds. Neither can be run after the
+  /// kill, and a failure message without them leaves the next occurrence
+  /// exactly as undiagnosable as the last.
   ///
   /// Never throws and never replaces the failure it decorates: a capture that
   /// could not run says so and the timeout is still reported. Paths rather than
@@ -1673,10 +1674,10 @@ final class AndroidProbeFailed extends AndroidDeviceProbe {
 ///
 /// Only the envelope every capture path here emits is supported — 8-bit,
 /// non-interlaced, colour type 2 (RGB) or 6 (RGBA), which covers `adb
-/// screencap`, the emulator console, `devicectl device capture screenshot`, CDP and the
-/// desktop helpers. Anything else throws naming what it found rather than being
-/// waved through: a decoder that quietly handles half of what it is given is
-/// the byte threshold again in a new costume.
+/// screencap`, the emulator console, `devicectl device capture screenshot`, CDP
+/// and the desktop helpers. Anything else throws naming what it found rather
+/// than being waved through: a decoder that quietly handles half of what it is
+/// given is the byte threshold again in a new costume.
 class DecodedPng {
   final int width;
   final int height;
