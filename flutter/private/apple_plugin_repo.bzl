@@ -63,6 +63,10 @@ def _dump_package(ctx, manifest_dir):
         `bazel fetch --all`, say) still fetches the repository, whose Apple
         libraries then fail with `problem` when a build uses them.
     """
+
+    # The Xcode `xcrun` runs, when the shell selects one: reading it makes
+    # selecting another fetch the repository again.
+    ctx.getenv("DEVELOPER_DIR")
     xcrun = ctx.which("xcrun")
     if not xcrun:
         return struct(dump = None, problem = (
@@ -706,7 +710,8 @@ load(
     ))
     ctx.file(SWIFT_REQUIREMENTS_FILE, json.encode({"package": package, "version": ctx.attr.version, "platforms": reported}))
 
-    # What `dump-package` evaluates depends on the host's Xcode.
+    # What `dump-package` evaluates depends on the host's Xcode: see the
+    # rule's `configure`.
     return ctx.repo_metadata(reproducible = False)
 
 # What `swift:packages` reads: the remote Swift packages each platform's
@@ -746,4 +751,9 @@ flutter_apple_plugin_repo = repository_rule(
         "version": attr.string(doc = "The package's version, for messages."),
     },
     doc = "The iOS and macOS libraries of a pub plugin, built as its `Package.swift` says. See the module docstring.",
+    # Its contents depend on the machine: the Xcode that evaluates each
+    # manifest, and on a machine without one a stand-in. A repository that
+    # does is `configure`, so `bazel vendor` leaves it to the machine that
+    # builds, and `bazel fetch --configure` fetches it again.
+    configure = True,
 )
