@@ -967,17 +967,22 @@ Future<void> runInteractiveSession({
                   'URL; this one did not.',
                 );
               }
-              final devtools = await _launchDevTools(
+              final serverUrl = await _launchDevTools(
                 dartExecutable,
                 dds.uri!,
                 dtdUri: session.dtdUri,
+                // The session's from the moment it starts, so a session shut
+                // down while DevTools is still coming up stops it too.
+                started: (process) {
+                  if (session._shutDown) {
+                    process.kill();
+                  } else {
+                    session.devToolsProcess = process;
+                  }
+                },
               );
-              session.devToolsProcess = devtools.process;
-              if (devtools.serverUrl == null) return;
-              url = devToolsConnectUri(
-                devtools.serverUrl!,
-                dds.wsUri!,
-              ).toString();
+              if (serverUrl == null) return;
+              url = devToolsConnectUri(serverUrl, dds.wsUri!).toString();
               session.devToolsUrl = url;
             }
 
@@ -1435,7 +1440,12 @@ Uri devToolsConnectUri(String serverUrl, Uri vmServiceWsUri) =>
       queryParameters: {'uri': vmServiceWsUri.toString()},
     );
 
-/// Start `dart devtools` and return the process plus its announced server root.
+/// Start `dart devtools`, hand the process to [started], and return its
+/// announced server root: null when it exits or stays silent for 15 s first.
+///
+/// Ending on the exit matters as much as the URL: the run ends when nothing is
+/// left pending, so a DevTools stopped by a teardown while still starting
+/// would otherwise hold the tool open until the 15 s ran out.
 ///
 /// [dartExecutable] is the Dart binary from the Flutter toolchain. Resolving it
 /// rather than spawning a bare `dart` keeps the DevTools we launch tied to the
@@ -1444,10 +1454,11 @@ Uri devToolsConnectUri(String serverUrl, Uri vmServiceWsUri) =>
 ///
 /// [dtdUri] is the Dart Tooling Daemon the app is registered with. Without it
 /// the DevTools server starts a DTD of its own, which knows nothing of the app.
-Future<({Process process, String? serverUrl})> _launchDevTools(
+Future<String?> _launchDevTools(
   String dartExecutable,
   Uri vmServiceUri, {
   Uri? dtdUri,
+  required void Function(Process process) started,
 }) async {
   final process = await startChildProcess(dartExecutable, [
     'devtools',
@@ -1455,25 +1466,26 @@ Future<({Process process, String? serverUrl})> _launchDevTools(
     '--vm-uri=$vmServiceUri',
     if (dtdUri != null) '--dtd-uri=$dtdUri',
   ]);
+  started(process);
 
   final completer = Completer<String?>();
-  Timer? timeout;
+  void answer(String? url) {
+    if (!completer.isCompleted) completer.complete(url);
+  }
 
-  timeout = Timer(const Duration(seconds: 15), () {
-    if (!completer.isCompleted) completer.complete(null);
-  });
-
+  final timeout = Timer(const Duration(seconds: 15), () => answer(null));
+  unawaited(process.exitCode.then((_) => answer(null)));
   process.stdout
       .transform(const SystemEncoding().decoder)
       .transform(const LineSplitter())
       .listen((line) {
         final url = parseDevToolsUrl(line);
-        if (url != null && !completer.isCompleted) {
-          timeout?.cancel();
-          completer.complete(url);
-        }
+        if (url != null) answer(url);
       });
 
-  final serverUrl = await completer.future;
-  return (process: process, serverUrl: serverUrl);
+  try {
+    return await completer.future;
+  } finally {
+    timeout.cancel();
+  }
 }
