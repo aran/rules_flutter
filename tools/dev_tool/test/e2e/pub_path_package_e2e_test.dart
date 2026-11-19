@@ -12,8 +12,9 @@
 ///     by the next build, and the tool output a package directory collects
 ///     (`build/`, `.dart_tool/`, `android/.gradle/`, `android/build/`) neither
 ///     enters the repository nor fetches it again.
-///  3. A directory with a Bazel build of its own, or none at all, is refused
-///     when the package is fetched, saying what to do.
+///  3. A directory with a Bazel build of its own, with no pubspec, or none
+///     at all, is refused by the builds that use the package, saying what to
+///     do; the package's repository still fetches (`bazel fetch --all`).
 ///  4. An ignored package leaves the hub loading, and a target that depends
 ///     on it fails at analysis with the reason the module gives.
 @Tags(['e2e'])
@@ -178,10 +179,22 @@ void main() {
         fixture: _fixture(path: '../../packages/missing'),
         says: ['packages/missing does not exist', '`resolve`', '`ignored`'],
       ),
+      'no pubspec': (
+        fixture: _fixture(
+          path: '../../packages/empty',
+          files: {'packages/empty/lib/greeting.dart': 'int value = 1;\n'},
+        ),
+        says: ['packages/empty has no pubspec.yaml', '`resolve`', '`ignored`'],
+      ),
     };
     for (final MapEntry(:key, :value) in refusals.entries) {
       test('is refused for $key', () async {
         final ws = await value.fixture.materialize();
+        final fetch = await ws.bazel([
+          'fetch',
+          '--repo=@@rules_flutter++pub+flutter_pub__greeting',
+        ]);
+        expect(fetch.succeeded, isTrue, reason: '$fetch');
         final result = await ws.bazel(['build', '//:app']);
         expect(result.succeeded, isFalse, reason: '$result');
         for (final fragment in value.says) {

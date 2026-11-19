@@ -52,7 +52,7 @@ rule asks for it.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "fetch_pub_path", "find_pub_license_file", "link_pub_files", "pub_files_fetched", "pub_package_identity", "pub_path_source")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file", "link_pub_files", "link_pub_path", "pub_files_fetched", "pub_package_identity", "pub_path_source")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
@@ -2619,9 +2619,22 @@ def fetch_local_package(ctx, directory, problems):
         ctx: The `repository_ctx`.
         directory: The package's directory, absolute.
         problems: What keeps the package from being built, added to.
+
+    Returns:
+        None, or why the directory cannot serve the package at all: it is not
+        there, has no pubspec or has a Bazel build of its own. Nothing past
+        the pubspec is linked then.
     """
-    fetch_pub_path(ctx, directory, ["pubspec.yaml"])
-    fetch_pub_path(ctx, directory, _local_package_entries(ctx, directory, problems))
+    refusal = link_pub_path(ctx, directory, ["pubspec.yaml"])
+    if not refusal and not ctx.path("pubspec.yaml").exists:
+        # A directory an uninitialized submodule left, say: nothing to build from.
+        refusal = (
+            "{} has no pubspec.yaml. The lock lists the package by path; check it out there, " +
+            "or name it in `resolve` or `ignored` instead."
+        ).format(directory)
+    if not refusal:
+        refusal = link_pub_path(ctx, directory, _local_package_entries(ctx, directory, problems))
+    return "package {}: {}".format(ctx.attr.package_name, refusal) if refusal else None
 
 def package_fetched(attr, fetched):
     """What the package is: its version, and its source.
@@ -2683,6 +2696,7 @@ def _write_unbuildable(ctx, identity, version, pubspec_dependencies, message):
 def _flutter_pub_package_impl(ctx):
     build_prelude = ""
     fetched = None
+    refusal = None
 
     # What of the package's own content keeps it from being built: its
     # target fails with the first, when a build uses it, and the repository
@@ -2698,7 +2712,7 @@ def _flutter_pub_package_impl(ctx):
             write_failing_stub(ctx, [ctx.attr.package_name], unusable, member = True)
             return _linked_repo_metadata(ctx)
     elif ctx.attr.directory:
-        fetch_local_package(ctx, ctx.attr.directory, problems)
+        refusal = fetch_local_package(ctx, ctx.attr.directory, problems)
     else:
         # A hosted, git or Flutter SDK package: its files are another
         # repository's, linked in.
@@ -2709,6 +2723,8 @@ def _flutter_pub_package_impl(ctx):
     identity = pub_package_identity(package.source)
     if identity.repo_file:
         ctx.file("REPO.bazel", identity.repo_file)
+    if refusal:
+        return _write_unbuildable(ctx, identity, version, [], refusal)
 
     # Pub's own reading of the pubspec. A package pub would refuse (malformed
     # YAML, a `name` that is not this package's, a dependency or constraint of
