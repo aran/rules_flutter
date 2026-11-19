@@ -8,7 +8,12 @@ the bootstrap it generates, so they are compiled as the program's own sources, a
 the agent extensions are.
 """
 
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 exports_files(
     glob(["*.dart"]),
     visibility = ["//flutter:__subpackages__"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

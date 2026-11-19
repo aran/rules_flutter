@@ -1,3 +1,5 @@
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # go_router_builder under Bazel: the shim binary `go_router_codegen` runs, and
 # the macro. go_router_builder is a pub package with a Flutter constraint, so
 # rules_flutter ships it rather than rules_dart, on rules_dart's builder API.
@@ -37,10 +39,5 @@ bzl_library(
     deps = ["@rules_dart//dart/ext:defs"],
 )
 
-# This package's BUILD file and every .bzl in it, for //tools/bzl_deps_guard,
-# which checks that each bzl_library lists the libraries its sources load.
-filegroup(
-    name = "bzl_library_inputs",
-    srcs = ["BUILD.bazel"] + glob(["*.bzl"]),
-    visibility = ["//tools/bzl_deps_guard:__pkg__"],
-)
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

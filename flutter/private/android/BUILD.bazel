@@ -1,4 +1,5 @@
 load("//flutter:android.bzl", "flutter_android_engine")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # The engine every plugin's Android library compiles against: the
 # FlutterPlugin SPI and the embedding's androidx classes on the compile
@@ -12,3 +13,6 @@ flutter_android_engine(
     neverlink = True,
     visibility = ["//visibility:public"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

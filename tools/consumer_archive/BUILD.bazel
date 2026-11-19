@@ -1,4 +1,5 @@
 load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # Extracts the source archive a release ships (`git archive`, trimmed by
 # .gitattributes) to e2e/external_module/rules_flutter, which that workspace
@@ -10,3 +11,6 @@ dart_binary(
     srcs = ["consumer_archive.dart"],
     main = "consumer_archive.dart",
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

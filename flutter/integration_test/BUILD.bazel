@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 load("//flutter/private:flutter_integration_test.bzl", "flutter_chrome_runner", "flutter_desktop_runner", "flutter_ios_simulator_runner")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # The runners an integration test rule defaults to, one per family of device.
 
@@ -159,3 +160,6 @@ filegroup(
     name = "no_pinned_emulator",
     target_compatible_with = ["@platforms//:incompatible"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

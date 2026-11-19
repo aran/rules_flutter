@@ -38,3 +38,29 @@ license(
     kind = "@package_metadata//licenses/spdx:Apache-2.0",
     text = "LICENSE",
 )
+
+# The BUILD files and .bzl files of every package a consumer's copy of the
+# module has, for //tools/bzl_deps_guard. Each package's `bzl_library_inputs`
+# holds its own and those of the packages below it
+# (tools/bzl_deps_guard/inputs.bzl). The packages left out are
+# those `.gitattributes` keeps out of the release archive; `flutter/tests` is
+# left out by //flutter.
+filegroup(
+    name = "bzl_library_inputs",
+    srcs = [
+        "//%s:bzl_library_inputs" % package
+        for package in subpackages(
+            include = ["**"],
+            exclude = [
+                # Bazel's links into its output trees.
+                "bazel-*",
+                ".github/**",
+                "dev",
+                "tools/ci_matrix",
+                "tools/e2e_copy_guard",
+                "tools/vm",
+            ],
+        )
+    ],
+    visibility = ["//tools/bzl_deps_guard:__pkg__"],
+)

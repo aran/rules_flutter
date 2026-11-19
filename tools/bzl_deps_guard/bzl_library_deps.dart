@@ -233,6 +233,26 @@ List<BzlLibrary> bzlLibrariesOf(String package, String buildText) {
   return libraries;
 }
 
+/// The `.bzl` files of [files] that no library of [libraries] lists in its
+/// `srcs`, sorted.
+///
+/// A file nothing of this repository loads is still a file a user loads (a
+/// public entry point) or that Stardoc documents, and its library is what a
+/// user's own `bzl_library` depends on, so every one has a library: the
+/// check of loads alone would pass a file nobody loads.
+List<Label> bzlFilesWithoutLibrary(
+  List<BzlLibrary> libraries,
+  Iterable<Label> files,
+) {
+  final listed = {
+    for (final library in libraries) ...library.srcs,
+  };
+  return [
+    for (final file in files)
+      if (file.name.endsWith('.bzl') && !listed.contains(file)) file,
+  ]..sort((a, b) => '$a'.compareTo('$b'));
+}
+
 /// Checks every library of [libraries] and returns what is wrong, one line
 /// each, empty when nothing is.
 ///

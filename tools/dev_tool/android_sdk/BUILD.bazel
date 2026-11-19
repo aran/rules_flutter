@@ -1,3 +1,6 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # The Android SDK `flutter_bazel` drives devices with: the workspace's own
 # `@androidsdk`, whichever SDK the root module chose for it (rules_android's
 # `android_sdk_repository`, which reads `ANDROID_HOME`, or
@@ -31,4 +34,13 @@ host_tool(
     tags = ["manual"],
     tool = "@androidsdk//:aapt2",
     visibility = ["//visibility:public"],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "host_tool",
+    srcs = ["host_tool.bzl"],
+    deps = ["//flutter/private:host_platform_transition"],
 )

@@ -7,9 +7,9 @@
 /// without warning when that changes. See `bzl_library_deps.dart` for the
 /// property and what it reads.
 ///
-/// The BUILD files and `.bzl` files are the `bzl_library_inputs` filegroup of
-/// each package that declares a `bzl_library`; a package that gains its first
-/// one must be added to this test's data (BUILD.bazel) and to the list below.
+/// The BUILD files and `.bzl` files are those of every package a consumer's
+/// copy of the module has, which `//:bzl_library_inputs` gathers package by
+/// package (`inputs.bzl`).
 library;
 
 import 'dart:io';
@@ -24,6 +24,9 @@ import '../bzl_library_deps.dart';
 const _exceptions = ExternalExceptions(
   // The library that holds the file is named otherwise.
   library: {
+    // A filegroup platforms calls essentially a bzl_library, with the
+    // generated file it loads.
+    '@platforms//host:constraints.bzl': '@platforms//host:constraints_lib',
     '@rules_android//providers:providers.bzl':
         '@rules_android//providers:providers_bzl',
     '@rules_java//java/common:java_common.bzl':
@@ -36,10 +39,11 @@ const _exceptions = ExternalExceptions(
   },
   // No library a dependent may use holds the file.
   noLibrary: {
-    '@platforms//host:constraints.bzl':
-        'platforms declares no bzl_library for host/constraints.bzl',
     '@rules_android//android:rules.bzl':
         'rules_android declares no bzl_library for android/rules.bzl',
+    '@rules_android//mobile_install:mi.bzl':
+        'rules_android\'s library for mobile_install/mi.bzl is visible to its '
+        'own packages only',
     '@rules_android//rules:utils.bzl':
         'rules_android\'s library for rules/utils.bzl is visible to its own '
         'packages only',
@@ -93,9 +97,26 @@ void main() {
         'flutter/private',
         'flutter/pub',
         'flutter/ext/go_router',
+        'tools/e2e_testing',
       ]),
     );
     expect(libraries.length, greaterThan(100));
+  });
+
+  test('every .bzl file is a src of a bzl_library', () {
+    final missing = bzlFilesWithoutLibrary(libraries, [
+      for (final path in texts.keys)
+        Label.parse(
+          path.substring(path.lastIndexOf('/') + 1),
+          package: path.substring(0, path.lastIndexOf('/')),
+        ),
+    ]);
+    if (missing.isNotEmpty) {
+      fail(
+        'Each .bzl file has a bzl_library, named for the file, so a user\'s '
+        'own bzl_library can depend on it:\n${missing.join('\n')}',
+      );
+    }
   });
 
   test('every bzl_library lists exactly the libraries its sources load', () {

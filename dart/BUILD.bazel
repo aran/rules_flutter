@@ -1,3 +1,5 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 load(":flutter_sdk_binary.bzl", "flutter_sdk_binary")
 
 # Run the Flutter-bundled Dart SDK binary:
@@ -6,5 +8,14 @@ load(":flutter_sdk_binary.bzl", "flutter_sdk_binary")
 flutter_sdk_binary(
     name = "dart",
     tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "flutter_sdk_binary",
+    srcs = ["flutter_sdk_binary.bzl"],
     visibility = ["//visibility:public"],
 )

@@ -1,4 +1,6 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_package_metadata", "dart_test")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # The target platform of a Linux machine, for the tests of what a build there
 # skips.
@@ -133,4 +135,97 @@ dart_binary(
     main = "ssh_chrome.dart",
     visibility = ["//visibility:public"],
     deps = [":e2e_testing"],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "android_analysis_test",
+    srcs = ["android_analysis_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter:android",
+        "@bazel_skylib//lib:unittest",
+        "@rules_android//providers:providers_bzl",
+    ],
+)
+
+bzl_library(
+    name = "apple_analysis_test",
+    srcs = ["apple_analysis_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flutter:dev_files",
+        "//flutter:providers",
+        "@bazel_skylib//lib:unittest",
+        "@rules_dart//dart:providers",
+    ],
+)
+
+bzl_library(
+    name = "apple_release_build",
+    srcs = ["apple_release_build.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["@rules_apple//apple:providers"],
+)
+
+bzl_library(
+    name = "compile_fail_test",
+    srcs = ["compile_fail_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["@rules_dart//dart:utils"],
+)
+
+bzl_library(
+    name = "device_profile",
+    srcs = ["device_profile.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "gradle_host",
+    srcs = ["gradle_host.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@rules_dart//dart:utils",
+        "@rules_java//java/common",
+    ],
+)
+
+bzl_library(
+    name = "gradle_offline_repository",
+    srcs = ["gradle_offline_repository.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "javacopt_build",
+    srcs = ["javacopt_build.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "mobile_install_build",
+    srcs = ["mobile_install_build.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "sdk_choice_test",
+    srcs = ["sdk_choice_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["@bazel_skylib//lib:unittest"],
+)
+
+bzl_library(
+    name = "signing_twin",
+    srcs = ["signing_twin.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "version_build",
+    srcs = ["version_build.bzl"],
+    visibility = ["//visibility:public"],
 )

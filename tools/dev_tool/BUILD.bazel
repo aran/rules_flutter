@@ -1,4 +1,6 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_package_metadata", "dart_test")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 load(":source_repo.bzl", "SOURCE_REPO")
 
 exports_files(["pubspec.lock"])
@@ -590,4 +592,12 @@ dart_binary(
     tags = ["manual"],
     visibility = ["//visibility:private"],
     deps = _PATH_DEP + ["@rules_dart//dart/runfiles"],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "source_repo",
+    srcs = ["source_repo.bzl"],
 )

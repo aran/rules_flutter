@@ -84,6 +84,23 @@ bzl_library(
     });
   });
 
+  test('bzlFilesWithoutLibrary names the .bzl files no library lists', () {
+    final libraries = bzlLibrariesOf('p', '''
+bzl_library(
+    name = "a",
+    srcs = ["a.bzl"],
+)
+''');
+    expect(
+      bzlFilesWithoutLibrary(libraries, [
+        Label.parse('a.bzl', package: 'p'),
+        Label.parse('b.bzl', package: 'p'),
+        Label.parse('BUILD.bazel', package: 'p'),
+      ]).map((l) => '$l'),
+      ['//p:b.bzl'],
+    );
+  });
+
   group('checkBzlLibraries', () {
     const build = '''
 bzl_library(name = "a", srcs = ["a.bzl"], deps = [":b", "@ext//lib:e"])

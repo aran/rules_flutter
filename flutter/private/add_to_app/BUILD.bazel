@@ -1,3 +1,5 @@
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # The LLDB files `flutter build ios-framework` writes beside a debug build,
 # upstream's templates (flutter_tools' xcode_project.dart) as they are: a
 # debug Flutter app on an iOS 26 or later device needs LLDB to touch the pages
@@ -10,3 +12,6 @@ exports_files(
     ],
     visibility = ["//visibility:public"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

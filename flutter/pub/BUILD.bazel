@@ -1,5 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("//flutter/private:flutter_pub.bzl", "flutter_pub")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # `dart pub`, run from the pinned toolchain against the current workspace, so
 # that the SDK which resolves pubspec.lock is the SDK which compiles it:
@@ -21,10 +22,5 @@ bzl_library(
     deps = ["//flutter/private:pub_extension"],
 )
 
-# This package's BUILD file and every .bzl in it, for //tools/bzl_deps_guard,
-# which checks that each bzl_library lists the libraries its sources load.
-filegroup(
-    name = "bzl_library_inputs",
-    srcs = ["BUILD.bazel"] + glob(["*.bzl"]),
-    visibility = ["//tools/bzl_deps_guard:__pkg__"],
-)
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

@@ -1,3 +1,5 @@
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # Platform definitions for Flutter cross-compilation targets.
 #
 # Use these with --platforms to target specific platforms:
@@ -60,3 +62,6 @@ platform(
     ],
     visibility = ["//visibility:public"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

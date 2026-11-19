@@ -1,4 +1,5 @@
 load("@rules_dart//dart:defs.bzl", "dart_binary")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 
 # The `flutter gen-l10n` entrypoint. The generator itself is vendored out of
 # flutter_tools by `flutter_gen_l10n_repo` (see
@@ -20,3 +21,6 @@ dart_binary(
         "@flutter_gen_l10n//:gen_l10n",
     ],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

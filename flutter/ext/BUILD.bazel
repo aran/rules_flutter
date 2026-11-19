@@ -1,3 +1,5 @@
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # Anchor file for the `flutter/ext/` overlay tree.
 # `flutter_pub_package` resolves this label to compute the overlay root
 # and then walks subdirectories looking for `<pkg>/<ver>/BUILD.bazel.tpl`
@@ -10,3 +12,6 @@ exports_files(
     ),
     visibility = ["//visibility:public"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

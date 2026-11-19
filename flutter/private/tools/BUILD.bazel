@@ -1,5 +1,7 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_dart//dart:defs.bzl", "dart_binary", "dart_library", "dart_package_metadata", "dart_test")
 load("//flutter/private:flutter_sdk_record.bzl", "flutter_sdk_record")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 load(":sdk_record_mode.bzl", "record_in_mode")
 
 # The scripts build actions run directly, handed to those actions as raw
@@ -585,4 +587,14 @@ dart_test(
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
     ],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "sdk_record_mode",
+    srcs = ["sdk_record_mode.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = ["//flutter:providers"],
 )

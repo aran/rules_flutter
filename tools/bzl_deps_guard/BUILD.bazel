@@ -1,4 +1,6 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_dart//dart:defs.bzl", "dart_test")
+load(":inputs.bzl", "bzl_library_inputs")
 
 # Every bzl_library lists, as direct deps, the libraries of the files its
 # sources load. See bzl_library_deps.dart for the property.
@@ -10,25 +12,15 @@ dart_test(
     deps = ["@dev_tool_deps//:test"],
 )
 
-# The repository's own bzl_library targets. A package that gains its first one
-# is added to `data` and to `BZL_LIBRARY_INPUTS`.
+# The repository's own bzl_library targets, in every package a consumer's copy
+# of the module has (//:bzl_library_inputs).
 dart_test(
     name = "repository_bzl_libraries_test",
     size = "small",
     srcs = ["bzl_library_deps.dart"],
-    data = [
-        "//flutter:bzl_library_inputs",
-        "//flutter/ext/go_router:bzl_library_inputs",
-        "//flutter/private:bzl_library_inputs",
-        "//flutter/pub:bzl_library_inputs",
-    ],
+    data = ["//:bzl_library_inputs"],
     env = {
-        "BZL_LIBRARY_INPUTS": " ".join([
-            "$(rlocationpaths //flutter:bzl_library_inputs)",
-            "$(rlocationpaths //flutter/ext/go_router:bzl_library_inputs)",
-            "$(rlocationpaths //flutter/private:bzl_library_inputs)",
-            "$(rlocationpaths //flutter/pub:bzl_library_inputs)",
-        ]),
+        "BZL_LIBRARY_INPUTS": "$(rlocationpaths //:bzl_library_inputs)",
         "RUNFILES_SOURCE_REPO": "",
     },
     main = "test/repository_bzl_libraries_test.dart",
@@ -36,4 +28,13 @@ dart_test(
         "@dev_tool_deps//:test",
         "@rules_dart//dart/runfiles",
     ],
+)
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
+
+bzl_library(
+    name = "inputs",
+    srcs = ["inputs.bzl"],
+    visibility = ["//:__subpackages__"],
 )

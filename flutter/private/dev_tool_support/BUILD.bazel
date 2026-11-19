@@ -10,6 +10,8 @@ to each app's kernel-compile srcs directly so it resolves
 `package:flutter` through the user's pub-managed `@deps`.
 """
 
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 exports_files(
     [
         "agent.dart",
@@ -18,3 +20,6 @@ exports_files(
     ],
     visibility = ["//flutter:__subpackages__"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()

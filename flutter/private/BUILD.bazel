@@ -2,6 +2,7 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_setting", "string_list_flag")
 load("@rules_java//java:java_library.bzl", "java_library")
 load("//flutter:engine.bzl", "flutter_missing_slice")
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
 load(":apple_engine.bzl", "flutter_macos_engine_dsym")
 load(":apple_xcode.bzl", "apple_binary_stripping")
 load(":flutter_module.bzl", "flutter_kernel_sdk")
@@ -501,7 +502,10 @@ bzl_library(
 bzl_library(
     name = "host_platform_transition",
     srcs = ["host_platform_transition.bzl"],
-    visibility = ["//flutter:__subpackages__"],
+    visibility = [
+        "//flutter:__subpackages__",
+        "//tools/dev_tool/android_sdk:__pkg__",
+    ],
 )
 
 bzl_library(
@@ -544,6 +548,7 @@ bzl_library(
     deps = [
         ":android_debug_info",
         ":host_platform_transition",
+        "@platforms//host:constraints_lib",
         "@rules_android//providers:providers_bzl",
         "@rules_dart//dart:utils",
         "@rules_java//java/common",
@@ -584,6 +589,7 @@ bzl_library(
         ":android_debug_info",
         ":host_platform_transition",
         ":release_transition",
+        "@platforms//host:constraints_lib",
         "@rules_android//providers:providers_bzl",
         "@rules_dart//dart:utils",
         "@rules_java//java/common",
@@ -602,6 +608,7 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":exec_groups",
+        "@platforms//host:constraints_lib",
         "@rules_cc//cc:action_names",
         "@rules_cc//cc:find_cc_toolchain",
         "@rules_cc//cc/common:cc_common",
@@ -1447,13 +1454,8 @@ bzl_library(
     ],
 )
 
-# This package's BUILD file and every .bzl in it, for //tools/bzl_deps_guard,
-# which checks that each bzl_library lists the libraries its sources load.
-filegroup(
-    name = "bzl_library_inputs",
-    srcs = ["BUILD.bazel"] + glob(["*.bzl"]),
-    visibility = ["//tools/bzl_deps_guard:__pkg__"],
-)
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
 
 bzl_library(
     name = "android_build_config",
@@ -2179,4 +2181,103 @@ bzl_library(
     name = "web_service_worker",
     srcs = ["web_service_worker.bzl"],
     visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
+    name = "flutter_apple_kept_symbols",
+    srcs = ["flutter_apple_kept_symbols.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":apple_xcode",
+        ":flutter_apple_plugin_library",
+        "@rules_cc//cc/common:cc_common",
+        "@rules_cc//cc/common:cc_info",
+        "@rules_swift//swift",
+    ],
+)
+
+bzl_library(
+    name = "flutter_pub_library",
+    srcs = ["flutter_pub_library.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":flutter_info",
+        ":flutter_info_forwarding",
+        ":flutter_library",
+        ":flutter_plugin",
+        ":flutter_pub_member_info",
+        "@rules_dart//dart:providers",
+        "@rules_dart//dart:utils",
+        "@rules_dart//dart/pub:pub_library",
+        "@rules_java//java/common",
+    ],
+)
+
+bzl_library(
+    name = "flutter_sdk_record",
+    srcs = ["flutter_sdk_record.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":exec_groups",
+        ":sdk_origin",
+        "//flutter:engine",
+        "//flutter:providers",
+    ],
+)
+
+bzl_library(
+    name = "flutter_swift_packages_report",
+    srcs = ["flutter_swift_packages_report.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":host_platform_transition",
+        "@rules_dart//dart:utils",
+    ],
+)
+
+bzl_library(
+    name = "swift_package_product",
+    srcs = ["swift_package_product.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+)
+
+bzl_library(
+    name = "generated_repos",
+    srcs = ["generated_repos.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":android_build_config",
+        ":android_plugin_maven",
+        ":flutter_android_emulator",
+        ":flutter_android_engine_jar",
+        ":flutter_android_engine_repo",
+        ":flutter_android_plugin_libs",
+        ":flutter_apple_kept_symbols",
+        ":flutter_cross_repo",
+        ":flutter_desktop_engine_repo",
+        ":flutter_dev_root_repo",
+        ":flutter_font",
+        ":flutter_framework_package",
+        ":flutter_gen_l10n_repo",
+        ":flutter_ios_engine_repo",
+        ":flutter_library",
+        ":flutter_linux_runtime",
+        ":flutter_linux_sysroot_repo",
+        ":flutter_plugin_platform",
+        ":flutter_profile_repo",
+        ":flutter_pub_index",
+        ":flutter_pub_library",
+        ":flutter_pub_library_repo",
+        ":flutter_pub_package",
+        ":flutter_sky_engine_repo",
+        ":flutter_source_files",
+        ":flutter_swift_packages_report",
+        ":flutter_test",
+        ":flutter_web_sdk_repo",
+        ":resolved_package",
+        ":swift_package_product",
+        ":swiftpm_app_settings",
+        ":unbuilt_native_code",
+        ":versions",
+    ],
 )

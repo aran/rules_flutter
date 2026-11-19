@@ -11,6 +11,8 @@ srcs directly so they resolve `package:flutter_test` through the user's
 pub-managed `@deps`, the same arrangement `dev_tool_support/agent.dart` uses.
 """
 
+load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
+
 # `service.dart` and the comparator it imports are named by the `flutter_test`
 # the `flutter_pub.from_lock()` hub declares as its golden service, so they are
 # visible from any package. Not for use outside it.
@@ -21,3 +23,6 @@ exports_files(
     ],
     visibility = ["//visibility:public"],
 )
+
+# What //tools/bzl_deps_guard reads of this package and those below it.
+bzl_library_inputs()
