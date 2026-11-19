@@ -112,15 +112,16 @@ def _source_follows_what_was_fetched_test_impl(ctx):
     env = unittest.begin(ctx)
 
     def attr(**kwargs):
-        fields = dict(package_name = "args", version = "", lock = None, path = "")
+        fields = dict(package_name = "args", version = "", lock = None, path = "", files_identity = "")
         fields.update(kwargs)
         return struct(**fields)
 
     # A hosted or git package: what `pub_files_fetched` read, never facts
-    # passed beside the files.
+    # passed beside the files. The repository names those files by their
+    # purl (`files_identity`), which must be what was fetched.
     for source in [_HOSTED, _LOCAL_GIT]:
         fetched = struct(package_name = "args", version = "2.7.0", source = source)
-        asserts.equals(env, struct(version = "2.7.0", source = source), package_fetched(struct(attr = attr()), fetched))
+        asserts.equals(env, struct(version = "2.7.0", source = source), package_fetched(struct(attr = attr(files_identity = source.purl)), fetched))
 
     # A path package: the directory it is built from, named by its lock and
     # the lock's path to it, at the lock's version.

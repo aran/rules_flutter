@@ -2681,6 +2681,8 @@ def package_fetched(ctx, fetched):
         return struct(version = attr.version, source = pub_lock_path_source(ctx, attr.lock, attr.path))
     if fetched.package_name != attr.package_name:
         fail("package {}: its files repository fetched package {} {}.".format(attr.package_name, fetched.package_name, fetched.version))
+    if attr.files_identity != fetched.source.purl:
+        fail("package {}: `files_identity` is \"{}\", and its files repository fetched {}.".format(attr.package_name, attr.files_identity, fetched.source.purl))
     if attr.version:
         fail("package {}: `version` is set, and a hosted or git package's version is the one its files repository fetched ({}).".format(attr.package_name, fetched.version))
     return struct(version = fetched.version, source = fetched.source)
@@ -2744,6 +2746,8 @@ def _flutter_pub_package_impl(ctx):
     else:
         # A hosted, git or Flutter SDK package: its files are another
         # repository's, linked in.
+        if not ctx.attr.files_identity:
+            fail("package {}: `files` is set without `files_identity`, which names those files in this repository's definition.".format(ctx.attr.package_name))
         build_prelude = _link_package_files(ctx)
         fetched = pub_files_fetched(ctx, ctx.attr.files)
     package = package_fetched(ctx, fetched)
@@ -3207,6 +3211,16 @@ _ATTRS = {
               "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
               "What `pub_archive_files` or `pub_git_files` records it fetched is the package's version, " +
               "source. Unused with `directory` or `framework_json`.",
+    ),
+    "files_identity": attr.string(
+        doc = "What the `files` repository holds, which this repository's definition must name: " +
+              "Bazel fetches a repository again when its definition changes, not when a repository " +
+              "it reads does, so without it a package moved to other files (another version, " +
+              "digest or commit) would keep the dependencies and build it stated for the old ones. " +
+              "For a hosted or git package, the purl of what its files repository is asked to fetch " +
+              "(rules_dart's `pub_hosted_purl`, `pub_git_purl`), which must be the purl of what that " +
+              "repository records it fetched; for a Flutter SDK package, the Flutter release and the " +
+              "digest of its source, as `flutter_sdk_files_identity` names them. Required with `files`.",
     ),
     "lock": attr.label(
         doc = "A `path` package's lock (`flutter_pub_path_package` only). The package is linked from the " +

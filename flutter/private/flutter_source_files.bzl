@@ -29,6 +29,18 @@ def missing_sdk_package_message(name, version):
         "toolchain (`bazel run @rules_flutter//flutter/pub -- get`)."
     ).format(name = name, version = version)
 
+def flutter_sdk_files_identity(flutter_version, sha256):
+    """What a `flutter_source_files` repository holds, for its source repository's `files_identity`.
+
+    Args:
+        flutter_version: Its `flutter_version`.
+        sha256: Its `sha256`.
+
+    Returns:
+        The identity: the Flutter release and the digest of its source.
+    """
+    return "flutter {} sha256:{}".format(flutter_version, sha256)
+
 def _flutter_source_files_impl(rctx):
     # The tarball is the one every consumer of the framework source fetches,
     # pinned to the same digest, so Bazel's repository cache serves it to all

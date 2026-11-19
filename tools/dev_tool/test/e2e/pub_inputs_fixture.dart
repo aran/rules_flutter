@@ -233,6 +233,11 @@ class PubInputsWorkspace {
   void writeLock(String lock) =>
       file(p.posix.join(_lockPackage, 'pubspec.lock')).writeAsStringSync(lock);
 
+  /// The lock listing [hosted], each served by the registry: made with the
+  /// workspace, or among the fixture's `served`.
+  String lockOf(List<HostedPackage> hosted) =>
+      PubInputsFixture.renderLock(hosted, serverUrl);
+
   /// The lock for the hosted packages this workspace was made with, plus
   /// [entries]: raw `packages:` entries, indented two spaces.
   String lockWith([String entries = '']) => PubInputsFixture.renderLock(
@@ -301,7 +306,12 @@ class PubInputsFixture {
     this.ignored = const {},
     this.cycles = const [],
     this.annotations = const {},
+    this.served = const [],
   });
+
+  /// Packages the registry serves that no lock lists, for a test that moves a
+  /// lock onto them ([PubInputsWorkspace.lockOf]).
+  final List<HostedPackage> served;
 
   /// `flutter_pub.annotation(package = ..., android_deps = [...])` tags of the
   /// root module: package name to the `@rules_flutter_maven` targets it adds.
@@ -473,6 +483,7 @@ class PubInputsFixture {
 
     final archived = <HostedPackage>{
       ...hosted,
+      ...served,
       for (final hub in otherHubs) ...hub.hosted,
       for (final module in modules)
         for (final hub in module.hubs) ...hub.hosted,

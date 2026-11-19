@@ -11,7 +11,7 @@ extension is identified by the file that defines it and its name.
 """
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_lock_entry", "pub_lock_mapping_error", "pub_lock_resolved_pubspec")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_git_purl", "pub_hosted_purl", "pub_lock_entry", "pub_lock_mapping_error", "pub_lock_resolved_pubspec")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven", "flutter_android_maven_requirements_repo")
@@ -27,7 +27,7 @@ load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package", "flutter_pub_path_package")
 load("//flutter/private:flutter_resolved_package.bzl", "flutter_resolved_package")
 load("//flutter/private:flutter_sdks_repo.bzl", "SDKS_FILE", "decode_sdks")
-load("//flutter/private:flutter_source_files.bzl", "flutter_source_files", "missing_sdk_package_message")
+load("//flutter/private:flutter_source_files.bzl", "flutter_sdk_files_identity", "flutter_source_files", "missing_sdk_package_message")
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
@@ -737,6 +737,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
             flutter_pub_package(
                 name = source_repo(name),
                 files = pub_files_label(files_repo(name)),
+                files_identity = pub_hosted_purl(name, e.version, e.sha256, e.url),
                 package_name = name,
                 overlay_roots = overlay_roots,
                 # rules_dart's curated registry is the single source of truth
@@ -767,6 +768,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
             flutter_pub_package(
                 name = source_repo(name),
                 files = pub_files_label(files_repo(name)),
+                files_identity = pub_git_purl(name, e.version, e.git_url, e.resolved_ref, e.git_path),
                 package_name = name,
                 overlay_roots = overlay_roots,
                 code_assets = curated_code_assets(name, e.version),
@@ -800,6 +802,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
                 flutter_apple_plugin_repo(name = apple_repo(name, prefix), package_name = name, prefix = prefix, version = e.version)
                 apple_packages[name] = True
                 files = None
+                files_identity = ""
                 unusable = ""
                 if sdk.version and not sdk.framework:
                     packages = flutter_sdk_packages(sdk.version)
@@ -812,6 +815,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
                             packages = packages,
                         )
                         files = pub_files_label(files_repo(name, prefix))
+                        files_identity = flutter_sdk_files_identity(sdk.version, flutter_source_sha256(sdk.version))
                     else:
                         # Only a build of this SDK fails: another SDK may
                         # have the package.
@@ -819,6 +823,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
                 flutter_pub_package(
                     name = source_repo(name, prefix),
                     files = files,
+                    files_identity = files_identity,
                     unusable = unusable,
                     package_name = name,
                     version = e.version,

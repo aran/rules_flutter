@@ -21,6 +21,9 @@
 ///  5. Two tags of one name are one hub.
 ///  6. Only the root may ignore a hook: a dependency module's `ignore_hooks`
 ///     fails, so it cannot silence the root's programs.
+///  7. A lock moved to another version of a package builds that version with
+///     the dependencies its own pubspec declares, in the output base that
+///     built the old one.
 ///
 /// Package names no lock of this repository lists, so the repository's own
 /// tool lock (which every consumer build reads) does not take part.
@@ -70,9 +73,12 @@ FixtureModule _dependency(
 /// What the warning or error for a raised root lock says first.
 const _raised = 'newer than the root module asks for';
 
-/// The version of `vplain` the build fetched.
-Future<String> _builtPubspec(PubInputsWorkspace ws) async {
-  final spoke = await ws.spokeDirectory('vplain');
+/// The pubspec of the version of [package] the build fetched.
+Future<String> _builtPubspec(
+  PubInputsWorkspace ws, [
+  String package = 'vplain',
+]) async {
+  final spoke = await ws.spokeDirectory(package);
   return File(p.join(spoke.path, 'pubspec.yaml')).readAsStringSync();
 }
 
@@ -90,7 +96,70 @@ Map<String, String> _target(String dir, String name) => {
       ')\n',
 };
 
+/// A package [name] at [version] whose library uses [dependency]'s, as its
+/// pubspec declares.
+HostedPackage _using(String name, String version, String dependency) =>
+    HostedPackage(
+      name,
+      version: version,
+      pubspec:
+          '${HostedPackage.defaultPubspec(name, version)}'
+          'dependencies:\n  $dependency: ^1.0.0\n',
+      files: {
+        'lib/$name.dart':
+            "import 'package:$dependency/$dependency.dart' as dep;\n"
+            'int value = dep.value;\n',
+      },
+    );
+
 void main() {
+  test(
+    'a lock moved to another version builds it with that version\'s '
+    'dependencies',
+    () async {
+      // vmover 1.0.0 uses vdep_a and 2.0.0 uses vdep_b, as package_config 2.2.0
+      // uses `path` and 3.0.0 `meta`. The lock lists both dependencies
+      // throughout, so only what each version declares tells them apart.
+      final depA = HostedPackage('vdep_a');
+      final depB = HostedPackage('vdep_b');
+      final old = _using('vmover', '1.0.0', 'vdep_a');
+      final moved = _using('vmover', '2.0.0', 'vdep_b');
+      final ws = await PubInputsFixture(
+        hosted: [old, depA, depB],
+        served: [moved],
+        files: {
+          'app/main.dart':
+              "import 'package:vmover/vmover.dart';\n"
+              'void main() => print(value);\n',
+          'app/BUILD.bazel':
+              'load("@rules_dart//dart:defs.bzl", "dart_binary")\n'
+              'dart_binary(\n'
+              '    name = "app",\n'
+              '    main = "main.dart",\n'
+              '    deps = ["@$pubHub//:vmover"],\n'
+              ')\n',
+        },
+      ).materialize();
+
+      Future<String> recorded() async {
+        final spoke = await ws.spokeDirectory('vmover');
+        return File(
+          p.join(spoke.path, 'pubspec_dependencies.txt'),
+        ).readAsStringSync().trim();
+      }
+
+      final before = await ws.bazel(['build', '//app']);
+      expect(before.succeeded, isTrue, reason: '$before');
+      expect(await recorded(), 'vdep_a');
+
+      ws.writeLock(ws.lockOf([moved, depA, depB]));
+      final after = await ws.bazel(['build', '//app']);
+      expect(await _builtPubspec(ws, 'vmover'), contains('version: 2.0.0'));
+      expect(after.succeeded, isTrue, reason: '$after');
+      expect(await recorded(), 'vdep_b');
+    },
+  );
+
   test('two hubs listing a package share one repository', () async {
     final plain = HostedPackage('vplain');
     final ws = await PubInputsFixture(
