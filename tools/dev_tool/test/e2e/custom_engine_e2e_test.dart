@@ -983,16 +983,27 @@ void main() {
         containsPair('frameworkVersion', '3.50.0'),
       ),
     );
+    final root = manifest.parent.parent.parent.path;
+    expect(
+      File(p.join(root, 'packages', 'flutter', 'pubspec.yaml')).existsSync(),
+      isTrue,
+    );
+
+    // The engine's `sky_engine`, as flutter_tools takes it for an engine
+    // that is not the release's, and as the analyzer and NOTICES read it.
+    final engine = await _bazel([
+      'query',
+      '@stand_in_engine//sky_engine:pubspec.yaml',
+      '--output=location',
+    ]);
+    expect(engine.exitCode, 0, reason: '${engine.stderr}');
     expect(
       File(
-        p.join(
-          manifest.parent.parent.parent.path,
-          'packages',
-          'flutter',
-          'pubspec.yaml',
-        ),
-      ).existsSync(),
-      isTrue,
+        p.join(root, 'bin', 'cache', 'pkg', 'sky_engine', 'pubspec.yaml'),
+      ).resolveSymbolicLinksSync(),
+      File(
+        '${engine.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+      ).resolveSymbolicLinksSync(),
     );
   });
 

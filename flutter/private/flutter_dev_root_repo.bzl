@@ -28,8 +28,9 @@ build.
 A release's tree is a `flutter_archive_repo`, so Bazel keeps one copy of it for
 every output base. A framework source's is links into that source, which no
 other output base can use. Under an engine that is not the release's, the
-manifest names that engine's commit, so the tree is links into the release's
-beside a manifest of its own.
+manifest names that engine's commit and `sky_engine` is that engine's, as
+flutter_tools takes it, so the tree is links into the release's packages
+beside the engine's `sky_engine` and a manifest of its own.
 """
 
 load("//flutter/private:archives.bzl", "archive", "archive_repo")
@@ -74,6 +75,20 @@ def _engine_revision(repository_ctx):
     engine = json.decode(repository_ctx.read(label)) if label else {}
     return sdk_engine_revision(engine, repository_ctx.attr.version)
 
+def _sky_engine(repository_ctx):
+    """The directory of the engine's `sky_engine` package, as flutter_tools takes it for any engine that is not the release's.
+
+    None, with a stub that says why written, when the engine has none.
+    """
+    pubspec = repository_ctx.path(repository_ctx.attr.sky_engine)
+    if not pubspec.exists:
+        write_failing_stub(repository_ctx, ["dev_root", "version_manifest"], (
+            "The engine has no `sky_engine` package: {} does not exist. " +
+            "A local engine's host debug out dir holds it at gen/dart-pkg/sky_engine once built."
+        ).format(repository_ctx.attr.sky_engine))
+        return None
+    return pubspec.dirname
+
 def _flutter_dev_root_framework_repo_impl(repository_ctx):
     unusable = unusable_message(repository_ctx)
     if unusable:
@@ -83,19 +98,13 @@ def _flutter_dev_root_framework_repo_impl(repository_ctx):
     flutter_version = read_framework(repository_ctx)["version"]
     root = framework_root(repository_ctx)
 
-    # The engine's package, as flutter_tools takes it for any engine that
-    # is not the release's.
-    pubspec = repository_ctx.path(repository_ctx.attr.sky_engine)
-    if not pubspec.exists:
-        write_failing_stub(repository_ctx, ["dev_root", "version_manifest"], (
-            "The engine has no `sky_engine` package: {} does not exist. " +
-            "A local engine's host debug out dir holds it at gen/dart-pkg/sky_engine once built."
-        ).format(repository_ctx.attr.sky_engine))
+    sky_engine = _sky_engine(repository_ctx)
+    if not sky_engine:
         return
 
     # A framework source: its own tree, linked.
     repository_ctx.symlink(root.get_child("packages"), "packages")
-    repository_ctx.symlink(pubspec.dirname, "bin/cache/pkg/sky_engine")
+    repository_ctx.symlink(sky_engine, "bin/cache/pkg/sky_engine")
 
     repository_ctx.file(
         "bin/cache/flutter.version.json",
@@ -131,11 +140,15 @@ _flutter_dev_root_framework_repo = repository_rule(
 _RELEASE_TREE_MARKER = "DEV_ROOT_RELEASE_TREE"
 
 def _flutter_dev_root_engine_repo_impl(repository_ctx):
-    # A release's framework over another engine: the release's tree, linked,
-    # and a manifest naming the engine's commit.
+    # A release's framework over another engine: the release's packages,
+    # linked, the engine's `sky_engine`, and a manifest naming the engine's
+    # commit.
+    sky_engine = _sky_engine(repository_ctx)
+    if not sky_engine:
+        return
     tree = repository_ctx.path(repository_ctx.attr.release_tree).dirname
     repository_ctx.symlink(tree.get_child("packages"), "packages")
-    repository_ctx.symlink(tree.get_child("bin/cache/pkg/sky_engine"), "bin/cache/pkg/sky_engine")
+    repository_ctx.symlink(sky_engine, "bin/cache/pkg/sky_engine")
     repository_ctx.file(
         "bin/cache/flutter.version.json",
         _version_manifest(repository_ctx.attr.version, _engine_revision(repository_ctx)),
@@ -148,6 +161,11 @@ _flutter_dev_root_engine_repo = repository_rule(
     attrs = {
         "release_tree": attr.label(
             doc = "The marker file at the root of the release's extracted tree.",
+            allow_single_file = True,
+            mandatory = True,
+        ),
+        "sky_engine": attr.label(
+            doc = "The `pubspec.yaml` of the engine's `sky_engine` package.",
             allow_single_file = True,
             mandatory = True,
         ),
@@ -173,8 +191,9 @@ def flutter_dev_root_repo(name, flutter_version = "", framework_json = None, sky
         framework_json: The `flutter_framework.json` of a framework source to
             assemble the tree from, in place of the release tarball.
         sky_engine: The `pubspec.yaml` of the engine's `sky_engine` package,
-            which a framework source's tree is given. Required with
-            `framework_json`.
+            which a framework source's tree, and the tree of any engine that
+            is not the release's, is given. Required with `framework_json` or
+            `engine_json`.
         engine_json: The `flutter_engine.json` of the SDK's engine, when it
             is not the release's. The manifest records the commit it names.
         sha256: Checksum of the flutter/flutter tag tarball. Shared with
@@ -198,8 +217,8 @@ def flutter_dev_root_repo(name, flutter_version = "", framework_json = None, sky
     tree = name + "_release" if engine_json else name
     archive_repo(
         name = tree,
-        # One archive extracted twice: the two trees pub needs live in
-        # different places in the monorepo. The second extraction is served
+        # One archive extracted once for each tree pub needs of it, which live
+        # in different places in the monorepo. A second extraction is served
         # from the repository cache.
         archives = [
             # All of `packages/`, not only the packages rules_flutter builds
@@ -207,9 +226,10 @@ def flutter_dev_root_repo(name, flutter_version = "", framework_json = None, sky
             # in a user's pubspec, and matching a real install is what keeps
             # pub's view of the SDK from drifting away from the real one.
             archive(artifact, url, sha256, strip_prefix = root + "packages", output = "packages"),
+        ] + ([] if engine_json else [
             # sky_engine lives with the engine sources in the monorepo, but a
             # real install materializes it under bin/cache/pkg, which is where
-            # pub looks.
+            # pub looks. Another engine's tree takes that engine's.
             archive(
                 artifact,
                 url,
@@ -217,7 +237,7 @@ def flutter_dev_root_repo(name, flutter_version = "", framework_json = None, sky
                 strip_prefix = root + "engine/src/flutter/sky/packages/sky_engine",
                 output = "bin/cache/pkg/sky_engine",
             ),
-        ],
+        ]),
         files = {
             _RELEASE_TREE_MARKER: "",
             "BUILD.bazel": 'exports_files(["{}"])\n'.format(_RELEASE_TREE_MARKER),
@@ -230,6 +250,7 @@ def flutter_dev_root_repo(name, flutter_version = "", framework_json = None, sky
         _flutter_dev_root_engine_repo(
             name = name,
             release_tree = "@{}//:{}".format(tree, _RELEASE_TREE_MARKER),
+            sky_engine = sky_engine,
             engine_json = engine_json,
             version = flutter_version,
         )
