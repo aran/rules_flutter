@@ -188,7 +188,7 @@ _UNIT_TESTS = {
         ],
     },
     "agent_command_test": {"fakes": True},
-    "android_sdk_test": {},
+    "android_sdk_test": {"deps": _PATH_DEP},
     "android_serial_test": {},
     "app_exit_test": {
         "fakes": True,

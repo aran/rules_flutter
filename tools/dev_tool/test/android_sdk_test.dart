@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_bazel_dev_tool/android_sdk.dart';
 import 'package:flutter_bazel_dev_tool/dev_tool_exception.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 const _executionRoot = '/ob/execroot/_main';
@@ -79,15 +80,22 @@ void main() {
           buildFlags: runFlags,
         );
         final tools = (await sdk.find())!;
+        // Host paths: the cquery's execroot-relative path, under the root.
         expect(
           tools.adb,
-          '$_executionRoot/bazel-out/darwin_arm64-dbg/bin/external/'
-          'rules_flutter+/tools/dev_tool/android_sdk/adb/adb',
+          p.join(
+            _executionRoot,
+            'bazel-out/darwin_arm64-dbg/bin/external/'
+            'rules_flutter+/tools/dev_tool/android_sdk/adb/adb',
+          ),
         );
         expect(
           tools.aapt2,
-          '$_executionRoot/bazel-out/darwin_arm64-dbg/bin/external/'
-          'rules_flutter+/tools/dev_tool/android_sdk/aapt2/aapt2_binary',
+          p.join(
+            _executionRoot,
+            'bazel-out/darwin_arm64-dbg/bin/external/'
+            'rules_flutter+/tools/dev_tool/android_sdk/aapt2/aapt2_binary',
+          ),
         );
         expect(bazel.commands, ['query', 'build', 'cquery', 'info']);
         // The query and `bazel info` take the configs alone: `bazel query`
