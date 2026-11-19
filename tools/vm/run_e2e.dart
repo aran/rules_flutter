@@ -31,8 +31,13 @@ Future<void> main(List<String> args) => runE2e(
     rulesDart: options.repoOptions.containsKey('rules-dart'),
   ),
   setup: (vm, options) async {
-    final checkout = options.repoOptions['rules-dart'];
-    if (checkout == null) return;
+    final given = options.repoOptions['rules-dart'];
+    if (given == null) return;
+    // `bazel run` starts in the runfiles, so a relative path is the caller's.
+    final cwd = Platform.environment['BUILD_WORKING_DIRECTORY'];
+    final checkout = cwd != null && !given.startsWith('/')
+        ? '$cwd/$given'
+        : given;
     final bundle =
         '${Directory.systemTemp.createTempSync('rd_').path}/rd.bundle';
     final dirty = Process.runSync('git', [
