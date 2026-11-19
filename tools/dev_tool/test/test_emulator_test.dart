@@ -355,15 +355,16 @@ void main() {
           server: 5701,
         );
 
+        final home = p.join('/t/emu', 'emulator_home');
         expect(env, {
           'LD_LIBRARY_PATH': '/runtime/lib',
           'PATH': '/usr/bin:/bin',
-          'HOME': '/t/emu/emulator_home',
-          'TMPDIR': '/t/emu/tmp',
-          'ANDROID_SDK_ROOT': '/t/emu/sdk',
-          'ANDROID_AVD_HOME': '/t/emu/avd',
-          'ANDROID_EMULATOR_HOME': '/t/emu/emulator_home',
-          'ANDROID_USER_HOME': '/t/emu/emulator_home',
+          'HOME': home,
+          'TMPDIR': p.join('/t/emu', 'tmp'),
+          'ANDROID_SDK_ROOT': p.join('/t/emu', 'sdk'),
+          'ANDROID_AVD_HOME': p.join('/t/emu', 'avd'),
+          'ANDROID_EMULATOR_HOME': home,
+          'ANDROID_USER_HOME': home,
           'ANDROID_ADB_SERVER_PORT': '5701',
         });
       },
@@ -388,8 +389,8 @@ void main() {
 
       expect(env, {
         'PATH': '/usr/bin',
-        'HOME': '/t/emu/home',
-        'ANDROID_USER_HOME': '/t/emu/home/.android',
+        'HOME': p.join('/t/emu', 'home'),
+        'ANDROID_USER_HOME': p.join('/t/emu', 'home', '.android'),
         'ANDROID_ADB_SERVER_PORT': '5701',
         'ADB_USB': '0',
         'ADB_EMU': '0',
