@@ -2003,7 +2003,7 @@ bazel mobile-install //:my_app_android \
     --@rules_android//flags:android_platforms=@rules_android//:arm64-v8a
 ```
 
-It installs the app as split APKs, and a later run reinstalls only the splits that changed. A Dart edit still rebuilds `libapp.so` (under `-c dbg`, the kernel in the assets) and relaunches the app, losing its state; `flutter_bazel run` hot-reloads it instead. An `android_binary` of your own needs `custom_package` for mobile-install, as in the composable rules below, unless its BUILD file is under a `java/` directory; without it, mobile-install stops at analysis with "Unable to infer Java package".
+It installs the app as split APKs, and a later run reinstalls only the splits that changed. A Dart edit still rebuilds `libapp.so` (under `-c dbg`, the kernel in the assets) and relaunches the app, losing its state; `flutter_bazel run` hot-reloads it instead. rules_android puts every asset in the base split, so under `-c dbg` a Dart edit reinstalls the base, kernel included (about 100 MB), which can take longer than an `adb install -r` of the APK. An `android_binary` of your own needs `custom_package` for mobile-install, as in the composable rules below, unless its BUILD file is under a `java/` directory; without it, mobile-install stops at analysis with "Unable to infer Java package".
 
 #### Setting up the Android SDK and NDK
 

@@ -967,7 +967,7 @@ def flutter_android_app(
     maven = Label("@flutter_pub_android_maven//:requirements")
     _flutter_android_plugin_libs(
         name = "__%s_plugin_libs" % name,
-        deps = application,
+        deps = [application],
         maven = maven,
         report = "//%s:%s_maven_artifacts" % (native.package_name(), name),
         tags = tags,
@@ -1325,7 +1325,7 @@ def flutter_android_aar(
     maven = Label("@flutter_pub_android_maven//:requirements")
     _flutter_android_plugin_libs(
         name = "__%s_plugin_libs" % name,
-        deps = application,
+        deps = [application],
         maven = maven,
         report = "//%s:%s_maven_artifacts" % (native.package_name(), name),
         tags = tags,

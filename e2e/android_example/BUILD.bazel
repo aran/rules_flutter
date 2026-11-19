@@ -20,6 +20,7 @@ load("@rules_flutter//flutter:defs.bzl", "dart_package_metadata", "flutter_appli
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
 load("@rules_flutter//tools/e2e_testing:android_analysis_test.bzl", "android_split_debug_info_test")
 load("@rules_flutter//tools/e2e_testing:javacopt_build.bzl", "javacopt_build")
+load("@rules_flutter//tools/e2e_testing:mobile_install_build.bzl", "mobile_install_build")
 load("@rules_flutter//tools/e2e_testing:version_build.bzl", "version_build")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 load(":aar.bzl", "android_archive")
@@ -452,6 +453,19 @@ javacopt_build(
 build_test(
     name = "android_lint_clean_build_test",
     targets = [":lint_clean_android"],
+)
+
+# Property: `bazel mobile-install //:app` builds what it installs. rules_android's
+# aspect walks the app's graph as that command does, so a rule it cannot walk
+# fails here rather than on a developer's device.
+mobile_install_build(
+    name = "mobile_install_app",
+    app = ":app",
+)
+
+build_test(
+    name = "android_mobile_install_build_test",
+    targets = [":mobile_install_app"],
 )
 
 # Property: an add-to-app module's `.symbols`, which read its stack traces

@@ -1849,7 +1849,7 @@ Each screenshot shows "Hello from Flutter Android!", `native add(19, 23) = 42` a
 
 ### Android mobile-install (manual)
 
-`bazel mobile-install` is rules_android's; nothing in `bazel test //...` runs it, and a Bazel test cannot run another Bazel command against a device. This checks that a `flutter_android_app` installs, renders and takes an edit through it. With the phone attached and `ANDROID_SERIAL` set to it, `adb` on your PATH, in `e2e/android_example`:
+`bazel mobile-install` is rules_android's. `android_example`'s `:android_mobile_install_build_test` builds what it would install, through the same aspect (`tools/e2e_testing/mobile_install_build.bzl`), so a rule the aspect cannot walk fails `bazel test //...` on Linux and macOS (the aspect needs the host's `zip`, which Windows lacks); but a Bazel test cannot run another Bazel command against a device. This checks that a `flutter_android_app` installs, renders and takes an edit through it. With the phone attached and `ANDROID_SERIAL` set to it, `adb` on your PATH, in `e2e/android_example`:
 
 ```sh
 bazel mobile-install //:app

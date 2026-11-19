@@ -1,6 +1,6 @@
 """The Android libraries of the plugins an application depends on.
 
-`flutter_android_plugin_libs(application = ...)` is what `flutter_android_app`
+`flutter_android_plugin_libs(deps = [application])` is what `flutter_android_app`
 puts on its `android_binary` and its plugin registrant, in place of a library
 for every package of the lock. An application's plugins are known only after
 analysis has read its dependency graph (`FlutterApplicationInfo.android_libs`),
@@ -179,7 +179,10 @@ def _native_libs_validation(ctx, libs):
     )
 
 def _flutter_android_plugin_libs_impl(ctx):
-    entries = ctx.attr.deps[FlutterApplicationInfo].android_libs.to_list()
+    if len(ctx.attr.deps) != 1:
+        fail("`deps` of %s lists %d targets; it takes one `flutter_application`, the app whose plugins to link" % (ctx.label, len(ctx.attr.deps)))
+    application = ctx.attr.deps[0]
+    entries = application[FlutterApplicationInfo].android_libs.to_list()
     if ctx.attr.maven:
         data = ctx.attr.maven[FlutterAndroidMavenInfo].data
         linked = {entry.package: True for entry in entries}
@@ -189,7 +192,7 @@ def _flutter_android_plugin_libs_impl(ctx):
 
         # Gradle lines the reader did not check: a reader of Gradle's language
         # that is not Gradle can be wrong about them, so they warn.
-        app = ctx.attr.deps.label
+        app = application.label
         warning = maven_warning_message(
             data,
             linked,
@@ -212,8 +215,8 @@ def _flutter_android_plugin_libs_impl(ctx):
 flutter_android_plugin_libs = rule(
     implementation = _flutter_android_plugin_libs_impl,
     attrs = {
-        "deps": attr.label(
-            doc = "The `flutter_application` whose plugins' Android libraries to link: those of the plugins it depends on, and no others. Named `deps` so that rules_android's dex aspect, which follows `deps`, `exports` and `runtime_deps`, walks from here through the application's `deps` and each library's `exports` to the plugins' Android libraries and dexes them one at a time, as it does for any library an APK depends on.",
+        "deps": attr.label_list(
+            doc = "The `flutter_application` whose plugins' Android libraries to link, as a list of one: those of the plugins it depends on, and no others. A list named `deps`, as everywhere in Bazel, so that rules_android's aspects walk it as they walk any library's: the dex aspect, which follows `deps`, `exports` and `runtime_deps`, goes from here through the application's `deps` and each library's `exports` to the plugins' Android libraries and dexes them one at a time, and `bazel mobile-install`'s aspect iterates it.",
             mandatory = True,
             providers = [FlutterApplicationInfo],
         ),

@@ -29,6 +29,14 @@ def _checks_what_it_links_impl(ctx):
 
 _checks_what_it_links_test = analysistest.make(_checks_what_it_links_impl, expect_failure = True)
 
+def _takes_one_application_impl(ctx):
+    """`deps` that lists two applications fails, saying it takes one."""
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "lists 2 targets; it takes one `flutter_application`")
+    return analysistest.end(env)
+
+_takes_one_application_test = analysistest.make(_takes_one_application_impl, expect_failure = True)
+
 def _ignores_what_it_does_not_link_impl(ctx):
     """An app builds whatever plugins the lock lists, when the ones it links are satisfied.
 
@@ -164,6 +172,10 @@ def android_plugin_libs_test_suite(name):
         name = name + "_checks_what_it_links",
         target_under_test = _FIXTURE + "checked_libs_of_a",
     )
+    _takes_one_application_test(
+        name = name + "_takes_one_application",
+        target_under_test = _FIXTURE + "libs_of_two_apps",
+    )
     _ignores_what_it_does_not_link_test(
         name = name + "_ignores_what_it_does_not_link",
         target_under_test = _FIXTURE + "checked_libs_of_ok",
@@ -202,6 +214,7 @@ def android_plugin_libs_test_suite(name):
             name + "_report_does_not_fail",
             name + "_links_only_its_plugins",
             name + "_checks_what_it_links",
+            name + "_takes_one_application",
             name + "_ignores_what_it_does_not_link",
         ],
     )

@@ -32,14 +32,14 @@ dart_package_metadata(
         flutter_android_plugin_libs(
             name = "libs_of_" + n,
             tags = ["manual"],
-            deps = ":app_uses_" + n,
+            deps = [":app_uses_" + n],
         ),
         flutter_android_plugin_libs(
             name = "checked_libs_of_" + n,
             maven = ":maven",
             report = "//app:%s_maven_artifacts" % n,
             tags = ["manual"],
-            deps = ":app_uses_" + n,
+            deps = [":app_uses_" + n],
         ),
         flutter_android_maven_report(
             name = "report_of_" + n,
@@ -67,7 +67,16 @@ flutter_application(
 flutter_android_plugin_libs(
     name = "libs_of_native",
     tags = ["manual"],
-    deps = ":app_uses_native",
+    deps = [":app_uses_native"],
+)
+
+flutter_android_plugin_libs(
+    name = "libs_of_two_apps",
+    tags = ["manual"],
+    deps = [
+        ":app_uses_a",
+        ":app_uses_b",
+    ],
 )
 
 flutter_android_maven_requirements(
