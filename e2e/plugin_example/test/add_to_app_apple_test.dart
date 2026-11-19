@@ -23,12 +23,21 @@
 ///   links in place.
 /// * One xcframework per plugin of `--plugins` (and no other), each slice a
 ///   framework of the plugin's own code: its binary links Flutter at
-///   `@rpath` and holds none of it, has the framework's install name, and in
-///   profile and release a dSYM. Its module compiles: an Objective-C file
-///   that `@import`s every plugin, and a Swift file that `import`s every
-///   plugin with a Swift interface, type-check against each slice.
+///   `@rpath` and holds none of it, and has the framework's install name.
+///   Its module compiles: an Objective-C file that `@import`s every plugin,
+///   and a Swift file that `import`s every plugin with a Swift interface,
+///   type-check against each slice.
 /// * One xcframework per code asset of `--code-assets`: on iOS a framework
 ///   per slice, on macOS the library itself.
+/// * Each profile or release slice of a plugin or code asset has a dSYM of
+///   its binary in `dSYMs/`, as `flutter build ios-framework` makes one; a
+///   debug slice, the iOS simulator's in every mode, has none. A code
+///   asset's binary is stripped of its local symbols and debugging map, as
+///   upstream strips it; a plugin's is not. With `--line-tables=true` (a
+///   build in `-c opt`, whose links keep their debugging maps, with
+///   `--apple_generate_dsym`, which compiles with debug information), each
+///   dSYM has DWARF compile units, and each plugin's binary still has its
+///   map.
 /// * iOS: `FlutterPluginRegistrant.xcframework`, a static framework that
 ///   defines `GeneratedPluginRegistrant` and none of the plugins it
 ///   registers, and the `GeneratedPluginRegistrant.h` and `.m` beside it.
@@ -199,7 +208,77 @@ Map<String, Map<String, Object?>> _libraries(String xcframework) => {
         l as Map<String, Object?>,
 };
 
-void _checkPlugin(String xcframework, String platform, String mode) {
+/// Checks the debug information of a slice's [binary], as `flutter build
+/// ios-framework` leaves it. Unless [debug], the slice's
+/// `dSYMs/<bundle>.dSYM` has the binary's UUID, and DWARF compile units with
+/// [lineTables]; a [stripped] binary has no debugging map and no local
+/// symbols, and with [lineTables] any other keeps its map. With [debug],
+/// there is no dSYM.
+void _checkSymbols(
+  String what,
+  String slice,
+  Map<String, Object?> library,
+  String binary,
+  String bundle, {
+  required bool debug,
+  required bool stripped,
+  required bool lineTables,
+}) {
+  final symbols = !debug;
+  final dsym = Directory('$slice/dSYMs/$bundle.dSYM');
+  _check(
+    dsym.existsSync() == symbols,
+    '$what: dSYM ${symbols ? 'missing' : 'there'}',
+  );
+  _check(
+    (library['DebugSymbolsPath'] == 'dSYMs') == symbols,
+    '$what: DebugSymbolsPath is ${library['DebugSymbolsPath']}',
+  );
+  if (!symbols || !dsym.existsSync()) return;
+  final dwarf = Directory(
+    '${dsym.path}/Contents/Resources/DWARF',
+  ).listSync().whereType<File>().toList();
+  _check(dwarf.length == 1, '$what: the dSYM has ${dwarf.length} DWARF files');
+  if (dwarf.length != 1) return;
+  final units = RegExp(
+    'DW_TAG_compile_unit',
+  ).allMatches(_run('dwarfdump', ['--debug-info', dwarf.single.path])).length;
+  if (lineTables) {
+    _check(units > 0, '$what: the dSYM has no compile units');
+  }
+  String uuid(String path) =>
+      _run('dwarfdump', ['--uuid', path]).split(' ').skip(1).first;
+  _check(
+    uuid(binary) == uuid(dwarf.single.path),
+    '$what: the dSYM is not of the binary',
+  );
+  final table = _run('nm', ['-ap', binary]);
+  if (!stripped) {
+    if (lineTables) {
+      _check(
+        table.contains(' OSO '),
+        '$what: the binary lost its debugging map',
+      );
+    }
+    return;
+  }
+  _check(
+    !table.contains(' OSO '),
+    '$what: the binary keeps its debugging map',
+  );
+  final locals = _run(
+    'nm',
+    ['-m', binary],
+  ).split('\n').where((l) => l.contains('(__TEXT,__text) non-external')).length;
+  _check(locals == 0, '$what: the binary keeps $locals local text symbols');
+}
+
+void _checkPlugin(
+  String xcframework,
+  String platform,
+  String mode, {
+  required bool lineTables,
+}) {
   final name = xcframework.split('/').last.replaceAll('.xcframework', '');
   final engine = platform == 'ios' ? 'Flutter' : 'FlutterMacOS';
   for (final MapEntry(key: id, value: library) in _libraries(
@@ -226,15 +305,26 @@ void _checkPlugin(String xcframework, String platform, String mode) {
       File('$slice/$name.framework/Modules/module.modulemap').existsSync(),
       '$name $id: no module map',
     );
-    _check(
-      Directory('$slice/dSYMs/$name.framework.dSYM').existsSync() == !debug,
-      '$name $id: dSYM ${debug ? 'there' : 'missing'} in $mode',
+    _checkSymbols(
+      '$name $id in $mode',
+      slice,
+      library,
+      binary,
+      '$name.framework',
+      debug: debug,
+      stripped: false,
+      lineTables: lineTables,
     );
     if (platform == 'macos') _checkVersioned('$slice/$name.framework', name);
   }
 }
 
-void _checkCodeAsset(String xcframework, String platform) {
+void _checkCodeAsset(
+  String xcframework,
+  String platform,
+  String mode, {
+  required bool lineTables,
+}) {
   final name = xcframework.split('/').last.replaceAll('.xcframework', '');
   for (final MapEntry(key: id, value: library) in _libraries(
     xcframework,
@@ -244,6 +334,16 @@ void _checkCodeAsset(String xcframework, String platform) {
     _check(
       library['BinaryPath'] == want,
       '$name $id: binary ${library['BinaryPath']}, not $want',
+    );
+    _checkSymbols(
+      '$name $id in $mode',
+      '$xcframework/$id',
+      library,
+      binary,
+      platform == 'ios' ? '$name.framework' : '$name.dylib',
+      debug: mode == 'debug' || id.endsWith('-simulator'),
+      stripped: true,
+      lineTables: lineTables,
     );
     if (platform == 'ios') {
       _check(
@@ -455,6 +555,7 @@ void main(List<String> args) {
   final xcframeworks = <String>[];
   String? layout;
   var signed = false;
+  var lineTables = false;
   for (final arg in args) {
     if (arg.startsWith('--platform=')) {
       platform = arg.substring('--platform='.length);
@@ -462,6 +563,8 @@ void main(List<String> args) {
       mode = arg.substring('--mode='.length);
     } else if (arg.startsWith('--signed=')) {
       signed = arg == '--signed=true';
+    } else if (arg.startsWith('--line-tables=')) {
+      lineTables = arg == '--line-tables=true';
     } else if (arg.startsWith('--plugins=')) {
       plugins = arg.substring('--plugins='.length).split(',').toSet();
     } else if (arg.startsWith('--code-assets=')) {
@@ -512,9 +615,9 @@ void main(List<String> args) {
         _checkEngine(xcframework, platform);
       case _ when plugins.contains(name):
         pluginPaths.add(xcframework);
-        _checkPlugin(xcframework, platform, mode);
+        _checkPlugin(xcframework, platform, mode, lineTables: lineTables);
       case _ when codeAssets.contains(name):
-        _checkCodeAsset(xcframework, platform);
+        _checkCodeAsset(xcframework, platform, mode, lineTables: lineTables);
       case _:
         _failures.add('$name.xcframework: not expected');
     }

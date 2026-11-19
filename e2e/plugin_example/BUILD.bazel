@@ -1289,6 +1289,42 @@ _ADD_TO_APP_MODES = {
     for variant in _ADD_TO_APP_VARIANTS
 ]
 
+# And in release compiled with debug information, as Xcode compiles a release
+# build, in `-c opt`, whose links keep their debugging maps: each plugin's and
+# code asset's dSYM has its line tables, and each plugin's binary keeps its
+# map, as `flutter build ios-framework` leaves it.
+[
+    apple_release_build(
+        name = "add_to_app_%s_release_symbols" % platform,
+        compilation_mode = "opt",
+        generate_dsym = True,
+        sign = False,
+        tags = ["manual"],
+        targets = [":module_" + platform],
+    )
+    for platform in _ADD_TO_APP_PLATFORMS
+]
+
+[
+    dart_test(
+        name = "add_to_app_%s_release_symbols_test" % platform,
+        args = [
+            "--platform=" + platform,
+            "--mode=release",
+            "--signed=false",
+            "--line-tables=true",
+            "--plugins=audio_session,mixed_plugin,package_info_plus,shared_preferences_foundation,url_launcher_" + platform,
+            "--code-assets=objective_c",
+            "module_" + platform,
+        ],
+        data = [":add_to_app_%s_release_symbols" % platform],
+        main = "test/add_to_app_apple_test.dart",
+        target_compatible_with = ["@platforms//os:macos"],
+        deps = ["@rules_flutter//tools/e2e_testing"],
+    )
+    for platform in _ADD_TO_APP_PLATFORMS
+]
+
 # A module whose plugin links a prebuilt dynamic framework, as a pod's
 # `vendored_frameworks` or a Swift package's `binaryTarget` is one: the layout
 # carries VendoredGreeting.xcframework as it is, as `flutter build

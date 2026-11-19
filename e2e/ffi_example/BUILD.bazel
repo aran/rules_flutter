@@ -744,8 +744,9 @@ dart_test(
     deps = ["@rules_flutter//tools/e2e_testing"],
 )
 
-# Add-to-app: the xcframeworks of the code assets that ship, in release, where
-# `pick`'s link hook drops `pick_dropped`. macOS only: an iOS one builds its
+# Add-to-app: the xcframeworks of the code assets that ship, with their dSYMs,
+# in release, where `pick`'s link hook drops `pick_dropped`; `chain_top` links
+# `chain_base` by its install name there. macOS only: an iOS one builds its
 # simulator slice in debug, as `flutter build ios-framework` does, where no
 # link hook runs, so it ships `pick_dropped` too, and the device build, which
 # does not, is the source of truth (upstream's `verifyCodeAssetConsistency`).
@@ -770,6 +771,8 @@ dart_test(
         "ffi_macos_xcframeworks",
         "libpick_kept",
         "libpick_dropped",
+        "libchain_top",
+        "libchain_base",
     ],
     data = [":macos_xcframeworks_release"],
     main = "test/verify_add_to_app_code_assets_test.dart",
