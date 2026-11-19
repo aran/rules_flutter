@@ -33,7 +33,7 @@ load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEW
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
 load("//flutter/private:pub_lock_sdks.bzl", "parse_lock_sdk_constraints")
 load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
-load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
+load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "published_here_targets", "resolve_errors", "resolve_failure", "resolved_targets")
 load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settings", "unknown_annotation")
 load("//flutter/private:swift_packages.bzl", "declare_swift_packages")
 load("//flutter/private:versions.bzl", "flutter_sdk_packages", "flutter_source_sha256")
@@ -514,6 +514,11 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     if mapped.errors:
         fail("\n\n".join(mapped.errors))
 
+    # pub.dev's `runfiles` is `@rules_dart//dart/runfiles`, as rules_dart's
+    # `pub` serves it: one package for the build, unless a tag maps it.
+    published = published_here_targets([struct(lock = t.tag.lock, hub = t.tag.name, packages = t.packages) for t in tags], mapped.targets)
+    mapped = struct(targets = dict(mapped.targets, **published), errors = [])
+
     # Every lock's entry for each package, classified by who builds it
     # (`lock_entry_kind`). A mapped package is a workspace target whatever the
     # locks say, so it is not compared, fetched or version-checked.
@@ -595,7 +600,8 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
         UNSUPPORTED: "a lock takes from a source rules_flutter does not build",
     }
     not_built = {name: why_not_built.get(e.kind, "the build does not build") for name, e in chosen.items() if name not in built}
-    not_built.update({name: "maps to %s with `resolve`, so a target of yours builds it" % t.target for name, t in mapped.targets.items()})
+    not_built.update({name: "maps to %s with `resolve`, so a target of yours builds it" % t.target for name, t in mapped.targets.items() if name not in published})
+    not_built.update({name: "rules_dart publishes, so %s builds it" % t.target for name, t in published.items()})
     for name in sorted(annotations.keys()):
         if name in not_built:
             fail((

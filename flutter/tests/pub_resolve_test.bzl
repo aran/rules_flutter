@@ -9,7 +9,7 @@ that must fail then, naming the lock, the package and the fix.
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:flutter_unsupported_package.bzl", "ignored_package_message")
-load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_dir", "path_package_directory", "resolve_errors", "resolve_failure", "resolved_targets")
+load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_dir", "path_package_directory", "published_here_targets", "resolve_errors", "resolve_failure", "resolved_targets")
 
 _LOCK = Label("//apps/greeter:pubspec.lock")
 
@@ -360,6 +360,69 @@ _an_unmapped_path_package_is_refused_test = unittest.make(_an_unmapped_path_pack
 _a_lock_that_says_relative_false_is_not_relative_test = unittest.make(_a_lock_that_says_relative_false_is_not_relative_test_impl)
 _a_mapped_name_the_lock_lacks_is_refused_test = unittest.make(_a_mapped_name_the_lock_lacks_is_refused_test_impl)
 _hosted_git_and_sdk_entries_may_be_mapped_test = unittest.make(_hosted_git_and_sdk_entries_may_be_mapped_test_impl)
+
+def _hosted(url = None):
+    desc = {"name": "runfiles", "sha256": "ab", "url": url} if url else {"name": "runfiles", "sha256": "ab"}
+    return {"source": "hosted", "version": "0.4.10", "description": desc}
+
+def _listing(lock, hub, packages):
+    return struct(lock = Label(lock), hub = hub, packages = packages)
+
+_RULES_DART_RUNFILES = str(Label("@rules_dart//dart/runfiles"))
+
+def _pub_dev_runfiles_is_rules_dart_s_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    for url in [None, "https://pub.dev", "https://pub.dartlang.org/"]:
+        got = published_here_targets([_listing("//a:pubspec.lock", "a", {"runfiles": _hosted(url)})], {})
+        asserts.equals(env, ["runfiles"], got.keys())
+        asserts.equals(env, _RULES_DART_RUNFILES, got["runfiles"].target)
+        asserts.equals(env, str(Label("//a:pubspec.lock")), got["runfiles"].lock)
+
+    # Every lock listing it from pub.dev is one mapping.
+    both = published_here_targets([
+        _listing("//a:pubspec.lock", "a", {"runfiles": _hosted()}),
+        _listing("//b:pubspec.lock", "b", {"runfiles": _hosted("https://pub.dev")}),
+    ], {})
+    asserts.equals(env, "a", both["runfiles"].hub)
+
+    # A build no lock of which lists it maps nothing.
+    asserts.equals(env, {}, published_here_targets([_listing("//a:pubspec.lock", "a", {"args": _hosted()})], {}))
+
+    return unittest.end(env)
+
+def _a_resolve_of_runfiles_wins_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    own = resolved_targets([_map("//a:pubspec.lock", "a", {"runfiles": "//fork/runfiles"})])
+    got = published_here_targets([_listing("//a:pubspec.lock", "a", {"runfiles": _hosted()})], own.targets)
+    asserts.equals(env, {}, got)
+
+    return unittest.end(env)
+
+def _runfiles_from_elsewhere_stays_separate_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    others = [
+        _hosted("https://pub.example.com"),
+        {"source": "git", "version": "0.4.10", "description": {"url": "https://example.com/runfiles.git", "ref": "main", "resolved-ref": "0123", "path": "."}},
+        {"source": "path", "version": "0.4.10", "description": {"path": "../runfiles", "relative": True}},
+    ]
+    for other in others:
+        asserts.equals(env, {}, published_here_targets([_listing("//a:pubspec.lock", "a", {"runfiles": other})], {}))
+
+        # Any lock's other package of the name keeps every lock's unmapped.
+        asserts.equals(env, {}, published_here_targets([
+            _listing("//a:pubspec.lock", "a", {"runfiles": _hosted()}),
+            _listing("//b:pubspec.lock", "b", {"runfiles": other}),
+        ], {}))
+
+    return unittest.end(env)
+
+_pub_dev_runfiles_is_rules_dart_s_test = unittest.make(_pub_dev_runfiles_is_rules_dart_s_test_impl)
+_a_resolve_of_runfiles_wins_test = unittest.make(_a_resolve_of_runfiles_wins_test_impl)
+_runfiles_from_elsewhere_stays_separate_test = unittest.make(_runfiles_from_elsewhere_stays_separate_test_impl)
+
 _unmapped_hosted_entries_need_nothing_test = unittest.make(_unmapped_hosted_entries_need_nothing_test_impl)
 _a_mapped_path_entry_may_point_anywhere_test = unittest.make(_a_mapped_path_entry_may_point_anywhere_test_impl)
 _every_mistake_is_reported_test = unittest.make(_every_mistake_is_reported_test_impl)
@@ -389,4 +452,7 @@ def pub_resolve_test_suite(name):
         _an_ignored_package_fails_with_its_reason_test,
         a_package_mapped_to_one_target_is_one_mapping_test,
         a_package_mapped_to_two_targets_is_refused_test,
+        _pub_dev_runfiles_is_rules_dart_s_test,
+        _a_resolve_of_runfiles_wins_test,
+        _runfiles_from_elsewhere_stays_separate_test,
     )

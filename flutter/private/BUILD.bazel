@@ -409,6 +409,7 @@ bzl_library(
     name = "pub_resolve",
     srcs = ["pub_resolve.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = ["@rules_dart//dart/pub:pub_lock_package"],
 )
 
 bzl_library(

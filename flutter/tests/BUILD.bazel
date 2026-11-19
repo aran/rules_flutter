@@ -260,6 +260,20 @@ dart_test(
     deps = ["@rules_dart//dart/runfiles"],
 )
 
+# pub.dev's `runfiles`, which the root lock lists, is the one package
+# `@rules_dart//dart/runfiles` is: a program reaching both builds.
+dart_test(
+    name = "published_runfiles_test",
+    size = "small",
+    data = ["published_runfiles_test.dart"],
+    env = {"SELF": "$(rlocationpath published_runfiles_test.dart)"},
+    main = "published_runfiles_test.dart",
+    deps = [
+        "@dev_tool_deps//:runfiles",
+        "@rules_dart//dart/runfiles",
+    ],
+)
+
 flutter_pubspec_test_suite(name = "flutter_pubspec_test")
 
 flutter_test_bootstrap_test_suite(name = "flutter_test_bootstrap_test")

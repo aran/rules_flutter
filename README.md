@@ -672,6 +672,8 @@ flutter_pub.from_lock(
 
 `resolve` can also replace a hosted, git or `sdk` package for the whole graph, with a fork or a patched copy from any repository. `@deps//:<package>` is then your target, and every hosted package that depends on it gets it too. The locked package is never fetched, and its version isn't checked against your target.
 
+`runfiles` from pub.dev needs no `resolve`. rules_dart publishes it from `@rules_dart//dart/runfiles`, so the hub serves that target for it, whichever version the lock names, as rules_dart's `pub` does. A program can then depend on both `@deps//:runfiles` and `@rules_dart//dart/runfiles`. A `resolve` of `runfiles` of your own still wins. A `runfiles` that a lock takes from another registry, git or a path is a different package, and it is built from the lock as usual.
+
 Every `path` package of the lock must be named in exactly one of `resolve`, `build_from_pubspec` and `ignored`. A `path` package named in none of them fails as soon as Bazel reads the lock, naming the lock and the package, with the lines to add. Naming a package the lock doesn't list is an error.
 
 `build_from_pubspec` is for a `path` package with no Bazel build, such as the `<plugin>_android` package of a federated plugin, which is only Kotlin and a Gradle build. rules_flutter builds its directory exactly as it builds a package from pub.dev or git, and as `flutter build` builds every `path` package. That covers its Dart library, assets, fonts and shaders, and its Android, iOS, macOS, Linux and Windows plugin code. The plugin class, namespace, manifest, Maven dependencies and ProGuard files are read from its pubspec and Gradle files. Depend on it as `@deps//:<package>`.

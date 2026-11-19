@@ -22,6 +22,8 @@ package and the fix. Every function returns messages and never calls `fail`:
 a unit test cannot catch `fail`.
 """
 
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "published_by_rules_dart")
+
 visibility("//flutter/...")
 
 def lock_directory(lock):
@@ -222,3 +224,38 @@ def resolved_targets(maps):
                 ]),
             ))
     return struct(targets = targets, errors = errors)
+
+def published_here_targets(locks, targets):
+    """The packages rules_dart publishes to pub.dev, mapped to its own targets.
+
+    `runfiles` reaches a build two ways: as `@rules_dart//dart/runfiles`, and
+    from pub.dev, where each rules_dart release publishes those sources. Those
+    are one package, so a build holds one copy, the one that came with the
+    rules: it knows the runfiles layout of the rules_dart building it, whichever
+    release a lock resolved. It is a `resolve` stated by the package's
+    publisher, as rules_dart's own `pub` extension states it, so the two
+    extensions serve the package alike. A lock's version of it is not compared,
+    as with any `resolve`; code the rules' copy does not fit fails to compile.
+
+    Only pub.dev's package is this one. A `runfiles` that any lock takes from
+    another registry, git or a path is some other package of that name, and so
+    is the build's to place. A `resolve` of it by any tag wins.
+
+    Args:
+        locks: One `struct(lock, hub, packages)` per tag: the lock's `Label`,
+            the hub's name, and the lock's packages as `parse_pubspec_lock`
+            returns them.
+        targets: `resolved_targets`'s targets: the packages a tag maps.
+
+    Returns:
+        A dict of package name to `struct(target, lock, hub)`, as
+        `resolved_targets` gives, for each published package some lock lists
+        from pub.dev alone and no tag maps.
+    """
+    result = {}
+    for name, target in published_by_rules_dart([lock.packages for lock in locks]).items():
+        if name in targets:
+            continue
+        listed = [lock for lock in locks if name in lock.packages]
+        result[name] = struct(target = str(target), lock = str(listed[0].lock), hub = listed[0].hub)
+    return result
