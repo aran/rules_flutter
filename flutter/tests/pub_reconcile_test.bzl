@@ -7,24 +7,35 @@ winning, and a raised lock of the root module is reported at the root's level.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_lock_entry")
 load("//flutter/private:lock_entry_kind.bzl", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "UNSUPPORTED")
-load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
+load("//flutter/private:pub_reconcile.bzl", "PUB_RUNNER", "reconcile_package", "unsupported_locks")
 
-def _dir(lock):
-    return lock.split("//")[1].split(":")[0]
+def _read(name, info, lock):
+    """The entry rules_dart's `pub_lock_entry` reads, as the extension reads it."""
+    read = pub_lock_entry(name, info, Label(lock), runner = PUB_RUNNER)
+    if read.errors:
+        fail("\n".join(read.errors))
+    return read.entry
 
 def _hosted(version, hub = "deps", lock = "//app:pubspec.lock", sha256 = "aa", url = "https://pub.dev", module = "", is_root = True):
-    return struct(kind = HOSTED, version = version, sha256 = sha256, url = url, hub = hub, lock_label = lock, lock_dir = _dir(lock), module = module, is_root = is_root)
+    sha256 = (sha256 * 64)[:64]
+    info = {"source": "hosted", "version": version, "description": {"name": "meta", "sha256": sha256, "url": url}}
+    return struct(kind = HOSTED, version = version, sha256 = sha256, url = url, hub = hub, lock_label = str(Label(lock)), module = module, is_root = is_root, lock_entry = _read("meta", info, lock))
 
 def _tools(version, sha256 = "aa"):
     """rules_flutter's own tool lock, as a consumer's build sees it."""
     return _hosted(version, hub = "dev_tool_deps", lock = "@@rules_flutter+//:pubspec.lock", sha256 = sha256, module = "rules_flutter", is_root = False)
 
-def _git(ref, hub = "deps", lock = "//app:pubspec.lock", url = "https://github.com/x/foo.git", path = ".", git_lock = ""):
-    return struct(kind = GIT, version = "1.0.0", git_url = url, resolved_ref = ref, git_path = path, git_lock = git_lock, hub = hub, lock_label = lock)
+def _git(ref, hub = "deps", lock = "//app:pubspec.lock", url = "https://github.com/x/foo.git", path = "."):
+    ref = (ref + "0" * 40)[:40]
+    info = {"source": "git", "version": "1.0.0", "description": {"url": url, "resolved-ref": ref, "path": path, "ref": "main"}}
+    return struct(kind = GIT, version = "1.0.0", hub = hub, lock_label = str(Label(lock)), lock_entry = _read("foo", info, lock))
 
-def _local(directory, hub = "deps", lock = "//app:pubspec.lock"):
-    return struct(kind = LOCAL, version = "1.0.0", directory = directory, hub = hub, lock_label = lock)
+def _local(path, hub = "deps", lock = "//app:pubspec.lock"):
+    info = {"source": "path", "version": "1.0.0", "description": {"path": path, "relative": "True"}}
+    entry = _read("kb", info, lock)
+    return struct(kind = LOCAL, version = "1.0.0", directory = entry.directory, hub = hub, lock_label = str(Label(lock)), lock_entry = entry)
 
 def _mentions(env, text, fragments):
     for fragment in fragments:
@@ -59,15 +70,6 @@ def _locks_that_agree_share_the_package_test_impl(ctx):
     return unittest.end(env)
 
 locks_that_agree_share_the_package_test = unittest.make(_locks_that_agree_share_the_package_test_impl)
-
-def _the_runner_command_names_the_lock_test_impl(ctx):
-    env = unittest.begin(ctx)
-    asserts.equals(env, "bazel run @rules_flutter//flutter/pub -- get", pub_command("get", ""))
-    asserts.equals(env, "bazel run @rules_flutter//flutter/pub -- get --directory=apps/a", pub_command("get", "apps/a"))
-    asserts.equals(env, "bazel run @rules_flutter//flutter/pub -- upgrade --directory=a meta intl", pub_command("upgrade", "a", ["meta", "intl"]))
-    return unittest.end(env)
-
-the_runner_command_names_the_lock_test = unittest.make(_the_runner_command_names_the_lock_test_impl)
 
 def _the_highest_version_wins_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -189,7 +191,7 @@ def _different_sources_are_refused_test_impl(ctx):
     for other in [_git("0123abc", hub = "tools", lock = "@rules_flutter//:pubspec.lock"), sdk]:
         r = reconcile_package("foo", [_hosted("1.2.0"), other])
         asserts.equals(env, 1, len(r.errors))
-        _mentions(env, r.errors[0], ["\"foo\" comes from different sources", "hosted 1.2.0", "//app:pubspec.lock", other.lock_label, "`resolve`"])
+        _mentions(env, r.errors[0], ["\"foo\"", "//app:pubspec.lock", other.lock_label, "`resolve`"])
 
     return unittest.end(env)
 
@@ -200,7 +202,7 @@ def _different_commits_are_refused_test_impl(ctx):
 
     r = reconcile_package("foo", [_git("0123abc"), _git("4567def", hub = "tools", lock = "//tools:pubspec.lock")])
     asserts.equals(env, 1, len(r.errors))
-    _mentions(env, r.errors[0], ["\"foo\" is pinned to different git sources", "0123abc", "4567def", "//tools:pubspec.lock"])
+    _mentions(env, r.errors[0], ["\"foo\"", "0123abc", "4567def", "//tools:pubspec.lock"])
 
     # The same commit of a different path is a different package source.
     r = reconcile_package("foo", [_git("0123abc"), _git("0123abc", path = "pkgs/foo")])
@@ -220,15 +222,15 @@ def _one_git_package_spelled_two_ways_is_one_test_impl(ctx):
 
     # One repository of the workspace, named relative to each lock.
     r = reconcile_package("foo", [
-        _git("0123abc", url = "../repos/foo", git_lock = "//app:pubspec.lock"),
-        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../../repos/foo", git_lock = "//tools/sub:pubspec.lock"),
+        _git("0123abc", url = "../repos/foo"),
+        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../../repos/foo"),
     ])
     asserts.equals(env, [], r.errors)
 
     # One text relative to two locks names two repositories.
     r = reconcile_package("foo", [
-        _git("0123abc", url = "../repos/foo", git_lock = "//app:pubspec.lock"),
-        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../repos/foo", git_lock = "//tools/sub:pubspec.lock"),
+        _git("0123abc", url = "../repos/foo"),
+        _git("0123abc", hub = "tools", lock = "//tools/sub:pubspec.lock", url = "../repos/foo"),
     ])
     asserts.equals(env, 1, len(r.errors))
 
@@ -253,9 +255,10 @@ unsupported_entries_name_every_lock_test = unittest.make(_unsupported_entries_na
 def _one_directory_is_one_package_test_impl(ctx):
     env = unittest.begin(ctx)
 
-    r = reconcile_package("kb", [_local("/src/kb"), _local("/src/kb", hub = "b", lock = "//b:pubspec.lock")])
+    # One directory, named relative to each lock.
+    r = reconcile_package("kb", [_local("../src/kb"), _local("../src/kb", hub = "b", lock = "//b:pubspec.lock")])
     asserts.equals(env, [], r.errors)
-    asserts.equals(env, "/src/kb", r.entry.directory)
+    asserts.equals(env, _local("../src/kb").directory, r.entry.directory)
 
     return unittest.end(env)
 
@@ -264,15 +267,20 @@ one_directory_is_one_package_test = unittest.make(_one_directory_is_one_package_
 def _two_directories_are_refused_test_impl(ctx):
     env = unittest.begin(ctx)
 
-    r = reconcile_package("kb", [_local("/src/kb"), _local("/other/kb", hub = "b", lock = "//b:pubspec.lock")])
+    r = reconcile_package("kb", [_local("../src/kb"), _local("../other/kb", hub = "b", lock = "//b:pubspec.lock")])
     asserts.equals(env, None, r.entry)
     asserts.equals(env, 1, len(r.errors))
-    _mentions(env, r.errors[0], ["\"kb\"", "/src/kb", "/other/kb", "//app:pubspec.lock", "//b:pubspec.lock", "different directories"])
+    _mentions(env, r.errors[0], ["\"kb\"", "src/kb", "other/kb", "//app:pubspec.lock", "//b:pubspec.lock", "different directories"])
+
+    # Built in one lock and fetched in another is refused too.
+    r = reconcile_package("kb", [_local("../src/kb"), _hosted("1.0.0", hub = "b", lock = "//b:pubspec.lock")])
+    asserts.equals(env, 1, len(r.errors))
+    _mentions(env, r.errors[0], ["\"kb\"", "//app:pubspec.lock", "//b:pubspec.lock"])
 
     # Built in one lock and ignored in another is two sources.
-    r = reconcile_package("kb", [_local("/src/kb"), struct(kind = IGNORED, reason = "why", hub = "b", lock_label = "//b:pubspec.lock")])
+    r = reconcile_package("kb", [_local("../src/kb"), struct(kind = IGNORED, reason = "why", hub = "b", lock_label = "//b:pubspec.lock")])
     asserts.equals(env, 1, len(r.errors))
-    _mentions(env, r.errors[0], ["different sources", "built from its pubspec at /src/kb", "ignored (hub \"b\", //b:pubspec.lock)"])
+    _mentions(env, r.errors[0], ["different sources", "local (hub \"deps\", @@//app:pubspec.lock)", "ignored (hub \"b\", //b:pubspec.lock)"])
 
     return unittest.end(env)
 
@@ -284,7 +292,6 @@ def pub_reconcile_test_suite(name):
         one_lock_is_its_own_entry_test,
         one_git_package_spelled_two_ways_is_one_test,
         locks_that_agree_share_the_package_test,
-        the_runner_command_names_the_lock_test,
         the_highest_version_wins_test,
         raising_another_modules_lock_says_nothing_test,
         a_raised_root_lock_warns_test,

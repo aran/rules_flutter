@@ -14,7 +14,7 @@ For each such package in a Flutter app's pubspec.lock this rule:
      `packages/<name>` of the toolchain's pinned Flutter source tarball, by
      `flutter_source_files`. Kept apart, the files are stored once in Bazel's
      repository cache however often the Starlark generating the build
-     changes. A `path` package (`directory` set) is its directory, linked
+     changes. A `path` package (`lock` set) is its directory, linked
      (`fetch_local_package`), and a package of a framework source
      (`framework_json`) its directory there. Everything after this step is the
      same.
@@ -52,7 +52,7 @@ rule asks for it.
 """
 
 load("@rules_dart//dart/pub:pub_graph.bzl", "PUBSPEC_DEPENDENCIES", "write_pubspec_dependencies")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file", "link_pub_files", "link_pub_path", "pub_files_fetched", "pub_package_identity", "pub_path_source")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file", "link_pub_files", "link_pub_path", "pub_files_fetched", "pub_lock_path_directory", "pub_lock_path_source", "pub_package_identity")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
 load("//flutter/private:android_build_config.bzl", "parse_gradle_build_config_fields", "unknown_build_config_message", "unread_build_config_message")
 load("//flutter/private:android_plugin_jvm_target.bzl", "AGP_DEFAULT_JVM_LEVEL", "kotlinc_jvm_target", "parse_gradle_jvm_level", "unread_jvm_level_message", "unsupported_jvm_level_message")
@@ -2631,7 +2631,7 @@ def fetch_local_package(ctx, directory, problems):
 
     Args:
         ctx: The `repository_ctx`.
-        directory: The package's directory, absolute.
+        directory: The package's directory, a `path`.
         problems: What keeps the package from being built, added to.
 
     Returns:
@@ -2650,7 +2650,7 @@ def fetch_local_package(ctx, directory, problems):
         refusal = link_pub_path(ctx, directory, _local_package_entries(ctx, directory, problems))
     return "package {}: {}".format(ctx.attr.package_name, refusal) if refusal else None
 
-def package_fetched(attr, fetched):
+def package_fetched(ctx, fetched):
     """What the package is: its version, and its source.
 
     What rules_dart's `pub` states for the same lock entry, so a program
@@ -2659,26 +2659,26 @@ def package_fetched(attr, fetched):
     it fetched (`pub_files_fetched`), never facts passed beside it, which could
     describe bytes never fetched. A path package's source is the directory it
     is built from, named by its lock and the lock's path to it
-    (`pub_path_source`). A Flutter SDK package, whose files repository records
+    (`pub_lock_path_source`). A Flutter SDK package, whose files repository records
     nothing, and a package of a framework source have none: rules_dart's `pub`
     never fetches one, so no second copy has to match.
 
     Args:
-        attr: A `flutter_pub_package`'s attributes.
+        ctx: A `flutter_pub_package`'s `repository_ctx`.
         fetched: What its files repository records it fetched, as
             `pub_files_fetched` returns it, or None.
 
     Returns:
         `struct(version, source)`: the source as `pub_package_identity` takes
-        it, None for a package with none, and for a path package the lock
-        names outside the lock's repository.
+        it, None for a package with none. A path package's is rules_dart's
+        `pub_lock_path_source`: its directory by its repository, or, outside
+        any, where it is on this machine.
     """
+    attr = ctx.attr
     if fetched == None:
-        if not attr.directory:
-            return struct(version = attr.version, source = None)
         if attr.lock == None:
-            fail("package {}: a `path` package built from {} names no `lock`, whose `path` to it says what it is.".format(attr.package_name, attr.directory))
-        return struct(version = attr.version, source = pub_path_source(attr.lock, attr.path))
+            return struct(version = attr.version, source = None)
+        return struct(version = attr.version, source = pub_lock_path_source(ctx, attr.lock, attr.path))
     if fetched.package_name != attr.package_name:
         fail("package {}: its files repository fetched package {} {}.".format(attr.package_name, fetched.package_name, fetched.version))
     if attr.version:
@@ -2738,14 +2738,15 @@ def _flutter_pub_package_impl(ctx):
         if unusable:
             _write_stub(ctx, unusable)
             return _linked_repo_metadata(ctx)
-    elif ctx.attr.directory:
-        refusal = fetch_local_package(ctx, ctx.attr.directory, problems)
+    elif ctx.attr.lock:
+        # The directory the lock names, wherever it is, found as pub finds it.
+        refusal = fetch_local_package(ctx, pub_lock_path_directory(ctx, ctx.attr.lock, ctx.attr.path), problems)
     else:
         # A hosted, git or Flutter SDK package: its files are another
         # repository's, linked in.
         build_prelude = _link_package_files(ctx)
         fetched = pub_files_fetched(ctx, ctx.attr.files)
-    package = package_fetched(ctx.attr, fetched)
+    package = package_fetched(ctx, fetched)
     version = package.version
     identity = pub_package_identity(package.source)
     if identity.repo_file:
@@ -3192,92 +3193,101 @@ def _flutter_pub_package_impl(ctx):
     _write_maven_deps(ctx, version, maven_deps, maven_unread, maven_script, list(ctx.attr.android_deps), maven_boms)
     return _linked_repo_metadata(ctx)
 
+_ATTRS = {
+    "package_name": attr.string(
+        doc = "The pub.dev package name, or the name of the Flutter SDK package under `packages/` of the Flutter source.",
+        mandatory = True,
+    ),
+    "version": attr.string(
+        doc = "A path package's version, as pubspec.lock records it, or a Flutter SDK package's (`0.0.0`). " +
+              "Unset for a hosted or git package, whose version is the one its `files` repository fetched.",
+    ),
+    "files": attr.label(
+        doc = "The repository holding a hosted, git or Flutter SDK package's files, as rules_dart's " +
+              "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
+              "What `pub_archive_files` or `pub_git_files` records it fetched is the package's version, " +
+              "source. Unused with `directory` or `framework_json`.",
+    ),
+    "lock": attr.label(
+        doc = "A `path` package's lock (`flutter_pub_path_package` only). The package is linked from the " +
+              "directory `path` names from it. With `path`, it is what the package is built from, as rules_dart's " +
+              "`pub` states it for the same lock entry (`pub_lock_path_source`).",
+    ),
+    "path": attr.string(
+        doc = "A `path` package's `description.path` in `lock`: relative to the lock's directory, or absolute.",
+        default = "",
+    ),
+    "framework_json": attr.label(
+        doc = "The `flutter_framework.json` of a framework source holding this package as `packages/<package_name>`, " +
+              "for a Flutter SDK package of an SDK whose framework is not the release.",
+        allow_single_file = True,
+    ),
+    "unusable": attr.string(
+        doc = "Why the package cannot be built, for a Flutter SDK package its SDK does not have: " +
+              "the package's target then fails with it when something uses it.",
+    ),
+    "sdks": attr.string_list(
+        doc = "For a Flutter SDK package, the SDKs whose framework it is from, whose " +
+              "needs of the locked packages it checks; empty for any other package.",
+    ),
+    "prefix": attr.string(
+        doc = "The prefix of the index the package is planned against: the build's, or another SDK framework's.",
+        default = "flutter_pub",
+    ),
+    "code_assets": attr.string_list(
+        doc = "Labels of `dart_code_asset` targets standing in for this " +
+              "package's build hook. Resolved by the extension from " +
+              "rules_dart's curated registry, so a user depending on, say, " +
+              "`drift` never names `sqlite3`. Attached to the generated " +
+              "package target rather than to the application, which is what " +
+              "makes them propagate the way pub's own assets do.",
+        default = [],
+    ),
+    "android_deps": attr.string_list(
+        doc = "Labels of `@rules_flutter_maven` artifacts to add to the " +
+              "package's Android library, from the root's " +
+              "`flutter_pub.annotation`. Written as the labels' canonical " +
+              "strings, so the repository stays fetchable by the root's name for it.",
+        default = [],
+    ),
+    "build_config_fields": attr.string_dict(
+        doc = "Values of the plugin's `buildConfigField`s, by field name, from the root's " +
+              "`flutter_pub.annotation`, each a Java expression. They replace what the reader reads.",
+        default = {},
+    ),
+    "ignore_hook": attr.bool(
+        doc = "Treat this package's build hook as irrelevant. Without it, a " +
+              "package shipping a hook that nothing replaces is recorded and " +
+              "the application that reaches it fails, rather than building " +
+              "cleanly and dying at runtime on an unresolved native symbol.",
+        default = False,
+    ),
+    "overlay_roots": attr.label_list(
+        doc = "BUILD.bazel anchors for overlay trees. Each label points at " +
+              "a `flutter/ext/BUILD.bazel` (or equivalent) that anchors a directory " +
+              "tree of `<package>/<version>/BUILD.bazel.tpl` overrides. The " +
+              "rule walks the roots in order and uses the first match. " +
+              "User-supplied roots come before the bundled " +
+              "`@rules_flutter//flutter/ext:BUILD.bazel`.",
+        allow_files = True,
+        default = [],
+    ),
+}
+
 flutter_pub_package = repository_rule(
     implementation = _flutter_pub_package_impl,
-    attrs = {
-        "package_name": attr.string(
-            doc = "The pub.dev package name, or the name of the Flutter SDK package under `packages/` of the Flutter source.",
-            mandatory = True,
-        ),
-        "version": attr.string(
-            doc = "A path package's version, as pubspec.lock records it, or a Flutter SDK package's (`0.0.0`). " +
-                  "Unset for a hosted or git package, whose version is the one its `files` repository fetched.",
-        ),
-        "files": attr.label(
-            doc = "The repository holding a hosted, git or Flutter SDK package's files, as rules_dart's " +
-                  "`pub_files_label` names it: `pub_archive_files`, `pub_git_files` or `flutter_source_files`. " +
-                  "What `pub_archive_files` or `pub_git_files` records it fetched is the package's version, " +
-                  "source. Unused with `directory` or `framework_json`.",
-        ),
-        "directory": attr.string(
-            doc = "A `path` package's directory, absolute: `path` resolved against the real directory of `lock`. " +
-                  "When set, the package is linked from it.",
-            default = "",
-        ),
-        "lock": attr.label(
-            doc = "A `path` package's lock. With `path`, it is what the package is built from, as rules_dart's " +
-                  "`pub` states it for the same lock entry (`pub_path_source`): the lock's repository and the " +
-                  "directory in it.",
-        ),
-        "path": attr.string(
-            doc = "A `path` package's `description.path` in `lock`: relative to the lock's directory, or absolute.",
-            default = "",
-        ),
-        "framework_json": attr.label(
-            doc = "The `flutter_framework.json` of a framework source holding this package as `packages/<package_name>`, " +
-                  "for a Flutter SDK package of an SDK whose framework is not the release.",
-            allow_single_file = True,
-        ),
-        "unusable": attr.string(
-            doc = "Why the package cannot be built, for a Flutter SDK package its SDK does not have: " +
-                  "the package's target then fails with it when something uses it.",
-        ),
-        "sdks": attr.string_list(
-            doc = "For a Flutter SDK package, the SDKs whose framework it is from, whose " +
-                  "needs of the locked packages it checks; empty for any other package.",
-        ),
-        "prefix": attr.string(
-            doc = "The prefix of the index the package is planned against: the build's, or another SDK framework's.",
-            default = "flutter_pub",
-        ),
-        "code_assets": attr.string_list(
-            doc = "Labels of `dart_code_asset` targets standing in for this " +
-                  "package's build hook. Resolved by the extension from " +
-                  "rules_dart's curated registry, so a user depending on, say, " +
-                  "`drift` never names `sqlite3`. Attached to the generated " +
-                  "package target rather than to the application, which is what " +
-                  "makes them propagate the way pub's own assets do.",
-            default = [],
-        ),
-        "android_deps": attr.string_list(
-            doc = "Labels of `@rules_flutter_maven` artifacts to add to the " +
-                  "package's Android library, from the root's " +
-                  "`flutter_pub.annotation`. Written as the labels' canonical " +
-                  "strings, so the repository stays fetchable by the root's name for it.",
-            default = [],
-        ),
-        "build_config_fields": attr.string_dict(
-            doc = "Values of the plugin's `buildConfigField`s, by field name, from the root's " +
-                  "`flutter_pub.annotation`, each a Java expression. They replace what the reader reads.",
-            default = {},
-        ),
-        "ignore_hook": attr.bool(
-            doc = "Treat this package's build hook as irrelevant. Without it, a " +
-                  "package shipping a hook that nothing replaces is recorded and " +
-                  "the application that reaches it fails, rather than building " +
-                  "cleanly and dying at runtime on an unresolved native symbol.",
-            default = False,
-        ),
-        "overlay_roots": attr.label_list(
-            doc = "BUILD.bazel anchors for overlay trees. Each label points at " +
-                  "a `flutter/ext/BUILD.bazel` (or equivalent) that anchors a directory " +
-                  "tree of `<package>/<version>/BUILD.bazel.tpl` overrides. The " +
-                  "rule walks the roots in order and uses the first match. " +
-                  "User-supplied roots come before the bundled " +
-                  "`@rules_flutter//flutter/ext:BUILD.bazel`.",
-            allow_files = True,
-            default = [],
-        ),
-    },
+    attrs = _ATTRS,
     doc = "Links in a single Flutter pub package's files, its source repository, and emits its member: a `flutter_pub_member` (a plugin when `flutter.plugin` is present, otherwise a package bundling fonts, assets or shaders) or rules_dart's `pub_package_member` (for a package with nothing of Flutter's). When Apple sources are detected, also emits per-platform `flutter_apple_plugin_library` sub-targets. Honors per-package overlay BUILD.bazel.tpl overrides under `overlay_roots`, which replace the member with a whole target. The package's library repository (`flutter_pub_library_repo`) builds the member with the others of its dependency cycle. The `flutter pub get` analog of `pub_lock_package`.",
+)
+
+# A `path` package, built from its directory: the checkout's, or this
+# machine's, outside the repository. Local, as Bazel's `local_repository` is,
+# and as rules_dart's `pub_lock_path_package`: never reproducible, fetched
+# again when the server restarts or a file it read changes, and left out by
+# `bazel vendor`, which would fix it to one content.
+flutter_pub_path_package = repository_rule(
+    implementation = _flutter_pub_package_impl,
+    attrs = _ATTRS,
+    local = True,
+    doc = "`flutter_pub_package` of a `path` package of a lock, built from the directory the lock names.",
 )

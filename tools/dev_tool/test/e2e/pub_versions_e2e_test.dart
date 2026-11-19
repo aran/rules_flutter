@@ -323,9 +323,8 @@ void main() {
       expect(
         result.output,
         allOf(
-          contains('"vplain" comes from different sources'),
-          contains('hosted 1.0.0'),
-          contains('git '),
+          contains('"vplain" is a git package in'),
+          contains('and a hosted package in'),
           contains('//other:pubspec.lock'),
         ),
         reason: '$result',

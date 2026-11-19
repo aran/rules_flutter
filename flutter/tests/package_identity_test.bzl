@@ -112,7 +112,7 @@ def _source_follows_what_was_fetched_test_impl(ctx):
     env = unittest.begin(ctx)
 
     def attr(**kwargs):
-        fields = dict(package_name = "args", version = "", directory = "", lock = None, path = "")
+        fields = dict(package_name = "args", version = "", lock = None, path = "")
         fields.update(kwargs)
         return struct(**fields)
 
@@ -120,20 +120,19 @@ def _source_follows_what_was_fetched_test_impl(ctx):
     # passed beside the files.
     for source in [_HOSTED, _LOCAL_GIT]:
         fetched = struct(package_name = "args", version = "2.7.0", source = source)
-        asserts.equals(env, struct(version = "2.7.0", source = source), package_fetched(attr(), fetched))
+        asserts.equals(env, struct(version = "2.7.0", source = source), package_fetched(struct(attr = attr()), fetched))
 
     # A path package: the directory it is built from, named by its lock and
     # the lock's path to it, at the lock's version.
-    package = package_fetched(attr(version = "2.7.0", directory = "/abs/packages/args", lock = _LOCK, path = "../packages/args"), None)
+    # One the lock names outside its repository is named by where it is on
+    # the machine, which a repository's context finds (rules_dart's
+    # `pub_lock_path_source`, tested there and by the path package e2e).
+    package = package_fetched(struct(attr = attr(version = "2.7.0", lock = _LOCK, path = "../packages/args")), None)
     asserts.equals(env, struct(version = "2.7.0", source = _PATH), package)
-
-    # One the lock names outside its repository: nothing names the directory.
-    package = package_fetched(attr(version = "2.7.0", directory = "/abs/elsewhere", lock = _LOCK, path = "../../elsewhere"), None)
-    asserts.equals(env, struct(version = "2.7.0", source = None), package)
 
     # A Flutter SDK package, whose files repository records nothing:
     # rules_dart's `pub` never fetches one.
-    asserts.equals(env, struct(version = "0.0.0", source = None), package_fetched(attr(version = "0.0.0"), None))
+    asserts.equals(env, struct(version = "0.0.0", source = None), package_fetched(struct(attr = attr(version = "0.0.0")), None))
     return unittest.end(env)
 
 def _members_without_an_identity_load_their_declaration_test_impl(ctx):

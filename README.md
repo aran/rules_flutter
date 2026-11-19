@@ -739,7 +739,8 @@ The lock then loads, and a target that depends on `@deps//:release_tool` fails a
 
 A few more details of `build_from_pubspec`:
 
-- The directory is the lock's path, relative to the lock's directory, and it may be outside the repository.
+- The directory is the lock's path, relative to the lock's directory, as pub reads it. It may be outside the repository, by an absolute path or one that leaves it. Such a package ties the build to this machine, and a lock with an absolute path works only where it was written.
+- The package's repository is local, wherever the directory is, as a `local_repository` is: `bazel vendor` leaves it out (inside the repository it builds from the checkout), and it is fetched again when Bazel's server restarts.
 - Bazel reads `pubspec.yaml`, `lib/`, `hook/`, the license, the platform directories, and the directories the pubspec lists assets, fonts and shaders from. It sees edits to them. Tool output (`build/`, `.dart_tool/`, `android/.gradle/`, `android/build/`) is left out, and changes there don't make Bazel fetch the package again.
 - A directory that holds a `BUILD`, `BUILD.bazel`, `MODULE.bazel`, `REPO.bazel` or `WORKSPACE` file is refused. It has a Bazel build, so map it with `resolve`.
 - A package whose code is generated, or built by Bazel some other way (the Rust behind a flutter_rust_bridge `rust_builder`, say), needs `resolve` too. Its pubspec doesn't say how to build it.

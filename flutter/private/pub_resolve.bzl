@@ -16,10 +16,12 @@ reads by path and Bazel takes from a `bazel_dep`). What holds the mapping to the
 lock is that the target declares the package's name, checked at analysis
 (`resolved_package.bzl`).
 
-The checks here are pure and run when the extension reads the lock, so a wrong
-map fails every Bazel command that loads the module, naming the lock, the
-package and the fix. Every function returns messages and never calls `fail`:
-a unit test cannot catch `fail`.
+How each tag names its lock's packages is checked by rules_dart's
+`pub_lock_mapping_error`, as `pub.from_lock` checks its own, when the
+extension reads the lock, so a wrong map fails every Bazel command that loads
+the module, naming the lock, the package and the fix. What is here is how the
+maps of every tag combine. Every function returns messages and never calls
+`fail`: a unit test cannot catch `fail`.
 """
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "published_by_rules_dart")
@@ -40,147 +42,6 @@ def lock_directory(lock):
     """
     parts = [p for p in [lock.package, lock.name.rpartition("/")[0]] if p]
     return "/".join(parts)
-
-def path_package_dir(lock_package, path):
-    """Resolves a `path` lock entry's path to the Bazel package it names.
-
-    The path is relative to the directory of the lock, whatever the depth of the
-    package that declared the dependency. Both `/` and `\\` separate segments.
-
-    Args:
-        lock_package: The directory of the lock (`lock_directory`); empty
-            for the repository root.
-        path: The `path` of the entry's `description`.
-
-    Returns:
-        `struct(dir, error)`: `dir`, the Bazel package (empty for the
-        repository root), or None when `error` is set: the path leaves the
-        repository.
-    """
-    segments = []
-    for segment in (lock_package + "/" + path.replace("\\", "/")).split("/"):
-        if segment == "" or segment == ".":
-            continue
-        if segment == "..":
-            if not segments:
-                return struct(dir = None, error = "leaves the repository")
-            segments.pop()
-        else:
-            segments.append(segment)
-    return struct(dir = "/".join(segments), error = None)
-
-def _is_true(value):
-    return value in ["true", "True"]
-
-def _suggested_target(lock, info):
-    """The target `resolve` most likely maps a `path` entry to: the Bazel package at its path."""
-    description = info.get("description", {})
-    if type(description) != "dict" or not _is_true(description.get("relative", "")):
-        return "//..."
-    resolved = path_package_dir(lock_directory(lock), description.get("path", ""))
-    return "//{}:<target>".format(resolved.dir) if resolved.dir != None else "//..."
-
-def _quoted(names):
-    return ", ".join(["`%s`" % n for n in names])
-
-def resolve_errors(lock, lock_pkgs, resolve, build_from_pubspec = [], ignored = {}):
-    """Everything wrong with how one `flutter_pub.from_lock()` names the lock's packages.
-
-    The texts are rules_dart's `pub.from_lock`'s, which takes the same three
-    attributes.
-
-    Args:
-        lock: The lock's `Label`.
-        lock_pkgs: The lock's packages, from `parse_pubspec_lock`.
-        resolve: The tag's `resolve`: package name to the target's `Label`.
-        build_from_pubspec: The tag's `build_from_pubspec`: package names.
-        ignored: The tag's `ignored`: package name to the reason.
-
-    Returns:
-        One line per problem, in a stable order; empty when every name is
-        valid. The caller heads them with the tag (`resolve_failure`).
-    """
-    problems = []
-    chosen = {}
-    for attr, names in [("resolve", resolve.keys()), ("build_from_pubspec", build_from_pubspec), ("ignored", ignored.keys())]:
-        stale = sorted([n for n in names if n not in lock_pkgs])
-        if stale:
-            problems.append("  - `%s` %s %s, which the lock does not list. Remove %s." % (
-                attr,
-                "maps" if attr == "resolve" else "names",
-                _quoted(stale),
-                "them" if len(stale) > 1 else "it",
-            ))
-        if attr != "resolve":
-            not_path = sorted([n for n in names if n in lock_pkgs and lock_pkgs[n].get("source") != "path"])
-            if not_path:
-                problems.append(
-                    "  - `%s` names %s, which the lock does not list as `path`: it takes only path packages." % (attr, _quoted(not_path)),
-                )
-        for name in names:
-            chosen.setdefault(name, []).append(attr)
-    for name in sorted(chosen.keys()):
-        if len(chosen[name]) > 1:
-            problems.append("  - `%s` is named in %s; name it in one." % (
-                name,
-                " and ".join(["`%s`" % a for a in chosen[name]]),
-            ))
-    unnamed = sorted([n for n, info in lock_pkgs.items() if info.get("source") == "path" and n not in chosen])
-    if unnamed:
-        problems.append(
-            ("  - it lists %s as %s. Name each in exactly one of:\n" +
-             "      resolve = {%s}  (a target of yours builds it)\n" +
-             "      build_from_pubspec = [%s]  (build it from its directory, as a hosted package)\n" +
-             "      ignored = {%s}  (nothing builds it; depending on it fails with the reason)") % (
-                _quoted(unnamed),
-                "`path` packages" if len(unnamed) > 1 else "a `path` package",
-                ", ".join(['"%s": "%s"' % (n, _suggested_target(lock, lock_pkgs[n])) for n in unnamed]),
-                ", ".join(['"%s"' % n for n in unnamed]),
-                ", ".join(['"%s": "<why>"' % n for n in unnamed]),
-            ),
-        )
-    return problems
-
-def resolve_failure(hub, lock, problems):
-    """The one message for a tag's `resolve_errors`.
-
-    Args:
-        hub: The tag's `name`.
-        lock: The lock's `Label`.
-        problems: What `resolve_errors` returned.
-
-    Returns:
-        The message.
-    """
-    return "flutter_pub.from_lock(name = \"%s\", lock = \"%s\"):\n%s" % (hub, lock, "\n".join(problems))
-
-def path_package_directory(lock_dir, path):
-    """The directory a `path` lock entry names, as pub reads it.
-
-    Args:
-        lock_dir: The absolute directory of the lock, `/`-separated.
-        path: The entry's `description.path`: relative to the lock's
-            directory, or absolute.
-
-    Returns:
-        The absolute directory, `/`-separated, without `.` or `..` segments.
-    """
-    path = path.replace("\\", "/")
-    absolute = path.startswith("/") or (len(path) > 1 and path[1] == ":")
-    full = path if absolute else lock_dir.replace("\\", "/") + "/" + path
-    head = "/" if full.startswith("/") else ""
-    segments = []
-    for segment in full.split("/"):
-        if segment == "" or segment == ".":
-            continue
-        if segment == "..":
-            # Above the root is the root, as the system has it, and a drive
-            # letter is a root.
-            if segments and not (len(segments) == 1 and segments[0].endswith(":")):
-                segments.pop()
-            continue
-        segments.append(segment)
-    return head + "/".join(segments)
 
 def resolved_targets(maps):
     """The packages mapped to workspace targets, over every `flutter_pub.from_lock()` tag.

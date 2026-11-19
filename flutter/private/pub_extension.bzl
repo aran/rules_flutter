@@ -11,7 +11,7 @@ extension is identified by the file that defines it and its name.
 """
 
 load("@rules_dart//dart/ext:registry.bzl", "curated_code_assets")
-load("@rules_dart//dart/pub:pub_lock_package.bzl", "check_pub_archive_sha256", "check_pub_git_resolved_ref", "is_relative_git_url", "pub_archive_files", "pub_files_label", "pub_git_files")
+load("@rules_dart//dart/pub:pub_lock_package.bzl", "pub_archive_files", "pub_files_label", "pub_git_files", "pub_lock_entry", "pub_lock_mapping_error")
 load("@rules_dart//dart/pub:pub_versions.bzl", "CHECK_LEVELS")
 load("@rules_dart//dart/pub:yaml_parser.bzl", "parse_pubspec_lock")
 load("//flutter/private:android_plugin_maven.bzl", "MAVEN_DEPS_FILE", "flutter_android_maven", "flutter_android_maven_requirements_repo")
@@ -24,15 +24,15 @@ load("//flutter/private:flutter_pub_goldens.bzl", "flutter_pub_goldens")
 load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "sdk_prefix", "source_repo")
 load("//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
-load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package")
+load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package", "flutter_pub_path_package")
 load("//flutter/private:flutter_resolved_package.bzl", "flutter_resolved_package")
 load("//flutter/private:flutter_sdks_repo.bzl", "SDKS_FILE", "decode_sdks")
 load("//flutter/private:flutter_source_files.bzl", "flutter_source_files", "missing_sdk_package_message")
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
-load("//flutter/private:pub_reconcile.bzl", "pub_command", "reconcile_package", "unsupported_locks")
-load("//flutter/private:pub_resolve.bzl", "lock_directory", "path_package_directory", "published_here_targets", "resolve_errors", "resolve_failure", "resolved_targets")
+load("//flutter/private:pub_reconcile.bzl", "PUB_RUNNER", "reconcile_package", "unsupported_locks")
+load("//flutter/private:pub_resolve.bzl", "published_here_targets", "resolved_targets")
 load("//flutter/private:pub_settings.bzl", "root_annotations", "root_only_settings", "unknown_annotation")
 load("//flutter/private:swift_packages.bzl", "declare_swift_packages")
 load("//flutter/private:versions.bzl", "flutter_sdk_packages", "flutter_source_sha256")
@@ -118,7 +118,11 @@ package's facts are read from its pubspec and Gradle files, not restated in
 Bazel.
 
 The directory is the lock's `path`, relative to the lock's directory, as pub
-reads it; it may be outside this repository. Bazel links its `pubspec.yaml`,
+reads it. It may be outside this repository, by an absolute path or one
+leaving it; the build then depends on this machine, and a lock with an
+absolute path works only where it was written. The package's repository is
+local wherever the directory is, so `bazel vendor` leaves it out and it is
+fetched again when Bazel's server restarts. Bazel links its `pubspec.yaml`,
 `lib/`, `hook/`, license files, platform directories and the directories its
 pubspec lists assets, fonts and shaders from, and fetches the package again when
 any of them changes; tool output such as `build/`, `.dart_tool/` and
@@ -405,20 +409,23 @@ def pub_extension(module_ctx):
             lock_pkgs = lock.packages
 
             # Before anything else is checked, so a wrong map is not masked.
-            resolve_problems = resolve_errors(pub_tag.lock, lock_pkgs, pub_tag.resolve, pub_tag.build_from_pubspec, pub_tag.ignored)
-            if resolve_problems:
-                fail(resolve_failure(hub_name, pub_tag.lock, resolve_problems))
+            mapping_error = pub_lock_mapping_error(
+                "flutter_pub.from_lock(name = \"{}\", lock = \"{}\")".format(hub_name, pub_tag.lock),
+                pub_tag.lock,
+                lock_pkgs,
+                resolve = pub_tag.resolve,
+                build_from_pubspec = pub_tag.build_from_pubspec,
+                ignored = pub_tag.ignored,
+            )
+            if mapping_error:
+                fail(mapping_error)
 
             # The lock is checked against each SDK's framework by that SDK's own
             # `package:flutter` spoke, which only the SDK a build selects
             # fetches.
             flutter_constraint = lock.sdks.get("flutter", "")
 
-            # A `path` entry's path is relative to the lock's directory, as pub
-            # reads it: the real one, for a lock of a module whose repository
-            # links to its source (`local_path_override`).
-            lock_dir = str(module_ctx.path(pub_tag.lock).realpath.dirname)
-            tags.append(struct(module = mod, tag = pub_tag, packages = lock_pkgs, flutter_constraint = flutter_constraint, lock_dir = lock_dir))
+            tags.append(struct(module = mod, tag = pub_tag, packages = lock_pkgs, flutter_constraint = flutter_constraint))
 
     cycles = [module_cycles(mod) for mod in module_ctx.modules]
     if not tags and annotations.by_package:
@@ -429,77 +436,43 @@ def pub_extension(module_ctx):
         if planned.error:
             fail(planned.error)
     else:
-        _declare_pub_packages(tags, settings, annotations.by_package, sdks, user_overlay_roots, cycles)
+        _declare_pub_packages(module_ctx, tags, settings, annotations.by_package, sdks, user_overlay_roots, cycles)
         declare_swift_packages(module_ctx, [t.tag.swift_package_resolved for t in tags if t.tag.swift_package_resolved])
 
     return module_ctx.extension_metadata(reproducible = True)
 
-def _hosted_entry(tag, name, info):
-    desc = info.get("description", {})
-    version = info.get("version", "")
-    sha256 = desc.get("sha256", "") if type(desc) == "dict" else ""
+def _lock_entry(module_ctx, tag, name, info, kind, problems):
+    """A hosted, git or `build_from_pubspec` entry, as rules_dart's `pub.from_lock` reads it; None, adding why to `problems`, when it cannot be fetched."""
+    read = pub_lock_entry(name, info, tag.lock, runner = PUB_RUNNER, ctx = module_ctx)
+    problems.extend(read.errors)
+    if read.entry == None:
+        return None
+    e = read.entry
+    if kind == HOSTED:
+        return dict(kind = HOSTED, version = e.version, sha256 = e.sha256, url = e.url, lock_entry = e)
+    if kind == GIT:
+        # A repository package is fetched at the commit the lock records, laid
+        # out as pub lays it out (`fetch_pub_git`), and built as a hosted
+        # package is. A relative url is resolved against the lock's
+        # directory; any other leaves the lock out, so editing the lock does
+        # not refetch the package.
+        return dict(kind = GIT, version = e.version, git_url = e.url, resolved_ref = e.resolved_ref, git_path = e.path, lock = e.lock, lock_entry = e)
 
-    # An empty digest means "do not check" to Bazel's downloader, so a lock
-    # entry without one is refused here, where the lock can be named, rather
-    # than fetched on trust.
-    check_pub_archive_sha256(name, version, sha256, str(tag.lock), rewrite = pub_command("get", lock_directory(tag.lock)))
-    return dict(
-        kind = HOSTED,
-        version = version,
-        sha256 = sha256,
-        url = desc.get("url", "https://pub.dev") if type(desc) == "dict" else "https://pub.dev",
-    )
-
-def _git_entry(tag, name, info):
-    # A repository package is fetched at the commit the lock records, laid out
-    # as pub lays it out (`fetch_pub_git`), and built as a hosted package is.
-    # The lock is checked here, where it can be named: an entry that pins no
-    # commit would be whatever the server holds on the day of the fetch.
-    desc = info.get("description", {})
-    version = info.get("version", "")
-    url = desc.get("url", "") if type(desc) == "dict" else ""
-    if not url:
-        fail("The git package \"%s\" %s (in %s) has no `description.url`. Run `dart pub get` to rewrite the lock." % (name, version, tag.lock))
-    resolved_ref = desc.get("resolved-ref", "")
-    check_pub_git_resolved_ref(name, version, resolved_ref, str(tag.lock), rewrite = pub_command("get", lock_directory(tag.lock)))
-    git_path = desc.get("path", ".")
-    return dict(
-        kind = GIT,
-        version = version,
-        git_url = url,
-        resolved_ref = resolved_ref,
-        git_path = git_path,
-        # A relative url is resolved against the lock's directory; any other
-        # leaves the lock out, so editing the lock does not refetch the package.
-        git_lock = str(tag.lock) if is_relative_git_url(url) else "",
-        lock = tag.lock if is_relative_git_url(url) else None,
-    )
-
-def _path_entry(t, name, info):
-    """A `path` package the tag builds from its pubspec or ignores (a mapped one never gets here)."""
-    if name in t.tag.ignored:
-        return dict(kind = IGNORED, reason = t.tag.ignored[name])
-    desc = info.get("description", {})
-    path = desc.get("path", "") if type(desc) == "dict" else ""
-    return dict(
-        kind = LOCAL,
-        version = info.get("version", ""),
-        directory = path_package_directory(t.lock_dir, path),
-        # The lock and its path to the directory, which say what rules_dart's
-        # `pub` states it was fetched as for this entry, so a program reaching
-        # both fetchers' copies of the directory takes them for one package.
-        lock = t.tag.lock,
-        path = path,
-    )
+    # The lock and its path to the directory, which the repository finds the
+    # directory from when it is fetched (`pub_lock_path_directory`), wherever
+    # it is, and say what rules_dart's `pub` states it was fetched as.
+    return dict(kind = LOCAL, version = e.version, directory = e.directory, lock = tag.lock, path = info.get("description", {}).get("path", ""), lock_entry = e)
 
 def _hub_listing(hub_packages, package):
     """A hub that lists a package: its alias follows the selected SDK."""
     return [h for h in sorted(hub_packages.keys()) if package in hub_packages[h]][0]
 
-def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots, cycles):
+def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_overlay_roots, cycles):
     """Declares the repositories of every `flutter_pub.from_lock()` tag: one per package.
 
     Args:
+        module_ctx: The module extension context, which finds where a `path`
+            package's directory is.
         tags: One `struct(module, tag, packages)` per tag, `packages` being its parsed lock.
         settings: The root's `root_only_settings`: the level for its raised
             requests, and the packages whose hooks it declared irrelevant.
@@ -532,6 +505,7 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
     for t in tags:
         if t.tag.swift_package_resolved:
             hub_resolved.setdefault(t.tag.name, t.tag.swift_package_resolved)
+    unreadable = []
     for t in tags:
         tag = t.tag
         hub = hub_packages.setdefault(tag.name, {})
@@ -544,16 +518,16 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             if kind == ENGINE_PROVIDED:
                 continue
             hub[name] = True
-            if kind == HOSTED:
-                fields = _hosted_entry(tag, name, info)
-            elif kind == GIT:
-                fields = _git_entry(tag, name, info)
+            if kind in [HOSTED, GIT] or (kind == PATH and name not in tag.ignored):
+                fields = _lock_entry(module_ctx, tag, name, info, LOCAL if kind == PATH else kind, unreadable)
+                if fields == None:
+                    continue
             elif kind == FLUTTER_SOURCE:
                 fields = dict(kind = kind, version = info.get("version", ""))
             elif kind == FLUTTER_FRAMEWORK:
                 fields = dict(kind = kind)
             elif kind == PATH:
-                fields = _path_entry(t, name, info)
+                fields = dict(kind = IGNORED, reason = tag.ignored[name])
             else:
                 # A source rules_flutter has never heard of. The hub still loads, so an app that
                 # only lists it builds. Its target fails when something
@@ -562,11 +536,13 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             entries.setdefault(name, []).append(struct(
                 hub = tag.name,
                 lock_label = str(tag.lock),
-                lock_dir = lock_directory(tag.lock),
                 module = t.module.name,
                 is_root = t.module.is_root,
                 **fields
             ))
+
+    if unreadable:
+        fail("\n\n".join(unreadable))
 
     chosen = {}
     problems = []
@@ -771,15 +747,15 @@ def _declare_pub_packages(tags, settings, annotations, sdks, user_overlay_roots,
             )
         elif e.kind == LOCAL:
             # The directory pub reads, built from its pubspec as a hosted
-            # package is built from its archive.
+            # package is built from its archive, by a local repository,
+            # wherever the directory is.
             flutter_pub_library_repo(name = library_repo(name), package_name = name)
             flutter_apple_plugin_repo(name = apple_repo(name), package_name = name, version = e.version)
             apple_packages[name] = True
-            flutter_pub_package(
+            flutter_pub_path_package(
                 name = source_repo(name),
                 package_name = name,
                 version = e.version,
-                directory = e.directory,
                 lock = e.lock,
                 path = e.path,
                 overlay_roots = overlay_roots,
