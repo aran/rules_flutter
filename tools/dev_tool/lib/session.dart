@@ -1122,6 +1122,25 @@ Future<void> runInteractiveSession({
   // being gone for good ends it whether or not anyone is at the keyboard.
   final keys = StreamIterator<List<int>>(inputStream);
   var keyboardOpen = true;
+
+  // The request the last key started, until it has answered. Each request
+  // reports its own outcome and never throws (see [_reload] and
+  // [_reportToggle]), so nothing waits on it but this gate.
+  Future<void>? keyRequest;
+  void startKeyRequest(String key, Future<void> Function() request) {
+    if (keyRequest != null) {
+      // Said where upstream says it, in the verbose log only.
+      _logger.fine({
+        'message': 'key_ignored_busy',
+        'text': 'Ignoring "$key": the last key\'s request is still running.',
+        'key': key,
+      });
+      return;
+    }
+    final running = keyRequest = request();
+    unawaited(running.whenComplete(() => keyRequest = null));
+  }
+
   try {
     while (true) {
       if (!keyboardOpen) {
@@ -1153,10 +1172,10 @@ Future<void> runInteractiveSession({
         // stdin reaching EOF means there is no keyboard — not that the run is
         // over. A terminal losing its pty is the rarer half of this; the common
         // one is a script, a CI job or an agent starting the tool with stdin at
-        // /dev/null, which reaches EOF at once. Ending the loop there would take
-        // the run's transports with it: the channel's URL has just been printed,
-        // and its port would already be dead with nothing said. Advertised
-        // lifetime and actual lifetime have to be the same lifetime.
+        // /dev/null, which reaches EOF at once. Ending the loop there would
+        // take the run's transports with it: the channel's URL has just been
+        // printed, and its port would already be dead with nothing said.
+        // Advertised lifetime and actual lifetime have to be the same lifetime.
         //
         // With nothing left that could ever end the run — no app to exit, no
         // transport to be told — there is also nothing left to control, so the
@@ -1177,28 +1196,33 @@ Future<void> runInteractiveSession({
       final input = keys.current;
       final char = String.fromCharCode(input.first);
       switch (char) {
-        // Both keys are pure dispatch, with no private fallback behind them: the
-        // commands are always registered before this loop exists, and a fallback
-        // would only diverge — invalidating the entrypoint alone where the
-        // pipeline diffs a snapshot of the whole workspace, with nothing able to
-        // execute it and notice. A run with no way to reload still answers here,
-        // through the pipeline's readiness gate.
+        // Both keys are pure dispatch, with no private fallback behind them:
+        // the commands are always registered before this loop exists, and a
+        // fallback would only diverge — invalidating the entrypoint alone where
+        // the pipeline diffs a snapshot of the whole workspace, with nothing
+        // able to execute it and notice. A run with no way to reload still
+        // answers here, through the pipeline's readiness gate.
         //
         // Unconditional, including on a run that cannot reload: a keypress that
         // produces nothing at all cannot be told from one the terminal never
-        // received. Refusing here instead would put a second answer to "can this
-        // run reload" beside the readiness gate's, and they can only drift; the
-        // gate already holds the reason, and it is the same reason the HTTP
-        // channel and the machine protocol get.
+        // received. Refusing here instead would put a second answer to "can
+        // this run reload" beside the readiness gate's, and they can only
+        // drift; the gate already holds the reason, and it is the same reason
+        // the HTTP channel and the machine protocol get.
         //
-        // Dispatched without awaiting the answer, so the loop goes on reading
+        // Started without awaiting the answer, so the loop goes on reading
         // keys: a reload waiting for a rebuild can take minutes, and a `q`
         // pressed meanwhile has to end the run now, as a `daemon.shutdown`
-        // would, not once that reload is done. Order is still the runner's: a
-        // second `r` queues behind the first there, exactly as it did here.
+        // would, not once that reload is done.
+        //
+        // One request from the keyboard at a time, as `flutter run`'s
+        // `TerminalHandler` has it: a key pressed while the last one's request
+        // is still running is dropped, not queued. Three `r`s pressed into a
+        // slow reload are one impatient reload, not three in a row.
         case 'r':
-          unawaited(
-            _reload(
+          startKeyRequest(
+            char,
+            () => _reload(
               commandRunner,
               'app.hotReload',
               {},
@@ -1209,13 +1233,13 @@ Future<void> runInteractiveSession({
             ),
           );
         case 'R':
-          // Presentation, like the banner, so it is gated the way the banner is:
-          // announcing a restart and then refusing it reads worse than saying
-          // nothing. Through `log` rather than `stdout` so it is the same stream
-          // as the answer that follows.
-          if (hotReloadUnavailable == null) log('Performing hot restart...');
-          unawaited(
-            _reload(
+          startKeyRequest(char, () {
+            // Presentation, like the banner, so it is gated the way the banner
+            // is: announcing a restart and then refusing it reads worse than
+            // saying nothing. Through `log` rather than `stdout` so it is the
+            // same stream as the answer that follows.
+            if (hotReloadUnavailable == null) say('Performing hot restart...');
+            return _reload(
               commandRunner,
               'app.restart',
               {'fullRestart': true},
@@ -1223,21 +1247,27 @@ Future<void> runInteractiveSession({
               log: say,
               announce: announce,
               onFailure: onFailure,
+            );
+          });
+        case 'p':
+          startKeyRequest(
+            char,
+            () => _reportToggle(
+              sessions,
+              say,
+              'Performance overlay',
+              (client) => client.togglePerformanceOverlay(),
             ),
           );
-        case 'p':
-          await _reportToggle(
-            sessions,
-            log,
-            'Performance overlay',
-            (client) => client.togglePerformanceOverlay(),
-          );
         case 'i':
-          await _reportToggle(
-            sessions,
-            log,
-            'Widget inspector',
-            (client) => client.toggleWidgetInspector(),
+          startKeyRequest(
+            char,
+            () => _reportToggle(
+              sessions,
+              say,
+              'Widget inspector',
+              (client) => client.toggleWidgetInspector(),
+            ),
           );
         case 'q':
           await endRun();

@@ -554,73 +554,143 @@ void main() {
     // would put a second answer beside the gate's.
     test(
       'a run that will not reload still lets the keys reach the handler',
-      timeout: Timeout(Duration(seconds: 10)),
-      () async {
+      () {
+        fakeAsync((async) {
+          final dispatched = <String>[];
+          Map<String, dynamic>? restartParams;
+          final keys = StreamController<List<int>>();
+          final commandRunner = CommandRunner()
+            ..register('app.hotReload', (params) async {
+              dispatched.add('app.hotReload');
+              return {'error': '`--no-hot` was passed'};
+            })
+            ..register('app.restart', (params) async {
+              dispatched.add('app.restart');
+              restartParams = params;
+              return {'error': '`--no-hot` was passed'};
+            });
+
+          final session = DeviceSession(
+            device: _TrackingDevice('test_device', onStop: () {}),
+            appInstance: AppInstance(process: FakeProcess()),
+            vmClient: null,
+            appId: 'app_1',
+          );
+
+          final logs = <String>[];
+          unawaited(
+            runInteractiveSession(
+              sessions: [session],
+              endRun: _noTeardown,
+              protocol: MachineProtocol(enabled: false),
+              commandRunner: commandRunner,
+              onFailure: _unexpected,
+              devToolsEnabled: false,
+              dartExecutable: 'dart',
+              hotReloadUnavailable: '`--no-hot` was passed',
+              log: logs.add,
+              keyboardReader: () => keys.stream,
+              setEchoMode: (_) {},
+              setLineMode: (_) {},
+            ),
+          );
+          // Each key once the last has answered: one pressed while a request
+          // is still running is dropped.
+          keys.add(utf8.encode('r'));
+          async.flushMicrotasks();
+          keys.add(utf8.encode('R'));
+          async.flushMicrotasks();
+
+          expect(
+            dispatched,
+            ['app.hotReload', 'app.restart'],
+            reason:
+                'swallowing the key leaves the user with no answer at all; '
+                'the handler is where the reason lives',
+          );
+          expect(
+            restartParams,
+            {'fullRestart': true},
+            reason: 'R is a restart, which app.restart only is when asked',
+          );
+          expect(
+            logs,
+            isNot(contains('Performing hot restart...')),
+            reason:
+                'announcing a restart and then refusing it reads worse than '
+                'saying nothing',
+          );
+        });
+      },
+    );
+
+    // `flutter run`'s `TerminalHandler` drops a key pressed while the last
+    // one's request is still running, rather than queueing it: three `r`s
+    // pressed into a slow reload would otherwise be three reloads in a row,
+    // the last two of them unasked for by the time they ran. `q` is the
+    // exception, and stays live (see above).
+    test("a key pressed while the last key's request runs is dropped", () {
+      fakeAsync((async) {
         final dispatched = <String>[];
-        Map<String, dynamic>? restartParams;
-        final keys = StreamController<List<int>>();
+        var reload = Completer<Map<String, dynamic>>();
         final commandRunner = CommandRunner()
-          ..register('app.hotReload', (params) async {
+          ..register('app.hotReload', (params) {
             dispatched.add('app.hotReload');
-            return {'error': '`--no-hot` was passed'};
+            return reload.future;
           })
           ..register('app.restart', (params) async {
             dispatched.add('app.restart');
-            restartParams = params;
-            // Ends the loop only once both keys have reached their handlers:
-            // a `q` does not wait for a reload, so sent with them it could
-            // end the loop before the restart was dispatched.
-            keys.add(utf8.encode('q'));
-            return {'error': '`--no-hot` was passed'};
+            return {'message': 'restarted'};
           });
-
-        final session = DeviceSession(
-          device: _TrackingDevice('test_device', onStop: () {}),
-          appInstance: AppInstance(process: FakeProcess()),
-          vmClient: null,
-          appId: 'app_1',
+        final keys = StreamController<List<int>>();
+        final logs = <String>[];
+        unawaited(
+          runInteractiveSession(
+            sessions: [
+              DeviceSession(
+                device: _TrackingDevice('test_device', onStop: () {}),
+                appInstance: AppInstance(process: FakeProcess()),
+                vmClient: null,
+                appId: 'app_1',
+              ),
+            ],
+            endRun: _noTeardown,
+            protocol: MachineProtocol(enabled: false),
+            commandRunner: commandRunner,
+            onFailure: _unexpected,
+            devToolsEnabled: false,
+            dartExecutable: 'dart',
+            hotReloadUnavailable: null,
+            log: logs.add,
+            keyboardReader: () => keys.stream,
+            setEchoMode: (_) {},
+            setLineMode: (_) {},
+          ),
         );
 
+        for (final key in ['r', 'r', 'R', 'p', 'i']) {
+          keys.add(utf8.encode(key));
+        }
+        async.flushMicrotasks();
+        expect(dispatched, ['app.hotReload']);
+        expect(
+          logs.where((line) => line.contains('unavailable')),
+          isEmpty,
+          reason: 'p and i wait their turn like r and R',
+        );
+
+        reload.complete({'message': 'Hot reload successful'});
+        async.flushMicrotasks();
+        reload = Completer();
         keys.add(utf8.encode('r'));
-        keys.add(utf8.encode('R'));
-
-        final logs = <String>[];
-        await runInteractiveSession(
-          sessions: [session],
-          endRun: _noTeardown,
-          protocol: MachineProtocol(enabled: false),
-          commandRunner: commandRunner,
-          onFailure: _unexpected,
-          devToolsEnabled: false,
-          dartExecutable: 'dart',
-          hotReloadUnavailable: '`--no-hot` was passed',
-          log: logs.add,
-          keyboardReader: () => keys.stream,
-          setEchoMode: (_) {},
-          setLineMode: (_) {},
-        ).timeout(const Duration(seconds: 5));
-
+        async.flushMicrotasks();
         expect(
           dispatched,
-          ['app.hotReload', 'app.restart'],
-          reason:
-              'swallowing the key leaves the user with no answer at all; '
-              'the handler is where the reason lives',
+          ['app.hotReload', 'app.hotReload'],
+          reason: 'the gate opens once the request has answered',
         );
-        expect(
-          restartParams,
-          {'fullRestart': true},
-          reason: 'R is a restart, which app.restart only is when asked',
-        );
-        expect(
-          logs,
-          isNot(contains('Performing hot restart...')),
-          reason:
-              'announcing a restart and then refusing it reads worse than '
-              'saying nothing',
-        );
-      },
-    );
+      });
+    });
 
     // `p` and `i` are the only keys whose work is a bare VM-service call, and
     // the client refuses one it has no live connection for by throwing.
@@ -642,12 +712,20 @@ void main() {
           appId: 'app_1',
         );
 
-        final keys = StreamController<List<int>>();
-        keys.add(utf8.encode('p'));
-        keys.add(utf8.encode('i'));
-        keys.add(utf8.encode('q'));
-
+        // Each key once the last has answered: one pressed while a request
+        // is still running is dropped. `Timer.run`, so the key arrives after
+        // the microtasks that finish the request answering now.
+        final keys = StreamController<List<int>>()..add(utf8.encode('p'));
         final logs = <String>[];
+        void log(String line) {
+          logs.add(line);
+          if (line.contains('performance overlay')) {
+            Timer.run(() => keys.add(utf8.encode('i')));
+          } else if (line.contains('widget inspector')) {
+            keys.add(utf8.encode('q'));
+          }
+        }
+
         await runInteractiveSession(
           sessions: [session],
           endRun: _noTeardown,
@@ -657,7 +735,7 @@ void main() {
           devToolsEnabled: false,
           dartExecutable: 'dart',
           hotReloadUnavailable: null,
-          log: logs.add,
+          log: log,
           keyboardReader: () => keys.stream,
           setEchoMode: (_) {},
           setLineMode: (_) {},
