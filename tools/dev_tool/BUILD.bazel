@@ -406,7 +406,7 @@ _UNIT_TESTS = {
     "web_module_server_test": {
         "tls": True,
         "loopbacks": True,
-        "deps": _PATH_DEP,
+        "deps": ["@dev_tool_deps//:http_multi_server"] + _PATH_DEP,
     },
     "local_packages_test": {"deps": _PATH_DEP},
     "package_roots_test": {},

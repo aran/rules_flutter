@@ -6,6 +6,7 @@ import 'package:flutter_bazel_dev_tool/logging.dart';
 import 'package:flutter_bazel_dev_tool/toolchain_info.dart';
 import 'package:flutter_bazel_dev_tool/web_module_server.dart';
 import 'package:flutter_bazel_dev_tool/web_options.dart';
+import 'package:http_multi_server/http_multi_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -1831,23 +1832,20 @@ void main() {
       'a wildcard bind that does not own its port is refused, not silent',
       () async {
         final dir = bundle();
-        // A port this server could really have served on — free on both loopback
-        // families, taken the way it takes its own. Letting the decoy pick it
-        // would only prove it was free on the decoy's family.
-        final probe = StaticWebServer(
-          rootPath: dir.path,
-          options: const WebServerOptions(crossOriginIsolation: false),
-        );
-        final port = (await probe.start()).port;
-        await probe.stop();
-
         // Answers, and answers wrongly — a well-behaved HTTP server on the port
         // this run wanted. adb, the squatter this exists for, closes the
         // connection without a byte, which any check would notice; a decoy
         // that returns a clean 200 is the case that only a check reading what
         // came back can tell from success.
-        final decoy = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+        //
+        // It draws the port itself and holds it to the end. A port found free
+        // and then released for the decoy is free only until something else on
+        // the host takes it, and under parallel tests something does. Held, the
+        // port is this test's: what the wildcard binds below meet is the decoy
+        // and nothing else.
+        final decoy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => decoy.close(force: true));
+        final port = decoy.port;
         decoy.listen((r) {
           r.response
             ..statusCode = HttpStatus.ok
@@ -1855,46 +1853,90 @@ void main() {
           r.response.close();
         });
 
+        // Which of the two paths this host takes, asked with the bind the
+        // server makes rather than read off the message it ends with. Asked
+        // before any server starts: afterwards, a start that kept its socket
+        // would make the bind fail here too, and hide exactly that.
+        bool wildcardBinds;
+        try {
+          await (await HttpMultiServer.bind(anyHostname, port)).close(
+            force: true,
+          );
+          wildcardBinds = true;
+        } on SocketException {
+          wildcardBinds = false;
+        }
+
         final options = WebServerOptions(
           crossOriginIsolation: false,
           hostname: anyHostname,
           port: port,
         );
+        Future<String> refusal(Future<Object?> start) async {
+          try {
+            await start;
+          } on DevToolException catch (e) {
+            return e.message;
+          }
+          fail('started on port $port, which the decoy holds');
+        }
+
         // Both platform paths end the same way — `Free port $port`, the advice a
         // single named draw ends with — and neither may end the way a *search*
         // does, because a named port is one draw and describing five would be
         // describing draws this run never made. Naming the port is not enough on
         // its own to say that: every branch of both messages carries the port
         // number, so a bare `contains('$port')` holds whichever one was taken.
-        final refusedNamingThePort = throwsDevToolException(
-          allOf(
-            contains('Free port $port'),
-            isNot(contains('All 5 ports')),
+        final namesThePort = allOf(
+          contains('Free port $port'),
+          isNot(contains('All 5 ports')),
+        );
+        final refusals = [
+          await refusal(
+            serverWith(buildOutputDir: dir.path, options: options).start(),
           ),
-        );
-        await expectLater(
-          serverWith(buildOutputDir: dir.path, options: options).start(),
-          refusedNamingThePort,
-        );
-        await expectLater(
-          StaticWebServer(rootPath: dir.path, options: options).start(),
-          refusedNamingThePort,
-        );
+          await refusal(
+            StaticWebServer(rootPath: dir.path, options: options).start(),
+          ),
+        ];
+        for (final message in refusals) {
+          expect(message, namesThePort);
+        }
 
-        // And the refused start gave the socket back. A wildcard bind succeeds
-        // on this kernel even against the decoy, so a start that gives up
-        // without closing it holds the port for the rest of the process — the
-        // one port the next attempt was told to use.
+        // And each refused start gave the socket back. Where the wildcard bind
+        // succeeds beside the decoy, a start that gives up without closing it
+        // holds the port for the rest of the process — the one port the next
+        // attempt was told to use — and that next attempt then fails at its
+        // bind instead of reaching the check.
         //
-        // Asked by *being* that next attempt: with the decoy gone, the same
-        // named port has to start. Binding ::1 beside the wildcard would ask
-        // nothing, twice over: a host with no IPv6 cannot run it at all, and
-        // where it can, BSD permits a specific address beside a wildcard, so it
-        // succeeds whether or not the socket was given back.
-        await decoy.close(force: true);
-        final next = StaticWebServer(rootPath: dir.path, options: options);
-        await next.start();
-        await next.stop();
+        // Asked by *being* that next attempt, with the decoy still in place: an
+        // attempt that reaches the check, as the first did, can only have bound
+        // the port, and it could only bind it if the one before gave it back.
+        // Binding ::1 beside the wildcard would ask nothing, twice over: a host
+        // with no IPv6 cannot run it at all, and where it can, BSD permits a
+        // specific address beside a wildcard, so it succeeds whether or not the
+        // socket was given back.
+        //
+        // Where the kernel refuses the wildcard bind outright, no attempt binds
+        // anything, so there is nothing to give back; the refusals above are
+        // the whole of that path.
+        const reachedTheCheck = 'does not reach it';
+        if (wildcardBinds) {
+          refusals.add(
+            await refusal(
+              StaticWebServer(rootPath: dir.path, options: options).start(),
+            ),
+          );
+          for (final message in refusals) {
+            expect(
+              message,
+              contains(reachedTheCheck),
+              reason:
+                  'every attempt after the first reaches the check only if '
+                  'the one before gave the port back: $message',
+            );
+          }
+        }
       },
     );
 
