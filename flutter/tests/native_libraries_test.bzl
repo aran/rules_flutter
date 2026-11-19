@@ -1,7 +1,12 @@
-"""Tests for how an application merges the records of its native libraries."""
+"""Tests for the records of an application's native libraries: which libraries
+a `native_deps` entry brings, and how the records of one library merge."""
 
+load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//flutter/private:native_libraries.bzl", "merge_native_libraries")
+load("//flutter/private:native_dynamic_deps_aspect.bzl", "native_dynamic_deps_aspect")
+load("//flutter/private:native_libraries.bzl", "merge_native_libraries", "native_library_records")
+
+_FIXTURE = "//flutter/tests/native_sources_fixture:"
 
 # Stand-ins for Files: the merge reads only identity and `short_path`.
 _LIB = struct(short_path = "libfoo.dylib")
@@ -56,6 +61,51 @@ def _fails_impl(ctx):
 
 _fails_test = analysistest.make(_fails_impl, expect_failure = True)
 
+def _name(f):
+    # The fixture's libraries are named for the platform the build runs on.
+    return paths.split_extension(f.basename)[0]
+
+def _library_name(target):
+    # What the toolchain names a `cc_shared_library`: `libbridge` on Linux and
+    # macOS, `bridge` on Windows.
+    return [_name(f) for f in target[DefaultInfo].files.to_list() if f.extension in ("so", "dylib", "dll")][0]
+
+def _loaded_libraries_impl(ctx):
+    # `top` loads `bridge` through `dynamic_deps`, and the prebuilt
+    # `libprebuilt` its `deps` reach: each has a record of its own, with its
+    # own sources and link, whether `top` is named bare or behind a wrapper.
+    env = unittest.begin(ctx)
+    top_name = _library_name(ctx.attr.top)
+    bridge_name = _library_name(ctx.attr.bridge)
+    for entry in ctx.attr.native_deps:
+        records = {_name(r.library): r for r in native_library_records([entry], "app")}
+        asserts.equals(env, [top_name, bridge_name, "libprebuilt"], records.keys(), str(entry.label))
+        asserts.equals(env, ["app"], {r.package: True for r in records.values()}.keys(), "every record is the entry's package's")
+
+        bridge = records[bridge_name]
+        asserts.equals(env, ["bridge.c", "bridge.h", "helper.c"], sorted([f.basename for f in bridge.sources]), "the loaded library's own sources")
+        asserts.equals(
+            env,
+            ["libbridge_cc.a", "libhelper.a"],
+            sorted([f.basename for f in bridge.link_inputs.to_list() if f.extension in ("o", "a")]),
+            "the loaded library's own link",
+        )
+        asserts.equals(env, (), bridge.contract)
+
+        prebuilt = records["libprebuilt"]
+        asserts.equals(env, [], prebuilt.link_inputs.to_list(), "a checked-in library was linked from nothing")
+        asserts.equals(env, None, prebuilt.link_inputs_unset_reason)
+    return unittest.end(env)
+
+_loaded_libraries_test = unittest.make(
+    _loaded_libraries_impl,
+    attrs = {
+        "bridge": attr.label(),
+        "native_deps": attr.label_list(aspects = [native_dynamic_deps_aspect]),
+        "top": attr.label(),
+    },
+)
+
 def native_libraries_test_suite(name):
     """Declares the tests.
 
@@ -63,6 +113,12 @@ def native_libraries_test_suite(name):
         name: The test_suite name.
     """
     _one_record_per_library_test(name = name + "_one_record_per_library")
+    _loaded_libraries_test(
+        name = name + "_loaded_libraries",
+        native_deps = [_FIXTURE + "top", _FIXTURE + "top_files"],
+        top = _FIXTURE + "top",
+        bridge = _FIXTURE + "bridge",
+    )
     _conflicting_contracts(name = name + "_conflicting_contracts_fixture", tags = ["manual"])
     _fails_test(
         name = name + "_conflicting_contracts",
@@ -72,6 +128,7 @@ def native_libraries_test_suite(name):
         name = name,
         tests = [
             name + "_one_record_per_library",
+            name + "_loaded_libraries",
             name + "_conflicting_contracts",
         ],
     )

@@ -1230,6 +1230,8 @@ flutter_application(
 )
 ```
 
+What a library loads at run time is bundled beside it, as a native build that links it installs it: the libraries a `cc_shared_library` names in `dynamic_deps`, theirs in turn, and a prebuilt shared library (a `cc_import`) its `deps` link against. So `native_deps` needs only the libraries your Dart code opens. A library one of them links by another route, such as a `linkopts` flag, is not found this way: name it in `native_deps` too.
+
 You can instead bind with `@Native(assetId: ...)` and let the Dart VM find the library. Declare it as a code asset with rules_dart's `dart_code_asset`, and name it in the `code_assets` of the package's `dart_package_metadata`, as a pub package's build hook would supply it. Every program that depends on the package then bundles the library under its file name, wrapped in a framework on iOS, and maps the id to it. An application maps it in `flutter_assets/NativeAssetsManifest.json`, which the engine reads at startup, as `flutter build` ships it. [`e2e/ffi_example`](e2e/ffi_example/BUILD.bazel) shows both styles side by side.
 
 #### Choosing the library that serves an asset id
@@ -4390,7 +4392,7 @@ An action whose output doesn't depend on the target platform, such as a kernel c
 | `pub_assets` | `depset[struct]` | Each package's asset files: `package_name`, `package_root`, `asset_path` (the path from the package root), `file`, and the `platforms` and `flavors` it is limited to. |
 | `pub_fonts`, `pub_shaders` | `depset[struct]` | Each package's font families and shaders, in the same shape. |
 | `plugins` | `list[struct]` | The plugins, each with `name` and `platforms`. |
-| `native_libraries` | `depset[struct]` | The shared libraries of plugins' `native_deps`, one record each: `library`, the `package` whose `native_deps` brought it, the first-party `sources` it is built from, the `contract` its bindings were generated from, the `link_inputs` it was linked from, or the `dsym` its link made (with `link_inputs_unset_reason` when the build cannot see either). |
+| `native_libraries` | `depset[struct]` | The shared libraries of plugins' `native_deps`, and those they load through `dynamic_deps`, one record each: `library`, the `package` whose `native_deps` brought it, the first-party `sources` it is built from, the `contract` its bindings were generated from, the `link_inputs` it was linked from, or the `dsym` its link made (with `link_inputs_unset_reason` when the build cannot see either). |
 
 **`FlutterFontFamilyInfo`** is provided by `flutter_font_family`: its `family`, and its `fonts`, each a **`FlutterFontInfo`** with `file`, `weight`, `style` and `asset`, as on `flutter_font`.
 

@@ -22,6 +22,16 @@ void main() {
         '${bundle.frameworks}/libmul.dylib',
       )
       ..exists(
+        'native_deps dylib liblinked_top.dylib exists',
+        '${bundle.frameworks}/liblinked_top.dylib',
+      )
+      // The app names only `linked_top`, which links `linked_base` through
+      // `dynamic_deps`.
+      ..exists(
+        'liblinked_base.dylib, which liblinked_top.dylib links, exists',
+        '${bundle.frameworks}/liblinked_base.dylib',
+      )
+      ..exists(
         'code-asset dylib libsub.dylib exists',
         '${bundle.frameworks}/libsub.dylib',
       )

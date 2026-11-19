@@ -6,6 +6,7 @@ wrappers and others."""
 
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_dart//dart:defs.bzl", "dart_code_asset")
@@ -92,4 +93,37 @@ rust_stand_in(
     name = "rust_bridge_without_dsym",
     src = "bridge.c",
     dsym = False,
+)
+
+# For `native_libraries_test`: a library that loads `bridge` through
+# `dynamic_deps`, and a prebuilt library its `deps` reach, which an app
+# bundles beside it; named bare and behind a wrapper. The prebuilt library is
+# an empty file, which no linker reads, so the test only analyses them.
+cc_import(
+    name = "prebuilt",
+    shared_library = "prebuilt/libprebuilt.dylib",
+    tags = ["manual"],
+)
+
+cc_library(
+    name = "top_cc",
+    srcs = ["top.c"],
+    tags = ["manual"],
+    deps = [
+        ":bridge_cc",
+        ":prebuilt",
+    ],
+)
+
+cc_shared_library(
+    name = "top",
+    dynamic_deps = [":bridge"],
+    tags = ["manual"],
+    deps = [":top_cc"],
+)
+
+filegroup(
+    name = "top_files",
+    srcs = [":top"],
+    tags = ["manual"],
 )

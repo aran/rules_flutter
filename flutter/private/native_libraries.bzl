@@ -5,7 +5,10 @@ A `native_deps` entry is a shared library, bare or wrapped in a
 travels together, in `FlutterInfo.native_libraries`, so that no reader joins
 parallel lists back up by File:
 
-- `library`: the File the app bundles.
+- `library`: the File the app bundles: a library the entry makes, or one
+  that library loads at run time, through `dynamic_deps`
+  (`native_dynamic_deps_aspect.bzl`), which an app bundles beside it as a
+  native build installs it.
 - `package`: the Dart package whose `native_deps` brought it: a plugin's, or
   the application's own. An application leaves out the libraries of a
   federated plugin's implementations it did not choose, as flutter_tools
@@ -27,6 +30,7 @@ parallel lists back up by File:
 
 load("//flutter:providers.bzl", "FlutterNativeLibraryInfo")
 load("//flutter/private:constants.bzl", "SHARED_LIBRARY_EXTENSIONS")
+load("//flutter/private:native_dynamic_deps_aspect.bzl", "NativeDynamicDepsInfo")
 load("//flutter/private:native_library_aspect.bzl", "NativeLibraryFactsInfo")
 load("//flutter/private:native_link_aspect.bzl", "NativeLinkInfo")
 
@@ -41,7 +45,7 @@ def native_library_records(native_deps, package):
 
     Args:
         native_deps: The `native_deps` targets, wrapped or bare, with the
-            `native_library_aspect` and the `native_link_aspect`.
+            `native_dynamic_deps_aspect` and the aspects it requires.
         package: The name of the Dart package they are the `native_deps` of.
 
     Returns:
@@ -79,6 +83,20 @@ def native_library_records(native_deps, package):
                 dsym = dsym,
                 link_inputs_unset_reason = unset_reason,
             ))
+
+        # What the entry's libraries load at run time. Nothing describes their
+        # bindings: an entry's wrapper describes the libraries it names.
+        if NativeDynamicDepsInfo in dep:
+            for loaded in dep[NativeDynamicDepsInfo].libraries.to_list():
+                records.append(struct(
+                    library = loaded.library,
+                    package = package,
+                    sources = loaded.sources,
+                    contract = (),
+                    link_inputs = loaded.link_inputs,
+                    dsym = loaded.dsym,
+                    link_inputs_unset_reason = loaded.link_inputs_unset_reason,
+                ))
     return records
 
 def merge_native_libraries(label, records):

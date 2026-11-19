@@ -202,8 +202,7 @@ bzl_library(
         ":flutter_info_forwarding",
         ":flutter_library",
         ":flutter_shader_compile",
-        ":native_library_aspect",
-        ":native_link_aspect",
+        ":native_dynamic_deps_aspect",
         ":notices",
         ":plugin_registrant",
         ":plugin_resolution",
@@ -1208,9 +1207,8 @@ bzl_library(
         ":flutter_info_forwarding",
         ":flutter_library",
         ":flutter_plugin_platform",
+        ":native_dynamic_deps_aspect",
         ":native_libraries",
-        ":native_library_aspect",
-        ":native_link_aspect",
         ":swiftpm_app_settings",
         ":unbuilt_native_code",
         "//flutter:providers",
@@ -2040,9 +2038,23 @@ bzl_library(
     visibility = ["//flutter:__subpackages__"],
     deps = [
         ":constants",
+        ":native_dynamic_deps_aspect",
         ":native_library_aspect",
         ":native_link_aspect",
         "//flutter:providers",
+    ],
+)
+
+bzl_library(
+    name = "native_dynamic_deps_aspect",
+    srcs = ["native_dynamic_deps_aspect.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":constants",
+        ":native_library_aspect",
+        ":native_link_aspect",
+        ":rule_edges",
+        "@rules_cc//cc/common:cc_shared_library_info",
     ],
 )
 

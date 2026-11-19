@@ -2,8 +2,10 @@
 /// the names they ship under: `chain_top` links `chain_base`, which it
 /// recorded as `@rpath/libchain_base.dylib` when it was linked and which ships
 /// as `chain_base.framework/chain_base`, so the bundle must have rewritten
-/// the link, as `flutter build ios` does. The rewrite comes before signing, so
-/// the bundle's signature must still hold.
+/// the link, as `flutter build ios` does. `linked_top`, the one `native_deps`
+/// library the app names, links `linked_base` through `dynamic_deps` in the
+/// same way, and `linked_base` ships beside it. The rewrite comes before
+/// signing, so the bundle's signature must still hold.
 library;
 
 import 'package:rules_flutter_e2e_testing/ios_bundle.dart';
@@ -18,6 +20,7 @@ void main() {
   final frameworks = '${bundle.path}/Frameworks';
   final top = MachO('$frameworks/chain_top.framework/chain_top');
   final base = MachO('$frameworks/chain_base.framework/chain_base');
+  final linkedTop = MachO('$frameworks/linked_top.framework/linked_top');
   bundle.check
     ..expect(
       'chain_base is named by its framework',
@@ -42,12 +45,23 @@ void main() {
         (name) => name.contains('libchain_base'),
       ),
       detail: '${top.linkedLibraries()}',
+    )
+    ..exists(
+      'linked_base, which linked_top links, ships',
+      '$frameworks/linked_base.framework/linked_base',
+    )
+    ..expect(
+      "linked_top links linked_base by linked_base's framework",
+      condition: linkedTop.linkedLibraries().contains(
+        '@rpath/linked_base.framework/linked_base',
+      ),
+      detail: '${linkedTop.linkedLibraries()}',
     );
   CodeSignature(bundle.path).checkValid(bundle.check);
   bundle
     ..finish(
-      'The iOS app links its code assets to each other by their frameworks, '
-      'and its signature holds.',
+      'The iOS app links its native libraries to each other by their '
+      'frameworks, and its signature holds.',
     )
     ..dispose();
 }

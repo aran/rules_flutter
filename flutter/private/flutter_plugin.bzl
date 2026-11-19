@@ -31,9 +31,8 @@ load("//flutter/private:flutter_info.bzl", "flutter_info")
 load("//flutter/private:flutter_info_forwarding.bzl", "flutter_info_forwarding_aspect")
 load("//flutter/private:flutter_library.bzl", "ADDITIONAL_LICENSES_ATTR", "ASSET_FLAVORS_ATTR", "ASSET_PLATFORMS_ATTR", "LIBRARY_DATA_ATTR", "SHADER_FLAVORS_ATTR", "SHADER_PLATFORMS_ATTR", "SKY_ENGINE_ATTR", "build_pub_contributions", "flutter_analyzable_info", "own_additional_licenses")
 load("//flutter/private:flutter_plugin_platform.bzl", "apple_resource_info", "plugin_platforms_of")
+load("//flutter/private:native_dynamic_deps_aspect.bzl", "native_dynamic_deps_aspect")
 load("//flutter/private:native_libraries.bzl", "native_library_records")
-load("//flutter/private:native_library_aspect.bzl", "native_library_aspect")
-load("//flutter/private:native_link_aspect.bzl", "native_link_aspect")
 load("//flutter/private:swiftpm_app_settings.bzl", "FlutterSwiftPMAppLibraryInfo")
 load("//flutter/private:unbuilt_native_code.bzl", "FlutterUnbuiltNativeCodeInfo")
 
@@ -265,8 +264,8 @@ PLUGIN_PACKAGE_ATTRS = package_identity_attrs() | {
         doc = "The app-facing plugin this one implements, as a pubspec's `flutter: plugin: implements:` names it: on each platform it has an implementation for (an entry of `platforms` without a `default_package`), it is a candidate implementation of that plugin rather than of itself. An application registers one implementation of a plugin per platform: the only one it reaches, else the one it depends on directly, else the app-facing plugin's `default_package` for the platform.",
     ),
     "native_deps": attr.label_list(
-        doc = "Native dependencies. Use select() for platform-conditional deps.",
-        aspects = [native_library_aspect, native_link_aspect],
+        doc = "Shared libraries for dart:ffi, as an application's `native_deps` takes them: an app bundles each, with the libraries a `cc_shared_library` among them loads through `dynamic_deps`. Use select() for platform-conditional deps.",
+        aspects = [native_dynamic_deps_aspect],
     ),
     "exports": attr.label_list(
         doc = "The plugin's Android libraries: a `flutter_android_plugin_library` or a `kt_android_library`, anything with `JavaInfo`. Its registration is the `android` entry of `platforms`. An Android app links the libraries of the plugins it depends on, and no others. Set this with `select()` on `@platforms//os:android`, with an empty list as the default, so that only an Android build loads and analyses it: `select({\"@platforms//os:android\": [\"//android:lib\"], \"//conditions:default\": []})`. Named `exports`, as a Java library's re-exported dependencies are, because rules_android dexes an APK's libraries one at a time by an aspect that follows `deps`, `exports` and `runtime_deps` and nothing else, so only an `exports` edge makes the library visible to it.",
