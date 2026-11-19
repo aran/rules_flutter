@@ -3,16 +3,7 @@
 module(name = "rules_flutter_smoke_test")
 
 bazel_dep(name = "rules_flutter", version = "0.0.0")
-bazel_dep(name = "rules_dart", version = "0.9.1")
-
-# Pins an unreleased rules_dart until its next release, which replaces this with
-# a version bump.
-git_override(
-    module_name = "rules_dart",
-    commit = "0facd3131bdf6820daa3ffd5cdce1a7395a7e62e",
-    remote = "https://github.com/aran/rules_dart.git",
-)
-
+bazel_dep(name = "rules_dart", version = "0.10.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
 
 local_path_override(

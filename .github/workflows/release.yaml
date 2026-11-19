@@ -25,7 +25,7 @@ permissions:
   actions: read # the release checks CI passed on the tagged commit
 jobs:
   release:
-    uses: aran/rules_dart/.github/workflows/overhead-release.yaml@0facd3131bdf6820daa3ffd5cdce1a7395a7e62e
+    uses: aran/rules_dart/.github/workflows/overhead-release.yaml@f56f8565a29cbabb9f91cda2e5abb5eba347bb26
     with:
       release_files: rules_flutter-*.tar.gz
       tag_name: ${{ inputs.tag_name || github.ref_name }}
@@ -34,7 +34,7 @@ jobs:
       require_ci: ${{ github.event_name != 'push' }}
   publish:
     needs: release
-    uses: aran/rules_dart/.github/workflows/overhead-publish.yaml@0facd3131bdf6820daa3ffd5cdce1a7395a7e62e
+    uses: aran/rules_dart/.github/workflows/overhead-publish.yaml@f56f8565a29cbabb9f91cda2e5abb5eba347bb26
     with:
       tag_name: ${{ inputs.tag_name || github.ref_name }}
     secrets:

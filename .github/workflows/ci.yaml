@@ -7,9 +7,7 @@
 # job reads which, and why, from tools/ci_matrix/e2e_matrix.dart.
 #
 # No job checks out rules_dart: every workspace fetches it as its MODULE.bazel
-# says, which for now is a `git_override` pinning an unreleased rules_dart
-# commit; the release that pin waits for replaces it with a registry version.
-# Local sibling overrides live in gitignored `.bazelrc.user` files, which never
+# says, from the registry. Local sibling overrides live in gitignored `.bazelrc.user` files, which never
 # exist on a runner.
 name: CI
 on:
