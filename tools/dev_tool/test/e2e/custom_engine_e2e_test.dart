@@ -256,7 +256,21 @@ Future<String> _unbuiltCheckout() async {
     );
   Directory(p.join(dir.path, 'engine', 'src', 'out'))
       .createSync(recursive: true);
-  // Without the machine's git configuration: the commits are the test's.
+  for (final args in [
+    ['init', '--quiet', '--initial-branch=main'],
+    ['add', '--all'],
+    ['commit', '--quiet', '--message=release'],
+    ['tag', '3.50.0'],
+    ['commit', '--quiet', '--allow-empty', '--message=past the release'],
+  ]) {
+    await _git(dir.path, args);
+  }
+  return dir.path;
+}
+
+/// Runs git in [dir] without the machine's git configuration: the commits
+/// are the test's.
+Future<void> _git(String dir, List<String> args) async {
   const environment = {
     'GIT_CONFIG_GLOBAL': '/dev/null',
     'GIT_CONFIG_NOSYSTEM': '1',
@@ -266,21 +280,30 @@ Future<String> _unbuiltCheckout() async {
     'GIT_COMMITTER_NAME': 'test',
     'GIT_COMMITTER_EMAIL': 'test@example.com',
   };
-  for (final args in [
-    ['init', '--quiet', '--initial-branch=main'],
-    ['add', '--all'],
-    ['commit', '--quiet', '--message=release'],
-    ['tag', '3.50.0'],
-    ['commit', '--quiet', '--allow-empty', '--message=past the release'],
-  ]) {
-    final git = await Process.run(
-      'git',
-      ['-C', dir.path, ...args],
-      environment: environment,
-    );
-    expect(git.exitCode, 0, reason: 'git $args: ${git.stderr}');
-  }
-  return dir.path;
+  final git = await Process.run(
+    'git',
+    ['-C', dir, ...args],
+    environment: environment,
+  );
+  expect(git.exitCode, 0, reason: 'git $args: ${git.stderr}');
+}
+
+/// The `flutter_framework.json` of the `env_checkout` SDK, with
+/// `FLUTTER_CHECKOUT` set to [checkout].
+Future<Map<String, Object?>> _envCheckoutFramework(String checkout) async {
+  final record = await _bazel([
+    'query',
+    '@@rules_flutter++flutter+env_checkout_checkout_framework//:flutter_framework.json',
+    '--output=location',
+    '--repo_env=FLUTTER_CHECKOUT=$checkout',
+    '--repo_env=FLUTTER_ENGINE=$checkout/engine/src',
+  ]);
+  expect(record.exitCode, 0, reason: '${record.stderr}');
+  return jsonDecode(
+    File(
+      '${record.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
+    ).readAsStringSync(),
+  ) as Map<String, Object?>;
 }
 
 /// The names of the out dirs [record] says its engine pieces came from.
@@ -1113,22 +1136,41 @@ void main() {
 
       // The version flutter_tools tells, one commit past the tag, and the
       // checkout's branch.
-      final record = await _bazel([
-        'query',
-        '@@rules_flutter++flutter+env_checkout_checkout_framework//:flutter_framework.json',
-        '--output=location',
-        '--repo_env=FLUTTER_CHECKOUT=$checkout',
-        '--repo_env=FLUTTER_ENGINE=$checkout/engine/src',
-      ]);
-      expect(record.exitCode, 0, reason: '${record.stderr}');
-      final framework = jsonDecode(
-        File(
-          '${record.stdout}'.trim().replaceFirst(RegExp(r':\d+:\d+:.*$'), ''),
-        ).readAsStringSync(),
-      ) as Map<String, Object?>;
+      final framework = await _envCheckoutFramework(checkout);
       expect(framework['version'], '3.50.1-0.0.pre-1');
       expect(framework['channel'], 'main');
       expect(framework['repository_url'], isNull);
+    },
+  );
+
+  test(
+    'a checkout that is a git worktree is read again when its HEAD moves',
+    () async {
+      // A worktree's HEAD is in its own git directory, and its branches and
+      // tags in the repository's, neither of which is its `.git`, a file.
+      final repository = await _unbuiltCheckout();
+      final worktree = p.join(
+        Directory.systemTemp.createTempSync('worktree').path,
+        'checkout',
+      );
+      addTearDown(() => Directory(worktree).parent.deleteSync(recursive: true));
+      await _git(repository, [
+        'worktree',
+        'add',
+        '--quiet',
+        worktree,
+        '3.50.0',
+      ]);
+      expect(File(p.join(worktree, '.git')).existsSync(), isTrue);
+
+      expect((await _envCheckoutFramework(worktree))['version'], '3.50.0');
+      await _git(worktree, ['checkout', '--quiet', '--detach', 'main']);
+      expect(
+        (await _envCheckoutFramework(worktree))['version'],
+        '3.50.1-0.0.pre-1',
+      );
+      await _git(repository, ['tag', '3.50.1', 'main']);
+      expect((await _envCheckoutFramework(worktree))['version'], '3.50.1');
     },
   );
 

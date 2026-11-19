@@ -118,17 +118,25 @@ def _local_framework_impl(repository_ctx):
             "{}={} is not a git checkout: a checkout's version is told from its git tags, as flutter_tools tells it."
         ).format(env, checkout))
         return
-    git_dir = root.get_child(".git")
-    if git_dir.is_dir:
-        repository_ctx.watch(git_dir.get_child("HEAD"))
-        ref = repository_ctx.read(git_dir.get_child("HEAD")).strip()
-        if ref.startswith("ref: "):
-            repository_ctx.watch(git_dir.get_child(ref[len("ref: "):]))
-        repository_ctx.watch(git_dir.get_child("packed-refs"))
-        repository_ctx.watch_tree(git_dir.get_child("refs").get_child("tags"))
 
-        # The branch's upstream and the remotes, which name the repository.
-        repository_ctx.watch(git_dir.get_child("config"))
+    # Where git keeps them, as git itself says: HEAD in the checkout's git
+    # directory, the branches, tags and configuration in the repository's.
+    # For a plain clone both are its `.git`; a worktree's or a submodule's
+    # `.git` is a file naming them.
+    def git_path(option):
+        return repository_ctx.path(git(["rev-parse", "--path-format=absolute", option]).stdout.strip())
+
+    git_dir = git_path("--git-dir")
+    common_dir = git_path("--git-common-dir")
+    repository_ctx.watch(git_dir.get_child("HEAD"))
+    ref = repository_ctx.read(git_dir.get_child("HEAD")).strip()
+    if ref.startswith("ref: "):
+        repository_ctx.watch(common_dir.get_child(ref[len("ref: "):]))
+    repository_ctx.watch(common_dir.get_child("packed-refs"))
+    repository_ctx.watch_tree(common_dir.get_child("refs").get_child("tags"))
+
+    # The branch's upstream and the remotes, which name the repository.
+    repository_ctx.watch(common_dir.get_child("config"))
     commit = git(["log", "-n", "1", "--pretty=format:%H"]).stdout.strip()
     version = checkout_framework_version(git, commit)
     status = git(["status", "--porcelain"])
