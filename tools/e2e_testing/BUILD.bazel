@@ -184,6 +184,13 @@ bzl_library(
 )
 
 bzl_library(
+    name = "extra_dart_defines_test",
+    srcs = ["extra_dart_defines_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["@rules_dart//dart:providers"],
+)
+
+bzl_library(
     name = "gradle_host",
     srcs = ["gradle_host.bzl"],
     visibility = ["//visibility:public"],

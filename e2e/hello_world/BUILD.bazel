@@ -23,6 +23,7 @@ load("@rules_flutter//flutter:web.bzl", "flutter_web_app")
 load("@rules_flutter//flutter:windows.bzl", "flutter_windows_app")
 load("@rules_flutter//tools/e2e_testing:compile_fail_test.bzl", "compile_fail_test")
 load("@rules_flutter//tools/e2e_testing:device_profile.bzl", "device_profile")
+load("@rules_flutter//tools/e2e_testing:extra_dart_defines_test.bzl", "extra_dart_defines_test")
 load(":build_in_mode.bzl", "build_in_mode")
 load(":build_variant_test.bzl", "build_variant_tests")
 load(":stray_output_test.bzl", "stray_output_test")
@@ -632,19 +633,33 @@ flutter_test(
 )
 
 # Verifies Dart environment defines: the `defines` attr, the
-# --@rules_dart//dart:extra_dart_defines flag (set in .bazelrc), and
-# flag-beats-attr precedence.
+# --@rules_dart//dart:extra_dart_defines flag (set for this test alone by the
+# rule below), and flag-beats-attr precedence. One define per occurrence of
+# the flag, and no commas: a flutter_test's dependencies are compiled by
+# kernel_worker, which splits -D values on them (an app's compile keeps them,
+# see //flutter/tests:app_defines_test).
 flutter_test(
-    name = "dart_defines_test",
+    name = "dart_defines_test_untransitioned",
     defines = [
         "E2E_ATTR=from_attr",
         "E2E_WINNER=attr",
     ],
     main = "test/dart_defines_test.dart",
     package = ":pubspec-metadata",
+    # Fails without the flag, by design; only the rule below runs it.
+    tags = ["manual"],
     deps = [
         "@deps//:flutter_test",
     ],
+)
+
+extra_dart_defines_test(
+    name = "dart_defines_test",
+    defines = [
+        "E2E_FLAG=from_flag",
+        "E2E_WINNER=flag",
+    ],
+    test = ":dart_defines_test_untransitioned",
 )
 
 # The Tier-2 pair: `flutter_test_program` compiles and `flutter_program_test`
