@@ -17,10 +17,10 @@ flutter_application(
     main = "lib/main.dart",
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:data_assets",
-        "@deps//:flutter",
-        "@deps//:hooks",
-        "@deps//:material_ui",
+        "@package_assets_deps//:data_assets",
+        "@package_assets_deps//:flutter",
+        "@package_assets_deps//:hooks",
+        "@package_assets_deps//:material_ui",
     ],
 )
 
@@ -32,7 +32,7 @@ flutter_web_bundle(
 dart_test(
     name = "bundle_test",
     args = select({
-        "//:debug": ["--debug"],
+        "//package_assets:debug": ["--debug"],
         "//conditions:default": [],
     }) + [
         "$(rlocationpaths :app)",

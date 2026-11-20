@@ -1,0 +1,12 @@
+load("@rules_dart//dart:defs.bzl", "dart_analysis_config")
+
+# Every `analysis_options.yaml` in this module, for the `dart_analyze` aspect
+# `.bazelrc` enables: each Dart file is checked against the nearest listed one
+# above it.
+dart_analysis_config(
+    name = "analysis_config",
+    options = [
+        "//dual_hub:options",
+        "//package_assets:options",
+    ],
+)

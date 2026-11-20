@@ -1,0 +1,95 @@
+"E2e regression: what a package brings. `//package_assets` is what a package declares besides its Dart code (data assets, a hand-linked code asset, link hooks over recorded uses); `//dual_hub` is two pub hubs sharing packages."
+
+module(name = "rules_flutter_e2e_packages")
+
+bazel_dep(name = "rules_flutter", version = "0.0.0")
+bazel_dep(name = "rules_dart", version = "0.10.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "apple_support", version = "2.12.0")
+bazel_dep(name = "rules_apple", version = "5.4.0")
+bazel_dep(name = "rules_swift", version = "4.2.2")
+bazel_dep(name = "rules_cc", version = "0.2.28")
+bazel_dep(name = "platforms", version = "1.1.0")
+
+local_path_override(
+    module_name = "rules_flutter",
+    path = "../..",
+)
+
+flutter = use_extension("@rules_flutter//flutter:extensions.bzl", "flutter")
+flutter.toolchain(flutter_version = "3.50.0")
+
+flutter_pub = use_extension("@rules_flutter//flutter/pub:extensions.bzl", "pub")
+flutter_pub.from_lock(
+    name = "package_assets_deps",
+    lock = "//package_assets:pubspec.lock",
+)
+
+# Two pub hubs for `//dual_hub`, sharing packages: the shape a consumer reaches
+# by resolving two lock files, an app's own dependencies beside a tool's, or a
+# rules_flutter hub beside a rules_dart one. `//dual_hub/hub_a` and
+# `//dual_hub/hub_b` differ in exactly one way: `clock` is 1.1.2 in the first
+# and 1.1.3 in the second, while `path` is the same 1.9.1 in both. Both locks
+# state the same SDK constraint on purpose, so the packages derive the same
+# `language_version` and the package version is the only difference between
+# them.
+#
+# `flutter_pub.from_lock` builds one repository per package for the whole build,
+# at the highest version any lock records, so `@hub_a//:clock` and
+# `@hub_b//:clock` are the same library at 1.1.3: `hub_a` is behind, and as
+# both locks are the root's, the build warns that its request was raised.
+# `//dual_hub:shared_libraries_test` proves they are one repository (two
+# repositories at one version would build too), and
+# `//dual_hub/upgraded:upgraded_bin` and `//dual_hub/agreeing:agreeing_bin` build
+# over both. That a raised root lock fails under
+# `flutter_pub.settings(check_direct_dependencies = "error")` cannot be a target
+# of a module whose hubs would all fail with it;
+# `tools/dev_tool/test/e2e/pub_versions_e2e_test.dart` holds that case.
+#
+# rules_flutter's own tools' lock, `dev_tool_deps`, is a lock of another module
+# beside whatever a consumer's lock adds: raising it says nothing.
+flutter_pub.from_lock(
+    name = "hub_a",
+    lock = "//dual_hub/hub_a:pubspec.lock",
+)
+flutter_pub.from_lock(
+    name = "hub_b",
+    lock = "//dual_hub/hub_b:pubspec.lock",
+)
+
+use_repo(flutter, "flutter_macos_engine")
+
+use_repo(flutter_pub, "hub_a", "hub_b", "package_assets_deps")
+
+# Explicit Clang modules (.bazelrc) precompile the SDK's system modules. Xcode
+# 27.2's SDKs ship private modules whose Swift interfaces do not compile.
+system_sdk = use_extension("@rules_swift//swift:extensions.bzl", "system_sdk", dev_dependency = True)
+system_sdk.configure_sdks(exclude_modules = {
+    "MacOSX": ["MobileGestaltPrivate"],
+    "iPhoneOS": ["MobileGestaltPrivate"],
+    "iPhoneSimulator": [
+        "CoreAudio_Private",
+        "MobileGestaltPrivate",
+    ],
+})
+
+# Hermetic C++ toolchain for Linux arm64 execution platforms, so a C++ tool
+# built for the exec platform (zipper, xmllint) can be compiled when Bazel runs
+# actions on a Linux arm64 worker. Only the Linux-exec, Linux-target toolchain
+# exists: Mac and iOS builds keep apple_support's toolchain. It is registered
+# only on request, with `--extra_toolchains=@llvm_toolchains//:all` (for
+# example in .bazelrc.user, for builds that run on a Linux arm64 worker):
+# registering it here would make every build fetch llvm-project's sources,
+# which toolchain resolution loads the generated package from.
+bazel_dep(name = "llvm", version = "0.8.26", dev_dependency = True)
+
+llvm_tc = use_extension("@llvm//extensions:toolchain.bzl", "toolchain", dev_dependency = True)
+llvm_tc.exec(
+    arch = "aarch64",
+    os = "linux",
+)
+llvm_tc.target(
+    arch = "aarch64",
+    os = "linux",
+)
+use_repo(llvm_tc, "llvm_toolchains")

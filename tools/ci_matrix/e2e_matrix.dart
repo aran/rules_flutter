@@ -141,7 +141,8 @@ const e2eEntries = <E2eEntry>[
     },
   ),
   E2eEntry(
-    'dual_hub',
+    'packages',
+    patterns: ['//dual_hub/...'],
     runs: {
       Os.linux:
           'two pub hubs over two locks: the only coverage of duplicate package '
@@ -152,6 +153,27 @@ const e2eEntries = <E2eEntry>[
       Os.macos: 'pure Dart with nothing OS-specific; Linux runs it',
       Os.windows: 'pure Dart with nothing OS-specific; Linux runs it',
     },
+  ),
+  // The link hooks' tests read the flutter_application's bundle, not the macOS
+  // app, and the hook runs over the host's release AOT compile. The code
+  // asset's dylib is macOS-only.
+  E2eEntry(
+    'packages',
+    patterns: ['//package_assets/...'],
+    runs: {
+      Os.linux:
+          'package link hooks over the uses a release compile records, the '
+          'hook\'s assets in the bundle, and the declared data assets it '
+          'drops and keeps, native and web, with a package\'s own hook: '
+          'platform-neutral, so one run, on the cheapest runner. The code '
+          'asset\'s tests are macOS-only and skip here',
+      Os.macos:
+          'a dart_code_asset over a hand-linked dylib with its own install '
+          'name, and a dart_data_asset in the bundle, both declared on the app '
+          'package\'s own metadata, which no library in deps names; the link '
+          'hook tests run here too, which costs little',
+    },
+    skips: {Os.windows: 'platform-neutral; Linux runs it'},
   ),
   // Also the one job per system that saves the repository cache (ci.yaml).
   E2eEntry(
@@ -369,26 +391,6 @@ const e2eEntries = <E2eEntry>[
           'scenes on iOS',
     },
     skips: {Os.linux: _appleOnly, Os.windows: _appleOnly},
-  ),
-  // The link hooks' tests read the flutter_application's bundle, not the macOS
-  // app, and the hook runs over the host's release AOT compile. The code
-  // asset's dylib is macOS-only.
-  E2eEntry(
-    'package_assets',
-    runs: {
-      Os.linux:
-          'package link hooks over the uses a release compile records, the '
-          'hook\'s assets in the bundle, and the declared data assets it '
-          'drops and keeps, native and web, with a package\'s own hook: '
-          'platform-neutral, so one run, on the cheapest runner. The code '
-          'asset\'s tests are macOS-only and skip here',
-      Os.macos:
-          'a dart_code_asset over a hand-linked dylib with its own install '
-          'name, and a dart_data_asset in the bundle, both declared on the app '
-          'package\'s own metadata, which no library in deps names; the link '
-          'hook tests run here too, which costs little',
-    },
-    skips: {Os.windows: 'platform-neutral; Linux runs it'},
   ),
   // The flutter_assets/ tree of every platform (Android, iOS, Linux, macOS,
   // Windows, web) is built from this one host by platform transition, so what

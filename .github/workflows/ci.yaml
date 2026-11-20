@@ -327,7 +327,9 @@ jobs:
         working-directory: e2e/${{ matrix.workspace }}
         run: bazel test --config=deep --test_tag_filters=deep --build_tests_only //...
   e2e:
-    name: E2E (${{ matrix.workspace }}, ${{ matrix.os }})
+    # The targets join the name where an entry is not the whole module, so two
+    # entries of one module are two names.
+    name: E2E (${{ matrix.workspace }}${{ matrix.targets != '//...' && format(' {0}', matrix.targets) || '' }}, ${{ matrix.os }})
     needs: plan
     runs-on: ${{ matrix.os }}
     # Cold, a workspace fetches its own Flutter SDK, engine and toolchains.

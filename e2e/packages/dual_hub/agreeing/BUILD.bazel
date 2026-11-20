@@ -25,6 +25,6 @@ dart_library(
 dart_binary(
     name = "agreeing_bin",
     main = "bin/main.dart",
-    visibility = ["//:__pkg__"],
+    visibility = ["//dual_hub:__pkg__"],
     deps = [":agreeing"],
 )

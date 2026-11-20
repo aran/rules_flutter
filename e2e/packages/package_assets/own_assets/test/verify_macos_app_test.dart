@@ -2,7 +2,7 @@
 /// program called its code asset and read its data asset with `rootBundle`.
 ///
 /// Needs a GUI session (an unlocked screen), so it is tagged `manual`. Run it
-/// with `bazel test //own_assets:verify_macos_app_test --test_tag_filters=
+/// with `bazel test //package_assets/own_assets:verify_macos_app_test --test_tag_filters=
 /// --strategy=TestRunner=standalone`.
 ///
 /// The app is launched by its `Contents/MacOS/<exe>` and followed by the PID
@@ -30,7 +30,7 @@ const _expected =
 
 Future<void> main() async {
   final bundle = MacosBundle.fromRunfiles(
-    'own_assets/macos_app.zip',
+    'package_assets/own_assets/macos_app.zip',
     appName: 'Native Assets Synthetic',
     prefix: 'synthetic_app_test',
   );

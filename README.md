@@ -5070,7 +5070,7 @@ The `e2e/` directory holds working workspaces, each with its own tests:
 | `e2e/ffi_example` | Every way a Flutter app carries native code: Dart Native Assets, `native_deps`, and a `flutter_plugin` with a Dart plugin class and `native_deps` (`plugin_class`), plus native hot patching. |
 | `e2e/plugin_example` | Pub plugins from the hub, plugins that register a Dart class or a native one, and Android plugin Maven dependencies. |
 | `e2e/pub_resolve` | A monorepo app whose `path:` packages, and a fork of a hosted one, are workspace targets mapped with `resolve`. |
-| `e2e/dual_hub` | Two pub hubs in one workspace that differ on a package version: one repository per package, at the higher version. |
+| `e2e/packages/dual_hub` | Two pub hubs in one module that differ on a package version: one repository per package, at the higher version. |
 | `e2e/macos_example` | A full macOS app with bundle structure checks. |
 | `e2e/ios_example` | An iOS app. Requires Xcode. |
 | `e2e/android_example` | An Android APK built three ways, with APK content checks. |
@@ -5080,7 +5080,7 @@ The `e2e/` directory holds working workspaces, each with its own tests:
 | `e2e/multi_window_example` | Multi-window macOS and multi-scene iOS with `FlutterEngineGroup`. |
 | `e2e/integration_test` | `package:integration_test` suites run in a real app, reported per test. |
 | `e2e/custom_engine` | Builds against a local Flutter checkout and its engine, chosen per build. |
-| `e2e/package_assets` | An app's own package's assets: link hooks deciding which data assets ship, and the Native Assets pipeline end to end with a code asset and a data asset (`own_assets`). |
+| `e2e/packages/package_assets` | An app's own package's assets: link hooks deciding which data assets ship, and the Native Assets pipeline end to end with a code asset and a data asset (`own_assets`). |
 | `e2e/external_module` | The published module, from its release archive: every target lists and analyses. |
 
 [docs/TESTING.md](docs/TESTING.md) describes how the repository itself is tested, including the manual checks that need a display or a device.

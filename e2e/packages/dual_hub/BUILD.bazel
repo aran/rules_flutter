@@ -1,10 +1,10 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options")
 
-# Two pub hubs, and two packages, `//agreeing` and `//upgraded`, each a library
-# collecting a package from both hubs and a binary over it. See MODULE.bazel for
-# how the two locks differ.
+# Two pub hubs, and two packages, `//dual_hub/agreeing` and
+# `//dual_hub/upgraded`, each a library collecting a package from both hubs and
+# a binary over it. See the module's MODULE.bazel for how the two locks differ.
 #
 # The binaries are the point, not decoration. rules_dart's duplicate-record check
 # runs wherever a package_config gets assembled (`dart_binary`, `dart_test`, ...);
@@ -15,8 +15,8 @@ build_test(
     name = "bins_test",
     size = "small",
     targets = [
-        "//agreeing:agreeing_bin",
-        "//upgraded:upgraded_bin",
+        "//dual_hub/agreeing:agreeing_bin",
+        "//dual_hub/upgraded:upgraded_bin",
     ],
 )
 
@@ -41,15 +41,9 @@ diff_test(
     file2 = "shared_libraries.golden",
 )
 
+# Listed in the module's `//:analysis_config`.
 dart_analysis_options(
     name = "options",
     src = "analysis_options.yaml",
-)
-
-# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
-# aspect `.bazelrc` enables: each Dart file is checked against the nearest
-# listed one above it.
-dart_analysis_config(
-    name = "analysis_config",
-    options = [":options"],
+    visibility = ["//:__pkg__"],
 )

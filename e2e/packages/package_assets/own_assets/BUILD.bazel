@@ -1,7 +1,8 @@
 # An app whose own package declares what it ships: a code asset, linked by hand
 # into the one dylib the app loads, and a data asset, both routed by the
 # package's own `dart_package_metadata` rather than by a pub package's. No link
-# hook runs here: `//` has the hooks over a dependency's assets and `//own_hook`
+# hook runs here: `//package_assets` has the hooks over a dependency's assets and
+# `//package_assets/own_hook`
 # one over the app's own. The app, run on macOS, calls the code asset and reads
 # the data asset.
 
@@ -64,8 +65,8 @@ flutter_application(
     main = "lib/main.dart",
     package = ":pubspec-metadata",
     deps = [
-        "@deps//:flutter",
-        "@deps//:material_ui",
+        "@package_assets_deps//:flutter",
+        "@package_assets_deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -93,7 +94,7 @@ dart_test(
 
 # 5. The running app loads both: it calls the code asset and reads the data
 #    asset with `rootBundle`, and prints what it got. Needs a GUI session, so
-#    `manual`: `bazel test //own_assets:verify_macos_app_test --test_tag_filters=
+#    `manual`: `bazel test //package_assets/own_assets:verify_macos_app_test --test_tag_filters=
 #    --strategy=TestRunner=standalone`.
 dart_test(
     name = "verify_macos_app_test",

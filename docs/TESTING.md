@@ -237,7 +237,7 @@ overhead is the dev-tooling module rules_flutter shares with rules_dart (see
 `MODULE.bazel` it runs both `bazel mod deps` and `bazel build --nobuild //...`
 with `--lockfile_mode=error`. Run both: each has passed a lock the other rejected
 (`mod deps` caught a stale `rules_dart` `pub` entry in `e2e/smoke` and a
-missing protobuf entry in what is now `e2e/package_assets`;
+missing protobuf entry in what is now `e2e/packages/package_assets`;
 `build --nobuild` passed both; and a `build --nobuild` has caught a stale lock
 `mod deps` passed). Workspaces are found from `git ls-files`, so a new tracked
 workspace is covered without being listed anywhere. A workspace that is meant to
@@ -817,7 +817,7 @@ bazel run //tools/consumer_archive                            # extract the rele
 cd e2e/external_module && bazel query "@rules_flutter//..."   # a consumer lists the whole module (CI: consumer-query)
 cd e2e/external_module && bazel build --nobuild "@rules_flutter//..."   # and analyses all of it
 bazel run @overhead//preset -- --check                       # the generated .bazelrc preset is current
-cd e2e/dual_hub && bazel test //...
+cd e2e/packages && bazel test //dual_hub/...
 cd e2e/hello_world && bazel test //...
 cd e2e/hello_world && bazel coverage --combined_report=lcov //coverage/... \
   && bazel run //coverage/check -- "$(bazel info output_path)/_coverage/_coverage_report.dat" coverage/lib/shapes.dart coverage/units/lib/units.dart
@@ -836,7 +836,7 @@ cd e2e/android_example && bazel test //...
 cd e2e/web_example && bazel test //...
 cd e2e/pub_resolve && bazel test //...  # macOS, Linux (:render_test)
 cd e2e/desktop_example && bazel test //...  # Linux and Windows targets, each target_compatible_with its own OS: on macOS nothing runs
-cd e2e/package_assets && bazel test //...   # the link hook tests on any host; the macOS app's tests on macOS only (target_compatible_with)
+cd e2e/packages && bazel test //package_assets/...   # the link hook tests on any host; the macOS app's tests on macOS only (target_compatible_with)
 ```
 
 **Platform notes:**
@@ -1139,11 +1139,11 @@ finds a gap before a push.
 | `macos_example`, `ios_example`, `multi_window_example` | macOS | Apple-only features | Linux, Windows: Apple-only |
 | `integration_test` | macOS, Linux, Windows | the integration test rules building the app and test of each case, the Android and iOS apps included on macOS; on macOS and Linux the web tests in headless Chrome, and on Linux the Linux ones on the pinned Linux runtime, fetched with every file of it and of the Chrome that loads it checked against the oldest supported host; on Windows the Windows ones building (the Android tests, which run on an emulator pinned for macOS and Linux only, are skipped there). The tests that need a desktop session, a simulator or an emulator are built and not run: CI never runs a test that needs one | |
 | `pub_resolve` | Linux | a monorepo's path pub packages and a fork of a hosted one, built from the workspace targets the lock maps (platform-neutral); its `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
-| `dual_hub`, `web_example`, `android_example` | Linux | their platform-neutral subject, once, on the cheapest runner; web_example's `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
+| `packages` (`//dual_hub/...`), `web_example`, `android_example` | Linux | their platform-neutral subject, once, on the cheapest runner; web_example's `:render_test` runs the app in the pinned headless Chrome with the pinned Linux runtime | macOS, Windows: the same again |
 | `android_example` | Windows (also) | an Android build on a Windows host: `gen_snapshot.exe`, engine-strip path separators, rules_android JVMs without an up-front heap commit (the committed patch) | |
 | `asset_bundle` | macOS | the `flutter_assets/` tree of every platform against `flutter build`'s, once | Linux, Windows: no other host can analyse its iOS targets |
 | `desktop_example` | Linux, Windows | Tier-2 Linux rules on Linux, Tier-2 Windows rules on Windows | macOS: its targets are Linux-only or Windows-only |
-| `package_assets` | Linux, macOS | on Linux the package link hooks over a release compile's recorded uses (platform-neutral, run once, on the cheapest runner); on macOS a hand-linked code asset and a data asset on the app's own package, loaded by the macOS app | Windows: the same again |
+| `packages` (`//package_assets/...`) | Linux, macOS | on Linux the package link hooks over a release compile's recorded uses (platform-neutral, run once, on the cheapest runner); on macOS a hand-linked code asset and a data asset on the app's own package, loaded by the macOS app | Windows: the same again |
 
 The `E2E deep` jobs run on the weekly schedule only, one per workspace whose
 table entry has a `deep` field saying what its run exercises. The `deep` tier
@@ -1232,7 +1232,7 @@ instead of extracting it.
 | multi_window_example | Multi-window macOS + multi-scene iOS builds with FlutterEngineGroup; macOS bundle verification |
 | android_example | Android APK build (3 approaches: flutter_android_app, Bazel-generated manifest, custom manifest) + APK content verification + web build |
 | desktop_example | Linux desktop app (2 approaches: flutter_linux_app, Bazel-generated runner, with its window title) and Windows desktop app (3 approaches: flutter_windows_app, Bazel-generated runner, custom cc_binary), each with bundle structure verification |
-| package_assets | Package link hooks over a release compile's recorded uses (data assets dropped and kept, native and web, a hook that fails the build, an app's own hook), and a code asset and a data asset declared on an app's own package (`//own_assets`), with a macOS runtime test |
+| packages: package_assets | Package link hooks over a release compile's recorded uses (data assets dropped and kept, native and web, a hook that fails the build, an app's own hook), and a code asset and a data asset declared on an app's own package (`//package_assets/own_assets`), with a macOS runtime test |
 
 ### Plugin verification matrix
 
@@ -1405,8 +1405,8 @@ unpacked bundle goes with it), streams the output to the test log, copies back
 what the test wrote under its test-log directory, and removes the directory.
 The exit code is the test's. A timeout or Ctrl-C stops the test's process
 group on the host before the runner exits. The same flags work for
-`e2e/plugin_example` and `e2e/package_assets` (with
-`//own_assets:verify_macos_app_test`; add `-c dbg` for its second mode). A host name belongs in your
+`e2e/plugin_example` and `e2e/packages/package_assets` (with
+`//package_assets/own_assets:verify_macos_app_test`; add `-c dbg` for its second mode). A host name belongs in your
 `.bazelrc.user`, not in a checked-in file, for example as
 `test:gui_host --run_under=@rules_flutter//tools/e2e_testing:ssh_test_runner --test_env=RULES_FLUTTER_TEST_HOST=<host>`.
 
@@ -1488,16 +1488,16 @@ bazel test :verify_windows_runtime_test --test_tag_filters= --strategy=TestRunne
 bundling (`flutter_ios_native_frameworks`, `flutter_macos_native_libs`), or
 kernel compilation flags.
 
-`e2e/package_assets/own_assets` checks the same at runtime for
+`e2e/packages/package_assets/own_assets` checks the same at runtime for
 assets its app's own package declares: a `dart_code_asset` and a
 `dart_data_asset`, the second read with `rootBundle`. The app prints
 `native_assets_synthetic canary=0x42424242 blob=native-assets-synthetic-data-blob-v1`
 before `runApp`. Run it in both modes:
 
 ```sh
-cd e2e/package_assets
-bazel test //own_assets:verify_macos_app_test --test_tag_filters= --strategy=TestRunner=standalone
-bazel test //own_assets:verify_macos_app_test -c dbg --test_tag_filters= --strategy=TestRunner=standalone
+cd e2e/packages
+bazel test //package_assets/own_assets:verify_macos_app_test --test_tag_filters= --strategy=TestRunner=standalone
+bazel test //package_assets/own_assets:verify_macos_app_test -c dbg --test_tag_filters= --strategy=TestRunner=standalone
 ```
 
 ### macOS visual verification
@@ -2212,8 +2212,8 @@ runner needs both).
 | Asset bundling | hello_world, plugin_example |
 | Shader compilation, bundling or hot reload, or how a workspace plugin is wired | `glass_plugin_e2e_test.dart` on every platform it covers, and plugin_example's `//impeller_shader:app_flutter_sksl_required_test`: with SkSL required, the shader compile of `:app_flutter_sksl_required` (`manual`, since it does not build) fails, saying the shader does not compile for Skia |
 | Web support | web_example `//...` (a WASM-only bundle, an `Int64List` app that keeps the dart2js fallback through a per-compiler `select()`, and `:render_test`, the render check in headless Chrome) + `web_smoke_e2e_test.dart` (render) + `web_per_compiler_e2e_test.dart` (both programs of a per-compiler app, in Chrome) + `plugin_example_e2e_test.dart` (plugins on web) + `native_libs_reload_e2e_test.dart`'s web group if the change touches `native_modules` or the web reload arms |
-| FFI / native deps / native assets | ffi_example (incl. manual iOS-sim + macOS runtime tests, and `//plugin_class`), `package_assets` (incl. `//own_assets:verify_macos_app_test`, manual, in debug and release) |
-| Data assets and link hooks (`dart_data_asset` handling, `link_hook_assets` on package metadata, `flutter_build_assets`' data assets) | root `//flutter/tests:data_asset_test`, `package_assets` `//...` with and without `-c dbg` plus its `//own_assets:verify_macos_app_test` |
+| FFI / native deps / native assets | ffi_example (incl. manual iOS-sim + macOS runtime tests, and `//plugin_class`), `packages`' `//package_assets/...` (incl. `//package_assets/own_assets:verify_macos_app_test`, manual, in debug and release) |
+| Data assets and link hooks (`dart_data_asset` handling, `link_hook_assets` on package metadata, `flutter_build_assets`' data assets) | root `//flutter/tests:data_asset_test`, `packages`' `//package_assets/...` with and without `-c dbg` plus its `//package_assets/own_assets:verify_macos_app_test` |
 | Plugins | plugin_example, ffi_example (`//plugin_class`) |
 | Apple add-to-app (`flutter/private/apple_add_to_app.bzl`, `flutter_apple_xcframeworks.bzl`, `flutter_apple_plugin_xcframeworks.bzl`, `flutter_apple_registrant.bzl`, `apple_xcframeworks_*.bzl`, `flutter_plugin.bzl`'s Apple entries, `flutter_apple_plugin_library.bzl`, the `apple_*` tools) | Root `//flutter/private/tools/...`, plugin_example's `:add_to_app_{ios,macos}_{debug,release}[_signed]_test` (layout, modules, signatures, Swift package), **and** its `manual` Xcode hosts with a booted simulator and an unlocked screen: `bazel test :add_to_app_ios_host_debug_test :add_to_app_macos_host_debug_test :add_to_app_macos_host_release_test --test_tag_filters=`, whose screenshots are in each test's `test.outputs/` |
 | Android release (`flutter_android_release`, `flutter_android_app`'s `app_bundle`/`bundle_config`/`proguard_specs`, `flutter/android_proguard_rules.pro`, `flutter/android_bundle_config.pb.json`, `release_transition.bzl`, `android_release.dart`, `flutter_android_bundle_install.bzl`, `android_bundle_install.dart`) | Root `//...` (`android_release_test`), android_example `//...` (`verify_android_release_test` signs with a key it makes), plugin_example `//...` for an R8 change, **and** "Android release (manual)" in § 4: both signed installs render on the phone |
@@ -2268,8 +2268,8 @@ by the second test, not a reason to take the whole SDK.
 
 ### Dual-hub package sharing
 
-`e2e/dual_hub` runs two pub hubs over two lock files that agree on `path`
-(1.9.1) and differ on `clock` (1.1.2 in `//hub_a`, 1.1.3 in `//hub_b`). Both
+`e2e/packages/dual_hub` runs two pub hubs over two lock files that agree on `path`
+(1.9.1) and differ on `clock` (1.1.2 in `//dual_hub/hub_a`, 1.1.3 in `//dual_hub/hub_b`). Both
 locks state the same SDK constraint, so the packages derive the same
 `language_version` and the package version is the only thing that differs.
 
@@ -2277,10 +2277,10 @@ locks state the same SDK constraint, so the packages derive the same
 at the highest version any lock records. `hub_a` is behind on `clock`, so both
 hubs' `:clock` is the 1.1.3 library, and the build warns that one of the root's
 locks was raised.
-`bazel test //...` there covers:
+`bazel test //dual_hub/...` there covers:
 
-- `:bins_test` builds `//agreeing:agreeing_bin` (`path` from both hubs) and
-  `//upgraded:upgraded_bin` (`clock` from both), each in a package of its own
+- `:bins_test` builds `//dual_hub/agreeing:agreeing_bin` (`path` from both hubs) and
+  `//dual_hub/upgraded:upgraded_bin` (`clock` from both), each in a package of its own
   directory. They are binaries because the
   duplicate-record check runs wherever a package_config is assembled
   (`collect_packages`: `dart_binary`, `dart_test`, `package_config`,

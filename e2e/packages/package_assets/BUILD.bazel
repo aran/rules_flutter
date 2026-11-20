@@ -1,12 +1,14 @@
 # What a package declares besides its Dart code: data assets, code assets, and
 # the link hooks that decide which of them ship. Three apps, one per question:
 #
-#   //          an app and a package it depends on (`//glyphs`), whose link hook
-#               runs over the uses a release compile records. Data assets
-#               dropped and kept, native and web, and a hook that fails the
-#               build.
-#   //own_hook  an app whose *own* package has the link hook.
-#   //own_assets
+#   //package_assets
+#               an app and a package it depends on (`//package_assets/glyphs`),
+#               whose link hook runs over the uses a release compile records.
+#               Data assets dropped and kept, native and web, and a hook that
+#               fails the build.
+#   //package_assets/own_hook
+#               an app whose *own* package has the link hook.
+#   //package_assets/own_assets
 #               an app whose own package declares a hand-linked code asset and
 #               a data asset, with a macOS runtime test that loads both.
 #
@@ -14,7 +16,7 @@
 # tests here read what a release build ships and, under `-c dbg`, what a debug
 # build does (it links nothing, so it ships every declared asset).
 
-load("@rules_dart//dart:defs.bzl", "dart_analysis_config", "dart_analysis_options", "dart_test")
+load("@rules_dart//dart:defs.bzl", "dart_analysis_options", "dart_test")
 load("@rules_flutter//flutter:defs.bzl", "dart_data_asset", "dart_package_metadata", "flutter_application")
 load("@rules_flutter//flutter:macos.bzl", "flutter_macos_app")
 load("@rules_flutter//flutter:web.bzl", "flutter_web_bundle")
@@ -44,9 +46,9 @@ flutter_application(
     main = "lib/main.dart",
     package = ":pubspec-metadata",
     deps = [
-        "//glyphs",
-        "@deps//:flutter",
-        "@deps//:material_ui",
+        "//package_assets/glyphs",
+        "@package_assets_deps//:flutter",
+        "@package_assets_deps//:material_ui",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -68,8 +70,8 @@ flutter_application(
     package = ":pubspec-metadata",
     tags = ["manual"],
     deps = [
-        "//glyphs",
-        "@deps//:flutter",
+        "//package_assets/glyphs",
+        "@package_assets_deps//:flutter",
         "@rules_flutter//flutter:material_icons",
     ],
 )
@@ -91,7 +93,7 @@ flutter_web_bundle(
 config_setting(
     name = "debug",
     values = {"compilation_mode": "dbg"},
-    visibility = ["//:__subpackages__"],
+    visibility = ["//package_assets:__subpackages__"],
 )
 
 # Release bundles hold what the hooks ship; debug ones, which link nothing,
@@ -115,15 +117,9 @@ dart_test(
     deps = ["@rules_dart//dart/runfiles"],
 )
 
+# Listed in the module's `//:analysis_config`.
 dart_analysis_options(
     name = "options",
     src = "analysis_options.yaml",
-)
-
-# Every `analysis_options.yaml` in this workspace, for the `dart_analyze`
-# aspect `.bazelrc` enables: each Dart file is checked against the nearest
-# listed one above it.
-dart_analysis_config(
-    name = "analysis_config",
-    options = [":options"],
+    visibility = ["//:__pkg__"],
 )

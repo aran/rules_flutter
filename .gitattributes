@@ -42,7 +42,6 @@
 /e2e/cross_compile_example/ export-ignore
 /e2e/custom_engine/ export-ignore
 /e2e/desktop_example/ export-ignore
-/e2e/dual_hub/ export-ignore
 /e2e/external_module/ export-ignore
 /e2e/ffi_example/ export-ignore
 /e2e/hello_world/ export-ignore
@@ -51,7 +50,7 @@
 /e2e/pub_resolve/ export-ignore
 /e2e/macos_example/ export-ignore
 /e2e/multi_window_example/ export-ignore
-/e2e/package_assets/ export-ignore
+/e2e/packages/ export-ignore
 /e2e/plugin_example/ export-ignore
 /e2e/web_example/ export-ignore
 
