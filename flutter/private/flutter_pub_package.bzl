@@ -2568,8 +2568,8 @@ def _link_package_files(ctx):
     prelude = link_pub_files(ctx, ctx.attr.files, written = _WRITTEN)
     android = ctx.path(ctx.attr.files).dirname.get_child("android")
     if android.is_dir:
-        # Unwatched, as `link_pub_files` reads the root: the files repository
-        # changes only with its attributes.
+        # Unwatched: `files_identity` names what the files repository holds,
+        # so new files there remake this repository through its definition.
         for entry in android.readdir(watch = "no"):
             if entry.basename not in ("BUILD", "BUILD.bazel"):
                 ctx.symlink(entry, "android/" + entry.basename)
