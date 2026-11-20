@@ -34,6 +34,7 @@ load("//flutter/private:flutter_android_emulator_repo.bzl", "flutter_android_emu
 load("//flutter/private:flutter_chrome_for_testing.bzl", "flutter_chrome_for_testing")
 load("//flutter/private:flutter_dev_root_repo.bzl", "flutter_dev_root_repo")
 load("//flutter/private:flutter_face_repo.bzl", "IOS_ENGINE_EXTRA", "IOS_ENGINE_TARGETS", "MACOS_ENGINE_EXTRA", "MACOS_ENGINE_TARGETS", "SKY_ENGINE_TARGETS", "WEB_SDK_TARGETS", "android_engine_face_extra", "flutter_face_repo")
+load("//flutter/private:flutter_ios_usb_repo.bzl", "flutter_ios_usb_repo")
 load("//flutter/private:flutter_linux_runtime_repo.bzl", "flutter_linux_runtime_repo")
 load("//flutter/private:flutter_material_fonts_repo.bzl", "flutter_material_fonts_repo")
 load("//flutter/private:flutter_sdk_toolchains_repo.bzl", "flutter_sdk_toolchains_repo")
@@ -45,7 +46,7 @@ load("//flutter/private:pub_extension.bzl", "DEFAULT_SDK_NAME")
 load("//flutter/private:repositories.bzl", "flutter_register_toolchains")
 load("//flutter/private:toolchain_version.bzl", "select_flutter_version")
 load("//flutter/private:toolchains_repo.bzl", "HOST_PLATFORMS", "flutter_toolchains_repo", "sdk_repo_name")
-load("//flutter/private:versions.bzl", "ANDROID_EMULATOR", "ANDROID_SYSTEM_IMAGE", "CHROME_FOR_TESTING", "FLUTTER_VERSIONS", "flutter_source_sha256", "require_supported_flutter_version")
+load("//flutter/private:versions.bzl", "ANDROID_EMULATOR", "ANDROID_SYSTEM_IMAGE", "CHROME_FOR_TESTING", "FLUTTER_VERSIONS", "IOS_USB_DEPENDENCIES", "flutter_source_sha256", "require_supported_flutter_version")
 
 flutter_toolchain = tag_class(
     doc = """\
@@ -513,6 +514,13 @@ def _toolchain_extension(module_ctx):
             version = CHROME_FOR_TESTING.version,
             sha256 = sha256,
         )
+
+    # The iproxy the dev tool forwards a wired iPhone's VM service through.
+    # Fetched only when the dev tool is built for macOS.
+    flutter_ios_usb_repo(
+        name = "flutter_ios_usb",
+        dependencies = IOS_USB_DEPENDENCIES,
+    )
 
     # The emulator Android integration tests run on by default, one repository
     # per host it is pinned for, and the system image it boots, one per ABI.

@@ -50,6 +50,8 @@ dart_binary(
     }) + select({
         "@platforms//os:macos": [
             "//tools/macos_screenshot:screenshot",
+            # Forwards a wired iPhone's VM service: Flutter's own iproxy.
+            "@flutter_ios_usb//:iproxy",
         ],
         "@platforms//os:windows": [
             "//tools/windows_screenshot:screenshot",

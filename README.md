@@ -4601,20 +4601,20 @@ The tool reports the pause only once it has seen the main isolate's own pause ev
 
 ### Physical iOS devices
 
-**Finding the VM service.** On every other device, the engine prints the VM service URI in the app's log, and the tool reads it off the same stream as the app's output. An iPhone is different. A wirelessly attached device has no console channel, and a wired device's console belongs to the `devicectl` call that launched the app. So the tool finds the URI through the app's mDNS advertisement instead.
+**Finding the VM service.** On every other device, the engine prints the VM service URI in the app's log, and the tool reads it off the same stream as the app's output. An iPhone also advertises it over mDNS. Every Flutter app built in debug or profile mode advertises `_dartVmService._tcp` with its port and auth code, and the debug and profile `Info.plist` that rules_flutter generates declares the matching `NSBonjourServices` entry, so this works for any app built with these rules, with no configuration.
 
-Every Flutter app built in debug or profile mode advertises `_dartVmService._tcp` with its port and auth code. The debug and profile `Info.plist` that rules_flutter generates declares the matching `NSBonjourServices` entry, so this works for any app built with these rules, with no configuration.
+Over a cable the tool takes whichever comes first, as `flutter_tools` does: the URI the app prints, which reaches the tool through `devicectl` and lldb, or the advertisement. The printed URI needs nothing from the local network, so the first launch of an app attaches while iOS's Local Network question is still unanswered on the phone. Over Wi-Fi only the advertisement carries the device's address.
 
 | Connection | VM service host | Port |
 |---|---|---|
-| Wired | `127.0.0.1`, through an `iproxy` forward, because the service binds to the device's loopback. | The advertised port, forwarded. |
+| Wired | `127.0.0.1`, through an `iproxy` forward, because the service binds to the device's loopback. The `iproxy` is Flutter's own build, which the tool carries. | The printed or advertised port, forwarded. |
 | Wireless | The device's own address, from the advertisement. | The advertised port, dialled directly. |
 
 The tool picks the connection from what `devicectl list devices` reports. A wireless launch also passes `--vm-service-host=0.0.0.0`, so the service is reachable from off the device. A wired launch doesn't.
 
 If discovery fails, check these:
 
-- **Local Network permission.** On macOS the mDNS socket needs it. If it is denied, the error names System Settings > Privacy & Security > Local Network. The device also prompts once, the first time an app advertises.
+- **Local Network permission.** On macOS the mDNS socket needs it. If it is denied, the error names System Settings > Privacy & Security > Local Network. The device also asks once per app, the first time it advertises. Over Wi-Fi the launch waits until someone taps Allow, and says so.
 - **Lost queries.** mDNS runs over UDP, and the spec requires retransmission. Against a USB-attached iPhone a single query succeeded about two times in five, so the tool retransmits with the backoff the spec gives. In practice it resolves in about 200 ms, and the worst we have seen is 3.3 s.
 - **`dns-sd` doesn't show what this tool sees**, in either direction. It answers from mDNSResponder's table, which includes records a raw multicast socket can't reach. Over USB, CoreDevice proxies the device's Bonjour records in as local-only registrations. So `dns-sd` listing the phone while the tool sees nothing over USB is correct on both sides. The table also keeps stale `_dartVmService` records on `lo0` from booted simulators with no app running. Unplugged, the phone multicasts for real on `en0` or `en1`, and the raw socket sees it. If you do use `dns-sd`, read the interface index on each `Add` line. Interface 1 is `lo0` and proves nothing about the device.
 

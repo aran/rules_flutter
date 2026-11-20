@@ -411,6 +411,7 @@ bzl_library(
         "//flutter/private:flutter_chrome_for_testing",
         "//flutter/private:flutter_dev_root_repo",
         "//flutter/private:flutter_face_repo",
+        "//flutter/private:flutter_ios_usb_repo",
         "//flutter/private:flutter_linux_runtime_repo",
         "//flutter/private:flutter_material_fonts_repo",
         "//flutter/private:flutter_sdk_toolchains_repo",

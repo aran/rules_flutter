@@ -258,6 +258,28 @@ CHROME_FOR_TESTING = struct(
     },
 )
 
+# The iproxy a wired iPhone's Dart VM service is forwarded through, and the
+# libraries it loads: the libimobiledevice builds Flutter's own tools download
+# (`IosUsbArtifacts` in flutter_tools), at the revisions the Flutter release
+# pins in `bin/internal/<name>.version`. One universal macOS build each, so one
+# entry serves every Mac. Fetched only when the dev tool is built for macOS.
+# `bazel run //tools/update_flutter_version -- <version>` prints the entry for a
+# release.
+IOS_USB_DEPENDENCIES = {
+    "libimobiledeviceglue": struct(
+        version = "050ff3bf8fdab6ce53a2ddc6ae49b11b1c02a168",
+        sha256 = "04d4fdea8ca09135ab27cc638adff0ee2693e61d72901a92ef71023f2f55dba6",
+    ),
+    "libplist": struct(
+        version = "cf5897a71ea412ea2aeb1e2f6b5ea74d4fabfd8c",
+        sha256 = "fd4909cfa7ea4367732fe745ff9c794ed42c9f1bd4042a1e6ec4c9bcf08e2861",
+    ),
+    "libusbmuxd": struct(
+        version = "19d6bec393c9f9b31ccb090059f59268da32e281",
+        sha256 = "0a1d11f950f8b140cbbd365768039028648018dcbe095f4eb6ba0366f3f0d605",
+    ),
+}
+
 # The Android emulator Android integration tests run on by default, one archive
 # per host it is pinned for, from Google's Android SDK repository. Independent
 # of the Flutter version. A host not listed has no pinned emulator, and an

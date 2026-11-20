@@ -2493,16 +2493,18 @@ the rules, not that the real simulator behaves as recorded.
 ### iOS hardware (manual)
 
 The simulator and a physical device find the VM service by different mechanisms
-(log stream vs mDNS advertisement), and a wired device and a wireless one differ
-again in how that service is reached, so passing on one proves nothing about the
-others. All three need checking whenever `IOSDevice` or
+(log stream vs mDNS advertisement, which a wired device races against its
+console), and a wired device and a wireless one differ again in how that
+service is reached, so passing on one proves nothing about the others. Run the
+wired case with a bundle id new to the phone and leave its Local Network
+question unanswered: the launch must attach through the console regardless. All three need checking whenever `IOSDevice` or
 `mdns_vm_service_discovery.dart` changes.
 
 ```sh
 cd e2e/ios_example   # needs device/BUILD.bazel and the --//:device_profile line in .bazelrc.user — see device.example/
 
 flutter_bazel run -t //:app -d ios-simulator   # log-stream discovery
-flutter_bazel run -t //:app_device -d ios      # mDNS (+ iproxy when wired)
+flutter_bazel run -t //:app_device -d ios      # console or mDNS + iproxy wired; mDNS wireless
 ```
 
 For each: confirm the app renders, then press `r` (hot reload) and `R` (hot

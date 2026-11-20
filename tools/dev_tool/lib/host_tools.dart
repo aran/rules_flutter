@@ -1,10 +1,12 @@
 /// Locating the external programs the dev tool drives.
 ///
-/// The dev tool shells out to binaries it neither owns nor can vendor: `lldb`
-/// and `iproxy` for a physical iOS device, Chrome. (The Android SDK's `adb` and
-/// `aapt2` are not among them: they are the workspace's, built by Bazel; see
-/// `android_sdk.dart`.) They belong to the user's machine, so searching the SDK's
-/// own conventional locations and PATH is legitimate — *guessing* is not.
+/// The dev tool shells out to binaries it does not own: `lldb` for a physical
+/// iOS device, and Chrome. They belong to the user's machine, so searching
+/// their conventional locations and PATH is legitimate — *guessing* is not.
+/// Some it runs are not the machine's: Flutter's own `iproxy`, which the tool
+/// carries in its runfiles as flutter_tools carries it in its cache, and the
+/// Android SDK's `adb` and `aapt2`, which the workspace builds (see
+/// `android_sdk.dart`).
 /// Handing `Process.run` a bare `'aapt2'` and hoping defers the failure into
 /// the middle of a launch, where it surfaces as an unrelated fault: an APK
 /// installed but never named, no activity started, and VM-service discovery
@@ -16,6 +18,8 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+
+import 'runfiles_helper.dart';
 
 /// A tool a run needs and could not find anywhere.
 ///
@@ -68,9 +72,10 @@ class HostTool {
   String require() {
     final found = find();
     if (found != null) return found;
+    final tried = _tried;
     throw MissingHostToolException(
       'Could not find $name, which is needed to $purpose.\n'
-      'Tried:\n$_tried\n'
+      '${tried.isEmpty ? '' : 'Tried:\n$tried\n'}'
       '$remedy',
     );
   }
@@ -116,17 +121,50 @@ HostTool lldbTool({Map<String, String>? environment}) => HostTool(
   environment: environment,
 );
 
+/// Where Flutter's iproxy is in the dev tool's runfiles
+/// (`@flutter_ios_usb//:iproxy`).
+const iproxyRunfile = 'flutter_ios_usb/libusbmuxd/iproxy';
+
+/// The directories of the libraries iproxy loads, beside its own in
+/// `@flutter_ios_usb`: the archives flutter_tools puts on its
+/// `DYLD_LIBRARY_PATH` for it (`IosUsbArtifacts`).
+const _iproxyLibraryDirs = ['libusbmuxd', 'libplist', 'libimobiledeviceglue'];
+
 /// The usbmuxd port forwarder a *wired* iOS device's VM service is reached
-/// through. A wirelessly attached device is dialed at its own address and needs
+/// through: Flutter's own build, which the dev tool carries, never one on
+/// PATH. A wirelessly attached device is dialed at its own address and needs
 /// no forward — see `IOSDevice.requiredHostTools`.
-HostTool iproxyTool({Map<String, String>? environment}) => HostTool(
-  name: 'iproxy',
-  purpose: 'forward the Dart VM service port off a cabled iOS device',
-  remedy:
-      'iproxy comes with libimobiledevice: `brew install '
-      'libimobiledevice`.',
-  environment: environment,
-);
+HostTool iproxyTool() {
+  final carried = resolveRunfile(iproxyRunfile);
+  return HostTool(
+    name: 'iproxy',
+    purpose: 'forward the Dart VM service port off a cabled iOS device',
+    candidates: [?carried],
+    pathNames: const [],
+    remedy: hasRunfilesContext
+        ? "flutter_bazel carries Flutter's own iproxy in its runfiles, as "
+              '$iproxyRunfile, and this build of it has none: it dropped a '
+              'declared data dependency. Rebuild it with `bazel build '
+              '@rules_flutter//tools/dev_tool:flutter_bazel` on macOS.'
+        : "flutter_bazel carries Flutter's own iproxy in its runfiles, and "
+              'this one is not running from any. Run it with `bazel run '
+              '@rules_flutter//tools/dev_tool:flutter_bazel`.',
+  );
+}
+
+/// The environment iproxy at [executable] runs with: its libraries' directories
+/// on `DYLD_LIBRARY_PATH`, found from its real path, since runfiles hold only
+/// links to the files.
+Map<String, String> iproxyEnvironment(String executable) {
+  final root = p.dirname(
+    p.dirname(File(executable).resolveSymbolicLinksSync()),
+  );
+  return {
+    'DYLD_LIBRARY_PATH': [
+      for (final dir in _iproxyLibraryDirs) p.join(root, dir),
+    ].join(':'),
+  };
+}
 
 /// The browser a web run opens the app in.
 HostTool chromeTool({Map<String, String>? environment}) {

@@ -4755,6 +4755,8 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       List<String> consoleLines = const [],
       int silentMdnsAttempts = 0,
       AppLogListener? onLog,
+      bool advertise = true,
+      bool announceOnConsole = false,
     }) async {
       final devicectl = devicectlProcess ?? FakeProcess();
       final lldb = lldbProcess ?? FakeProcess();
@@ -4778,13 +4780,15 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
 
       final mdns = MdnsVmServiceDiscovery(
         clientFactory: FakeMDnsClientFactory(
-          records: dartVmServiceRecords(
-            instance: 'com.example.test',
-            host: 'Test-iPhone.local',
-            port: forwardPort,
-            authCode: 'test=',
-            addresses: deviceAddresses,
-          ),
+          records: advertise
+              ? dartVmServiceRecords(
+                  instance: 'com.example.test',
+                  host: 'Test-iPhone.local',
+                  port: forwardPort,
+                  authCode: 'test=',
+                  addresses: deviceAddresses,
+                )
+              : const {},
           startError: mdnsStartError,
           silentAttempts: silentMdnsAttempts,
         ).call,
@@ -4795,6 +4799,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         bundleId: 'com.example.test',
         mdns: mdns,
         forwardProbe: forwardProbe,
+        locateIproxy: () => (executable: 'iproxy', environment: const {}),
         runProcess: (exe, args) async {
           runs.add([exe, ...args.cast<String>()]);
           onRun?.call(exe, args.cast<String>());
@@ -4870,6 +4875,17 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       } else {
         // devicectl's banner releases the launch gate.
         devicectl.emitStdout('Launched application with com.example.test');
+        if (announceOnConsole) {
+          // The engine's announcement as the device's console carries it: the
+          // device's loopback, at the port the forward listens on here.
+          devicectl.emitStdout(
+            '2026-11-20 02:00:19.690272-0800 app_device[68971:4421669] '
+            'flutter: The Dart VM service is listening on '
+            'http://127.0.0.1:$forwardPort/logged=/',
+          );
+        }
+        // After the announcement, as the engine logs a refusal: it registers
+        // the service only once the service is up.
         consoleLines.forEach(devicectl.emitStdout);
       }
 
@@ -5108,6 +5124,8 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final runs = <List<String>>[];
       await expectLater(
         launchFaked(
+          transportType: 'localNetwork',
+          deviceAddresses: ['192.168.1.244'],
           mdnsStartError: const SocketException('No route to host'),
           runsLog: runs,
         ),
@@ -5119,6 +5137,169 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           containsAllInOrder(['process', 'terminate', '--pid', '4242']),
         ),
       );
+    });
+
+    // Over a cable the console announces the VM service as soon as it starts,
+    // whether or not iOS lets the app advertise it: the first launch of a
+    // bundle id waits on a Local Network question only a person can answer.
+    group('over a cable, the console announcement', () {
+      test('is taken without an advertisement, through a forward', () async {
+        final r = await launchFaked(advertise: false, announceOnConsole: true);
+        final uri = r.instance.vmServiceUri!;
+        expect(uri.host, '127.0.0.1');
+        expect(uri.path, '/logged=/');
+        final iproxy = r.starts.singleWhere((a) => a.first == 'iproxy');
+        expect(iproxy, containsAllInOrder(['${uri.port}:${uri.port}', '-u']));
+      });
+
+      // A console that never prints the address leaves the advertisement.
+      test('is not needed when the advertisement comes alone', () async {
+        final r = await launchFaked();
+        expect(r.instance.vmServiceUri!.path, '/test=/');
+      });
+
+      // Over a cable mDNS is not needed, so a host that cannot run it at all
+      // (its own Local Network permission) still attaches.
+      test('attaches when mDNS cannot run on this host', () async {
+        final r = await launchFaked(
+          mdnsStartError: const SocketException('Operation not permitted'),
+          announceOnConsole: true,
+        );
+        expect(r.instance.vmServiceUri!.path, '/logged=/');
+      });
+
+      // The same host with a console that never prints the address: said at
+      // once, and at the end the failure names what to grant on this Mac.
+      test('ends a launch mDNS cannot help with the host\'s reason', () async {
+        final lines = <String>[];
+        await expectLater(
+          launchFaked(
+            mdnsStartError: const SocketException('Operation not permitted'),
+            onDevice: (d) => d.wiredVmServiceBudget = const Duration(
+              milliseconds: 300,
+            ),
+            onLog: (line) => lines.add(line.text),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('printed no Dart VM service address'),
+                contains(
+                  'System Settings > Privacy & Security > Local Network',
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(lines, contains(startsWith('mDNS cannot run on this Mac')));
+      });
+
+      // Nothing says the refusal costs the run anything once the console has
+      // given the address.
+      test('silences the Local Network message', () async {
+        final lines = <String>[];
+        await launchFaked(
+          advertise: false,
+          announceOnConsole: true,
+          consoleLines: [
+            'app_device[1:2] Could not register as server for '
+                'FlutterDartVMServicePublisher, permission denied.',
+          ],
+          onLog: (line) => lines.add(line.text),
+        );
+        expect(lines, isNot(contains(contains('tap Allow'))));
+      });
+
+      // A wireless device's service listens on all interfaces and is dialed
+      // at the device's address, which only the advertisement gives.
+      test('is ignored wirelessly', () async {
+        final r = await launchFaked(
+          transportType: 'localNetwork',
+          deviceAddresses: ['192.168.1.244'],
+          announceOnConsole: true,
+          silentMdnsAttempts: 1,
+        );
+        expect(r.instance.vmServiceUri!.host, '192.168.1.244');
+        expect(r.starts.where((a) => a.first == 'iproxy'), isEmpty);
+      });
+
+      test('forwards for the session, ended by stop', () async {
+        final iproxy = FakeProcess();
+        final r = await launchFaked(
+          advertise: false,
+          announceOnConsole: true,
+          iproxyProcess: iproxy,
+          onDevice: (d) => d.teardownBound = const Duration(milliseconds: 20),
+        );
+        expect(iproxy.killed, isFalse);
+        await r.device.stop(r.instance);
+        expect(iproxy.killed, isTrue);
+      });
+
+      test(
+        'forwards, and a launch failing after it ends the forward',
+        () async {
+          final iproxy = FakeProcess();
+          var now = DateTime(2026);
+          await expectLater(
+            withClock(
+              Clock(() => now),
+              () => launchFaked(
+                advertise: false,
+                announceOnConsole: true,
+                iproxyProcess: iproxy,
+                onDevice: (d) =>
+                    d.teardownBound = const Duration(milliseconds: 20),
+                forwardProbe: (port) async {
+                  now = now.add(const Duration(seconds: 11));
+                  throw const SocketException('Connection refused');
+                },
+              ),
+            ),
+            throwsA(isA<StateError>()),
+          );
+          expect(iproxy.killed, isTrue);
+        },
+      );
+    });
+
+    // Nothing answers in time: the failure is mDNS's own, which says what it
+    // saw and what to check, not a generic one from a timer of the same
+    // length.
+    group('a launch nothing answers in time', () {
+      Matcher sayingMdnsSawNothing() => isA<StateError>().having(
+        (e) => e.message,
+        'message',
+        contains('No Dart VM service advertised for com.example.test'),
+      );
+
+      test('over a cable', () async {
+        await expectLater(
+          launchFaked(
+            advertise: false,
+            onDevice: (d) => d.wiredVmServiceBudget = const Duration(
+              milliseconds: 300,
+            ),
+          ),
+          throwsA(sayingMdnsSawNothing()),
+        );
+      });
+
+      test('over the network', () async {
+        await expectLater(
+          launchFaked(
+            transportType: 'localNetwork',
+            deviceAddresses: ['192.168.1.244'],
+            advertise: false,
+            onDevice: (d) => d.wirelessVmServiceBudget = const Duration(
+              milliseconds: 300,
+            ),
+          ),
+          throwsA(sayingMdnsSawNothing()),
+        );
+      });
     });
 
     // Wired: the VM service binds to the device's loopback, so it is only
@@ -5199,10 +5380,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       });
 
       test('is not suspected of an app that was not refused', () async {
-        final lines = await launchLogging([
-          'flutter: The Dart VM service is listening on '
-              'http://127.0.0.1:50123/abc=/',
-        ]);
+        final lines = await launchLogging(const []);
         expect(lines, isNot(contains(contains('tap Allow'))));
       });
     });
@@ -5752,6 +5930,8 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         await expectLater(
           launchFaked(
             appPath: '/path/to/app.ipa',
+            transportType: 'localNetwork',
+            deviceAddresses: ['192.168.1.244'],
             mdnsStartError: const SocketException('No route to host'),
             onRun: unpackInto((dir) => unpacked = dir),
           ),
@@ -5803,6 +5983,8 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
     test('a discovery failure fails the launch as a StateError', () async {
       await expectLater(
         launchFaked(
+          transportType: 'localNetwork',
+          deviceAddresses: ['192.168.1.244'],
           mdnsStartError: const SocketException('No route to host'),
         ),
         throwsA(

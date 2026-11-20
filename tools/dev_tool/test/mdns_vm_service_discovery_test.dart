@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
@@ -155,10 +156,10 @@ void main() {
         ),
       );
 
-      final record = await discoveryOver(factory).discover(
+      final record = (await discoveryOver(factory).discover(
         bundleId: bundleId,
         hostnames: deviceHostnames,
-      );
+      ))!;
 
       expect(record.port, 50541);
       expect(record.authCodePath, 'OTuN9bi0zgk=/');
@@ -200,11 +201,11 @@ void main() {
           ),
         );
 
-        final record = await discoveryOver(factory).discover(
+        final record = (await discoveryOver(factory).discover(
           bundleId: bundleId,
           hostnames: deviceHostnames,
           timeout: const Duration(seconds: 20),
-        );
+        ))!;
 
         expect(record.port, 50541);
         expect(factory.clients.length, 3);
@@ -236,6 +237,36 @@ void main() {
         expect(outcome.done, isTrue);
         expect(outcome.error, isA<MdnsDiscoveryException>());
         expect(factory.clients.length, 2);
+      });
+    });
+
+    // Over a cable the launch races this against the app's console; once the
+    // console has answered, asking on would only hold the run's isolate open.
+    test('stops asking, and answers null, once told to', () {
+      fakeAsync((async) {
+        final factory = FakeMDnsClientFactory();
+        final until = Completer<void>();
+
+        final outcome = track(
+          discoveryOver(factory).discover(
+            bundleId: bundleId,
+            hostnames: deviceHostnames,
+            timeout: const Duration(minutes: 5),
+            until: until.future,
+          ),
+        );
+
+        async.elapse(const Duration(milliseconds: 1500));
+        expect(factory.clients.length, 2);
+        until.complete();
+        async.flushMicrotasks();
+
+        expect(outcome.done, isTrue);
+        expect(outcome.error, isNull);
+        expect(outcome.value, isNull);
+        async.elapse(const Duration(minutes: 5));
+        expect(factory.clients.length, 2, reason: 'no query after the stop');
+        expect(async.pendingTimers, isEmpty);
       });
     });
 
@@ -322,11 +353,11 @@ void main() {
         ),
       );
 
-      final record = await discoveryOver(factory).discover(
+      final record = (await discoveryOver(factory).discover(
         bundleId: bundleId,
         hostnames: deviceHostnames,
         resolveAddress: true,
-      );
+      ))!;
 
       expect(record.address?.address, '192.168.1.244');
       expect(

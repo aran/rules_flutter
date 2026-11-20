@@ -163,14 +163,21 @@ class MdnsVmServiceDiscovery {
   /// launch that legitimately takes minutes is indistinguishable from a hang
   /// unless something says so — see [IOSDevice.launch] for why iOS hardware
   /// takes that long.
-  Future<MdnsVmServiceRecord> discover({
+  ///
+  /// Returns null only once [until] has completed: the caller found the
+  /// service some other way and has stopped needing this. No query is sent
+  /// after that; one already listening finishes its window first.
+  Future<MdnsVmServiceRecord?> discover({
     required String bundleId,
     required Iterable<String> hostnames,
     bool resolveAddress = false,
     Duration timeout = const Duration(seconds: 30),
     Duration slowAfter = const Duration(seconds: 60),
     void Function(Duration elapsed)? onSlow,
+    Future<void>? until,
   }) async {
+    final stop = Completer<void>();
+    unawaited(until?.then((_) => stop.isCompleted ? null : stop.complete()));
     // One-shot mDNS queries are UDP and are expected to be lost: RFC 6762 §5.1
     // requires a querier to retransmit, "the interval between the first two
     // queries being at least one second, and doubling". `package:multicast_dns`
@@ -186,6 +193,7 @@ class MdnsVmServiceDiscovery {
 
     var warned = false;
     while (elapsed.elapsed < timeout) {
+      if (stop.isCompleted) return null;
       if (!warned && elapsed.elapsed >= slowAfter) {
         warned = true;
         onSlow?.call(elapsed.elapsed);
@@ -210,14 +218,21 @@ class MdnsVmServiceDiscovery {
       // queries, which would flood the link and defeat the backoff.
       final spent = elapsed.elapsed - attemptStart;
       if (spent < attemptWindow) {
-        await Future<void>.delayed(
+        // A timer rather than `Future.delayed`, so that a stop cancels it
+        // instead of leaving it to hold the isolate open.
+        final waited = Completer<void>();
+        final timer = Timer(
           _roundUpToMillisecond(attemptWindow - spent),
+          waited.complete,
         );
+        await Future.any([waited.future, stop.future]);
+        timer.cancel();
       }
 
       window *= 2;
       if (window > _maxQueryWindow) window = _maxQueryWindow;
     }
+    if (stop.isCompleted) return null;
 
     throw MdnsDiscoveryException(
       MdnsDiscoveryFailure.notFound,

@@ -11,7 +11,8 @@
 ///   2. Downloads each artifact and computes SHA-256 (archives already pinned
 ///      in versions.bzl for this version are reused, not downloaded again)
 ///   3. Prints the Starlark snippet to add to versions.bzl, with the packages
-///      of the SDK's source (`FLUTTER_SDK_PACKAGES`)
+///      of the SDK's source (`FLUTTER_SDK_PACKAGES`) and the iproxy archives
+///      the release pins (`IOS_USB_DEPENDENCIES`)
 ///
 /// `--sdk-packages-only <version>` prints just that entry.
 library;
@@ -208,6 +209,14 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  final iosUsb = await _iosUsbDependencies(
+    version,
+    flutterRepo,
+    versionsBzl,
+    File('$workspaceDir/flutter/private/artifact_urls.bzl').readAsStringSync(),
+    client,
+  );
+
   client.close();
 
   // Check Linux sysroot checksums from the engine's sysroots.json.
@@ -300,6 +309,63 @@ Future<void> main(List<String> args) async {
   );
   _printChecksum(checksums, 'material_fonts.zip');
   print('    },');
+  print('');
+  print('=== IOS_USB_DEPENDENCIES in flutter/private/versions.bzl ===');
+  print('');
+  print(iosUsb);
+}
+
+/// The archives of the iproxy the dev tool carries, at the revisions the
+/// release pins in `bin/internal/<name>.version`, as `IOS_USB_DEPENDENCIES`.
+///
+/// An archive whose revision is unchanged keeps its pinned digest; one that
+/// cannot be fetched prints `FIXME`, as every other digest here prints a
+/// placeholder, which `//flutter/tests:download_digests_test` refuses.
+Future<String> _iosUsbDependencies(
+  String version,
+  String flutterRepo,
+  String versionsBzl,
+  String artifactUrlsBzl,
+  HttpClient client,
+) async {
+  print('');
+  print('iOS USB dependencies (iproxy):');
+  final pinned = pinnedIosUsbDependencies(versionsBzl);
+  final entry = StringBuffer('IOS_USB_DEPENDENCIES = {\n');
+  for (final name in ['libimobiledeviceglue', 'libplist', 'libusbmuxd']) {
+    final result = Process.runSync('git', [
+      'show',
+      '$version:bin/internal/$name.version',
+    ], workingDirectory: flutterRepo);
+    if (result.exitCode != 0) {
+      stderr.writeln('ERROR: Could not find $name.version for tag $version');
+      exit(1);
+    }
+    final revision = (result.stdout as String).trim();
+    final url = iosUsbDependencyUrl(artifactUrlsBzl, name, revision);
+    stdout.write('  $name.zip ... ');
+    String sha;
+    final known = pinned[name];
+    if (known != null && known.version == revision) {
+      sha = known.sha256;
+      print('$sha (pinned)');
+    } else {
+      try {
+        sha = await _downloadAndHash(client, url);
+        print(sha);
+      } catch (e) {
+        print('FAILED ($e)');
+        sha = 'FIXME';
+      }
+    }
+    entry
+      ..writeln('    "$name": struct(')
+      ..writeln('        version = "$revision",')
+      ..writeln('        sha256 = "$sha",')
+      ..writeln('    ),');
+  }
+  entry.write('}');
+  return entry.toString();
 }
 
 /// The Dart SDK version Flutter published for the stable release [version],

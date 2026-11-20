@@ -36,13 +36,13 @@
 /// announcement counts only when this launch's app process made it
 /// ([discoverOwnVmServiceUri]).
 ///
-/// A physical iOS device is the one exception, and it is out-of-band rather
-/// than a second in-band source: a wirelessly attached device has no console
-/// channel at all, and the one a wired device has belongs to the `devicectl`
-/// invocation that launched the app. The URI is taken from the app's
-/// `_dartVmService._tcp` mDNS advertisement instead
-/// ([MdnsVmServiceDiscovery]). That is the single mechanism for iOS hardware,
-/// wired and wireless alike; nothing races it.
+/// A physical iOS device is the one exception. A wirelessly attached device
+/// takes the URI from the app's `_dartVmService._tcp` mDNS advertisement
+/// ([MdnsVmServiceDiscovery]), the only channel it has. A wired one races the
+/// announcement in its console against the advertisement, as flutter_tools
+/// does, and forwards the device port over USB: the announcement does not
+/// wait on iOS letting the app onto the local network, and the advertisement
+/// does.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -2394,6 +2394,31 @@ class AndroidDevice extends Device {
       : startChildProcess(exe, args, environment: environment);
 }
 
+/// Where a wired iOS launch finds iproxy, and the environment it runs it with.
+typedef IproxyLocator =
+    ({String executable, Map<String, String> environment}) Function();
+
+/// The iproxy the dev tool carries, located when a launch needs it.
+({String executable, Map<String, String> environment}) _carriedIproxy() {
+  final executable = iproxyTool().require();
+  return (executable: executable, environment: iproxyEnvironment(executable));
+}
+
+/// How an iOS device launch found the app's VM service.
+sealed class _FoundVmService {}
+
+/// From the app's own announcement on its console: the device-side address.
+final class _LoggedVmService extends _FoundVmService {
+  final Uri uri;
+  _LoggedVmService(this.uri);
+}
+
+/// From the app's mDNS advertisement.
+final class _AdvertisedVmService extends _FoundVmService {
+  final MdnsVmServiceRecord record;
+  _AdvertisedVmService(this.record);
+}
+
 /// One attempt to reach a local TCP listener: completes when it accepts,
 /// throws when it does not. The seam [waitForLocalTcpPort] takes so a test can
 /// answer without a socket.
@@ -3555,6 +3580,7 @@ class IOSDevice extends Device {
   final ProcessStarterWithEnvironment _startProcess;
   final MdnsVmServiceDiscovery _mdns;
   final TcpProbe _forwardProbe;
+  final IproxyLocator _locateIproxy;
 
   /// Filled in by the first [_resolveInfo].
   IOSDeviceInfo? _info;
@@ -3584,6 +3610,13 @@ class IOSDevice extends Device {
   /// Set by [abandonLaunch]: the launch in flight must start nothing more.
   bool _launchAbandoned = false;
 
+  /// How long a launch looks for the VM service, over a cable and over the
+  /// network. A backstop for a launch that will never succeed, not an
+  /// estimate: see [applyTimeout] for why a debug launch here is this slow.
+  /// Settable so a test can drive the expiry.
+  Duration wiredVmServiceBudget = const Duration(minutes: 5);
+  Duration wirelessVmServiceBudget = const Duration(minutes: 15);
+
   IOSDevice({
     String? udid,
     String? bundleId,
@@ -3594,6 +3627,10 @@ class IOSDevice extends Device {
     /// How a wired launch checks that the iproxy forward accepts connections;
     /// a real connect by default.
     TcpProbe? forwardProbe,
+
+    /// Where a wired launch's iproxy is, and its environment; the one the dev
+    /// tool carries by default.
+    IproxyLocator? locateIproxy,
   }) : requestedUdid = udid,
        _bundleId = bundleId,
        _runProcess = runProcess ?? Process.run,
@@ -3601,7 +3638,8 @@ class IOSDevice extends Device {
            startProcess ??
            ((exe, args, env) => startChildProcess(exe, args, environment: env)),
        _mdns = mdns ?? MdnsVmServiceDiscovery(),
-       _forwardProbe = forwardProbe ?? _connectToLocalPort;
+       _forwardProbe = forwardProbe ?? _connectToLocalPort,
+       _locateIproxy = locateIproxy ?? _carriedIproxy;
 
   /// The UDID in play.
   ///
@@ -3895,7 +3933,9 @@ class IOSDevice extends Device {
     //   2. Get PID from process list
     //   3. In debug only: attach lldb (which starts debugserver / ptrace), set
     //      the JIT page notification breakpoint, and resume
-    //   4. Discover the VM service by its mDNS advertisement, if there is one
+    //   4. Find the VM service, if there is one: over a cable by what the app
+    //      logs or its mDNS advertisement, whichever comes first; wirelessly
+    //      by the advertisement
     final debug = buildMode == BuildMode.debug;
 
     final logs = _newAppLogs(onLog);
@@ -3998,7 +4038,7 @@ class IOSDevice extends Device {
       process = _consoleLauncherProcess!;
     }
 
-    // Step 4: Find the VM service by its mDNS advertisement.
+    // Step 4: Find the VM service.
     final vmServiceUri = await _findVmService(
       info: info,
       bundleId: bundleId,
@@ -4086,8 +4126,8 @@ class IOSDevice extends Device {
     return lldb;
   }
 
-  /// The app's VM service, found by its mDNS advertisement and made reachable
-  /// from here; or null for an AOT app that has none.
+  /// The app's VM service, found and made reachable from here; or null for an
+  /// AOT app that has none.
   ///
   /// A release app never has one, and flutter_tools does not look. A profile
   /// app has one only if it was built on the profile engine, and then its
@@ -4121,59 +4161,133 @@ class IOSDevice extends Device {
         }
     }
 
-    // Not by reading the log stream, the way every other platform does. A
-    // wirelessly attached device has no console channel at all, and the one a
-    // wired device has is `devicectl --console`, which dies with the launch it
-    // reports on. The advertisement is the one channel both connections share,
-    // and it is already provisioned: the debug/profile Info.plist declares
-    // `_dartVmService._tcp` under NSBonjourServices
-    // (`flutter/private/runners/ios/DartVmServiceMdns.plist`).
+    // Two channels, and the first to answer wins, as in flutter_tools
+    // (`_discoverDartVMForCoreDevice` in `ios/devices.dart`):
+    //
+    //  * The app's own output, over a cable only. The engine logs where the
+    //    VM service listens, on the device's loopback, and `devicectl
+    //    --console` and lldb carry that here; iproxy forwards the port over
+    //    USB. This needs nothing from the local network, so it is what
+    //    attaches to an app iOS has not yet let onto it: the first debug
+    //    launch of a bundle id, whose Local Network question nobody has
+    //    answered.
+    //  * The app's mDNS advertisement (`_dartVmService._tcp`, which the
+    //    debug/profile Info.plist declares under NSBonjourServices,
+    //    `flutter/private/runners/ios/DartVmServiceMdns.plist`). The only
+    //    channel a wireless device has: it gives the address to dial as well.
+    //
+    // The app still advertises over a cable, so nothing anyone else can see
+    // of it changes; this only stops waiting on the advertisement.
     //
     // Minutes, not seconds — see [applyTimeout] for why a debug launch here is
     // this slow. The budget is a backstop for a run that will never succeed,
-    // not an estimate; [onSlow] is what tells the user a long wait is expected
+    // not an estimate; the "still waiting" note tells the user a long wait is expected
     // rather than a hang. flutter_tools splits the same two concerns, warning
     // at 60s/75s while its mDNS query runs for ten minutes
     // (`ios/devices.dart`).
-    //
-    // The app's own output says what discovery cannot: that iOS refused the
-    // registration. The engine logs it when the app has not been allowed onto
-    // the local network, whether the question went unanswered or was answered
-    // Don't Allow, and only a person at the phone can change that. Said
-    // plainly here rather than left to the timeout.
+    final wired = info.transport == IOSDeviceTransport.wired;
+    final budget = wired ? wiredVmServiceBudget : wirelessVmServiceBudget;
+    final elapsed = clock.stopwatch()..start();
+    final found = Completer<_FoundVmService>();
+    final stopAsking = Completer<void>();
+
+    // The app's output also says what neither channel can: that iOS refused
+    // the advertisement. The engine logs it when the app has not been allowed
+    // onto the local network, whether the question went unanswered or was
+    // answered Don't Allow, and only a person at the phone can change that.
+    // Said plainly rather than left to the timeout, unless the log has already
+    // found the service, when the refusal costs this run nothing.
     var refused = false;
-    final refusals = logs.lines.listen((line) {
-      if (refused || !line.text.contains(_registrationRefused)) return;
-      refused = true;
-      logs.add(_localNetworkRefused(bundleId));
+    final watch = logs.lines.listen((line) {
+      if (found.isCompleted) return;
+      if (wired) {
+        final match = vmServiceUriPattern.firstMatch(line.text);
+        if (match != null) {
+          found.complete(_LoggedVmService(Uri.parse(match.group(1)!)));
+          return;
+        }
+      }
+      if (!refused && line.text.contains(_registrationRefused)) {
+        refused = true;
+        logs.add(_localNetworkRefused(bundleId));
+      }
     });
-    final MdnsVmServiceRecord record;
-    try {
-      record = await _mdns.discover(
-        bundleId: bundleId,
-        hostnames: info.hostnames,
-        resolveAddress: info.transport == IOSDeviceTransport.wireless,
-        timeout: switch (info.transport) {
-          IOSDeviceTransport.wired => const Duration(minutes: 5),
-          IOSDeviceTransport.wireless => const Duration(minutes: 15),
-        },
-        // Sized well above a healthy host's launch: the trigger exists to
-        // reassure someone on a slow host that the wait is expected, and one
-        // sized for a fast host would fire on every ordinary launch. The
-        // message says what is outstanding and what is worth checking, and
-        // quotes no duration — the cost varies by host by more than an order
-        // of magnitude, so any figure here would be wrong for most readers.
-        slowAfter: const Duration(seconds: 45),
-        onSlow: (elapsed) {
-          // Already explained, and more exactly, by [_localNetworkRefused].
-          if (refused) return;
-          logs.add(
-            'Still waiting (${elapsed.inSeconds}s) for the app\'s Dart VM '
-            'service to appear.${buildMode == BuildMode.debug ? _slowJitStart : ''}'
-            '${info.transport == IOSDeviceTransport.wireless ? _wirelessLocalNetwork(bundleId) : ''}',
-          );
-        },
+
+    // Over a cable an mDNS failure on this host does not end the wait: the
+    // console and the forward go through devicectl, lldb and usbmuxd, none of
+    // which the failure touches. It is said at once, and the wait goes on to
+    // the end of the budget, which only then reports it. A failure after the
+    // race is decided is moot, like the result.
+    //
+    // Only that case has a timer of its own. Otherwise mDNS's own deadline,
+    // the same budget, ends the wait, with the explanation its failure gives.
+    Timer? outOfTime;
+    Timer? stillWaiting;
+    void slow() {
+      if (refused || found.isCompleted) return;
+      logs.add(
+        'Still waiting (${elapsed.elapsed.inSeconds}s) for the app\'s Dart VM '
+        'service to appear.${buildMode == BuildMode.debug ? _slowJitStart : ''}'
+        '${wired ? '' : _wirelessLocalNetwork(bundleId)}',
       );
+    }
+
+    void consoleOnly(MdnsDiscoveryException failure, StackTrace trace) {
+      logs.add(
+        'mDNS cannot run on this Mac, so this launch waits for the app to '
+        'print its Dart VM service address on its console instead.\n'
+        '${failure.message}',
+      );
+      final left = budget - elapsed.elapsed;
+      outOfTime = Timer(left.isNegative ? Duration.zero : left, () {
+        if (found.isCompleted) return;
+        found.completeError(
+          MdnsDiscoveryException(
+            failure.failure,
+            'The app printed no Dart VM service address within '
+            '${budget.inSeconds}s, and mDNS could not look for it.\n'
+            '${failure.message}',
+          ),
+          trace,
+        );
+      });
+      final toSlow = _vmServiceSlowAfter - elapsed.elapsed;
+      if (!toSlow.isNegative) stillWaiting = Timer(toSlow, slow);
+    }
+
+    unawaited(
+      _mdns
+          .discover(
+            bundleId: bundleId,
+            hostnames: info.hostnames,
+            resolveAddress: !wired,
+            timeout: budget,
+            until: stopAsking.future,
+            slowAfter: _vmServiceSlowAfter,
+            onSlow: (_) => slow(),
+          )
+          .then(
+            (record) {
+              if (record != null && !found.isCompleted) {
+                found.complete(_AdvertisedVmService(record));
+              }
+            },
+            onError: (Object e, StackTrace trace) {
+              if (found.isCompleted) return;
+              if (wired &&
+                  e is MdnsDiscoveryException &&
+                  e.failure != MdnsDiscoveryFailure.notFound) {
+                consoleOnly(e, trace);
+              } else {
+                found.completeError(e, trace);
+              }
+            },
+          ),
+    );
+
+    final _FoundVmService service;
+    try {
+      service = await found.future;
     } on MdnsDiscoveryException catch (e) {
       if (!refused || e.failure != MdnsDiscoveryFailure.notFound) rethrow;
       throw MdnsDiscoveryException(
@@ -4181,48 +4295,23 @@ class IOSDevice extends Device {
         '${_localNetworkRefused(bundleId)}\n${e.message}',
       );
     } finally {
-      await refusals.cancel();
+      outOfTime?.cancel();
+      stillWaiting?.cancel();
+      stopAsking.complete();
+      await watch.cancel();
     }
 
-    switch (info.transport) {
-      case IOSDeviceTransport.wired:
+    switch (service) {
+      case _LoggedVmService(:final uri):
+        // The logged address is the device's loopback: the port is the
+        // device's, and the path carries the auth code.
+        await _forward(info, uri.port);
+        return uri.replace(host: '127.0.0.1');
+      case _AdvertisedVmService(:final record) when wired:
         // The advertised port is a device-side port on the device's loopback.
-        final iproxy = await _startHelper('iproxy', [
-          '${record.port}:${record.port}',
-          '-u',
-          info.udid,
-        ]);
-        _iproxyProcess = iproxy;
-
-        // iproxy runs for the whole session and reports what it is doing on
-        // both channels, so both have to be drained — an unread pipe blocks
-        // the writer, and here the writer is the only route to the device.
-        final iproxyOutput = AppLogStream();
-        iproxyOutput.closeWhen([pumpProcessLines(iproxy, iproxyOutput).done]);
-
-        // Process.start returns at spawn time, before iproxy has bound its
-        // local listener. DDS dials this forward immediately after launch()
-        // returns; an unbound listener means ECONNREFUSED and the session
-        // loses its VM service. Return only once the forward actually accepts.
-        try {
-          await waitForLocalTcpPort(
-            record.port,
-            what: 'iproxy forward for the iOS VM service',
-            probe: _forwardProbe,
-          );
-        } on StateError catch (e) {
-          final said = iproxyOutput
-              .read(0)
-              .lines
-              .map((l) => l.text)
-              .where((t) => t.trim().isNotEmpty);
-          throw StateError(
-            '${e.message}\n'
-            'iproxy said: ${said.isEmpty ? '(nothing)' : said.join('; ')}',
-          );
-        }
+        await _forward(info, record.port);
         return record.uriFor(host: '127.0.0.1', port: record.port);
-      case IOSDeviceTransport.wireless:
+      case _AdvertisedVmService(:final record):
         // No cable to forward through. `discover(resolveAddress: true)` throws
         // rather than returning a record without an address, so this is set.
         return record.uriFor(
@@ -4231,6 +4320,55 @@ class IOSDevice extends Device {
         );
     }
   }
+
+  /// Forward [port] on this host to the same port on the device's loopback,
+  /// through iproxy over USB, for the rest of the session: [stop], or a launch
+  /// that fails after this, ends it (see [_reapLaunchHelpers]).
+  Future<void> _forward(IOSDeviceInfo info, int port) async {
+    final iproxyCommand = _locateIproxy();
+    final iproxy = await _startHelper(
+      iproxyCommand.executable,
+      ['$port:$port', '-u', info.udid],
+      environment: iproxyCommand.environment,
+    );
+    _iproxyProcess = iproxy;
+
+    // iproxy runs for the whole session and reports what it is doing on
+    // both channels, so both have to be drained — an unread pipe blocks
+    // the writer, and here the writer is the only route to the device.
+    final iproxyOutput = AppLogStream();
+    iproxyOutput.closeWhen([pumpProcessLines(iproxy, iproxyOutput).done]);
+
+    // Process.start returns at spawn time, before iproxy has bound its
+    // local listener. DDS dials this forward immediately after launch()
+    // returns; an unbound listener means ECONNREFUSED and the session
+    // loses its VM service. Return only once the forward actually accepts.
+    try {
+      await waitForLocalTcpPort(
+        port,
+        what: 'iproxy forward for the iOS VM service',
+        probe: _forwardProbe,
+      );
+    } on StateError catch (e) {
+      final said = iproxyOutput
+          .read(0)
+          .lines
+          .map((l) => l.text)
+          .where((t) => t.trim().isNotEmpty);
+      throw StateError(
+        '${e.message}\n'
+        'iproxy said: ${said.isEmpty ? '(nothing)' : said.join('; ')}',
+      );
+    }
+  }
+
+  /// Sized well above a healthy host's launch: the "still waiting" note
+  /// exists to reassure someone on a slow host that the wait is expected, and
+  /// one sized for a fast host would fire on every ordinary launch. The note
+  /// says what is outstanding and what is worth checking, and quotes no
+  /// duration — the cost varies by host by more than an order of magnitude,
+  /// so any figure would be wrong for most readers.
+  static const _vmServiceSlowAfter = Duration(seconds: 45);
 
   /// What the engine logs when iOS refuses to let it advertise the VM service
   /// (`kDNSServiceErr_PolicyDenied`, in `FlutterDartVMServicePublisher.mm`).
@@ -4251,8 +4389,9 @@ class IOSDevice extends Device {
   /// The Local Network question, for a wireless launch's "still waiting" note.
   ///
   /// Over a cable the app's console carries the engine's report of the
-  /// refusal, which is how [_localNetworkRefused] knows to speak. Without one
-  /// that report may never arrive, so a slow start and a refusal look alike.
+  /// refusal, which is how [_localNetworkRefused] knows to speak, and a cabled
+  /// launch does not wait on the advertisement anyway. Without one that
+  /// report may never arrive, so a slow start and a refusal look alike.
   static String _wirelessLocalNetwork(String bundleId) =>
       '\nIf this is the first launch of $bundleId on this device, look at the '
       'phone too: iOS asks once per app, with "Allow ... to find devices on '

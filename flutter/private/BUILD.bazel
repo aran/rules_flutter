@@ -1782,6 +1782,16 @@ bzl_library(
 )
 
 bzl_library(
+    name = "flutter_ios_usb_repo",
+    srcs = ["flutter_ios_usb_repo.bzl"],
+    visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":archives",
+        ":artifact_urls",
+    ],
+)
+
+bzl_library(
     name = "flutter_desktop_plugin_info",
     srcs = ["flutter_desktop_plugin_info.bzl"],
     visibility = ["//flutter:__subpackages__"],

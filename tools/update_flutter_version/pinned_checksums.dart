@@ -57,3 +57,47 @@ String? pinnedDartSourceSha256(String versionsBzl, String version) {
     r'dart_source_sha256\s*=\s*"([0-9a-f]{64})"',
   ).firstMatch(block.group(1)!)?.group(1);
 }
+
+/// The pins of `IOS_USB_DEPENDENCIES` in versions.bzl: each archive's name to
+/// its `version` and `sha256`. A re-run reuses the digest of an archive whose
+/// revision the new release has not moved.
+Map<String, ({String version, String sha256})> pinnedIosUsbDependencies(
+  String versionsBzl,
+) {
+  final block = RegExp(
+    r'^IOS_USB_DEPENDENCIES\s*=\s*\{\n(.*?)^\}',
+    multiLine: true,
+    dotAll: true,
+  ).firstMatch(versionsBzl);
+  if (block == null) return {};
+  return {
+    for (final m in RegExp(
+      r'"([^"]+)":\s*struct\(\s*version\s*=\s*"([^"]+)",\s*'
+      r'sha256\s*=\s*"([0-9a-f]{64})",\s*\)',
+    ).allMatches(block.group(1)!))
+      m.group(1)!: (version: m.group(2)!, sha256: m.group(3)!),
+  };
+}
+
+/// The URL of one iOS USB dependency archive, from the template
+/// `ios_usb_dependency_url` in artifact_urls.bzl formats, so the two cannot
+/// drift. Throws when the file no longer has the template.
+String iosUsbDependencyUrl(
+  String artifactUrlsBzl,
+  String name,
+  String version,
+) {
+  final template = RegExp(
+    r'^_IOS_USB_DEPENDENCY_TEMPLATE\s*=\s*"([^"]+)"',
+    multiLine: true,
+  ).firstMatch(artifactUrlsBzl);
+  if (template == null) {
+    throw StateError(
+      'flutter/private/artifact_urls.bzl has no _IOS_USB_DEPENDENCY_TEMPLATE',
+    );
+  }
+  return template
+      .group(1)!
+      .replaceAll('{name}', name)
+      .replaceAll('{version}', version);
+}

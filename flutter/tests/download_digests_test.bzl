@@ -36,6 +36,7 @@ load(
     "gen_snapshot_cross_artifact_path",
     "host_artifacts_path",
     "ios_engine_artifact_path",
+    "ios_usb_dependency_url",
 )
 load(
     "//flutter/private:engine_helpers.bzl",
@@ -60,6 +61,7 @@ load(
     "ARTIFACT_CHECKSUMS",
     "CHROME_FOR_TESTING",
     "FLUTTER_VERSIONS",
+    "IOS_USB_DEPENDENCIES",
     "LINUX_SYSROOT_CHECKSUMS",
 )
 
@@ -250,9 +252,28 @@ def _android_emulator_digests_test_impl(ctx):
         )
     return unittest.end(env)
 
+def _ios_usb_digests_test_impl(ctx):
+    # The iproxy the dev tool forwards a wired iPhone's VM service through, and
+    # the libraries it loads: the three archives its repository extracts.
+    env = unittest.begin(ctx)
+    asserts.equals(env, ["libimobiledeviceglue", "libplist", "libusbmuxd"], sorted(IOS_USB_DEPENDENCIES.keys()))
+    for name, pin in IOS_USB_DEPENDENCIES.items():
+        asserts.true(env, pin.version, "IOS_USB_DEPENDENCIES[{}] has no version".format(name))
+        asserts.true(
+            env,
+            _is_sha256(pin.sha256),
+            ("IOS_USB_DEPENDENCIES[{}].sha256 is not 64 lowercase hex characters; a fetch of {} would be " +
+             "unverified. Run `bazel run //tools/update_flutter_version -- <version>`").format(
+                name,
+                ios_usb_dependency_url(name, pin.version),
+            ),
+        )
+    return unittest.end(env)
+
 _t4_test = unittest.make(_chrome_for_testing_digests_test_impl)
 _t5_test = unittest.make(_linux_runtime_digests_test_impl)
 _t6_test = unittest.make(_android_emulator_digests_test_impl)
+_t7_test = unittest.make(_ios_usb_digests_test_impl)
 
 def download_digests_test_suite(name):
-    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test)
+    unittest.suite(name, _t0_test, _t1_test, _t2_test, _t3_test, _t4_test, _t5_test, _t6_test, _t7_test)
