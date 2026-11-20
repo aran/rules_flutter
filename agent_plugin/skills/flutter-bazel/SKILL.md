@@ -99,6 +99,15 @@ simulator, `DEVICECTL_CHILD_<NAME>` for an iPhone. Put
 process has `API_URL`. Read it natively (`getenv`, `ProcessInfo`): Dart's
 `Platform.environment` is empty on iOS.
 
+On an iPhone, the first debug or profile launch of an app (of its bundle id)
+on that phone needs a person. iOS asks "Allow "<app>" to find devices on local
+networks?" on the phone, and the tool finds the app through that network, so
+the launch waits until someone taps Allow. You cannot tap it. When iOS has
+refused the app, the tool says so in an `app.log` line on stdout, `<bundle id>
+is running, but iOS has not let it onto the local network`, and keeps waiting:
+ask the user to tap Allow. Later launches of the same bundle id on that phone
+go straight through.
+
 ## 3. Find the channel and the app, then send a request
 
 Wait until the app is up and the channel with it, or the run has ended. If your

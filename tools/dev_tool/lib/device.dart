@@ -4135,33 +4135,54 @@ class IOSDevice extends Device {
     // rather than a hang. flutter_tools splits the same two concerns, warning
     // at 60s/75s while its mDNS query runs for ten minutes
     // (`ios/devices.dart`).
-    final record = await _mdns.discover(
-      bundleId: bundleId,
-      hostnames: info.hostnames,
-      resolveAddress: info.transport == IOSDeviceTransport.wireless,
-      timeout: switch (info.transport) {
-        IOSDeviceTransport.wired => const Duration(minutes: 5),
-        IOSDeviceTransport.wireless => const Duration(minutes: 15),
-      },
-      // Sized well above a healthy host's launch: the trigger exists to
-      // reassure someone on a slow host that the wait is expected, and one
-      // sized for a fast host would fire on every ordinary launch. The message
-      // says what is outstanding and what is worth checking, and quotes no
-      // duration — the cost varies by host by more than an order of magnitude,
-      // so any figure here would be wrong for most readers.
-      slowAfter: const Duration(seconds: 45),
-      onSlow: (elapsed) => logs.add(
-        'Still waiting (${elapsed.inSeconds}s) for the app to advertise its '
-        'Dart VM service over mDNS — the only channel an iOS device has for '
-        'it.${buildMode == BuildMode.debug ? _slowJitStart : ''}\n'
-        'If this is the first launch of $bundleId on this device, look at '
-        'the phone instead. iOS asks once, per app, before it lets one onto '
-        'the local network, and the prompt appears over the app: until it is '
-        'answered the advertisement never goes out, and no amount of waiting '
-        'here will change that. Settings > Privacy & Security > Local '
-        'Network lists the app once it has been asked.',
-      ),
-    );
+    //
+    // The app's own output says what discovery cannot: that iOS refused the
+    // registration. The engine logs it when the app has not been allowed onto
+    // the local network, whether the question went unanswered or was answered
+    // Don't Allow, and only a person at the phone can change that. Said
+    // plainly here rather than left to the timeout.
+    var refused = false;
+    final refusals = logs.lines.listen((line) {
+      if (refused || !line.text.contains(_registrationRefused)) return;
+      refused = true;
+      logs.add(_localNetworkRefused(bundleId));
+    });
+    final MdnsVmServiceRecord record;
+    try {
+      record = await _mdns.discover(
+        bundleId: bundleId,
+        hostnames: info.hostnames,
+        resolveAddress: info.transport == IOSDeviceTransport.wireless,
+        timeout: switch (info.transport) {
+          IOSDeviceTransport.wired => const Duration(minutes: 5),
+          IOSDeviceTransport.wireless => const Duration(minutes: 15),
+        },
+        // Sized well above a healthy host's launch: the trigger exists to
+        // reassure someone on a slow host that the wait is expected, and one
+        // sized for a fast host would fire on every ordinary launch. The
+        // message says what is outstanding and what is worth checking, and
+        // quotes no duration — the cost varies by host by more than an order
+        // of magnitude, so any figure here would be wrong for most readers.
+        slowAfter: const Duration(seconds: 45),
+        onSlow: (elapsed) {
+          // Already explained, and more exactly, by [_localNetworkRefused].
+          if (refused) return;
+          logs.add(
+            'Still waiting (${elapsed.inSeconds}s) for the app\'s Dart VM '
+            'service to appear.${buildMode == BuildMode.debug ? _slowJitStart : ''}'
+            '${info.transport == IOSDeviceTransport.wireless ? _wirelessLocalNetwork(bundleId) : ''}',
+          );
+        },
+      );
+    } on MdnsDiscoveryException catch (e) {
+      if (!refused || e.failure != MdnsDiscoveryFailure.notFound) rethrow;
+      throw MdnsDiscoveryException(
+        e.failure,
+        '${_localNetworkRefused(bundleId)}\n${e.message}',
+      );
+    } finally {
+      await refusals.cancel();
+    }
 
     switch (info.transport) {
       case IOSDeviceTransport.wired:
@@ -4210,6 +4231,32 @@ class IOSDevice extends Device {
         );
     }
   }
+
+  /// What the engine logs when iOS refuses to let it advertise the VM service
+  /// (`kDNSServiceErr_PolicyDenied`, in `FlutterDartVMServicePublisher.mm`).
+  static const _registrationRefused =
+      'Could not register as server for FlutterDartVMServicePublisher, '
+      'permission denied';
+
+  /// What a launch says when iOS has refused the app the local network.
+  static String _localNetworkRefused(String bundleId) =>
+      '$bundleId is running, but iOS has not let it onto the local network, '
+      'where it announces the Dart VM service this tool connects to. iOS '
+      'asks once per app, with "Allow ... to find devices on local '
+      'networks?" on the phone. Someone has to tap Allow there; this run '
+      'keeps waiting. If it was answered Don\'t Allow, or the run still '
+      'waits after the tap, turn the app on in Settings > Privacy & Security '
+      '> Local Network and run again.';
+
+  /// The Local Network question, for a wireless launch's "still waiting" note.
+  ///
+  /// Over a cable the app's console carries the engine's report of the
+  /// refusal, which is how [_localNetworkRefused] knows to speak. Without one
+  /// that report may never arrive, so a slow start and a refusal look alike.
+  static String _wirelessLocalNetwork(String bundleId) =>
+      '\nIf this is the first launch of $bundleId on this device, look at the '
+      'phone too: iOS asks once per app, with "Allow ... to find devices on '
+      'local networks?", and nothing is announced until someone taps Allow.';
 
   /// Why a debug launch can be slow to advertise, for the "still waiting"
   /// note. An AOT app has no JIT trapping to the debugger.

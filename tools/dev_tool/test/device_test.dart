@@ -4752,6 +4752,9 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       void Function(String exe, List<String> args)? onRun,
       BuildMode buildMode = BuildMode.debug,
       List<String>? bonjourServices,
+      List<String> consoleLines = const [],
+      int silentMdnsAttempts = 0,
+      AppLogListener? onLog,
     }) async {
       final devicectl = devicectlProcess ?? FakeProcess();
       final lldb = lldbProcess ?? FakeProcess();
@@ -4783,6 +4786,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
             addresses: deviceAddresses,
           ),
           startError: mdnsStartError,
+          silentAttempts: silentMdnsAttempts,
         ).call,
       );
 
@@ -4852,7 +4856,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         }
       });
 
-      final pending = device.launch(appPath, onLog: null);
+      final pending = device.launch(appPath, onLog: onLog);
       // A launch that fails at the install step never starts devicectl at all,
       // so waiting on its output alone would hang out the test timeout on
       // exactly the failures these tests assert. Whichever settles first wins,
@@ -4866,6 +4870,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       } else {
         // devicectl's banner releases the launch gate.
         devicectl.emitStdout('Launched application with com.example.test');
+        consoleLines.forEach(devicectl.emitStdout);
       }
 
       return (
@@ -5158,6 +5163,49 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         });
       },
     );
+
+    // iOS refuses an app the local network until someone answers the Local
+    // Network question on the phone, and the engine says so in the app's
+    // console. Without that said plainly the launch only times out.
+    group('an app refused the local network', () {
+      Future<List<String>> launchLogging(List<String> consoleLines) async {
+        final lines = <String>[];
+        await launchFaked(
+          consoleLines: consoleLines,
+          // Long enough for the console to be read before discovery succeeds.
+          silentMdnsAttempts: 1,
+          onLog: (line) => lines.add(line.text),
+        );
+        return lines;
+      }
+
+      test('is said to need a tap on Allow', () async {
+        final lines = await launchLogging([
+          '2026-11-20 02:00:22.410632-0800 app_device[68971:4421414] Could '
+              'not register as server for FlutterDartVMServicePublisher, '
+              'permission denied. Check your \'Local Network\' permissions '
+              'for this app in the Privacy section of the system Settings.',
+        ]);
+        expect(
+          lines,
+          contains(
+            allOf(
+              contains('com.example.test is running'),
+              contains('tap Allow'),
+              contains('Settings > Privacy & Security > Local Network'),
+            ),
+          ),
+        );
+      });
+
+      test('is not suspected of an app that was not refused', () async {
+        final lines = await launchLogging([
+          'flutter: The Dart VM service is listening on '
+              'http://127.0.0.1:50123/abc=/',
+        ]);
+        expect(lines, isNot(contains(contains('tap Allow'))));
+      });
+    });
 
     test('does not bind the VM service to all interfaces when wired', () async {
       final r = await launchFaked(transportType: 'wired');
