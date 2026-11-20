@@ -2212,7 +2212,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         File(out).writeAsStringSync(devicesJson(transportType));
         return ProcessResult(0, 0, '', '');
       },
-      startProcess: (exe, args) async => FakeProcess(),
+      startProcess: (exe, args, env) async => FakeProcess(),
     );
 
     Future<List<String>> namesFor(Device device) async => [
@@ -2249,7 +2249,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           File(out).writeAsStringSync(devicesJson('wired'));
           return ProcessResult(0, 0, '', '');
         },
-        startProcess: (exe, args) async => FakeProcess(),
+        startProcess: (exe, args, env) async => FakeProcess(),
       );
 
       await expectLater(
@@ -4730,6 +4730,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         FakeProcess devicectl,
         FakeProcess lldb,
         List<List<String>> starts,
+        List<Map<String, String>> environments,
         List<List<String>> runs,
       })
     >
@@ -4756,6 +4757,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
       final lldb = lldbProcess ?? FakeProcess();
       final iproxy = iproxyProcess ?? FakeProcess();
       final starts = <List<String>>[];
+      final environments = <Map<String, String>>[];
       final runs = runsLog ?? <List<String>>[];
 
       // A wired launch port-forwards the advertised VM-service port through
@@ -4820,8 +4822,9 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           }
           return ProcessResult(0, 0, '', '');
         },
-        startProcess: (exe, args) async {
+        startProcess: (exe, args, env) async {
           starts.add([exe, ...args.cast<String>()]);
+          environments.add(env);
           // A distinct fake per helper: a launch owns three of them at once,
           // and one shared fake cannot say which of them a teardown reached.
           return switch (exe) {
@@ -4871,6 +4874,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         devicectl: devicectl,
         lldb: lldb,
         starts: starts,
+        environments: environments,
         runs: runs,
       );
     }
@@ -5138,6 +5142,22 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         isNot(contains('TEST-COREDEVICE-ID')),
       );
     });
+
+    // devicectl lets `--environment-variables` replace the `DEVICECTL_CHILD_*`
+    // variables of its own environment, so passing it would cut off every
+    // variable a caller sets that way. The launch's own variable goes in the
+    // same way instead, added to the environment the caller's come from.
+    test(
+      'sets the app environment through DEVICECTL_CHILD_ variables',
+      () async {
+        final r = await launchFaked();
+        final i = r.starts.indexWhere((a) => a.contains('launch'));
+        expect(r.starts[i], isNot(contains('--environment-variables')));
+        expect(r.environments[i], {
+          'DEVICECTL_CHILD_OS_ACTIVITY_DT_MODE': 'enable',
+        });
+      },
+    );
 
     test('does not bind the VM service to all interfaces when wired', () async {
       final r = await launchFaked(transportType: 'wired');
@@ -5858,7 +5878,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         // the next step rather than driving the whole device dance.
         return ProcessResult(0, 1, '', 'INSTALL_FAILED');
       },
-      startProcess: (exe, args) async => FakeProcess(),
+      startProcess: (exe, args, env) async => FakeProcess(),
     );
 
     test(
@@ -6000,7 +6020,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           }
           return ProcessResult(0, 0, '', '');
         },
-        startProcess: (exe, args) async => FakeProcess(),
+        startProcess: (exe, args, env) async => FakeProcess(),
       );
 
       expect(() => device.launch('/path/to/MyApp.app'), throwsStateError);
@@ -6013,7 +6033,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
         udid: 'TEST-UDID',
         bundleId: 'com.example.test',
         runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
-        startProcess: (exe, args) async => fakeDevicectl,
+        startProcess: (exe, args, env) async => fakeDevicectl,
       );
 
       final instance = AppInstance(process: fakeDevicectl);
@@ -6049,7 +6069,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
           }
           return ProcessResult(0, 1, '', 'INSTALL_FAILED');
         },
-        startProcess: (exe, args) async => FakeProcess(),
+        startProcess: (exe, args, env) async => FakeProcess(),
       );
       // Resolution happens on the way to the faked install failure.
       await expectLater(device.launch('/path/to/MyApp.app'), throwsStateError);
@@ -6105,7 +6125,7 @@ Filesystem       1K-blocks    Used Available Use% Mounted on
             }
             return ProcessResult(0, 1, '', 'INSTALL_FAILED');
           },
-          startProcess: (exe, args) async => FakeProcess(),
+          startProcess: (exe, args, env) async => FakeProcess(),
         );
 
         expect(device.udid, 'CORE-1', reason: 'nothing resolved yet');

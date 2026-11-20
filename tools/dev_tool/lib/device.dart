@@ -3548,7 +3548,11 @@ class IOSDevice extends Device {
   final String? requestedUdid;
   final String? _bundleId;
   final ProcessRunSync _runProcess;
-  final ProcessStarter _startProcess;
+
+  /// Starts every launch helper. The environment is added to this process's
+  /// own, which is how the caller's `DEVICECTL_CHILD_*` variables still reach
+  /// `devicectl` alongside the one the launch sets.
+  final ProcessStarterWithEnvironment _startProcess;
   final MdnsVmServiceDiscovery _mdns;
   final TcpProbe _forwardProbe;
 
@@ -3584,7 +3588,7 @@ class IOSDevice extends Device {
     String? udid,
     String? bundleId,
     ProcessRunSync? runProcess,
-    ProcessStarter? startProcess,
+    ProcessStarterWithEnvironment? startProcess,
     MdnsVmServiceDiscovery? mdns,
 
     /// How a wired launch checks that the iproxy forward accepts connections;
@@ -3593,7 +3597,9 @@ class IOSDevice extends Device {
   }) : requestedUdid = udid,
        _bundleId = bundleId,
        _runProcess = runProcess ?? Process.run,
-       _startProcess = startProcess ?? startChildProcess,
+       _startProcess =
+           startProcess ??
+           ((exe, args, env) => startChildProcess(exe, args, environment: env)),
        _mdns = mdns ?? MdnsVmServiceDiscovery(),
        _forwardProbe = forwardProbe ?? _connectToLocalPort;
 
@@ -3807,9 +3813,13 @@ class IOSDevice extends Device {
 
   /// Start a launch helper, unless the launch has been abandoned; one started
   /// just as it was abandoned is killed rather than left to outlive the run.
-  Future<Process> _startHelper(String executable, List<String> args) async {
+  Future<Process> _startHelper(
+    String executable,
+    List<String> args, {
+    Map<String, String> environment = const {},
+  }) async {
     _throwIfAbandoned();
-    final process = await _startProcess(executable, args);
+    final process = await _startProcess(executable, args, environment);
     if (_launchAbandoned) {
       process.kill(ProcessSignal.sigkill);
       _throwIfAbandoned();
@@ -3896,6 +3906,12 @@ class IOSDevice extends Device {
     // devicectl it has a terminal attached in order to redirect stdout"
     // (`ios/core_devices.dart`). That is unnecessary here: devicectl writes
     // the app's console output to these pipes without a pty.
+    //
+    // The app's environment goes in as `DEVICECTL_CHILD_*` variables, which
+    // devicectl passes on with the prefix removed, rather than as
+    // `--environment-variables`: devicectl lets that flag replace them, so
+    // using it would drop every variable the caller set the same way, the
+    // device's counterpart of the simulator's `SIMCTL_CHILD_*`.
     _consoleLauncherProcess = await _startHelper('xcrun', [
       'devicectl',
       'device',
@@ -3905,8 +3921,6 @@ class IOSDevice extends Device {
       info.udid,
       if (debug) '--start-stopped',
       '--console',
-      '--environment-variables',
-      '{"OS_ACTIVITY_DT_MODE": "enable"}',
       bundleId,
       '--enable-dart-profiling',
       // flutter_tools passes this whenever debugging is enabled, which is
@@ -3919,7 +3933,7 @@ class IOSDevice extends Device {
       // exactly when the connection interface is wireless.
       if (info.transport == IOSDeviceTransport.wireless)
         '--vm-service-host=0.0.0.0',
-    ]);
+    ], environment: _launchEnvironment);
 
     // devicectl sends its own progress banners on one channel and the app's
     // console output on the other, so both feed the app log stream.
@@ -4207,6 +4221,15 @@ class IOSDevice extends Device {
       'device: a copy stranded part-way leaves lldb without the on-disk '
       'shared cache, and every one of those traps then costs a read off '
       'the device.';
+
+  /// What the launch adds to devicectl's environment for the app.
+  ///
+  /// `OS_ACTIVITY_DT_MODE` sends the app's NSLog and os_log output to stderr,
+  /// where `--console` picks it up; flutter_tools sets it for the same reason
+  /// (`ios/core_devices.dart`).
+  static const _launchEnvironment = {
+    'DEVICECTL_CHILD_OS_ACTIVITY_DT_MODE': 'enable',
+  };
 
   /// The Bonjour service type the engine advertises its VM service as.
   static const _vmServiceBonjourType = '_dartVmService._tcp';

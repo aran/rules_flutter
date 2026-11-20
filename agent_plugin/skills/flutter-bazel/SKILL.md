@@ -92,6 +92,13 @@ code in it.
 The first run builds the tool and the app, which takes minutes on a cold cache.
 A slow start is not a hang. Bazel's progress is in `err`.
 
+To give an iOS app environment variables, set them for the tool with the
+platform's prefix, which is removed on the way: `SIMCTL_CHILD_<NAME>` for the
+simulator, `DEVICECTL_CHILD_<NAME>` for an iPhone. Put
+`DEVICECTL_CHILD_API_URL=http://10.0.0.5:8080` before `bazel run`, and the app
+process has `API_URL`. Read it natively (`getenv`, `ProcessInfo`): Dart's
+`Platform.environment` is empty on iOS.
+
 ## 3. Find the channel and the app, then send a request
 
 Wait until the app is up and the channel with it, or the run has ended. If your
