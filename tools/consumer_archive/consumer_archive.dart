@@ -19,23 +19,37 @@ Future<void> main(List<String> args) async {
   if (destination.existsSync()) destination.deleteSync(recursive: true);
   destination.createSync(recursive: true);
 
-  final archive = await Process.start('git', [
-    'archive',
-    '--format=tar',
-    revision,
-  ], workingDirectory: repo);
-  final extract = await Process.start('tar', [
-    '-x',
-    '-f',
-    '-',
-    '-C',
-    destination.path,
-  ]);
-  archive.stderr.listen(stderr.add);
-  extract.stderr.listen(stderr.add);
-  archive.stdout.pipe(extract.stdin);
-  final failed = await archive.exitCode != 0 || await extract.exitCode != 0;
-  if (failed) {
+  // `git archive` writes to a file rather than a pipe into `tar`: macOS's
+  // bsdtar stops reading at the archive's end-of-archive blocks, before git has
+  // written the zero padding of its last record, and a write into the closed
+  // pipe then fails the run (SocketException: Broken pipe), now and then.
+  final temp = Directory.systemTemp.createTempSync('consumer_archive');
+  final bool extracted;
+  try {
+    final tarball = '${temp.path}/archive.tar';
+    final archive = await Process.run('git', [
+      'archive',
+      '--format=tar',
+      '--output=$tarball',
+      revision,
+    ], workingDirectory: repo);
+    stderr.write(archive.stderr);
+    final extract = archive.exitCode != 0
+        ? null
+        : await Process.run('tar', [
+            '-x',
+            '-f',
+            tarball,
+            '-C',
+            destination.path,
+          ]);
+    if (extract != null) stderr.write(extract.stderr);
+    extracted = extract != null && extract.exitCode == 0;
+  } finally {
+    temp.deleteSync(recursive: true);
+  }
+  // After the `finally`: `exit` ends the process without running it.
+  if (!extracted) {
     stderr.writeln('consumer_archive: could not extract $revision');
     exit(1);
   }
