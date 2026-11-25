@@ -15,7 +15,13 @@ This guidance tells us how to avoid that: we put the toolchain targets in the al
 with only the toolchain attribute pointing into the platform-specific repositories.
 """
 
+load(":engine_out_dirs.bzl", "unread_machine_message")
+load(":flutter_web_sdk_repo.bzl", "host_platform")
+
 visibility("//flutter/...")
+
+# What an SDK's `hosts` names the machine Bazel runs on by.
+THIS_HOST = "host"
 
 # Host platforms on which Flutter builds can run.
 # Keys are platform strings used in Flutter artifact URLs.
@@ -390,12 +396,42 @@ toolchain(
 """.format(compatible_with = ["@platforms//os:ios", "@platforms//cpu:x86_64"])
     return content
 
+def machine_hosts(hosts, os):
+    """The hosts each SDK serves on one machine, and why the SDKs that serve it alone fail there.
+
+    Args:
+        hosts: For each SDK whose engine does not serve every host, the hosts
+            it does, `host` for the machine Bazel runs on.
+        os: The machine's `repository_os`.
+
+    Returns:
+        A struct of the `hosts` and `unknown_machine` of
+        `toolchains_build_content`: `host` becomes the machine's platform, or
+        is dropped on a machine no engine is built for, where each SDK that
+        serves it gets the message its toolchains fail with.
+    """
+    machine = host_platform(os)
+    served = {}
+    unknown_machine = {}
+    for sdk, sdk_hosts in hosts.items():
+        served[sdk] = sorted({
+            (machine if h == THIS_HOST else h): True
+            for h in sdk_hosts
+            if h != THIS_HOST or machine
+        }.keys())
+        if THIS_HOST in sdk_hosts and not machine:
+            unknown_machine[sdk] = "The Flutter SDK \"{}\" runs on the machine Bazel runs on alone. {}".format(sdk, unread_machine_message(os))
+    return struct(hosts = served, unknown_machine = unknown_machine)
+
 def _flutter_toolchains_repo_impl(repository_ctx):
+    # The machine is read here rather than in the `flutter` extension, so
+    # that the extension's repositories are the same on every host.
+    machine = machine_hosts(repository_ctx.attr.hosts, repository_ctx.os)
     repository_ctx.file("BUILD.bazel", toolchains_build_content(
         repository_ctx.attr.sdks,
         repository_ctx.attr.default_sdk,
-        repository_ctx.attr.hosts,
-        repository_ctx.attr.unknown_machine,
+        machine.hosts,
+        machine.unknown_machine,
     ))
 
 flutter_toolchains_repo = repository_rule(
@@ -405,7 +441,6 @@ flutter_toolchains_repo = repository_rule(
     attrs = {
         "sdks": attr.string_list(doc = "The names of the declared SDKs.", mandatory = True),
         "default_sdk": attr.string(doc = "The SDK a build without `--@rules_flutter//flutter:sdk` uses.", mandatory = True),
-        "hosts": attr.string_list_dict(doc = "For each SDK whose engine does not serve every host, the hosts it does."),
-        "unknown_machine": attr.string_dict(doc = "For each SDK that serves the machine Bazel runs on, where no engine is built for it, why its toolchains fail there."),
+        "hosts": attr.string_list_dict(doc = "For each SDK whose engine does not serve every host, the hosts it does, `host` for the machine Bazel runs on."),
     },
 )

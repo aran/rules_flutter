@@ -7,10 +7,11 @@ can resolve its `include` of `../dart-sdk/lib/libraries.json` (dart:core,
 dart:async, ...).
 
 The Dart SDK archives differ by host (their `lib/_internal` dills are built on
-each), so the host is an argument, which the `flutter` extension reads from the
-machine it runs on. The repository is a `flutter_archive_repo`: Bazel keeps one
-copy of it for each host in its repository contents cache, for every output
-base.
+each), so there is one `flutter_archive_repo` for each host, the host an
+attribute: Bazel keeps one copy of each in its repository contents cache, for
+every output base. The repository the toolchains name links to the one of the
+machine Bazel runs on, which it reads when it is fetched, so the `flutter`
+extension that declares them all is the same on every host.
 """
 
 load(":archives.bzl", "archive", "archive_repo")
@@ -56,47 +57,62 @@ def host_platform(os):
         return prefix + "-x64"
     return None
 
-def flutter_web_sdk_repo(name, engine_revision, host, sha256 = "", dart_sdk_sha256s = {}):
-    """Declares the web SDK of an engine, with the Dart SDK of one host.
+def _flutter_web_sdk_host_repo_impl(repository_ctx):
+    host = host_platform(repository_ctx.os)
+    if host not in repository_ctx.attr.sdks:
+        fail("The web SDK needs the Dart SDK of the machine Bazel runs on, and Flutter publishes none for this one ({} on {}).".format(
+            repository_ctx.os.name,
+            repository_ctx.os.arch,
+        ))
+    root = repository_ctx.path(repository_ctx.attr.sdks[host]).dirname
+    for tree in ["web-sdk", "dart-sdk"]:
+        repository_ctx.symlink(root.get_child(tree), tree)
+    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE)
+
+_flutter_web_sdk_host_repo = repository_rule(
+    implementation = _flutter_web_sdk_host_repo_impl,
+    doc = "The web SDK of the machine Bazel runs on: links to the trees of its host's repository.",
+    attrs = {
+        "sdks": attr.string_keyed_label_dict(
+            doc = "Host platform to the BUILD file of its web SDK repository.",
+            mandatory = True,
+        ),
+    },
+)
+
+def flutter_web_sdk_repo(name, engine_revision, sha256 = "", dart_sdk_sha256s = {}):
+    """Declares the web SDK of an engine, one repository for each host's Dart SDK.
 
     Args:
-        name: The repository's name.
+        name: The name of the repository of the machine Bazel runs on; each
+            host's is this name with the host after it (`_darwin_arm64`).
         engine_revision: The engine's commit.
-        host: The engine's name for the machine Bazel runs on (`darwin-arm64`),
-            from `host_platform`, or None where it is not one the engine is
-            built for, which fails the fetch.
         sha256: Expected SHA-256 of flutter-web-sdk.zip.
-        dart_sdk_sha256s: Host platform to the SHA-256 of its Dart SDK archive.
+        dart_sdk_sha256s: Host platform to the SHA-256 of its Dart SDK archive,
+            for every host there is one for.
     """
-    if not host:
-        # Nothing is downloaded: the check fails the fetch at once.
+    sdks = {}
+    for host, dart_sdk_sha256 in sorted(dart_sdk_sha256s.items()):
+        host_name = "{}_{}".format(name, host.replace("-", "_"))
+        dart_sdk_zip = dart_sdk_artifact_path(host)
         archive_repo(
-            name = name,
-            archives = [],
-            checks = [{
-                "path": "dart-sdk",
-                "message": "The web SDK needs the Dart SDK of the machine Bazel runs on, and Flutter publishes none for this one.",
-            }],
-            files = {},
+            name = host_name,
+            archives = [
+                archive(
+                    "flutter-web-sdk.zip",
+                    engine_artifact_url(engine_revision, "flutter-web-sdk.zip"),
+                    sha256,
+                    output = "web-sdk",
+                ),
+                archive(
+                    dart_sdk_zip,
+                    engine_artifact_url(engine_revision, dart_sdk_zip),
+                    dart_sdk_sha256,
+                    strip_prefix = "dart-sdk",
+                    output = "dart-sdk",
+                ),
+            ],
+            files = {"BUILD.bazel": _BUILD_TEMPLATE},
         )
-        return
-    dart_sdk_zip = dart_sdk_artifact_path(host)
-    archive_repo(
-        name = name,
-        archives = [
-            archive(
-                "flutter-web-sdk.zip",
-                engine_artifact_url(engine_revision, "flutter-web-sdk.zip"),
-                sha256,
-                output = "web-sdk",
-            ),
-            archive(
-                dart_sdk_zip,
-                engine_artifact_url(engine_revision, dart_sdk_zip),
-                dart_sdk_sha256s.get(host, ""),
-                strip_prefix = "dart-sdk",
-                output = "dart-sdk",
-            ),
-        ],
-        files = {"BUILD.bazel": _BUILD_TEMPLATE},
-    )
+        sdks[host] = "@{}//:BUILD.bazel".format(host_name)
+    _flutter_web_sdk_host_repo(name = name, sdks = sdks)
