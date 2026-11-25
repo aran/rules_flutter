@@ -89,9 +89,14 @@ void main() {
           sha256: sha256Hex(pubArchive),
           baseUrl: registry,
         ),
+        flutterSourcePackages(
+          'flutter_source',
+          sha256: sha256Hex(flutterSource),
+        ),
         ...sdkSourcePackage(
           sdkRepo,
           package: 'integration_test',
+          source: 'flutter_source',
           sha256: sha256Hex(flutterSource),
           packages: ['integration_test'],
         ),

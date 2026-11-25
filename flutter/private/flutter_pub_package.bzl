@@ -63,6 +63,7 @@ load("//flutter/private:cmake_link_libraries.bzl", "parse_cmake_link_libraries")
 load("//flutter/private:constants.bzl", "OTHER_PACKAGES_ASSETS", "PLUGIN_PLATFORMS")
 load("//flutter/private:failing_targets.bzl", "FAILING_TARGETS_LOAD", "failing_targets", "write_failing_build")
 load("//flutter/private:flutter_pub_index.bzl", "MEMBER_DART", "MEMBER_FILE", "MEMBER_FLUTTER", "MEMBER_OVERLAY", "MEMBER_STUB", "library_label", "owner_prefix", "read_index", "sibling_path", "source_repo")
+load("//flutter/private:flutter_source_files.bzl", "SOURCE_LOAD", "flutter_source_load")
 load("//flutter/private:flutter_pubspec.bzl", "flutter_assets_block", "flutter_licenses_block", "flutter_manifest_errors", "flutter_plugin_block")
 load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "locked_versions", "unusable_message")
 load("//flutter/private:gradle_script.bzl", "gradle_applied_scripts", "gradle_statements", "parse_gradle_properties")
@@ -2565,7 +2566,11 @@ def _link_package_files(ctx):
             "A Flutter SDK package's files are its SDK's: `packages/{name}` of its Flutter release, " +
             "or of its framework."
         ).format(name = ctx.attr.package_name, repo = ctx.name))
-    prelude = link_pub_files(ctx, ctx.attr.files, written = _WRITTEN)
+    prelude = link_pub_files(ctx, ctx.attr.files, written = _WRITTEN + [SOURCE_LOAD])
+    if ctx.path(ctx.attr.files).dirname.get_child(SOURCE_LOAD).exists:
+        # A Flutter SDK package's files link into its release's extracted
+        # source, which a vendored build must set up too.
+        prelude += flutter_source_load(ctx.attr.files)
     android = ctx.path(ctx.attr.files).dirname.get_child("android")
     if android.is_dir:
         # Unwatched: `files_identity` names what the files repository holds,

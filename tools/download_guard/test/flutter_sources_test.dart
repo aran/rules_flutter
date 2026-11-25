@@ -47,7 +47,6 @@ void main() {
         'flutter/private/archive_repo.bzl',
         'flutter/private/flutter_material_fonts_repo.bzl',
         'flutter/private/flutter_source_files.bzl',
-        'flutter/private/flutter_framework_package.bzl',
       ]),
     );
     expect(sites.length, greaterThan(5));

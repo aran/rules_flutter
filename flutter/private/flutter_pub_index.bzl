@@ -75,6 +75,10 @@ def files_repo(package, prefix = SPOKE_PREFIX):
     """The name of the repository holding a hosted, git or Flutter SDK package's fetched files."""
     return "{}_files__{}".format(prefix, package)
 
+def sdk_source_repo(version):
+    """The name of the repository holding `packages/` of a Flutter release's source, which its SDK packages link from."""
+    return "{}_sdk_source__{}".format(SPOKE_PREFIX, version)
+
 def library_repo(package, prefix = SPOKE_PREFIX):
     """The name of the repository holding a built package's library."""
     return "{}_lib__{}".format(prefix, package)

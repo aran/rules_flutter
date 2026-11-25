@@ -71,7 +71,8 @@ class ProbeRepo {
 
 /// A hosted pub package's source repository [name] and the repository its
 /// files are fetched into, from [baseUrl] and checked against [sha256], as
-/// `flutter_pub.from_lock()` declares the two.
+/// `flutter_pub.from_lock()` declares the two, with the source repository's
+/// `files_identity` the purl rules_dart's `pub_hosted_purl` gives them.
 List<ProbeRepo> hostedPubPackage(
   String name, {
   required String package,
@@ -92,18 +93,45 @@ List<ProbeRepo> hostedPubPackage(
   ),
   ProbeRepo(name, 'flutter_pub_package', {
     'files': str('@${name}_files//:BUILD.bazel'),
+    'files_identity': str(
+      'pkg:pub/$package@$version?checksum=${_purlEncode('sha256:$sha256')}'
+      '&repository_url=${_purlEncode(baseUrl.replaceFirst(RegExp(r'/+$'), ''))}',
+    ),
     'package_name': str(package),
   }),
 ];
 
+/// [value] percent-encoded as the `package_metadata` module's purl builder
+/// encodes a qualifier value: every byte but ASCII letters, digits and
+/// `-._~:`.
+String _purlEncode(String value) => utf8
+    .encode(value)
+    .map(
+      (b) => RegExp(r'[A-Za-z0-9\-._~:]').hasMatch(String.fromCharCode(b))
+          ? String.fromCharCode(b)
+          : '%${b.toRadixString(16).toUpperCase().padLeft(2, '0')}',
+    )
+    .join();
+
+/// The repository [name] that `packages/` of the Flutter source tarball of
+/// [fakeFlutterVersion] is extracted into, checked against [sha256], as
+/// `flutter_pub.from_lock()` declares one per release for its SDK packages to
+/// link from.
+ProbeRepo flutterSourcePackages(String name, {required String sha256}) =>
+    ProbeRepo(name, 'flutter_source_packages', {
+      'flutter_version': str(fakeFlutterVersion),
+      'sha256': str(sha256),
+    });
+
 /// A Flutter SDK package's source repository [name] and the repository its
-/// files are extracted into from the Flutter source tarball of
-/// [fakeFlutterVersion], checked against [sha256], as `flutter_pub.from_lock()`
-/// declares the two. [packages] are those the release's source has; [attrs]
-/// are more attributes of the package's repository (its `sdk`, say).
+/// files are linked into from [source], a [flutterSourcePackages] checked
+/// against [sha256], as `flutter_pub.from_lock()` declares the two.
+/// [packages] are those the release's source has; [attrs] are more attributes
+/// of the package's repository (its `sdk`, say).
 List<ProbeRepo> sdkSourcePackage(
   String name, {
   required String package,
+  required String source,
   required String sha256,
   required List<String> packages,
   Map<String, String> attrs = const {},
@@ -111,11 +139,12 @@ List<ProbeRepo> sdkSourcePackage(
   ProbeRepo('${name}_files', 'flutter_source_files', {
     'package_name': str(package),
     'flutter_version': str(fakeFlutterVersion),
-    'sha256': str(sha256),
+    'source': str('@$source//:BUILD.bazel'),
     'packages': '[${packages.map(str).join(', ')}]',
   }),
   ProbeRepo(name, 'flutter_pub_package', {
     'files': str('@${name}_files//:BUILD.bazel'),
+    'files_identity': str('flutter $fakeFlutterVersion sha256:$sha256'),
     'package_name': str(package),
     'version': str('0.0.0'),
     ...attrs,

@@ -14,8 +14,11 @@ import 'digest_probe.dart';
 /// **The property:** `flutter_pub_package` over `flutter_source_files` builds a
 /// package out of `packages/<name>` of the Flutter source tarball, and
 /// the package's files are at the repository's root as a hosted package's are.
-/// Only that package is extracted: nothing else of `packages/` is in the
-/// repository. A files repository of an `sdk: flutter` package the release's
+/// Only that package is linked in: nothing else of `packages/` is in the
+/// repository. Every SDK package of a release links from the one extraction
+/// of its source (`flutter_source_packages`): the tarball holds the whole
+/// monorepo, so extracting it for each package would read all of it each
+/// time. A files repository of an `sdk: flutter` package the release's
 /// source does not have (one not in `packages`, the list versions.bzl records
 /// per release) fails the fetch, naming the package, the Flutter version and
 /// the command that re-resolves the lock, instead of Bazel's message about
@@ -52,6 +55,7 @@ void main() {
     '$root/flutter_test/lib/flutter_test.dart': 'const z = 1;\n',
   });
   final digest = sha256Hex(tarball);
+  const source = 'sdk_source';
 
   List<ProbeRepo> sdkPackage(
     String repo,
@@ -60,6 +64,7 @@ void main() {
   }) => sdkSourcePackage(
     repo,
     package: package,
+    source: source,
     sha256: digest,
     packages: ['flutter_driver', 'flutter_test', 'integration_test'],
     attrs: attrs,
@@ -92,6 +97,7 @@ void main() {
     fetcher = await probe(
       archives: {'$fakeFlutterVersion.tar.gz': tarball},
       repos: [
+        flutterSourcePackages(source, sha256: digest),
         ...sdkPackage('sdk_integration_test', 'integration_test'),
         ...sdkPackage('sdk_flutter_driver', 'flutter_driver'),
         ...sdkPackage('sdk_absent', 'package_the_release_lacks'),
@@ -161,6 +167,42 @@ void main() {
       }
     });
   }
+
+  test(
+    'the packages of a release link from one extraction of its source',
+    () async {
+      // Where each package's pubspec really is, through the links of its
+      // source repository and its files repository.
+      final extracted = <String>{};
+      for (final (repo, package) in [
+        ('sdk_integration_test', 'integration_test'),
+        ('sdk_flutter_driver', 'flutter_driver'),
+      ]) {
+        final fetched = await fetcher.fetch(repo);
+        expect(fetched.succeeded, isTrue, reason: '$fetched');
+        final location = await fetcher.bazel([
+          'query',
+          '--output=location',
+          '@$repo//:$package',
+        ]);
+        expect(location.succeeded, isTrue, reason: '$location');
+        final root = RegExp(
+          r'^(/\S+)/BUILD\.bazel:',
+          multiLine: true,
+        ).firstMatch(location.output)![1]!;
+        final pubspec = File(
+          p.join(root, 'pubspec.yaml'),
+        ).resolveSymbolicLinksSync();
+        expect(p.basename(p.dirname(pubspec)), package, reason: pubspec);
+        extracted.add(p.dirname(p.dirname(pubspec)));
+      }
+      expect(
+        extracted,
+        hasLength(1),
+        reason: 'each package was extracted on its own: $extracted',
+      );
+    },
+  );
 
   test(
     'a package the release lacks fails the fetch, saying how to fix it',

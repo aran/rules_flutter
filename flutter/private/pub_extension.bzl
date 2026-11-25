@@ -21,13 +21,13 @@ load("//flutter/private:flutter_face_repo.bzl", "flutter_face_repo")
 load("//flutter/private:flutter_framework_package.bzl", "flutter_framework_package")
 load("//flutter/private:flutter_gen_l10n_repo.bzl", "flutter_gen_l10n_repo")
 load("//flutter/private:flutter_pub_goldens.bzl", "flutter_pub_goldens")
-load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "pubspec_repo", "sdk_prefix", "source_repo")
+load("//flutter/private:flutter_pub_index.bzl", "ANDROID_MAVEN_REPO", "APPLE_APP_SETTINGS_REPO", "GOLDENS_REPO", "INDEX_REPO", "SPOKE_PREFIX", "android_maven_requirements_repo", "apple_app_libraries_repo", "files_repo", "flutter_pub_index", "index_repo", "library_repo", "pubspec_repo", "sdk_prefix", "sdk_source_repo", "source_repo")
 load("//flutter/private:flutter_pub_library_repo.bzl", "flutter_pub_library_repo")
 load("//flutter/private:flutter_pub_lock_hub.bzl", "flutter_pub_lock_hub")
 load("//flutter/private:flutter_pub_package.bzl", "flutter_pub_package", "flutter_pub_path_package")
 load("//flutter/private:flutter_resolved_package.bzl", "flutter_resolved_package")
 load("//flutter/private:flutter_sdks_repo.bzl", "SDKS_FILE", "decode_sdks")
-load("//flutter/private:flutter_source_files.bzl", "flutter_sdk_files_identity", "flutter_source_files", "missing_sdk_package_message")
+load("//flutter/private:flutter_source_files.bzl", "flutter_sdk_files_identity", "flutter_source_files", "flutter_source_packages", "missing_sdk_package_message")
 load("//flutter/private:flutter_unsupported_package.bzl", "flutter_unsupported_package", "ignored_package_message", "unsupported_package_message")
 load("//flutter/private:lock_entry_kind.bzl", "ENGINE_PROVIDED", "FLUTTER_FRAMEWORK", "FLUTTER_SOURCE", "GIT", "HOSTED", "IGNORED", "LOCAL", "PATH", "UNSUPPORTED", "lock_entry_kind")
 load("//flutter/private:pub_cycles.bzl", "module_cycles", "plan_cycles")
@@ -307,6 +307,25 @@ def _framework_variants(sdks):
             key_prefix[key] = sdk_prefix(name)
         prefixes[name] = key_prefix[key]
     return prefixes
+
+def _source_packages(sources, version):
+    """The label `flutter_source_packages` of `version` is read through, declaring it on first use.
+
+    Args:
+        sources: The versions declared so far, which this adds to.
+        version: The Flutter release.
+
+    Returns:
+        The label of the repository's `BUILD.bazel`.
+    """
+    if version not in sources:
+        flutter_source_packages(
+            name = sdk_source_repo(version),
+            flutter_version = version,
+            sha256 = flutter_source_sha256(version),
+        )
+        sources[version] = "@{}//:BUILD.bazel".format(sdk_source_repo(version))
+    return sources[version]
 
 def _framework_representatives(sdks, prefixes):
     """For each prefix that holds framework packages, the SDKs whose they are: the release first, then by name.
@@ -695,6 +714,9 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
     # The packages with an Apple repository: a Flutter SDK package has one per
     # framework.
     apple_packages = {}
+
+    # The releases whose source packages are declared, by version.
+    sources = {}
     for name, e in sorted(chosen.items()):
         if e.kind == UNSUPPORTED:
             flutter_unsupported_package(
@@ -719,7 +741,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
                     name = source_repo(name, prefix),
                     flutter_version = sdk.version or "",
                     framework_json = framework_json(sdk.framework) if sdk.framework else None,
-                    sha256 = flutter_source_sha256(sdk.version) if sdk.version and not sdk.framework else "",
+                    source = _source_packages(sources, sdk.version) if sdk.version and not sdk.framework else None,
                     sdks = [s.name for s in sharers],
                     prefix = prefix,
                 )
@@ -811,7 +833,7 @@ def _declare_pub_packages(module_ctx, tags, settings, annotations, sdks, user_ov
                             name = files_repo(name, prefix),
                             package_name = name,
                             flutter_version = sdk.version,
-                            sha256 = flutter_source_sha256(sdk.version),
+                            source = _source_packages(sources, sdk.version),
                             packages = packages,
                         )
                         files = pub_files_label(files_repo(name, prefix))

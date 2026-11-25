@@ -109,13 +109,19 @@ class _Release {
 
   String get repo => '${_hub}__flutter_$version'.replaceAll('.', '_');
 
-  /// The declaration of the repository, in the probe's module extension.
+  /// The declaration of the repository and of the release's source packages
+  /// it links from, in the probe's module extension.
   String get declaration =>
       """
+    flutter_source_packages(
+        name = ${str('${repo}_source')},
+        flutter_version = ${str(version)},
+        sha256 = ${str(sha256Hex(tarball))},
+    )
     flutter_framework_package(
         name = ${str(repo)},
         flutter_version = ${str(version)},
-        sha256 = ${str(sha256Hex(tarball))},${prefix == null ? '' : '\n        prefix = ${str(prefix!)},'}
+        source = ${str('@${repo}_source//:BUILD.bazel')},${prefix == null ? '' : '\n        prefix = ${str(prefix!)},'}
     )
 """;
 }
@@ -160,7 +166,7 @@ void main() {
       // name of a sibling of the same extension.
       extension:
           """
-load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_framework_package", "flutter_pub_index")
+load("@rules_flutter//flutter/private:generated_repos.bzl", "flutter_framework_package", "flutter_pub_index", "flutter_source_packages")
 
 def _impl(_):
     flutter_pub_index(
