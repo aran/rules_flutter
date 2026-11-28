@@ -198,7 +198,7 @@ const _downloads = {
   'dart_source_packages',
   'flutter_archive_repo',
   'flutter_linux_runtime_repo',
-  'flutter_source_files',
+  'flutter_source_packages',
   'flutter_stock_engine_repo',
   'pub_archive_files',
 };

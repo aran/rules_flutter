@@ -42,7 +42,7 @@ load(":flutter_pub_library.bzl", _flutter_pub_library = "flutter_pub_library", _
 load(":flutter_pub_library_repo.bzl", _flutter_pub_library_repo = "flutter_pub_library_repo")
 load(":flutter_pub_package.bzl", _flutter_pub_package = "flutter_pub_package")
 load(":flutter_sky_engine_repo.bzl", _flutter_sky_engine_repo = "flutter_sky_engine_repo")
-load(":flutter_source_files.bzl", _flutter_source_files = "flutter_source_files")
+load(":flutter_source_files.bzl", _flutter_source_files = "flutter_source_files", _flutter_source_packages = "flutter_source_packages")
 load(":flutter_swift_packages_report.bzl", _flutter_swift_packages_report = "flutter_swift_packages_report")
 load(":flutter_test.bzl", _flutter_test = "flutter_test")
 load(":flutter_web_sdk_repo.bzl", _flutter_web_sdk_repo = "flutter_web_sdk_repo")
@@ -84,6 +84,7 @@ flutter_pub_member = _flutter_pub_member
 flutter_pub_package = _flutter_pub_package
 flutter_sky_engine_repo = _flutter_sky_engine_repo
 flutter_source_files = _flutter_source_files
+flutter_source_packages = _flutter_source_packages
 flutter_swift_package_product = _flutter_swift_package_product
 flutter_swift_packages_report = _flutter_swift_packages_report
 flutter_swiftpm_app_libraries = _flutter_swiftpm_app_libraries

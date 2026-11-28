@@ -244,20 +244,18 @@ void main() {
         ),
         add(
           '$fakeFlutterVersion.tar.gz',
-          ProbeRepo('sdk_package_blank', 'flutter_framework_package', {
-            'flutter_version': str(fakeFlutterVersion),
-            'sha256': str(''),
-          }),
+          flutterSourcePackages('sdk_packages_blank', sha256: ''),
         ),
-        ...addPackage(
-          '$fakeFlutterVersion.tar.gz',
-          sdkSourcePackage(
+        ...addPackage('$fakeFlutterVersion.tar.gz', [
+          flutterSourcePackages('sdk_source_blank_packages', sha256: ''),
+          ...sdkSourcePackage(
             'sdk_source_blank',
             package: 'integration_test',
+            source: 'sdk_source_blank_packages',
             sha256: '',
             packages: ['integration_test'],
           ),
-        ),
+        ]),
         // A hosted pub package is served from file://, so an unpinned fetch
         // of it does not fail at all.
         ...addPackage(
@@ -321,7 +319,7 @@ void main() {
       'sysroot_blank',
       'dev_root_blank',
       'gen_l10n_blank',
-      'sdk_package_blank',
+      'sdk_packages_blank',
       'sdk_source_blank',
       'pub_blank_explicit',
     ]) {

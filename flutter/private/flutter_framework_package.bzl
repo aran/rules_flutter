@@ -1,8 +1,9 @@
 """Spoke repository rule for the Flutter framework package (package:flutter).
 
-Downloads the Flutter SDK source from GitHub and generates a flutter_library
-target for the framework. Follows the same hub/spoke pattern as rules_dart's
-pub_lock_package, so it integrates seamlessly into the same hub repo.
+Links `packages/flutter` of the pinned Flutter source and generates a
+flutter_library target for the framework. Follows the same hub/spoke pattern
+as rules_dart's pub_lock_package, so it integrates seamlessly into the same hub
+repo.
 
 `package:flutter` is the one Flutter SDK package with a rule of its own. The
 others (`flutter_test`, `integration_test`, ...) are built from the same source
@@ -20,11 +21,10 @@ current SDK's.
 
 load("@rules_dart//dart/pub:pub_lock_package.bzl", "find_pub_license_file")
 load("@rules_dart//dart/pub:pubspec.bzl", "read_pubspec")
-load("//flutter/private:artifact_urls.bzl", "flutter_source_tarball_url")
 load("//flutter/private:flutter_pub_index.bzl", "library_label", "read_index")
-load("//flutter/private:framework_source.bzl", "dependency_constraint_message", "link_framework_package", "lock_floor_message", "locked_versions", "read_framework", "unusable_message", "write_failing_stub")
+load("//flutter/private:flutter_source_files.bzl", "flutter_source_load")
+load("//flutter/private:framework_source.bzl", "NEVER_LINKED", "dependency_constraint_message", "link_framework_package", "lock_floor_message", "locked_versions", "read_framework", "unusable_message", "write_failing_stub")
 load("//flutter/private:package_metadata_content.bzl", "METADATA_TARGET_NAME", "make_package_metadata_content", "package_metadata_loads")
-load("//flutter/private:pinned.bzl", "pinned")
 
 visibility("//flutter/...")
 
@@ -102,8 +102,10 @@ def _flutter_framework_package_impl(repository_ctx):
         if missing:
             write_failing_stub(repository_ctx, [_PACKAGE], missing)
             return
+        prelude = ""
     else:
-        _download_framework(repository_ctx, flutter_version)
+        _link_release_framework(repository_ctx)
+        prelude = flutter_source_load(repository_ctx.attr.source)
 
     # Discover deps and the language version from the pubspec.yaml, read as
     # pub reads it, and filter deps to packages available in the lock
@@ -134,42 +136,39 @@ def _flutter_framework_package_impl(repository_ctx):
     # Build dep labels pointing to the libraries of the packages' repos.
     dep_labels = [library_label(index, dep) for dep in bazel_deps]
 
-    repository_ctx.file("BUILD.bazel", make_flutter_framework_build_content(
+    repository_ctx.file("BUILD.bazel", prelude + make_flutter_framework_build_content(
         deps = dep_labels,
         language_version = language_version,
         license_file = find_pub_license_file(repository_ctx),
     ))
 
-def _download_framework(repository_ctx, flutter_version):
-    # Download Flutter SDK source, extracting only the framework package.
-    #
-    # This same tarball is requested once per SDK package in the lock (by
-    # flutter_pub_package), and again by flutter_gen_l10n_repo and
-    # flutter_dev_root_repo. Because every one of those fetches is pinned to
-    # the same checksum, Bazel's content-addressed repository cache serves
-    # them all from a single download; an unpinned fetch could not be
-    # deduplicated that way.
-    repository_ctx.download_and_extract(
-        url = flutter_source_tarball_url(flutter_version),
-        sha256 = pinned(flutter_version + ".tar.gz", repository_ctx.attr.sha256),
-        stripPrefix = "flutter-{version}/packages/{pkg}".format(
-            version = flutter_version,
-            pkg = _PACKAGE,
-        ),
-    )
+def _link_release_framework(repository_ctx):
+    if not repository_ctx.attr.source:
+        fail((
+            "flutter_framework_package `{}` has neither `framework_json` nor `source`: " +
+            "its SDK names neither a framework source nor a Flutter release."
+        ).format(repository_ctx.original_name))
+
+    # The release's `packages/` is extracted once, by its
+    # `flutter_source_packages`, for this and every other SDK package of it to
+    # link from: the tarball holds the whole monorepo, so each extraction of
+    # it reads all of it. Unwatched, as that repository changes only with its
+    # attributes, and `rctx.path(source)` already makes this one depend on it.
+    package_dir = repository_ctx.path(repository_ctx.attr.source).dirname.get_child(_PACKAGE)
+    for child in package_dir.readdir(watch = "no"):
+        if child.basename not in NEVER_LINKED:
+            repository_ctx.symlink(child, child.basename)
 
 flutter_framework_package = repository_rule(
     implementation = _flutter_framework_package_impl,
-    doc = "Downloads package:flutter from the pinned Flutter source and generates its flutter_library target.",
+    doc = "Links package:flutter from the pinned Flutter source and generates its flutter_library target.",
     attrs = {
         "flutter_version": attr.string(
             doc = "Flutter SDK version tag on GitHub. Unused with `framework_json`.",
         ),
-        "sha256": attr.string(
-            doc = "Expected SHA-256 of the Flutter SDK source tarball. " +
-                  "Guaranteed non-empty by the caller: extensions.bzl reads " +
-                  "it through `flutter_source_sha256()`, which refuses a " +
-                  "version with no recorded checksum.",
+        "source": attr.label(
+            doc = "The `BUILD.bazel` of the release's `flutter_source_packages`. Unused with `framework_json`.",
+            allow_single_file = True,
         ),
         "framework_json": attr.label(
             doc = "The `flutter_framework.json` of a framework source, in place of the release tarball.",

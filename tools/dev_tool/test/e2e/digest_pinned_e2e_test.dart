@@ -159,9 +159,14 @@ void main() {
           }),
         }),
         ...pub('pub_ok', pubDigest),
+        flutterSourcePackages(
+          'flutter_source_ok',
+          sha256: sha256Hex(flutterSource),
+        ),
         ...sdkSourcePackage(
           'sdk_source_ok',
           package: 'integration_test',
+          source: 'flutter_source_ok',
           sha256: sha256Hex(flutterSource),
           packages: ['integration_test'],
         ),
