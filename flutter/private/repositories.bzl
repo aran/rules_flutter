@@ -119,7 +119,7 @@ def _desktop_engine_repo_name(name, target_platform, mode):
     """The repo holding the desktop engine of one build mode for a target platform."""
     return "{}_desktop_engine_{}_{}".format(name, target_platform, mode)
 
-def flutter_register_toolchains(name, flutter_version, host, framework_json = "", framework_json_file = None, material_fonts = ""):
+def flutter_register_toolchains(name, flutter_version, framework_json = "", framework_json_file = None, material_fonts = ""):
     """Declares the repositories of the stock release SDK.
 
     Creates a repository for each host platform, cross-compilation repos, the
@@ -130,8 +130,6 @@ def flutter_register_toolchains(name, flutter_version, host, framework_json = ""
     Args:
         name: base name for all created repos, like "flutter"
         flutter_version: the Flutter release the engine is.
-        host: the engine's name for the machine Bazel runs on, from
-            `host_platform`, whose Dart SDK the web SDK repository holds.
         framework_json: the label of the SDK's `flutter_framework.json`, when
             its framework is not the release's.
         framework_json_file: the same file, for the toolchains to read what the framework is.
@@ -243,7 +241,6 @@ def flutter_register_toolchains(name, flutter_version, host, framework_json = ""
     flutter_web_sdk_repo(
         name = name + "_stock_web_sdk",
         engine_revision = meta.engine_revision,
-        host = host,
         sha256 = checksums.get("flutter-web-sdk.zip", ""),
         dart_sdk_sha256s = {h: checksums.get(dart_sdk_artifact_path(h), "") for h in HOST_PLATFORMS},
     )

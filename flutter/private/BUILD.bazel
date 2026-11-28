@@ -307,6 +307,10 @@ bzl_library(
     name = "toolchains_repo",
     srcs = ["toolchains_repo.bzl"],
     visibility = ["//flutter:__subpackages__"],
+    deps = [
+        ":engine_out_dirs",
+        ":flutter_web_sdk_repo",
+    ],
 )
 
 bzl_library(

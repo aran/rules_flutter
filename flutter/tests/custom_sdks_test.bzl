@@ -2,7 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:custom_sdks.bzl", "CUSTOM_SDK_TAGS", "checkout_repo_names", "custom_sdks")
-load("//flutter/private:toolchains_repo.bzl", "toolchains_build_content")
+load("//flutter/private:toolchains_repo.bzl", "machine_hosts", "toolchains_build_content")
 
 def _module(name, is_root, use_sdk = [], **tags):
     """A module whose tags are, for each kind given, the names it declares, and the names `use_sdk` gives."""
@@ -186,7 +186,33 @@ def _a_checkout_runs_on_the_machine_alone_test_impl(ctx):
     asserts.false(env, "HOST_CONSTRAINTS" in build, build)
     return unittest.end(env)
 
+def _host_is_the_machine_that_fetches_test_impl(ctx):
+    """`host` in an SDK's hosts is read when the toolchains repository is fetched, not by the extension."""
+    env = unittest.begin(ctx)
+    hosts = {"local": ["host"], "remote": ["linux-x64", "host"]}
+
+    arm = machine_hosts(hosts, struct(name = "linux", arch = "aarch64"))
+    asserts.equals(env, {"local": ["linux-arm64"], "remote": ["linux-arm64", "linux-x64"]}, arm.hosts)
+    asserts.equals(env, {}, arm.unknown_machine)
+
+    mac = machine_hosts(hosts, struct(name = "mac os x", arch = "aarch64"))
+    asserts.equals(env, {"local": ["darwin-arm64"], "remote": ["darwin-arm64", "linux-x64"]}, mac.hosts)
+
+    # A machine no engine is built for serves no `host`, and the SDKs that
+    # serve it say why.
+    unknown = machine_hosts(hosts, struct(name = "freebsd", arch = "amd64"))
+    asserts.equals(env, {"local": [], "remote": ["linux-x64"]}, unknown.hosts)
+    asserts.equals(env, ["local", "remote"], sorted(unknown.unknown_machine.keys()))
+    asserts.true(env, "freebsd on amd64" in unknown.unknown_machine["local"], unknown.unknown_machine["local"])
+
+    # An SDK that names hosts alone does not depend on the machine.
+    fixed = machine_hosts({"local": ["darwin-arm64"]}, struct(name = "freebsd", arch = "amd64"))
+    asserts.equals(env, {"local": ["darwin-arm64"]}, fixed.hosts)
+    asserts.equals(env, {}, fixed.unknown_machine)
+    return unittest.end(env)
+
 _a_checkout_runs_on_the_machine_alone_test = unittest.make(_a_checkout_runs_on_the_machine_alone_test_impl)
+_host_is_the_machine_that_fetches_test = unittest.make(_host_is_the_machine_that_fetches_test_impl)
 _without_use_sdk_the_release_test = unittest.make(_without_use_sdk_the_release_test_impl)
 _use_sdk_chooses_a_declared_sdk_test = unittest.make(_use_sdk_chooses_a_declared_sdk_test_impl)
 _use_sdk_of_an_undeclared_name_test = unittest.make(_use_sdk_of_an_undeclared_name_test_impl)
@@ -205,6 +231,7 @@ def custom_sdks_test_suite(name):
     unittest.suite(
         name,
         _a_checkout_runs_on_the_machine_alone_test,
+        _host_is_the_machine_that_fetches_test,
         _root_declares_each_form_test,
         _dependency_may_not_declare_test,
         _default_name_is_the_release_test,
