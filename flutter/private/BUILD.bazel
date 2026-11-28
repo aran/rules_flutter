@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_setting", "string_list_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "string_list_flag")
 load("@rules_java//java:java_library.bzl", "java_library")
 load("//flutter:engine.bzl", "flutter_missing_slice")
 load("//tools/bzl_deps_guard:inputs.bzl", "bzl_library_inputs")
@@ -20,23 +20,15 @@ flutter_missing_slice(
     visibility = ["//visibility:public"],
 )
 
-# A setting no command line can set, for the two below: what the generated
-# registry (toolchains_repo.bzl) selects between to turn a toolchain's
-# `target_settings` on or off.
-bool_setting(
-    name = "never_set",
-    build_setting_default = False,
-)
-
-config_setting(
+alias(
     name = "always",
-    flag_values = {":never_set": "False"},
+    actual = "//flutter/toolchains:always",
     visibility = ["//visibility:public"],
 )
 
-config_setting(
+alias(
     name = "never",
-    flag_values = {":never_set": "True"},
+    actual = "//flutter/toolchains:never",
     visibility = ["//visibility:public"],
 )
 

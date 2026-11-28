@@ -56,7 +56,7 @@ def _undeclared_impl(ctx):
     return analysistest.end(env)
 
 # What the flag naming no declared SDK fails with: the message of the toolchain
-# it then resolves, `@flutter_toolchains//:undeclared_sdk`, which is the target
+# it then resolves, `@flutter_toolchains//missing:undeclared_sdk`, which is the target
 # under test. (A failing toolchain fails the analysis test's own build when it
 # is reached through a dependent, so the test analyses it directly.)
 flutter_sdk_flag_undeclared_test = analysistest.make(

@@ -19,7 +19,7 @@ def _registered_impl(ctx):
     toolchain = content[at:content.find(")", at)]
     asserts.true(env, '"@platforms//os:ios", "@platforms//cpu:x86_64"' in toolchain, toolchain)
     asserts.true(env, 'toolchain = "@rules_flutter//flutter/private:ios_x86_64_unsupported"' in toolchain, toolchain)
-    asserts.true(env, 'toolchain_type = "@rules_flutter//flutter:toolchain_type"' in toolchain, toolchain)
+    asserts.true(env, 'toolchain_type = "@rules_flutter//flutter/toolchains:toolchain_type"' in toolchain, toolchain)
     return unittest.end(env)
 
 _registered_test = unittest.make(_registered_impl)
