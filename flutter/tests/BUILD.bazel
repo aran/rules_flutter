@@ -230,7 +230,7 @@ flutter_sdk_flag_release_test(
 flutter_sdk_flag_undeclared_test(
     name = "sdk_flag_undeclared_test",
     declared = "flutter",
-    target_under_test = "@flutter_toolchains//:undeclared_sdk",
+    target_under_test = "@flutter_toolchains//missing:undeclared_sdk",
 )
 
 flutter_pub_package_test_suite(name = "flutter_pub_package_test")

@@ -2,7 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//flutter/private:custom_sdks.bzl", "CUSTOM_SDK_TAGS", "checkout_repo_names", "custom_sdks")
-load("//flutter/private:toolchains_repo.bzl", "toolchains_build_content")
+load("//flutter/private:toolchains_repo.bzl", "missing_build_content", "toolchains_build_content")
 
 def _module(name, is_root, use_sdk = [], **tags):
     """A module whose tags are, for each kind given, the names it declares, and the names `use_sdk` gives."""
@@ -118,25 +118,27 @@ def _settings_follow_the_choice_test_impl(ctx):
     build = toolchains_build_content(["flutter", "local", "other"], "local")
 
     # Unset, the flag means the root module's choice, and only that SDK.
-    asserts.true(env, '"@rules_flutter//flutter:sdk": ""' in build, build)
+    asserts.true(env, '"@rules_flutter//flutter/toolchains:sdk": ""' in build, build)
     chosen = _setting(build, "local")
-    asserts.true(env, '"@rules_flutter//flutter:sdk": "local"' in chosen, chosen)
+    asserts.true(env, '"@rules_flutter//flutter/toolchains:sdk": "local"' in chosen, chosen)
     asserts.true(env, "selects.config_setting_group(" in chosen, chosen)
     asserts.true(env, '":flag_unset"' in chosen, chosen)
     for sdk in ["flutter", "other"]:
         setting = _setting(build, sdk)
-        asserts.true(env, '"@rules_flutter//flutter:sdk": "{}"'.format(sdk) in setting, setting)
+        asserts.true(env, '"@rules_flutter//flutter/toolchains:sdk": "{}"'.format(sdk) in setting, setting)
         asserts.false(env, "flag_unset" in setting, setting)
 
     # A name no tag declares resolves the toolchain that fails listing those
     # that are; unset or naming one, it resolves no such toolchain.
-    undeclared = build[build.index('name = "uses_undeclared_sdk"'):build.index('name = "undeclared_sdk"')]
+    undeclared = build[build.index('name = "uses_undeclared_sdk"'):build.index('name = "undeclared_sdk_toolchain_type"')]
     for setting in ["flag_unset", "flag_is_flutter", "flag_is_local", "flag_is_other"]:
-        asserts.true(env, '":{}": "@rules_flutter//flutter/private:never"'.format(setting) in undeclared, undeclared)
-    asserts.true(env, '"//conditions:default": "@rules_flutter//flutter/private:always"' in undeclared, undeclared)
-    asserts.true(env, "The declared SDKs are: flutter, local, other." in build, build)
+        asserts.true(env, '":{}": "@rules_flutter//flutter/toolchains:never"'.format(setting) in undeclared, undeclared)
+    asserts.true(env, '"//conditions:default": "@rules_flutter//flutter/toolchains:always"' in undeclared, undeclared)
+    missing = missing_build_content(["flutter", "local", "other"])
+    asserts.true(env, "The declared SDKs are: flutter, local, other." in missing, missing)
     for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
         asserts.true(env, 'name = "undeclared_sdk_{}"'.format(toolchain_type) in build, build)
+    asserts.true(env, 'toolchain = "//missing:undeclared_sdk"' in build, build)
 
     # The release's toolchains keep their names whichever SDK is chosen.
     asserts.true(env, 'name = "darwin-arm64_toolchain"' in build, build)
@@ -181,9 +183,20 @@ def _a_checkout_runs_on_the_machine_alone_test_impl(ctx):
     for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
         asserts.true(env, 'name = "local__unknown_machine_{}"'.format(toolchain_type) in nowhere, nowhere)
     asserts.true(env, "exec_compatible_with = HOST_CONSTRAINTS" in nowhere, nowhere)
-    asserts.true(env, 'message = "not this machine"' in nowhere, nowhere)
+    asserts.true(env, 'toolchain = "//missing:local_unknown_machine"' in nowhere, nowhere)
+    missing = missing_build_content(["flutter", "local"], {"local": "not this machine"})
+    asserts.true(env, 'name = "local_unknown_machine"' in missing, missing)
+    asserts.true(env, 'message = "not this machine"' in missing, missing)
+    asserts.false(env, "flutter_unknown_machine" in missing, missing)
     asserts.false(env, "unknown_machine" in build, build)
     asserts.false(env, "HOST_CONSTRAINTS" in build, build)
+
+    for registry in [build, nowhere]:
+        loads = [line for line in registry.splitlines() if line.startswith("load(")]
+        asserts.true(env, len(loads) > 0, registry)
+        for line in loads:
+            asserts.true(env, line.startswith(('load("@bazel_skylib//', 'load("@platforms//')), line)
+        asserts.false(env, 'toolchain_type = "@rules_flutter//flutter:' in registry, registry)
     return unittest.end(env)
 
 _a_checkout_runs_on_the_machine_alone_test = unittest.make(_a_checkout_runs_on_the_machine_alone_test_impl)

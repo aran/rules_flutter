@@ -126,7 +126,7 @@ DESKTOP_ENGINE_PLATFORMS = ["darwin-x64", "linux-x64", "linux-arm64", "windows-x
 # `--@rules_flutter//flutter:sdk` chooses another.
 DEFAULT_SDK = "flutter"
 
-_SDK_FLAG = "@rules_flutter//flutter:sdk"
+_SDK_FLAG = "@rules_flutter//flutter/toolchains:sdk"
 
 def sdk_repo_name(sdk):
     """The repository holding the toolchain implementations of an SDK."""
@@ -196,58 +196,38 @@ def _undeclared_sdk(sdks):
 alias(
     name = "uses_undeclared_sdk",
     actual = select({{
-        ":flag_unset": "@rules_flutter//flutter/private:never",
-{declared}        "//conditions:default": "@rules_flutter//flutter/private:always",
+        ":flag_unset": "@rules_flutter//flutter/toolchains:never",
+{declared}        "//conditions:default": "@rules_flutter//flutter/toolchains:always",
     }}),
-)
-
-flutter_missing_slice(
-    name = "undeclared_sdk",
-    message = {message},
-    # Analysed only through toolchain resolution: built on its own, it fails.
-    tags = ["manual"],
-    visibility = ["//visibility:public"],
 )
 """.format(
         declared = "".join([
-            '        ":flag_is_{}": "@rules_flutter//flutter/private:never",\n'.format(sdk)
+            '        ":flag_is_{}": "@rules_flutter//flutter/toolchains:never",\n'.format(sdk)
             for sdk in sdks
         ]),
-        message = json.encode(
-            "--@rules_flutter//flutter:sdk names no Flutter SDK the root module declares. " +
-            "The declared SDKs are: {}.".format(", ".join(sorted(sdks))),
-        ),
     )
     for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
         content += """
 toolchain(
     name = "undeclared_sdk_{toolchain_type}",
     target_settings = [":uses_undeclared_sdk"],
-    toolchain = ":undeclared_sdk",
-    toolchain_type = "@rules_flutter//flutter:{toolchain_type}",
+    toolchain = "//missing:undeclared_sdk",
+    toolchain_type = "@rules_flutter//flutter/toolchains:{toolchain_type}",
 )
 """.format(toolchain_type = toolchain_type)
     return content
 
-def _unknown_machine_toolchains(sdk, message):
+def _unknown_machine_toolchains(sdk):
     """Toolchains of an SDK that serves the machine Bazel runs on, where its engine is not built: they fail, saying why, not "no matching toolchains"."""
-    content = """
-flutter_missing_slice(
-    name = "{sdk}_unknown_machine",
-    message = {message},
-    # Analysed only through toolchain resolution: built on its own, it fails.
-    tags = ["manual"],
-    visibility = ["//visibility:public"],
-)
-""".format(sdk = sdk, message = json.encode(message))
+    content = ""
     for toolchain_type in ["toolchain_type", "exec_tools_toolchain_type"]:
         content += """
 toolchain(
     name = "{name}",
     exec_compatible_with = HOST_CONSTRAINTS,
     target_settings = [":{setting}"],
-    toolchain = ":{sdk}_unknown_machine",
-    toolchain_type = "@rules_flutter//flutter:{toolchain_type}",
+    toolchain = "//missing:{sdk}_unknown_machine",
+    toolchain_type = "@rules_flutter//flutter/toolchains:{toolchain_type}",
 )
 """.format(
             name = toolchain_name(sdk, "unknown_machine_" + toolchain_type),
@@ -289,8 +269,7 @@ def toolchains_build_content(sdks, default_sdk, hosts = {}, unknown_machine = {}
 # or without the flag the one the root module chooses, "{default_sdk}".
 
 load("@bazel_skylib//lib:selects.bzl", "selects")
-{host_load}load("@rules_flutter//flutter:engine.bzl", "flutter_missing_slice")
-
+{host_load}
 config_setting(
     name = "flag_unset",
     flag_values = {{"{flag}": ""}},
@@ -303,7 +282,7 @@ config_setting(
     for sdk in sdks:
         content += _sdk_settings(sdk, default_sdk)
         if sdk in unknown_machine:
-            content += _unknown_machine_toolchains(sdk, unknown_machine[sdk])
+            content += _unknown_machine_toolchains(sdk)
 
         def serves(host):
             return sdk not in hosts or host in hosts[sdk]
@@ -315,7 +294,7 @@ config_setting(
             content += _toolchain(
                 sdk,
                 platform + "_toolchain",
-                "@rules_flutter//flutter:toolchain_type",
+                "@rules_flutter//flutter/toolchains:toolchain_type",
                 meta.compatible_with,
                 meta.compatible_with,
             )
@@ -328,7 +307,7 @@ config_setting(
             content += _toolchain(
                 sdk,
                 platform + "_exec_tools_toolchain",
-                "@rules_flutter//flutter:exec_tools_toolchain_type",
+                "@rules_flutter//flutter/toolchains:exec_tools_toolchain_type",
                 meta.compatible_with,
             )
 
@@ -343,7 +322,7 @@ toolchain(
     target_compatible_with = {compatible_with},
     target_settings = [":{setting}"],
     toolchain = "@bazel_tools//tools/test:empty_toolchain",
-    toolchain_type = "@rules_flutter//flutter:run_host_toolchain_type",
+    toolchain_type = "@rules_flutter//flutter/toolchains:run_host_toolchain_type",
     visibility = ["//visibility:public"],
 )
 """.format(
@@ -358,7 +337,7 @@ toolchain(
                 content += _toolchain(
                     sdk,
                     "{}_to_{}_toolchain".format(host_platform, target_platform),
-                    "@rules_flutter//flutter:toolchain_type",
+                    "@rules_flutter//flutter/toolchains:toolchain_type",
                     HOST_PLATFORMS[host_platform].compatible_with,
                     TARGET_PLATFORMS[target_platform].compatible_with,
                 )
@@ -369,7 +348,7 @@ toolchain(
                 content += _toolchain(
                     sdk,
                     "{}_to_{}_desktop_toolchain".format(host_platform, target_platform),
-                    "@rules_flutter//flutter:toolchain_type",
+                    "@rules_flutter//flutter/toolchains:toolchain_type",
                     HOST_PLATFORMS[host_platform].compatible_with,
                     HOST_PLATFORMS[target_platform].compatible_with,
                 )
@@ -384,10 +363,50 @@ toolchain(
     name = "ios_x86_64_unsupported_toolchain",
     target_compatible_with = {compatible_with},
     toolchain = "@rules_flutter//flutter/private:ios_x86_64_unsupported",
-    toolchain_type = "@rules_flutter//flutter:toolchain_type",
+    toolchain_type = "@rules_flutter//flutter/toolchains:toolchain_type",
     visibility = ["//visibility:public"],
 )
 """.format(compatible_with = ["@platforms//os:ios", "@platforms//cpu:x86_64"])
+    return content
+
+def missing_build_content(sdks, unknown_machine = {}):
+    """The BUILD file of the registry's `missing` package.
+
+    Args:
+        sdks: The names of the declared SDKs.
+        unknown_machine: As `toolchains_build_content` takes it.
+
+    Returns:
+        The BUILD.bazel text.
+    """
+    content = """# Generated by toolchains_repo.bzl
+
+load("@rules_flutter//flutter:engine.bzl", "flutter_missing_slice")
+
+flutter_missing_slice(
+    name = "undeclared_sdk",
+    message = {message},
+    # Analysed only through toolchain resolution: built on its own, it fails.
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+""".format(
+        message = json.encode(
+            "--@rules_flutter//flutter:sdk names no Flutter SDK the root module declares. " +
+            "The declared SDKs are: {}.".format(", ".join(sorted(sdks))),
+        ),
+    )
+    for sdk in sdks:
+        if sdk in unknown_machine:
+            content += """
+flutter_missing_slice(
+    name = "{sdk}_unknown_machine",
+    message = {message},
+    # Analysed only through toolchain resolution: built on its own, it fails.
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+""".format(sdk = sdk, message = json.encode(unknown_machine[sdk]))
     return content
 
 def _flutter_toolchains_repo_impl(repository_ctx):
@@ -395,6 +414,10 @@ def _flutter_toolchains_repo_impl(repository_ctx):
         repository_ctx.attr.sdks,
         repository_ctx.attr.default_sdk,
         repository_ctx.attr.hosts,
+        repository_ctx.attr.unknown_machine,
+    ))
+    repository_ctx.file("missing/BUILD.bazel", missing_build_content(
+        repository_ctx.attr.sdks,
         repository_ctx.attr.unknown_machine,
     ))
 

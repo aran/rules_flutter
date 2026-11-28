@@ -1,0 +1,42 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+genquery(
+    name = "toolchains_buildfiles",
+    expression = " ".join([
+        "let toolchains = set(",
+        "//flutter/toolchains:toolchain_type",
+        "//flutter/toolchains:exec_tools_toolchain_type",
+        "//flutter/toolchains:run_host_toolchain_type",
+        "//flutter/toolchains:sdk",
+        "//flutter/toolchains:always",
+        "//flutter/toolchains:never",
+        ") in buildfiles($toolchains) except filter('bazel_skylib', buildfiles($toolchains))",
+    ]),
+    opts = ["--output=label"],
+    scope = [
+        "//flutter/toolchains:always",
+        "//flutter/toolchains:exec_tools_toolchain_type",
+        "//flutter/toolchains:never",
+        "//flutter/toolchains:run_host_toolchain_type",
+        "//flutter/toolchains:sdk",
+        "//flutter/toolchains:toolchain_type",
+    ],
+)
+
+write_file(
+    name = "expected_toolchains_buildfiles",
+    out = "expected_toolchains_buildfiles.txt",
+    content = [
+        "//flutter/toolchains:BUILD.bazel",
+        "//tools/bzl_deps_guard:inputs.bzl",
+        "",
+    ],
+    newline = "unix",
+)
+
+diff_test(
+    name = "toolchains_load_free_test",
+    file1 = ":toolchains_buildfiles",
+    file2 = ":expected_toolchains_buildfiles",
+)
